@@ -146,9 +146,19 @@ def _thinking_tags_profile(
     from code_puppy.model_utils import get_thinking_tags
 
     tags = get_thinking_tags(model_name, model_config)
-    if tags is None:
-        return None
-    return OpenAIModelProfile(thinking_tags=tags)
+    profile_kwargs: dict[str, Any] = {}
+    if tags is not None:
+        profile_kwargs["thinking_tags"] = tags
+
+    underlying_name = str(model_config.get("name", model_name)).lower()
+    if "gpt-5.6" in underlying_name:
+        profile_kwargs.update(
+            openai_responses_supports_reasoning_mode=True,
+            openai_responses_supports_reasoning_context=True,
+            openai_supports_encrypted_reasoning_content=True,
+        )
+
+    return OpenAIModelProfile(**profile_kwargs) if profile_kwargs else None
 
 
 def _strict_openai_profile(
@@ -343,7 +353,11 @@ def make_model_settings(
         # Plain OpenAIChatModelSettings without reasoning params.
         model_settings = OpenAIChatModelSettings(**model_settings_dict)
 
-    elif "gpt-5" in model_name:
+    elif "gpt-5" in model_name or "gpt-5" in str(model_config.get("name", "")).lower():
+        # Match on the underlying model name as well as the config key:
+        # custom endpoint entries are often keyed by an alias (e.g.
+        # "luna-responses" -> name "gpt-5.6-luna") and would otherwise
+        # silently skip all reasoning configuration.
         # Normalize legacy effort values (minimal->none, ultra->max)
         _EFFORT_ALIAS = {"minimal": "none", "ultra": "max"}
         effort = effective_settings.get("reasoning_effort", "medium")
@@ -353,7 +367,13 @@ def make_model_settings(
         uses_responses_api = (
             model_type == "chatgpt_oauth"
             or model_type == "azure_foundry_openai"
-            or (model_type == "openai" and "codex" in model_name)
+            or (
+                model_type == "openai"
+                and (
+                    "codex" in model_name
+                    or "gpt-5.6" in str(model_config.get("name", "")).lower()
+                )
+            )
             or (
                 model_type in _CUSTOM_OPENAI_MODEL_TYPES
                 and _custom_openai_uses_responses_api(model_name, model_config)
@@ -369,28 +389,12 @@ def make_model_settings(
                     "verbosity", "medium"
                 )
 
-            underlying_name = str(model_config.get("name", "")).lower()
-            is_gpt_5_6 = "gpt-5.6" in model_name.lower() or "gpt-5.6" in underlying_name
-            if is_gpt_5_6:
-                # pydantic-ai 2.31.0 HAS openai_reasoning_mode/context settings,
-                # but they're gated on profile flags
-                # (openai_responses_supports_reasoning_{mode,context}) that
-                # custom-endpoint GPT-5.6 routes don't reliably carry — the
-                # fields would be silently dropped. extra_body delivers the
-                # full reasoning object unconditionally, so keep it (and pop
-                # effort/summary so pydantic-ai's partial doesn't clobber it).
-                reasoning = {
-                    "effort": model_settings_dict.pop("openai_reasoning_effort"),
-                    "summary": model_settings_dict.pop("openai_reasoning_summary"),
-                    "context": effective_settings.get("reasoning_context", "all_turns"),
-                    "mode": effective_settings.get("reasoning_mode", "standard"),
-                }
-                extra_body = dict(model_settings_dict.get("extra_body") or {})
-                extra_body["reasoning"] = reasoning
-                model_settings_dict["extra_body"] = extra_body
-                model_settings_dict.pop("reasoning_context", None)
-                model_settings_dict.pop("reasoning_mode", None)
-
+            model_settings_dict["openai_reasoning_context"] = effective_settings.get(
+                "reasoning_context", "all_turns"
+            )
+            model_settings_dict["openai_reasoning_mode"] = effective_settings.get(
+                "reasoning_mode", "standard"
+            )
             model_settings = OpenAIResponsesModelSettings(**model_settings_dict)
         else:
             # Chat Completions models don't support configurable reasoning summaries.
@@ -750,9 +754,14 @@ class ModelFactory:
                 provider=provider,
                 profile=_thinking_tags_profile(model_name, model_config),
             )
-            if "codex" in model_name:
+            if (
+                "codex" in model_name
+                or "gpt-5.6" in str(model_config.get("name", "")).lower()
+            ):
                 model = OpenAIResponsesModel(
-                    model_name=model_config["name"], provider=provider
+                    model_name=model_config["name"],
+                    provider=provider,
+                    profile=_thinking_tags_profile(model_name, model_config),
                 )
             return model
 

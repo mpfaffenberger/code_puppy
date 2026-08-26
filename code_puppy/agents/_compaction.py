@@ -263,7 +263,7 @@ async def compact(
 def _strip_empty_thinking_parts(
     messages: List[ModelMessage],
 ) -> Tuple[List[ModelMessage], int]:
-    """Remove empty ThinkingParts; drop messages rendered empty by removal."""
+    """Remove empty ThinkingParts without discarding replay signatures."""
     cleaned: List[ModelMessage] = []
     filtered_count = 0
     for msg in messages:
@@ -272,16 +272,22 @@ def _strip_empty_thinking_parts(
             len(parts) == 1
             and isinstance(parts[0], ThinkingPart)
             and not parts[0].content
+            and not parts[0].signature
         ):
             filtered_count += 1
             continue
-        if any(isinstance(p, ThinkingPart) and not p.content for p in parts):
+        if any(
+            isinstance(p, ThinkingPart) and not p.content and not p.signature
+            for p in parts
+        ):
             msg = dataclasses.replace(
                 msg,
                 parts=[
                     p
                     for p in parts
-                    if not (isinstance(p, ThinkingPart) and not p.content)
+                    if not (
+                        isinstance(p, ThinkingPart) and not p.content and not p.signature
+                    )
                 ],
             )
             if not msg.parts:
@@ -300,7 +306,7 @@ def make_history_processor(agent: Any) -> Callable[..., Any]:
          (preserving the last-message regardless of compacted-hash collisions).
       3. Runs ``compact(...)`` if we're over threshold (or ``/compact`` forced).
       4. Records dropped-message hashes in ``agent._compacted_message_hashes``.
-      5. Strips empty ThinkingParts.
+      5. Strips empty ThinkingParts that carry no replay signature.
       6. Trims trailing ModelResponse messages so history ends with a ModelRequest.
       7. Fires ``on_message_history_processor_end``.
 
