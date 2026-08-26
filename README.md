@@ -319,6 +319,55 @@ Then just use /model and tab to select your round-robin model!
 
 The `rotate_every` parameter controls how many requests are made to each model before rotating to the next one. In this example, the round-robin model will use each Qwen model for 5 consecutive requests before moving to the next model in the sequence.
 
+## Fallback Chain (Auto-Downgrade on Quota/Context Exhaustion)
+
+Round-robin distributes load across *equivalent* models. A **fallback chain** is different: it's an ordered preference list (e.g. a large/expensive model, then a medium one, then a free/unmetered one), and Code Puppy only moves down the list when the current model's *budget* is actually used up -- a provider quota fully exhausted, or the conversation grown too large for that model's context window. Ordinary transient errors (a 429 rate-limit, a 5xx blip) are already retried against the *same* model with backoff, so they don't trigger a downgrade.
+
+The switch is **one-directional and sticky**: once a model is marked exhausted, Code Puppy never tries it again for the rest of the process -- it just keeps working from wherever it landed. Restart Code Puppy (or reselect a model with `/model`) to reset back to the top of the chain.
+
+### Configuration
+
+```json
+{
+  "gpt-huge": {
+    "type": "openai",
+    "name": "gpt-5-large",
+    "api_key": "$OPENAI_API_KEY",
+    "context_length": 400000
+  },
+  "gpt-medium": {
+    "type": "openai",
+    "name": "gpt-5-medium",
+    "api_key": "$OPENAI_API_KEY",
+    "context_length": 200000
+  },
+  "gpt-free-tier": {
+    "type": "openai",
+    "name": "gpt-5-nano",
+    "api_key": "$OPENAI_API_KEY",
+    "context_length": 128000
+  },
+  "my_downgrade_chain": {
+    "type": "fallback_chain",
+    "models": ["gpt-huge", "gpt-medium", "gpt-free-tier"]
+  }
+}
+```
+
+Select `my_downgrade_chain` with `/model` and Code Puppy will use `gpt-huge` until its quota/context is exhausted, then `gpt-medium`, then `gpt-free-tier` -- surfacing a warning each time it switches so you know why quality/latency just changed.
+
+`models` requires at least 2 entries (a chain of one is just... that model). Detection covers common provider signatures out of the box: OpenAI-style `insufficient_quota`/`context_length_exceeded` codes, generic "quota exceeded"/"maximum context length"/"prompt is too long" phrasing, and structured error bodies (not just the top-level message). If your provider or internal gateway uses different wording, add it explicitly:
+
+```json
+{
+  "my_downgrade_chain": {
+    "type": "fallback_chain",
+    "models": ["gpt-huge", "gpt-medium", "gpt-free-tier"],
+    "budget_exhausted_patterns": ["large-tier budget depleted"]
+  }
+}
+```
+
 ## Custom OpenAI API Types
 
 Use `custom_openai` for OpenAI-compatible Chat Completions endpoints. If an endpoint requires the OpenAI Responses API, use `custom_openai_responses` instead:

@@ -25,6 +25,7 @@ from code_puppy.messaging import emit_warning
 from . import callbacks
 from .claude_cache_client import ClaudeCacheAsyncClient
 from .config import EXTRA_MODELS_FILE, get_value, get_yolo_mode
+from .fallback_chain_model import FallbackChainModel
 from .http_utils import create_async_client, get_cert_bundle_path, get_http2
 from .provider_identity import (
     make_anthropic_provider,
@@ -1090,6 +1091,38 @@ class ModelFactory:
 
             # Create and return the round-robin model
             return RoundRobinModel(*models, rotate_every=rotate_every)
+
+        elif model_type == "fallback_chain":
+            # Ordered preference list, e.g. ["gpt-5-large", "gpt-5-medium",
+            # "free-model"]. Unlike round_robin (load distribution across
+            # equivalent models), this permanently degrades to the next
+            # model once the current one's budget (quota or context window)
+            # is exhausted, and stays there for the life of the process.
+            model_names = model_config.get("models")
+            if not model_names or not isinstance(model_names, list):
+                raise ValueError(
+                    f"Fallback-chain model '{model_name}' requires a 'models' list in its configuration."
+                )
+            if len(model_names) < 2:
+                raise ValueError(
+                    f"Fallback-chain model '{model_name}' needs at least 2 models to "
+                    "fall back between (got 1). Use the model directly instead."
+                )
+
+            # Extra provider/gateway-specific substrings that count as
+            # "budget exhausted" on top of the built-in defaults.
+            budget_exhausted_patterns = model_config.get(
+                "budget_exhausted_patterns", []
+            )
+
+            models = []
+            for name in model_names:
+                model = ModelFactory.get_model(name, config)
+                models.append(model)
+
+            return FallbackChainModel(
+                *models, budget_exhausted_patterns=budget_exhausted_patterns
+            )
 
         else:
             # Check for plugin-registered model type handlers
