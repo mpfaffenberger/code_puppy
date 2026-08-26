@@ -286,7 +286,9 @@ def _strip_empty_thinking_parts(
                     p
                     for p in parts
                     if not (
-                        isinstance(p, ThinkingPart) and not p.content and not p.signature
+                        isinstance(p, ThinkingPart)
+                        and not p.content
+                        and not p.signature
                     )
                 ],
             )
