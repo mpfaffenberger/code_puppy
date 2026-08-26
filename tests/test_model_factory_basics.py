@@ -12,6 +12,45 @@ class TestModelFactoryBasics:
 
     @patch("code_puppy.model_factory.pathlib.Path.exists", return_value=False)
     @patch("code_puppy.model_factory.callbacks.get_callbacks", return_value=[])
+    def test_load_config_adds_default_fallback_chain_alias(
+        self, mock_callbacks, mock_exists
+    ):
+        config_without_alias = {
+            "claude-4-8-opus-long": {
+                "type": "anthropic",
+                "name": "claude-opus-long",
+                "context_length": 1_000_000,
+            },
+            "claude-5-sonnet": {
+                "type": "anthropic",
+                "name": "claude-sonnet",
+                "context_length": 200_000,
+            },
+            "gpt-5.6-luna": {
+                "type": "openai",
+                "name": "luna",
+                "context_length": 128_000,
+            },
+        }
+
+        with patch(
+            "builtins.open",
+            mock_open(read_data=json.dumps(config_without_alias)),
+        ):
+            config = ModelFactory.load_config()
+
+        assert config["default-fallback-chain"] == {
+            "type": "fallback_chain",
+            "models": [
+                "claude-4-8-opus-long",
+                "claude-5-sonnet",
+                "gpt-5.6-luna",
+            ],
+            "context_length": 128_000,
+        }
+
+    @patch("code_puppy.model_factory.pathlib.Path.exists", return_value=False)
+    @patch("code_puppy.model_factory.callbacks.get_callbacks", return_value=[])
     def test_load_config_basic(self, mock_callbacks, mock_exists):
         """Test basic config loading from models.json."""
         test_config = {
@@ -231,6 +270,47 @@ class TestModelFactoryBasics:
             ValueError, match="Model 'nonexistent-model' not found in configuration"
         ):
             ModelFactory.get_model("nonexistent-model", config)
+
+    def test_fallback_chain_missing_child_raises_clear_value_error(self):
+        config = {
+            "fallback": {
+                "type": "fallback_chain",
+                "models": ["missing-child", "backup"],
+            },
+            "backup": {"type": "openai", "name": "backup-model"},
+        }
+
+        with pytest.raises(
+            ValueError,
+            match="Model 'missing-child' not found in configuration",
+        ):
+            ModelFactory.get_model("fallback", config)
+
+    def test_fallback_chain_unavailable_child_raises_clear_value_error(self):
+        config = {
+            "fallback": {
+                "type": "fallback_chain",
+                "models": ["unavailable-child", "backup"],
+            },
+            "unavailable-child": {
+                "type": "openai",
+                "name": "unavailable-model",
+            },
+            "backup": {"type": "openai", "name": "backup-model"},
+        }
+
+        with (
+            patch("code_puppy.model_factory.get_api_key", return_value=None),
+            patch("code_puppy.model_factory.emit_warning"),
+        ):
+            with pytest.raises(
+                ValueError,
+                match=(
+                    "Fallback-chain child model "
+                    "'unavailable-child' could not be instantiated"
+                ),
+            ):
+                ModelFactory.get_model("fallback", config)
 
     def test_get_model_unsupported_type(self):
         """Test getting a model with unsupported type."""

@@ -665,6 +665,11 @@ def _default_model_from_models_json():
 
         models_config = ModelFactory.load_config()
         if models_config:
+            from code_puppy.fallback_chain_model import DEFAULT_FALLBACK_CHAIN_NAME
+
+            if DEFAULT_FALLBACK_CHAIN_NAME in models_config:
+                _default_model_cache = DEFAULT_FALLBACK_CHAIN_NAME
+                return _default_model_cache
             # Use first model in the merged config as default
             first_key = next(iter(models_config))
             _default_model_cache = first_key

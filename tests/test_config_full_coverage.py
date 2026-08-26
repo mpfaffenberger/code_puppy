@@ -493,6 +493,29 @@ class TestDefaultModel:
         assert cp_config._default_model_from_models_json() == "cached"
         cp_config._default_model_cache = None
 
+    def test_default_model_prefers_default_fallback_chain_alias(self):
+        cp_config._default_model_cache = None
+        with patch(
+            "code_puppy.model_factory.ModelFactory.load_config",
+            return_value={
+                "claude-4-8-opus-long": {},
+                "claude-5-sonnet": {},
+                "gpt-5.6-luna": {},
+                "default-fallback-chain": {
+                    "type": "fallback_chain",
+                    "models": [
+                        "claude-4-8-opus-long",
+                        "claude-5-sonnet",
+                        "gpt-5.6-luna",
+                    ],
+                },
+            },
+        ):
+            assert (
+                cp_config._default_model_from_models_json() == "default-fallback-chain"
+            )
+        cp_config._default_model_cache = None
+
     def test_default_model_from_config(self):
         cp_config._default_model_cache = None
         with patch(

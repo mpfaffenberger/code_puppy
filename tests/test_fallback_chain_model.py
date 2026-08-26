@@ -12,8 +12,11 @@ from pydantic_ai.exceptions import ModelHTTPError
 
 from code_puppy.fallback_chain_model import (
     DEFAULT_BUDGET_EXHAUSTED_SNIPPETS,
+    DEFAULT_FALLBACK_CHAIN_MODELS,
+    DEFAULT_FALLBACK_CHAIN_NAME,
     FallbackChainExhausted,
     FallbackChainModel,
+    add_default_fallback_chain,
     is_budget_exhausted_error,
 )
 
@@ -32,6 +35,60 @@ def _make_model(name: str, response=None, side_effect=None):
     else:
         model.request = AsyncMock(return_value=response or MagicMock())
     return model
+
+
+class TestDefaultFallbackChain:
+    def test_default_model_order_is_exact(self):
+        assert DEFAULT_FALLBACK_CHAIN_MODELS == (
+            "claude-4-8-opus-long",
+            "claude-5-sonnet",
+            "gpt-5.6-luna",
+        )
+
+    @pytest.mark.parametrize("missing_name", DEFAULT_FALLBACK_CHAIN_MODELS)
+    def test_alias_is_added_only_when_every_child_exists(self, missing_name):
+        config = {
+            name: {"type": "openai", "name": name}
+            for name in DEFAULT_FALLBACK_CHAIN_MODELS
+            if name != missing_name
+        }
+
+        assert add_default_fallback_chain(config) is False
+        assert DEFAULT_FALLBACK_CHAIN_NAME not in config
+
+    def test_alias_preserves_existing_definition(self):
+        existing_alias = {
+            "type": "round_robin",
+            "models": ["existing-one", "existing-two"],
+            "context_length": 1234,
+        }
+        config = {DEFAULT_FALLBACK_CHAIN_NAME: existing_alias}
+
+        assert add_default_fallback_chain(config) is False
+        assert config[DEFAULT_FALLBACK_CHAIN_NAME] is existing_alias
+
+    def test_alias_uses_exact_order_and_smallest_child_context(self):
+        config = {
+            "claude-4-8-opus-long": {
+                "type": "anthropic",
+                "context_length": 1_000_000,
+            },
+            "claude-5-sonnet": {
+                "type": "anthropic",
+                "context_length": 200_000,
+            },
+            "gpt-5.6-luna": {
+                "type": "openai",
+                "context_length": 128_000,
+            },
+        }
+
+        assert add_default_fallback_chain(config) is True
+        assert config[DEFAULT_FALLBACK_CHAIN_NAME] == {
+            "type": "fallback_chain",
+            "models": list(DEFAULT_FALLBACK_CHAIN_MODELS),
+            "context_length": 128_000,
+        }
 
 
 class TestIsBudgetExhaustedError:
@@ -142,6 +199,36 @@ class TestFallbackChainModelRequest:
         assert healthy.request.await_count == 3
 
     @pytest.mark.asyncio
+    async def test_default_chain_skips_two_quota_exhausted_models_and_sticks_to_third(
+        self,
+    ):
+        """The catalog's Opus -> Sonnet -> Luna order is permanent after fallback."""
+        opus = _make_model(
+            "claude-4-8-opus-long",
+            side_effect=RuntimeError("claude-4-8-opus-long quota exhausted"),
+        )
+        sonnet = _make_model(
+            "claude-5-sonnet",
+            side_effect=RuntimeError("claude-5-sonnet quota exceeded"),
+        )
+        luna = _make_model("gpt-5.6-luna", response="ok-luna")
+        chain = FallbackChainModel(opus, sonnet, luna)
+
+        with patch("code_puppy.fallback_chain_model.emit_warning") as mock_warn:
+            first_result = await chain.request([], None, MagicMock())
+            second_result = await chain.request([], None, MagicMock())
+
+        assert [model.model_name for model in chain.models] == list(
+            DEFAULT_FALLBACK_CHAIN_MODELS
+        )
+        assert first_result == second_result == "ok-luna"
+        assert opus.request.await_count == 1
+        assert sonnet.request.await_count == 1
+        assert luna.request.await_count == 2
+        assert mock_warn.call_count == 2
+        assert chain.model_name.endswith("active=gpt-5.6-luna")
+
+    @pytest.mark.asyncio
     async def test_exhausting_every_model_raises_fallback_chain_exhausted(self):
         first = _make_model("large", side_effect=RuntimeError("insufficient_quota"))
         second = _make_model(
@@ -183,6 +270,37 @@ class TestFallbackChainModelRequest:
     def test_requires_at_least_one_model(self):
         with pytest.raises(ValueError):
             FallbackChainModel()
+
+    @pytest.mark.asyncio
+    async def test_child_specific_settings_follow_the_request_after_fallback(self):
+        exhausted = _make_model("large", side_effect=RuntimeError("insufficient_quota"))
+        healthy = _make_model("medium", response="ok-medium")
+        first_settings = {"max_tokens": 1111}
+        second_settings = {"max_tokens": 2222, "temperature": 0.2}
+        chain = FallbackChainModel(
+            exhausted,
+            healthy,
+            child_settings=[first_settings, second_settings],
+        )
+
+        with patch("code_puppy.fallback_chain_model.emit_warning"):
+            result = await chain.request([], None, MagicMock())
+
+        assert result == "ok-medium"
+        assert exhausted.prepare_request.call_args.args[0] == first_settings
+        assert healthy.prepare_request.call_args.args[0] == second_settings
+        assert healthy.request.call_args.args[1] == second_settings
+
+    @pytest.mark.parametrize("child_settings", [[], [None, None, None]])
+    def test_child_settings_must_match_model_count(self, child_settings):
+        with pytest.raises(
+            ValueError, match="child_settings must match the number of models"
+        ):
+            FallbackChainModel(
+                _make_model("large"),
+                _make_model("medium"),
+                child_settings=child_settings,
+            )
 
 
 class TestFallbackChainModelName:

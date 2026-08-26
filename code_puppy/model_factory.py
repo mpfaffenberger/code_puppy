@@ -25,7 +25,10 @@ from code_puppy.messaging import emit_warning
 from . import callbacks
 from .claude_cache_client import ClaudeCacheAsyncClient
 from .config import EXTRA_MODELS_FILE, get_value, get_yolo_mode
-from .fallback_chain_model import FallbackChainModel
+from .fallback_chain_model import (
+    FallbackChainModel,
+    add_default_fallback_chain,
+)
 from .http_utils import create_async_client, get_cert_bundle_path, get_http2
 from .provider_identity import (
     make_anthropic_provider,
@@ -60,7 +63,11 @@ _load_plugin_model_providers()
 
 # Anthropic beta header required for 1M context window support.
 CONTEXT_1M_BETA = "context-1m-2025-08-07"
-_CUSTOM_OPENAI_MODEL_TYPES = {"custom_openai", "custom_openai_responses"}
+_CUSTOM_OPENAI_MODEL_TYPES = {
+    "custom_openai",
+    "custom_openai_responses",
+    "codex",
+}
 _LEGACY_CUSTOM_OPENAI_RESPONSES_MODEL = "codex-gpt-5-codex"
 
 
@@ -69,7 +76,7 @@ def _custom_openai_uses_responses_api(
 ) -> bool:
     """Return whether a custom OpenAI model should use the Responses API."""
     return (
-        model_config.get("type") == "custom_openai_responses"
+        model_config.get("type") in {"custom_openai_responses", "codex"}
         or model_name == _LEGACY_CUSTOM_OPENAI_RESPONSES_MODEL
     )
 
@@ -662,6 +669,12 @@ class ModelFactory:
                 f"Failed to load plugin models config: {exc}"
             )
 
+        # Add the Walmart default tier chain only when the active catalog
+        # supplies all three named models. The chain definition contains no
+        # endpoint or credential data, so vanilla upstream installs remain
+        # unchanged.
+        add_default_fallback_chain(config)
+
         # Final pass: apply description-only overlays from bundled + plugins.
         # This avoids shallow update() calls clobbering remote model settings.
         try:
@@ -1116,12 +1129,20 @@ class ModelFactory:
             )
 
             models = []
+            child_settings = []
             for name in model_names:
                 model = ModelFactory.get_model(name, config)
+                if model is None:
+                    raise ValueError(
+                        f"Fallback-chain child model '{name}' could not be instantiated."
+                    )
                 models.append(model)
+                child_settings.append(make_model_settings(name))
 
             return FallbackChainModel(
-                *models, budget_exhausted_patterns=budget_exhausted_patterns
+                *models,
+                budget_exhausted_patterns=budget_exhausted_patterns,
+                child_settings=child_settings,
             )
 
         else:

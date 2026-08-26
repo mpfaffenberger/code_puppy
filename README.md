@@ -321,52 +321,39 @@ The `rotate_every` parameter controls how many requests are made to each model b
 
 ## Fallback Chain (Auto-Downgrade on Quota/Context Exhaustion)
 
-Round-robin distributes load across *equivalent* models. A **fallback chain** is different: it's an ordered preference list (e.g. a large/expensive model, then a medium one, then a free/unmetered one), and Code Puppy only moves down the list when the current model's *budget* is actually used up -- a provider quota fully exhausted, or the conversation grown too large for that model's context window. Ordinary transient errors (a 429 rate-limit, a 5xx blip) are already retried against the *same* model with backoff, so they don't trigger a downgrade.
+Round-robin distributes load across *equivalent* models. A **fallback chain** is different: it's an ordered preference list, and Code Puppy only moves down the list when the current model's *budget* is actually used up -- a provider quota fully exhausted, or the conversation growing too large for that model's context window. Ordinary transient errors (a 429 rate-limit, a 5xx blip) are already retried against the *same* model with backoff, so they don't trigger a downgrade.
 
-The switch is **one-directional and sticky**: once a model is marked exhausted, Code Puppy never tries it again for the rest of the process -- it just keeps working from wherever it landed. Restart Code Puppy (or reselect a model with `/model`) to reset back to the top of the chain.
+For catalogs that provide the following three keys, Code Puppy automatically creates and selects `default-fallback-chain` when no model has been explicitly selected:
+
+```text
+claude-4-8-opus-long (Opus 4.8 Long)
+        ↓ quota/context exhaustion
+claude-5-sonnet (Sonnet 5)
+        ↓ quota/context exhaustion
+gpt-5.6-luna (Luna)
+```
+
+The switch is **one-directional and sticky**: once a model is marked exhausted, Code Puppy never tries it again for the rest of the process -- it just keeps working from wherever it landed. Restart Code Puppy (or explicitly select a model with `/model`) to reset back to the top of the chain. If your catalog does not provide all three keys, the automatic default is not added and normal model selection is unchanged.
 
 ### Configuration
 
+The automatic chain is equivalent to this configuration:
+
 ```json
 {
-  "gpt-huge": {
-    "type": "openai",
-    "name": "gpt-5-large",
-    "api_key": "$OPENAI_API_KEY",
-    "context_length": 400000
-  },
-  "gpt-medium": {
-    "type": "openai",
-    "name": "gpt-5-medium",
-    "api_key": "$OPENAI_API_KEY",
-    "context_length": 200000
-  },
-  "gpt-free-tier": {
-    "type": "openai",
-    "name": "gpt-5-nano",
-    "api_key": "$OPENAI_API_KEY",
-    "context_length": 128000
-  },
-  "my_downgrade_chain": {
+  "default-fallback-chain": {
     "type": "fallback_chain",
-    "models": ["gpt-huge", "gpt-medium", "gpt-free-tier"]
+    "models": [
+      "claude-4-8-opus-long",
+      "claude-5-sonnet",
+      "gpt-5.6-luna"
+    ]
   }
 }
 ```
 
-Select `my_downgrade_chain` with `/model` and Code Puppy will use `gpt-huge` until its quota/context is exhausted, then `gpt-medium`, then `gpt-free-tier` -- surfacing a warning each time it switches so you know why quality/latency just changed.
+You can also define your own chain with any configured models. Select it with `/model`; Code Puppy surfaces a warning each time it switches so a quality/latency change is never silent.
 
-`models` requires at least 2 entries (a chain of one is just... that model). Detection covers common provider signatures out of the box: OpenAI-style `insufficient_quota`/`context_length_exceeded` codes, generic "quota exceeded"/"maximum context length"/"prompt is too long" phrasing, and structured error bodies (not just the top-level message). If your provider or internal gateway uses different wording, add it explicitly:
-
-```json
-{
-  "my_downgrade_chain": {
-    "type": "fallback_chain",
-    "models": ["gpt-huge", "gpt-medium", "gpt-free-tier"],
-    "budget_exhausted_patterns": ["large-tier budget depleted"]
-  }
-}
-```
 
 ## Custom OpenAI API Types
 

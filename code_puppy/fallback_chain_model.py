@@ -36,6 +36,7 @@ from pydantic_ai.models import (
     ModelResponse,
     ModelSettings,
     StreamedResponse,
+    merge_model_settings,
 )
 
 from code_puppy.messaging import emit_warning
@@ -62,6 +63,17 @@ DEFAULT_BUDGET_EXHAUSTED_SNIPPETS: tuple = (
     "token budget",
     "usage limit exceeded",
     "exceeded token limit",
+    "quota exhausted",
+    "quota depleted",
+    "quota reached",
+    "exhausted quota",
+    "no quota remaining",
+    "tokens exhausted",
+    "token limit exceeded",
+    "daily limit exceeded",
+    "monthly limit exceeded",
+    "model quota",
+    "llm quota",
     # Context-window overflow phrasing (OpenAI, Anthropic, Gemini, generic)
     "maximum context length",
     "context window",
@@ -71,6 +83,45 @@ DEFAULT_BUDGET_EXHAUSTED_SNIPPETS: tuple = (
     "exceeds the model's maximum",
     "too many tokens",
 )
+
+
+DEFAULT_FALLBACK_CHAIN_NAME = "default-fallback-chain"
+DEFAULT_FALLBACK_CHAIN_MODELS: tuple[str, ...] = (
+    "claude-4-8-opus-long",
+    "claude-5-sonnet",
+    "gpt-5.6-luna",
+)
+
+
+def add_default_fallback_chain(config: dict[str, Any]) -> bool:
+    """Add the requested default chain when all three model keys exist.
+
+    The model entries themselves come from the active catalog/plugins; the
+    public project must not ship Walmart-specific endpoints or credentials.
+    Returning False when any entry is absent keeps vanilla upstream installs
+    unchanged while making the chain automatic for catalogs that provide the
+    requested Opus Long -> Sonnet -> Luna sequence.
+    """
+    if DEFAULT_FALLBACK_CHAIN_NAME in config:
+        return False
+    if not all(
+        isinstance(config.get(name), dict) for name in DEFAULT_FALLBACK_CHAIN_MODELS
+    ):
+        return False
+
+    context_lengths = [
+        config[name].get("context_length", 128000)
+        for name in DEFAULT_FALLBACK_CHAIN_MODELS
+    ]
+    config[DEFAULT_FALLBACK_CHAIN_NAME] = {
+        "type": "fallback_chain",
+        "models": list(DEFAULT_FALLBACK_CHAIN_MODELS),
+        # Use the smallest child window for conservative compaction before
+        # the chain has to degrade. This prevents Sonnet from receiving a
+        # history that only Opus Long could accommodate.
+        "context_length": min(context_lengths or [128000]),
+    }
+    return True
 
 
 class FallbackChainExhausted(RuntimeError):
@@ -129,6 +180,9 @@ class FallbackChainModel(Model):
 
     models: List[Model]
     fallback_on: Callable[[BaseException], bool]
+    _child_settings: List[ModelSettings | None] = field(
+        default_factory=list, repr=False
+    )
     _current_index: int = field(default=0, repr=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
@@ -137,6 +191,7 @@ class FallbackChainModel(Model):
         *models: Model,
         fallback_on: Optional[Callable[[BaseException], bool]] = None,
         budget_exhausted_patterns: Sequence[str] = (),
+        child_settings: Optional[Sequence[ModelSettings | None]] = None,
         settings: ModelSettings | None = None,
     ):
         """
@@ -148,6 +203,9 @@ class FallbackChainModel(Model):
             budget_exhausted_patterns: Extra lowercase substrings to treat
                 as budget-exhaustion signals, merged with the built-in
                 defaults. Ignored if ``fallback_on`` is supplied explicitly.
+            child_settings: Optional model-specific defaults, in the same
+                order as ``models``. These preserve provider-specific options
+                such as adaptive thinking after a switch.
             settings: Model settings used as defaults for this model.
         """
         super().__init__(settings=settings)
@@ -156,6 +214,12 @@ class FallbackChainModel(Model):
         self.models = list(models)
         self._current_index = 0
         self._lock = threading.Lock()
+        if child_settings is None:
+            self._child_settings = [None] * len(self.models)
+        elif len(child_settings) != len(self.models):
+            raise ValueError("child_settings must match the number of models")
+        else:
+            self._child_settings = list(child_settings)
         if fallback_on is not None:
             self.fallback_on = fallback_on
         else:
@@ -215,8 +279,10 @@ class FallbackChainModel(Model):
         while True:
             index = self._current_index
             current_model = self.models[index]
+            model_defaults = self._child_settings[index]
+            request_settings = merge_model_settings(model_settings, model_defaults)
             merged_settings, prepared_params = current_model.prepare_request(
-                model_settings, model_request_parameters
+                request_settings, model_request_parameters
             )
             try:
                 return await current_model.request(
@@ -244,8 +310,10 @@ class FallbackChainModel(Model):
         while True:
             index = self._current_index
             current_model = self.models[index]
+            model_defaults = self._child_settings[index]
+            request_settings = merge_model_settings(model_settings, model_defaults)
             merged_settings, prepared_params = current_model.prepare_request(
-                model_settings, model_request_parameters
+                request_settings, model_request_parameters
             )
             try:
                 async with current_model.request_stream(
