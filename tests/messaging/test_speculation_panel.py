@@ -113,6 +113,8 @@ class TestSpeculationPanelLifecycle:
         assert "hit" in output
         assert "hits 1 (48ms hidden)" in output
         assert "grep" in output
+        # Title carries the streamed-token estimate (2.5 chars/token heuristic).
+        assert f"~{int(len(CODE) / 2.5)} tokens" in output
         # The panel box has no left border: content flows flush-left.
         for line in output.splitlines():
             assert not line.startswith("\u2502")

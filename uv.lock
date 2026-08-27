@@ -1919,8 +1919,8 @@ email = [
 
 [[package]]
 name = "pydantic-ai-harness"
-version = "0.25.1.dev11+adaa4a9"
-source = { git = "https://github.com/pydantic/pydantic-ai-harness?branch=spec-code-mode-poc#adaa4a94438d2b8ed33376413d217b3e866745d8" }
+version = "0.25.1.dev12+4ffc9be"
+source = { git = "https://github.com/pydantic/pydantic-ai-harness?branch=spec-code-mode-poc#4ffc9be819e3b3904cd98c4dd75f3e4c65df1fae" }
 dependencies = [
     { name = "genai-prices" },
     { name = "httpx" },

@@ -109,6 +109,8 @@ class SpeculationPanel:
         self._console: Optional[Console] = None
         self._code: str = ""
         self._closed_line: int = 0
+        self._closed_count: int = -1
+        self._highlight_cache: Optional[tuple[str, List[Text]]] = None
         self._launches: Dict[str, _Launch] = {}
         self._misses: List[str] = []
         self._phase: str = "idle"  # idle | streaming | executing
@@ -160,7 +162,6 @@ class SpeculationPanel:
         """
         if self._phase == "streaming":
             self._phase = "executing"
-            self._refresh()
 
     def on_stream_end(self) -> None:
         """One event stream ended; keep an executing cycle alive for its outcomes.
@@ -208,13 +209,23 @@ class SpeculationPanel:
     # -- event handlers -------------------------------------------------
 
     def _on_update(self, event: SpeculativeCodeUpdateEvent, console: Console) -> None:
+        """Per-delta hot path: cheap string state only.
+
+        Update events arrive at the model's delta cadence on the event loop
+        that is also consuming the stream, so no painting happens here (the
+        Live auto-refresh thread renders at 10fps) and the boundary search
+        only reruns when a statement actually closed.
+        """
         if self._phase == "idle":
             self._phase = "streaming"
             self._console = console
         self._code = event.code
-        self._closed_line = _closed_boundary_line(event.code, event.closed_statements)
+        if event.closed_statements != self._closed_count:
+            self._closed_count = event.closed_statements
+            self._closed_line = _closed_boundary_line(
+                event.code, event.closed_statements
+            )
         self._ensure_live(console)
-        self._refresh()
 
     def _on_launched(self, event: SpeculativeCallLaunchedEvent) -> None:
         self._launches[event.launch_id] = _Launch(
@@ -222,14 +233,12 @@ class SpeculationPanel:
             line_end=event.line_end,
             label=event.wrapped_tool_name,
         )
-        self._refresh()
 
     def _on_settled(self, event: SpeculativeCallSettledEvent) -> None:
         launch = self._launches.get(event.launch_id)
         if launch is not None:
             launch.state = event.outcome
             launch.elapsed_ms = event.elapsed_ms
-            self._refresh()
 
     def _on_claimed(self, event: SpeculativeCallClaimedEvent, console: Console) -> None:
         launch = self._launches.get(event.launch_id)
@@ -245,7 +254,6 @@ class SpeculationPanel:
         launch.state = "hit"
         launch.elapsed_ms = event.elapsed_ms
         launch.ready_at_claim = event.ready_at_claim
-        self._refresh()
 
     def _on_missed(self, event: SpeculativeCallMissedEvent, console: Console) -> None:
         if self._phase == "idle":
@@ -257,7 +265,6 @@ class SpeculationPanel:
             )
             return
         self._misses.append(event.wrapped_tool_name)
-        self._refresh()
 
     def _on_evicted(self, event: SpeculativeCallEvictedEvent, console: Console) -> None:
         launch = self._launches.get(event.launch_id)
@@ -270,7 +277,6 @@ class SpeculationPanel:
             )
             return
         launch.state = "wasted"
-        self._refresh()
 
     # -- rendering ------------------------------------------------------
 
@@ -290,10 +296,6 @@ class SpeculationPanel:
             vertical_overflow="crop",
         )
         self._live.start()
-
-    def _refresh(self) -> None:
-        if self._live is not None:
-            self._live.refresh()
 
     def __rich_console__(
         self, console: Console, options: ConsoleOptions
@@ -328,11 +330,24 @@ class SpeculationPanel:
                 return Text("wasted   ", style="grey50")
         return Text(" " * (_GUTTER_WIDTH - 1))
 
-    def _render_panel(self, *, final: bool, max_code_lines: int | None = None) -> Panel:
-        body = Text()
+    def _highlighted_lines(self) -> List[Text]:
+        """Pygments over the whole snippet, cached per code revision.
+
+        Rendering happens on the auto-refresh thread at 10fps; between deltas
+        the code is unchanged and the highlight must not be recomputed.
+        """
+        cache = self._highlight_cache
+        if cache is not None and cache[0] == self._code:
+            return cache[1]
         highlighted = Syntax("", "python", theme="ansi_dark").highlight(self._code)
         highlighted.rstrip()
-        code_lines = highlighted.split("\n")
+        lines = highlighted.split("\n")
+        self._highlight_cache = (self._code, lines)
+        return lines
+
+    def _render_panel(self, *, final: bool, max_code_lines: int | None = None) -> Panel:
+        body = Text()
+        code_lines = self._highlighted_lines()
         raw_lines = self._code.rstrip("\n").split("\n")
         first = 0
         if max_code_lines is not None and len(raw_lines) > max_code_lines:
@@ -348,7 +363,13 @@ class SpeculationPanel:
                 body.append(raw, style="grey50")
             body.append("\n")
         body.append_text(self._footer())
-        title = "run_code" if final else "run_code (streaming)"
+        # Same 2.5 chars/token heuristic as the plain tool progress line.
+        tokens = max(1, int(len(self._code) / 2.5)) if self._code else 0
+        title = (
+            f"run_code (~{tokens} tokens)"
+            if final
+            else f"run_code (streaming, ~{tokens} tokens)"
+        )
         return Panel(
             body,
             title=title,
@@ -400,6 +421,8 @@ class SpeculationPanel:
         self._console = None
         self._code = ""
         self._closed_line = 0
+        self._closed_count = -1
+        self._highlight_cache = None
         self._launches = {}
         self._misses = []
         self._phase = "idle"
