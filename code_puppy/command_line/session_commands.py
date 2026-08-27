@@ -201,7 +201,8 @@ def handle_compact_command(command: str) -> bool:
         # Slash commands run outside the normal turn-finalization path, which
         # is where updated history is ordinarily auto-saved. Persist now so a
         # subsequent /quit + --quick-resume restores the compacted history.
-        auto_save_session_if_enabled()
+        if not auto_save_session_if_enabled(force=True):
+            return True
 
         after_tokens = sum(agent.estimate_tokens_for_message(m) for m in compacted)
         reduction_pct = (

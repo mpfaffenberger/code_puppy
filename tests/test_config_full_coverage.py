@@ -879,6 +879,25 @@ class TestAutosaveSession:
         cp_config.set_auto_save_session(False)
         assert cp_config.auto_save_session_if_enabled() is False
 
+    def test_auto_save_session_force_overrides_disabled_setting(self):
+        cp_config.set_auto_save_session(False)
+        mock_agent = MagicMock()
+        mock_agent.get_message_history.return_value = [
+            {"role": "user", "content": "compacted"}
+        ]
+        mock_metadata = MagicMock(message_count=1, total_tokens=10)
+        with (
+            patch(
+                "code_puppy.agents.agent_manager.get_current_agent",
+                return_value=mock_agent,
+            ),
+            patch("code_puppy.config.save_session", return_value=mock_metadata),
+            patch("code_puppy.config.record_quick_resume_sessions"),
+            patch("code_puppy.messaging.emit_info"),
+            patch("code_puppy.session_lifecycle.fire_post_autosave_callback"),
+        ):
+            assert cp_config.auto_save_session_if_enabled(force=True) is True
+
     def test_auto_save_session_if_enabled_no_history(self):
         cp_config.set_auto_save_session(True)
         mock_agent = MagicMock()

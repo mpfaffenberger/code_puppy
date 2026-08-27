@@ -145,7 +145,7 @@ class TestHandleCompactCommand:
         ):
             assert self._run() is True
             rcs.assert_called_once()
-            self.autosave.assert_called_once_with()
+            self.autosave.assert_called_once_with(force=True)
             ms.assert_called_once()
             assert "truncation" in ms.call_args[0][0]
 
@@ -172,8 +172,36 @@ class TestHandleCompactCommand:
             patch("code_puppy.messaging.emit_success") as ms,
         ):
             assert self._run() is True
-            self.autosave.assert_called_once_with()
+            self.autosave.assert_called_once_with(force=True)
             ms.assert_called_once()
+
+    def test_save_failure_does_not_report_compaction_success(self):
+        agent = MagicMock()
+        agent.get_message_history.return_value = ["m1", "m2"]
+        agent.estimate_tokens_for_message.return_value = 100
+        self.autosave.return_value = False
+        with (
+            patch(
+                "code_puppy.agents.agent_manager.get_current_agent",
+                return_value=agent,
+            ),
+            patch(
+                "code_puppy.config.get_compaction_strategy",
+                return_value="summarization",
+            ),
+            patch("code_puppy.agents._compaction.build_compaction_strategy"),
+            patch("code_puppy.agents._compaction.resolve_agent_model"),
+            patch(
+                "code_puppy.agents._compaction.run_compaction_sync",
+                return_value=["summary"],
+            ),
+            patch("code_puppy.messaging.emit_info"),
+            patch("code_puppy.messaging.emit_success") as ms,
+        ):
+            assert self._run() is True
+
+        self.autosave.assert_called_once_with(force=True)
+        ms.assert_not_called()
 
     def test_compaction_fails(self):
         agent = MagicMock()
