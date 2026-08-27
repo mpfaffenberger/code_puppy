@@ -11,9 +11,10 @@ requires-python = ">=3.11,<3.15"
 dependencies = [
     "code-puppy-core-plugins>=0.0.27",
     "logfire>=4.0",
-    # TEMPORARY (integration branch only): pinned to the pydantic-ai #7794
-    # CapabilityEvent SDK PR head via [tool.uv.sources] below. Restore the
-    # PyPI pin once https://github.com/pydantic/pydantic-ai/pull/7794 ships.
+    # TEMPORARY (integration branch only): pinned to the pydantic-ai
+    # CapabilityEvent/CustomEvent SDK via [tool.uv.sources] below.
+    # #7794 has merged into the #6258 stack (branch `emit-custom-events`);
+    # restore the PyPI pin once #6258 lands on main and releases.
     "pydantic-ai-slim[openai,anthropic,mcp]>=2.35.0",
     "pydantic-ai-harness==0.23.0",
     "anyio>=4.7.0",
@@ -112,9 +113,11 @@ omit = ["code_puppy/main.py"]
 python-preference = "only-managed"
 
 [tool.uv.sources]
-# pydantic-ai #7794 (CapabilityEvent / on_event / emit_event SDK), unmerged.
-# Pinned by commit SHA so builds are reproducible while the PR evolves.
-pydantic-ai-slim = { git = "https://github.com/pydantic/pydantic-ai.git", rev = "13051f947c915482c1ffa0da8539a7a70ecede50", subdirectory = "pydantic_ai_slim" }
+# CapabilityEvent / on_event / emit_event SDK. #7794 fast-forwarded into
+# `emit-custom-events` (the #6258 stack, base=main, still open); this SHA is
+# that stack's head, containing #7794 plus five review-hardening commits.
+# Pinned by commit SHA so builds are reproducible while the stack evolves.
+pydantic-ai-slim = { git = "https://github.com/pydantic/pydantic-ai.git", rev = "8e7c6a4a01372c9efb31f81cef6a9d545a5df004", subdirectory = "pydantic_ai_slim" }
 
 [dependency-groups]
 dev = [

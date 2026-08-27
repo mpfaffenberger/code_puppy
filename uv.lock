@@ -479,7 +479,7 @@ requires-dist = [
     { name = "playwright", marker = "sys_platform != 'android'", specifier = ">=1.40.0" },
     { name = "pydantic", specifier = ">=2.4.0" },
     { name = "pydantic-ai-harness", specifier = "==0.23.0" },
-    { name = "pydantic-ai-slim", extras = ["openai", "anthropic", "mcp"], git = "https://github.com/pydantic/pydantic-ai.git?subdirectory=pydantic_ai_slim&rev=13051f947c915482c1ffa0da8539a7a70ecede50" },
+    { name = "pydantic-ai-slim", extras = ["openai", "anthropic", "mcp"], git = "https://github.com/pydantic/pydantic-ai.git?subdirectory=pydantic_ai_slim&rev=8e7c6a4a01372c9efb31f81cef6a9d545a5df004" },
     { name = "pyfiglet", specifier = ">=0.8.post1" },
     { name = "pyobjc-framework-applicationservices", marker = "sys_platform == 'darwin' and extra == 'computer-use'", specifier = ">=10.3" },
     { name = "pyobjc-framework-cocoa", marker = "sys_platform == 'darwin' and extra == 'computer-use'", specifier = ">=10.3" },
@@ -1779,8 +1779,8 @@ wheels = [
 
 [[package]]
 name = "pydantic-ai-slim"
-version = "2.35.1.dev25+13051f94"
-source = { git = "https://github.com/pydantic/pydantic-ai.git?subdirectory=pydantic_ai_slim&rev=13051f947c915482c1ffa0da8539a7a70ecede50#13051f947c915482c1ffa0da8539a7a70ecede50" }
+version = "2.35.1.dev30+8e7c6a4a"
+source = { git = "https://github.com/pydantic/pydantic-ai.git?subdirectory=pydantic_ai_slim&rev=8e7c6a4a01372c9efb31f81cef6a9d545a5df004#8e7c6a4a01372c9efb31f81cef6a9d545a5df004" }
 dependencies = [
     { name = "anyio" },
     { name = "genai-prices" },
@@ -1908,8 +1908,8 @@ wheels = [
 
 [[package]]
 name = "pydantic-graph"
-version = "2.35.1.dev25+13051f94"
-source = { git = "https://github.com/pydantic/pydantic-ai.git?subdirectory=pydantic_graph&rev=13051f947c915482c1ffa0da8539a7a70ecede50#13051f947c915482c1ffa0da8539a7a70ecede50" }
+version = "2.35.1.dev30+8e7c6a4a"
+source = { git = "https://github.com/pydantic/pydantic-ai.git?subdirectory=pydantic_graph&rev=8e7c6a4a01372c9efb31f81cef6a9d545a5df004#8e7c6a4a01372c9efb31f81cef6a9d545a5df004" }
 dependencies = [
     { name = "anyio" },
     { name = "logfire-api" },
