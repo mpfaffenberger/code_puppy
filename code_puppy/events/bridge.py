@@ -21,7 +21,8 @@ Dispatch semantics (pydantic-ai #7794):
   emitting operation proceeds — so legacy callback timing is preserved
   and ``BeforeCompaction`` can be cancelled by a hook decision.
 * Stream events (``ContextUsageMeasured``, ``CompactionCompleted``,
-  ``CompactionFailed``) dispatch at their stream position.
+  ``CompactionFailed``, and the ``code_mode.*`` speculation family from
+  pydantic-ai-harness#699) dispatch at their stream position.
 
 Listeners must never break the run: every handler is fail-open.
 """
@@ -35,6 +36,14 @@ from typing import Any, Optional
 from pydantic_ai.capabilities import AbstractCapability, on_event
 from pydantic_ai.tools import RunContext
 
+from pydantic_ai_harness.code_mode import (
+    SpeculativeCallClaimedEvent,
+    SpeculativeCallEvictedEvent,
+    SpeculativeCallLaunchedEvent,
+    SpeculativeCallMissedEvent,
+    SpeculativeCallSettledEvent,
+)
+
 from code_puppy.capabilities.compaction import (
     BeforeCompactionEvent,
     CompactionCompletedEvent,
@@ -45,6 +54,12 @@ from code_puppy.capabilities.compaction import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _preview_arguments(arguments: dict, limit: int = 60) -> str:
+    """Render launch arguments compactly for a one-line message."""
+    rendered = ", ".join(f"{key}={value!r}" for key, value in arguments.items())
+    return rendered if len(rendered) <= limit else rendered[: limit - 1] + "\u2026"
 
 
 @dataclass
@@ -156,6 +171,102 @@ class CapabilityEventBridge(AbstractCapability[Any]):
             emit_error(f"Compaction failed: [{event.error_type}] {event.error_message}")
         except Exception:  # pragma: no cover
             logger.exception("compaction-failed bridge listener failed")
+
+    # ------------------------------------------------------------------
+    # code_mode.* family (speculative execution, harness#699)
+    # ------------------------------------------------------------------
+    # `SpeculativeCodeUpdateEvent` is deliberately not rendered here: it
+    # mirrors the model's delta cadence (one event per streamed chunk) and
+    # exists for a live TUI panel (grey streaming code with the
+    # closed-statement boundary highlighted), which consumes it straight
+    # from the run's event stream. The messaging bus gets the discrete
+    # transitions only.
+
+    @on_event(SpeculativeCallLaunchedEvent)
+    async def _speculative_launched(
+        self, ctx: RunContext[Any], event: SpeculativeCallLaunchedEvent
+    ) -> None:
+        try:
+            from code_puppy.messaging import emit_info
+
+            lines = (
+                f"L{event.line_start}"
+                if event.line_start == event.line_end
+                else f"L{event.line_start}-{event.line_end}"
+            )
+            emit_info(
+                f"\u26a1 speculating {event.sandbox_function}"
+                f"({_preview_arguments(event.arguments)}) \u00b7 {lines}, "
+                "model still writing"
+            )
+        except Exception:  # pragma: no cover - observation must not break runs
+            logger.exception("speculative-launch bridge listener failed")
+
+    @on_event(SpeculativeCallSettledEvent)
+    async def _speculative_settled(
+        self, ctx: RunContext[Any], event: SpeculativeCallSettledEvent
+    ) -> None:
+        try:
+            from code_puppy.messaging import emit_info
+
+            if event.outcome == "ready":
+                emit_info(
+                    f"\u26a1 {event.launch_id.rsplit('__', 1)[-1]} ready in "
+                    f"{event.elapsed_ms:.0f}ms, before the snippet finished streaming"
+                )
+            else:
+                emit_info(
+                    f"\u26a1 speculative call failed after {event.elapsed_ms:.0f}ms; "
+                    "the error surfaces when the snippet asks for it"
+                )
+        except Exception:  # pragma: no cover
+            logger.exception("speculative-settle bridge listener failed")
+
+    @on_event(SpeculativeCallClaimedEvent)
+    async def _speculative_claimed(
+        self, ctx: RunContext[Any], event: SpeculativeCallClaimedEvent
+    ) -> None:
+        try:
+            from code_puppy.messaging import emit_success
+
+            waited = (
+                "result was already waiting"
+                if event.ready_at_claim
+                else "claimed mid-flight"
+            )
+            emit_success(
+                f"\U0001f3af speculation hit: {event.wrapped_tool_name} ran "
+                f"{event.elapsed_ms:.0f}ms during generation ({waited})"
+            )
+        except Exception:  # pragma: no cover
+            logger.exception("speculative-claim bridge listener failed")
+
+    @on_event(SpeculativeCallMissedEvent)
+    async def _speculative_missed(
+        self, ctx: RunContext[Any], event: SpeculativeCallMissedEvent
+    ) -> None:
+        try:
+            from code_puppy.messaging import emit_info
+
+            emit_info(
+                f"\u2744\ufe0f speculation miss: {event.wrapped_tool_name} runs cold"
+            )
+        except Exception:  # pragma: no cover
+            logger.exception("speculative-miss bridge listener failed")
+
+    @on_event(SpeculativeCallEvictedEvent)
+    async def _speculative_evicted(
+        self, ctx: RunContext[Any], event: SpeculativeCallEvictedEvent
+    ) -> None:
+        try:
+            from code_puppy.messaging import emit_info
+
+            emit_info(
+                f"\U0001f5d1\ufe0f speculation wasted: {event.wrapped_tool_name} "
+                f"({event.state}) was never claimed"
+            )
+        except Exception:  # pragma: no cover
+            logger.exception("speculative-evict bridge listener failed")
 
     # ------------------------------------------------------------------
     # helpers
