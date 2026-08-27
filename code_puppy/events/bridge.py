@@ -237,22 +237,10 @@ class CapabilityEventBridge(AbstractCapability[Any]):
     async def _speculative_claimed(
         self, ctx: RunContext[Any], event: SpeculativeCallClaimedEvent
     ) -> None:
-        try:
-            if self._panel_owns_the_stream():
-                return
-            from code_puppy.messaging import emit_success
-
-            waited = (
-                "result was already waiting"
-                if event.ready_at_claim
-                else "claimed mid-flight"
-            )
-            emit_success(
-                f"\U0001f3af speculation hit: {event.wrapped_tool_name} ran "
-                f"{event.elapsed_ms:.0f}ms during generation ({waited})"
-            )
-        except Exception:  # pragma: no cover
-            logger.exception("speculative-claim bridge listener failed")
+        # Claim outcomes belong to the speculation panel. Do not emit a
+        # fallback message here, since these events may arrive after the panel
+        # has finalized and would otherwise produce noisy one-line output.
+        return
 
     @on_event(SpeculativeCallMissedEvent)
     async def _speculative_missed(

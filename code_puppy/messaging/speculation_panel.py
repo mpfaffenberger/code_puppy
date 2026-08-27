@@ -104,7 +104,10 @@ class _Launch:
 class SpeculationPanel:
     """Renders one speculative `run_code` lifecycle as a live terminal region."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, max_code_lines: int = 10) -> None:
+        if max_code_lines < 1:
+            raise ValueError("max_code_lines must be at least 1")
+        self._max_code_lines = max_code_lines
         self._live: Optional[Live] = None
         self._console: Optional[Console] = None
         self._code: str = ""
@@ -200,7 +203,9 @@ class SpeculationPanel:
                 if console is not None:
                     console.print(self._session_line())
             elif console is not None and self._code:
-                console.print(self._render_panel(final=True))
+                console.print(
+                    self._render_panel(final=True, max_code_lines=self._max_code_lines)
+                )
                 console.print(self._session_line())
             self._reset()
         except Exception:  # pragma: no cover
@@ -312,7 +317,7 @@ class SpeculationPanel:
         # Tail-clip live frames to the terminal: a frame taller than the screen
         # makes Live scroll the whole window on every refresh. The newest lines
         # are the interesting ones while code streams in.
-        max_code_lines = max(console.size.height - 8, 4)
+        max_code_lines = min(self._max_code_lines, max(console.size.height - 8, 4))
         yield self._render_panel(final=False, max_code_lines=max_code_lines)
 
     def _gutter_for_line(self, lineno: int) -> Text:
@@ -440,7 +445,7 @@ class SpeculationPanel:
 _panel: Optional[SpeculationPanel] = None
 
 
-def get_speculation_panel() -> SpeculationPanel:
+def get_speculation_panel(*, max_code_lines: int = 10) -> SpeculationPanel:
     """The process-wide panel shared by every event stream invocation.
 
     Module singleton because outcome events can arrive in a later handler
@@ -448,5 +453,5 @@ def get_speculation_panel() -> SpeculationPanel:
     """
     global _panel
     if _panel is None:
-        _panel = SpeculationPanel()
+        _panel = SpeculationPanel(max_code_lines=max_code_lines)
     return _panel

@@ -116,8 +116,7 @@ async def test_claimed_renders_hit_with_hidden_latency(monkeypatch):
         ),
     )
 
-    assert "speculation hit: grep" in messages[0]
-    assert "result was already waiting" in messages[0]
+    assert messages == []
 
 
 async def test_missed_and_evicted_render(monkeypatch):
