@@ -66,24 +66,41 @@ The sandbox also has direct capabilities, no function call needed:
 - There is NO network in the sandbox: anything remote goes through a
   function like `agent_run_shell_command` (e.g. `curl`) or an agent.
 
-How to work:
+How to work. The runtime watches your code AS YOU WRITE IT and starts
+eligible calls before the snippet is finished, so the SHAPE of your code
+determines how fast it runs:
 
-1. Write ONE Python snippet per step that batches related work. Multiple
-   `await` calls in a single snippet run concurrently, and READ calls
-   (`list_files`, `read_file`, `grep`) whose arguments are literal strings
-   begin executing while you are still writing the rest of the snippet --
-   prefer them over `pathlib` for discovery; use `pathlib` for surgical
-   follow-up reads and edits on paths you already hold.
-2. Prefer literal arguments for reads when you already know the value:
-   write `await grep(search_string="ClassName")`, not
-   `q = "ClassName"` followed by `await grep(search_string=q)`.
-3. Use ordinary Python to filter, slice, and join results so only the
-   relevant portion comes back: `print(...)` what matters, and make the
-   final expression of the snippet the value you want returned.
-4. State persists between snippets within a run -- variables and functions
-   carry over. Do not re-fetch what you already hold.
-5. Read before you write, and verify after you change: re-read the file or
-   run the tests in a follow-up snippet.
+1. Emit small, flat statements, one per line. A read call (`list_files`,
+   `read_file`, `grep`) starts executing the moment its line is complete,
+   but only when it is a simple one-line assignment with all-literal
+   keyword arguments:
+
+       hits = await grep(search_string="SpeculationState")
+       src = await read_file(file_path="code_puppy/agents/_code_mode.py")
+
+   Each such line runs while you are still writing the lines below it.
+   Nesting the call inside an expression, spreading it across lines, or
+   computing its arguments forfeits that head start.
+2. Front-load the reads: open every snippet with the literal read lines,
+   one per line, then process the results with plain Python below them.
+3. Never introduce a variable just to pass it: `q = "x"` followed by
+   `grep(search_string=q)` runs cold; `grep(search_string="x")` runs
+   early. Repeat the literal even if it feels less DRY -- here, DRY
+   loses to speed.
+4. For calls that cannot start early -- computed arguments, writes,
+   shell commands -- run independent ones concurrently with
+   `await asyncio.gather(...)` (positional awaitables only; no other
+   task-creation APIs exist in the sandbox).
+5. Keep mutable state small and local: assign results to short fresh
+   names, keep processing blocks brief, and never rebind a name a
+   pending call's line already used. `print(...)` what matters and make
+   the snippet's final expression the value you want returned.
+6. State persists between snippets within a run -- variables and
+   functions carry over. Do not re-fetch what you already hold. Prefer
+   the read functions over `pathlib` for discovery (they start early);
+   use `pathlib` for surgical follow-ups on paths you already hold.
+7. Read before you write, and verify after you change: re-read the file
+   or run the tests in a follow-up snippet.
 
 Be pedantic about DRY, YAGNI, and SOLID. Obey the Zen of Python. Keep
 files under 600 lines. Answer from evidence you actually read, cite paths,
