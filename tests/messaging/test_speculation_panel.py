@@ -180,6 +180,87 @@ class TestSpeculationPanelLifecycle:
         assert "speculation hit: grep ran 10ms" in output
         assert not panel.active
 
+    def test_partial_hit_renders_distinctly(self):
+        panel = SpeculationPanel()
+        console = _console()
+
+        panel.handle_event(_update(CODE, 1), console)
+        panel.handle_event(_launch(), console)
+        panel.on_part_end()
+        panel.handle_event(
+            SpeculativeCallClaimedEvent(
+                tool_call_id="p1",
+                launch_id="p1__spec_1",
+                nested_tool_call_id="p1__1",
+                wrapped_tool_name="grep",
+                ready_at_claim=False,
+                elapsed_ms=200.0,
+            ),
+            console,
+        )
+        panel.finalize()
+
+        output = console.export_text()
+        assert "hit~" in output
+        assert "1 partial" in output
+
+    def test_miss_names_appear_in_the_reveal(self):
+        panel = SpeculationPanel()
+        console = _console()
+
+        panel.handle_event(_update(CODE, 1), console)
+        panel.on_part_end()
+        panel.handle_event(
+            SpeculativeCallMissedEvent(
+                tool_call_id="p1",
+                sandbox_function="read_file",
+                wrapped_tool_name="read_file",
+                nested_tool_call_id="p1__2",
+            ),
+            console,
+        )
+        panel.finalize()
+
+        assert "misses 1 (read_file)" in console.export_text()
+
+    def test_session_totals_accumulate_across_cycles(self):
+        panel = SpeculationPanel()
+
+        first = _console()
+        panel.handle_event(_update(CODE, 1), first)
+        panel.handle_event(_launch(), first)
+        panel.on_part_end()
+        panel.handle_event(
+            SpeculativeCallClaimedEvent(
+                tool_call_id="p1",
+                launch_id="p1__spec_1",
+                nested_tool_call_id="p1__1",
+                wrapped_tool_name="grep",
+                ready_at_claim=True,
+                elapsed_ms=600.0,
+            ),
+            first,
+        )
+        panel.finalize()
+        assert "speculation this session: hits 1 (0.6s hidden)" in first.export_text()
+
+        second = _console()
+        panel.handle_event(_update(CODE, 1), second)
+        panel.on_part_end()
+        panel.handle_event(
+            SpeculativeCallMissedEvent(
+                tool_call_id="p2",
+                sandbox_function="grep",
+                wrapped_tool_name="grep",
+                nested_tool_call_id="p2__1",
+            ),
+            second,
+        )
+        panel.finalize()
+
+        output = second.export_text()
+        assert "speculation this session: hits 1 (0.6s hidden) - misses 1" in output
+
     def test_finalize_is_idempotent(self):
         panel = SpeculationPanel()
         panel.finalize()

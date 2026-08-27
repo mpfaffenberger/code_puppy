@@ -183,3 +183,54 @@ def test_preview_arguments_truncates():
     preview = _preview_arguments({"query": "x" * 200})
     assert len(preview) == 60
     assert preview.endswith("\u2026")
+
+
+async def test_listeners_defer_to_an_active_panel(monkeypatch):
+    """While a SpeculationPanel cycle owns the terminal, the bridge stays silent."""
+    messages = _capture(monkeypatch, "emit_info")
+    success = _capture(monkeypatch, "emit_success")
+
+    class _ActivePanel:
+        active = True
+
+    monkeypatch.setattr(
+        "code_puppy.messaging.speculation_panel.get_speculation_panel",
+        lambda: _ActivePanel(),
+    )
+
+    bridge = CapabilityEventBridge()
+    await bridge._speculative_launched(
+        _CTX,
+        SpeculativeCallLaunchedEvent(
+            tool_call_id="p",
+            launch_id="p__spec_1",
+            sandbox_function="grep",
+            wrapped_tool_name="grep",
+            arguments={},
+            line_start=1,
+            line_end=1,
+        ),
+    )
+    await bridge._speculative_claimed(
+        _CTX,
+        SpeculativeCallClaimedEvent(
+            tool_call_id="p",
+            launch_id="p__spec_1",
+            nested_tool_call_id="p__1",
+            wrapped_tool_name="grep",
+            ready_at_claim=True,
+            elapsed_ms=1.0,
+        ),
+    )
+    await bridge._speculative_missed(
+        _CTX,
+        SpeculativeCallMissedEvent(
+            tool_call_id="p",
+            sandbox_function="grep",
+            wrapped_tool_name="grep",
+            nested_tool_call_id="p__1",
+        ),
+    )
+
+    assert messages == []
+    assert success == []

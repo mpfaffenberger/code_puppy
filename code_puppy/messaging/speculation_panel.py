@@ -90,6 +90,10 @@ class _Launch:
     state: str = "running"  # running | ready | failed | hit | wasted
     started: float = field(default_factory=time.monotonic)
     elapsed_ms: Optional[float] = None
+    ready_at_claim: Optional[bool] = None
+    """For hits: True when the result was already waiting at claim time (the
+    full call latency was hidden); False when the snippet had to wait for the
+    tail of the call (partial overlap)."""
 
     def clock_ms(self) -> float:
         if self.elapsed_ms is not None:
@@ -108,6 +112,12 @@ class SpeculationPanel:
         self._launches: Dict[str, _Launch] = {}
         self._misses: List[str] = []
         self._phase: str = "idle"  # idle | streaming | executing
+        # Session-cumulative speculation record, across every cycle this
+        # process has rendered; shown in each final reveal's footer.
+        self._session_hits = 0
+        self._session_hidden_ms = 0.0
+        self._session_misses = 0
+        self._session_wasted = 0
 
     # -- event intake ---------------------------------------------------
 
@@ -158,12 +168,23 @@ class SpeculationPanel:
         try:
             if self._phase == "idle":
                 return
+            self._session_hits += sum(
+                1 for c in self._launches.values() if c.state == "hit"
+            )
+            self._session_hidden_ms += sum(
+                c.elapsed_ms or 0.0 for c in self._launches.values() if c.state == "hit"
+            )
+            self._session_misses += len(self._misses)
+            self._session_wasted += sum(
+                1 for c in self._launches.values() if c.state == "wasted"
+            )
             live, console = self._live, self._console
             self._live = None
             if live is not None:
                 live.stop()
             if console is not None and self._code:
                 console.print(self._render_panel(final=True))
+                console.print(self._session_line())
             self._reset()
         except Exception:  # pragma: no cover
             logger.exception("speculation panel failed to finalize")
@@ -207,6 +228,7 @@ class SpeculationPanel:
             return
         launch.state = "hit"
         launch.elapsed_ms = event.elapsed_ms
+        launch.ready_at_claim = event.ready_at_claim
         self._refresh()
 
     def _on_missed(self, event: SpeculativeCallMissedEvent, console: Console) -> None:
@@ -271,6 +293,10 @@ class SpeculationPanel:
             if launch.state == "failed":
                 return Text(f"! {ms:5.0f}ms ", style="red")
             if launch.state == "hit":
+                # `hit` fully overlapped generation; `hit~` means the snippet
+                # still waited for the tail of the call at claim time.
+                if launch.ready_at_claim is False:
+                    return Text(f"hit~{ms:3.0f}ms ", style="yellow")
                 return Text(f"hit {ms:3.0f}ms ", style="bold green")
             if launch.state == "wasted":
                 return Text("wasted   ", style="grey50")
@@ -319,14 +345,26 @@ class SpeculationPanel:
         else:
             if hits:
                 hidden = sum(c.elapsed_ms or 0.0 for c in hits)
-                parts.append(f"hits {len(hits)} ({hidden:.0f}ms hidden)")
+                partial = sum(1 for c in hits if c.ready_at_claim is False)
+                detail = f"{hidden:.0f}ms hidden"
+                if partial:
+                    detail += f", {partial} partial"
+                parts.append(f"hits {len(hits)} ({detail})")
             if self._misses:
-                parts.append(f"misses {len(self._misses)}")
+                parts.append(f"misses {len(self._misses)} ({', '.join(self._misses)})")
             if wasted:
                 parts.append(f"wasted {wasted}")
             if not parts and self._phase == "executing":
                 parts.append("executing...")
         return Text("  " + " - ".join(parts) if parts else "", style="dim")
+
+    def _session_line(self) -> Text:
+        return Text(
+            f"  speculation this session: hits {self._session_hits} "
+            f"({self._session_hidden_ms / 1000.0:.1f}s hidden) - "
+            f"misses {self._session_misses} - wasted {self._session_wasted}",
+            style="dim",
+        )
 
     def _reset(self) -> None:
         self._console = None

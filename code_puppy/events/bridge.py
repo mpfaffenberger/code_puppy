@@ -177,16 +177,25 @@ class CapabilityEventBridge(AbstractCapability[Any]):
     # ------------------------------------------------------------------
     # `SpeculativeCodeUpdateEvent` is deliberately not rendered here: it
     # mirrors the model's delta cadence (one event per streamed chunk) and
-    # exists for a live TUI panel (grey streaming code with the
-    # closed-statement boundary highlighted), which consumes it straight
-    # from the run's event stream. The messaging bus gets the discrete
-    # transitions only.
+    # exists for the live SpeculationPanel, which consumes it straight
+    # from the run's event stream. The one-liners below are the fallback
+    # surface for contexts where no panel cycle owns the terminal (headless
+    # runs, events flushed after a retry); while a cycle is active the
+    # panel renders the same transitions and these listeners stay silent.
+
+    @staticmethod
+    def _panel_owns_the_stream() -> bool:
+        from code_puppy.messaging.speculation_panel import get_speculation_panel
+
+        return get_speculation_panel().active
 
     @on_event(SpeculativeCallLaunchedEvent)
     async def _speculative_launched(
         self, ctx: RunContext[Any], event: SpeculativeCallLaunchedEvent
     ) -> None:
         try:
+            if self._panel_owns_the_stream():
+                return
             from code_puppy.messaging import emit_info
 
             lines = (
@@ -207,6 +216,8 @@ class CapabilityEventBridge(AbstractCapability[Any]):
         self, ctx: RunContext[Any], event: SpeculativeCallSettledEvent
     ) -> None:
         try:
+            if self._panel_owns_the_stream():
+                return
             from code_puppy.messaging import emit_info
 
             if event.outcome == "ready":
@@ -227,6 +238,8 @@ class CapabilityEventBridge(AbstractCapability[Any]):
         self, ctx: RunContext[Any], event: SpeculativeCallClaimedEvent
     ) -> None:
         try:
+            if self._panel_owns_the_stream():
+                return
             from code_puppy.messaging import emit_success
 
             waited = (
@@ -246,6 +259,8 @@ class CapabilityEventBridge(AbstractCapability[Any]):
         self, ctx: RunContext[Any], event: SpeculativeCallMissedEvent
     ) -> None:
         try:
+            if self._panel_owns_the_stream():
+                return
             from code_puppy.messaging import emit_info
 
             emit_info(
@@ -259,6 +274,8 @@ class CapabilityEventBridge(AbstractCapability[Any]):
         self, ctx: RunContext[Any], event: SpeculativeCallEvictedEvent
     ) -> None:
         try:
+            if self._panel_owns_the_stream():
+                return
             from code_puppy.messaging import emit_info
 
             emit_info(
