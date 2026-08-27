@@ -249,6 +249,7 @@ async def main():
     callbacks.on_register_cli_args(parser)
 
     args = parser.parse_args()
+    _initialize_locale()
     if args.disable_ask_user_question:
         os.environ["CODE_PUPPY_DISABLE_ASK_USER_QUESTION"] = "1"
 
@@ -1597,7 +1598,6 @@ def _initialize_locale():
 def main_entry():
     """Entry point for the installed CLI tool."""
     _force_utf8_stdio()
-    _initialize_locale()
     try:
         # Capture main()'s return so plugins / normal paths set the exit status
         # (None → 0 or an int exit code).
