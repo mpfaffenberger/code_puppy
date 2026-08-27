@@ -59,7 +59,7 @@ class TestLoadConfigCorruption:
         assert "not [valid ini" in open(backups[0]).read()
 
     def test_invalid_utf8_is_quarantined(self, cfg_path):
-        cfg_path.write_bytes(b"\xff\xfe garbage \x00\x00 noutf8 [[[" )
+        cfg_path.write_bytes(b"\xff\xfe garbage \x00\x00 noutf8 [[[")
 
         config = config_file.load_config(str(cfg_path))
 
@@ -101,8 +101,7 @@ class TestLoadConfigCorruption:
             config_file.load_config(str(cfg_path))
 
         assert any(
-            "Windows locale fallback encoding" in message
-            for message in caplog.messages
+            "Windows locale fallback encoding" in message for message in caplog.messages
         )
 
     def test_windows_locale_fallback_rejects_non_ini_text(self, cfg_path, monkeypatch):
