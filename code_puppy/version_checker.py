@@ -74,8 +74,13 @@ def default_version_mismatch_behavior(current_version):
     )
     get_message_bus().emit(version_msg)
 
-    # Also emit plain text for legacy renderer
-    emit_info(t("version.current", version=current_version))
+    # Also emit plain text for legacy renderer. Chrome when nothing is
+    # wrong, so quiet_startup skips it -- the structured VersionCheckMessage
+    # above still carries update_available, so update notices are never lost.
+    from code_puppy.config import get_quiet_startup
+
+    if update_available or not get_quiet_startup():
+        emit_info(t("version.current", version=current_version))
 
     if update_available:
         emit_info(t("version.latest", version=latest_version))

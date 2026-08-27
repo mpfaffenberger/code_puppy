@@ -33,6 +33,7 @@ from code_puppy.config import (
     ensure_config_exists,
     finalize_autosave_session,
     get_current_session_name,
+    get_quiet_startup,
     initialize_command_history_file,
     record_terminal_session,
     save_command_to_history,
@@ -315,16 +316,17 @@ async def main():
             emit_system_message(t("cli.loading"))
 
         # Powered-by tagline under the big banner (prints even without pyfiglet).
-        display_console.print(
-            f"[dim]{t('cli.banner.powered_by')}[/dim] "
-            "[link=https://github.com/pydantic/pydantic-ai-harness]"
-            "[cyan]https://github.com/pydantic/pydantic-ai-harness[/cyan][/link]"
-        )
-        display_console.print(
-            f"[dim]{t('cli.banner.observability_pitch')}[/dim] "
-            "[link=https://pydantic.dev/logfire]"
-            "[cyan]https://pydantic.dev/logfire[/cyan][/link]\n"
-        )
+        if not get_quiet_startup():
+            display_console.print(
+                f"[dim]{t('cli.banner.powered_by')}[/dim] "
+                "[link=https://github.com/pydantic/pydantic-ai-harness]"
+                "[cyan]https://github.com/pydantic/pydantic-ai-harness[/cyan][/link]"
+            )
+            display_console.print(
+                f"[dim]{t('cli.banner.observability_pitch')}[/dim] "
+                "[link=https://pydantic.dev/logfire]"
+                "[cyan]https://pydantic.dev/logfire[/cyan][/link]\n"
+            )
 
         # Truecolor warning moved to interactive_mode() so it prints last — max visibility.
 
@@ -448,12 +450,15 @@ async def main():
         else:
             default_version_mismatch_behavior(current_version)
 
-    core_plugins_version = get_core_plugins_version()
-    if core_plugins_version is None:
-        core_plugins_message = t("version.core_plugins_unknown")
-    else:
-        core_plugins_message = t("version.core_plugins", version=core_plugins_version)
-    emit_system_message(core_plugins_message)
+    if not get_quiet_startup():
+        core_plugins_version = get_core_plugins_version()
+        if core_plugins_version is None:
+            core_plugins_message = t("version.core_plugins_unknown")
+        else:
+            core_plugins_message = t(
+                "version.core_plugins", version=core_plugins_version
+            )
+        emit_system_message(core_plugins_message)
 
     # One-shot sweep of legacy ~/.code_puppy/contexts/ into autosaves/ (idempotent
     # via sentinel). Must run before plugin startup callbacks read AUTOSAVE_DIR and
@@ -784,9 +789,11 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     # "[bold]...[/bold]" in the i18n string would show up as literal
     # brackets. A Text object bypasses that string branch entirely and
     # renders as one line, actually bold.
-    emit_system_message(Text(t("cli.help.press_tab"), style="bold"))
+    if not get_quiet_startup():
+        emit_system_message(Text(t("cli.help.press_tab"), style="bold"))
     # Print truecolor warning LAST so it's the most visible thing on startup
-    # Big ugly red box should be impossible to miss!
+    # Big ugly red box should be impossible to miss! Never gated on
+    # quiet_startup -- that flag hides chrome, never warnings.
     print_truecolor_warning(display_console)
 
     # Shell pass-through for initial_command: !<cmd> bypasses the agent

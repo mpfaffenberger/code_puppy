@@ -286,6 +286,26 @@ def get_suppress_directory_listing() -> bool:
     return get_truthy_bool_value("suppress_directory_listing", True)
 
 
+def get_quiet_startup() -> bool:
+    """Whether to skip decorative startup chrome.
+
+    Interactive startup prints nine messages before the prompt and only
+    one of them is situational -- the untrusted-hooks warning, which says
+    project hooks can run arbitrary shell commands. It renders with the
+    same weight as an install log, so the line that matters is the one
+    nobody reads.
+
+    When true, the purely decorative lines are skipped: the powered-by
+    tagline, the observability pitch, the two version banners, and the
+    Tab hint. Warnings, errors, and update notifications are never
+    suppressed by this flag.
+
+    Defaults to False so existing installs see no change; set
+    ``quiet_startup = true`` in ``puppy.cfg`` to opt in.
+    """
+    return get_truthy_bool_value("quiet_startup", False)
+
+
 DEFAULT_SECTION = "puppy"
 REQUIRED_KEYS = ["puppy_name", "owner_name"]
 
@@ -501,6 +521,8 @@ def get_config_keys():
     default_keys.append("enable_logfire")
     # Add suppress directory listing key
     default_keys.append("suppress_directory_listing")
+    # Skip decorative startup chrome (never warnings or errors)
+    default_keys.append("quiet_startup")
     # Add cancel agent key configuration
     default_keys.append("cancel_agent_key")
     # Max pause seconds: event_stream_handler's wait_if_paused() auto-resumes
