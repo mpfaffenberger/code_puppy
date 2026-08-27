@@ -162,6 +162,13 @@ async def event_stream_handler(
     # Use the module-level console (set via set_streaming_console)
     console = get_streaming_console()
 
+    # Live panel for speculative CodeMode runs (harness#699): renders the
+    # streaming run_code snippet with per-launch clocks from the typed
+    # code_mode.* capability events, then the hit/miss reveal at finalize.
+    from code_puppy.messaging.speculation_panel import get_speculation_panel
+
+    spec_panel = get_speculation_panel()
+
     # Track which part indices we're currently streaming (for Text/Thinking/Tool parts)
     streaming_parts: set[int] = set()
     thinking_parts: set[int] = set()  # Track which parts are thinking (for dim style)
@@ -334,8 +341,18 @@ async def event_stream_handler(
                 )
                 break
 
+            # ---- Speculative CodeMode panel (harness#699) -------------------
+            # The typed code_mode.* capability events own their own terminal
+            # region; everything else falls through to the normal renderer.
+            if spec_panel.handle_event(event, console):
+                did_stream_anything = True
+                continue
+
             # PartStartEvent - register the part but defer banner until content arrives
             if isinstance(event, PartStartEvent):
+                # A new part closes out any speculation cycle whose outcome
+                # events have already flushed.
+                spec_panel.finalize()
                 # Fire stream event callback for part_start
                 _fire_stream_event(
                     "part_start",
@@ -454,7 +471,7 @@ async def event_stream_handler(
 
                         # Use stored tool name; in low mode skip the progress
                         # counter — the RichConsoleRenderer peek suffices.
-                        if not _suppress_tool_progress():
+                        if not _suppress_tool_progress() and not spec_panel.active:
                             tool_name = tool_names.get(event.index, "")
                             count = token_count[event.index]
                             # Display tool progress without decorative icons.
@@ -471,6 +488,9 @@ async def event_stream_handler(
 
             # PartEndEvent - finish the streaming with a newline
             elif isinstance(event, PartEndEvent):
+                # Speculation cycle: args finished streaming, execution begins;
+                # the live region yields the console until the final reveal.
+                spec_panel.on_part_end()
                 # Fire stream event callback for part_end
                 _fire_stream_event(
                     "part_end",
@@ -559,6 +579,8 @@ async def event_stream_handler(
     except BaseException:
         # Cancelled/crashed mid-stream: the graceful drain never runs, orphaning
         # background drain tasks that keep typing into the terminal. Abort them.
+        # The speculation panel's live region would keep repainting too.
+        spec_panel.finalize()
         _abort_all_drainers()
         raise
 
@@ -573,3 +595,6 @@ async def event_stream_handler(
     for writer in list(termflow_writers.values()):
         await writer.close()
     termflow_writers.clear()
+    # Outcome events flush within this stream (after_tool_execute position),
+    # so stream end closes any remaining speculation cycle.
+    spec_panel.finalize()
