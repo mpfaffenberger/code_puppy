@@ -439,6 +439,7 @@ async def _invoke_agent_impl(
                     await autostart_bound_servers_async(manager, bound_agent_name)
                 mcp_servers = manager.get_servers_for_agent(agent_name=bound_agent_name)
 
+            from code_puppy.agents._code_mode import build_speculative_code_mode
             from code_puppy.agents._compaction import HistoryCompaction
             from code_puppy.agents._subagent_recursion import (
                 build_subagent_recursion_guard,
@@ -473,6 +474,10 @@ async def _invoke_agent_impl(
                     # the tool body runs. Sole wrap_tool_execute implementer,
                     # so position is inert.
                     *build_subagent_recursion_guard(agent_tools),
+                    # Speculative CodeMode: read-only tools fold into a
+                    # run_code sandbox with early launches during streaming
+                    # (harness#699 dogfood); same wiring as the main builder.
+                    *build_speculative_code_mode(agent_tools),
                     # LAST: app-side event bridge translating typed
                     # CapabilityEvents into legacy callbacks/messaging.
                     CapabilityEventBridge(agent=agent_config),

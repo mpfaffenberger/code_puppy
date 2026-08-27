@@ -16,7 +16,9 @@ dependencies = [
     # #7794 has merged into the #6258 stack (branch `emit-custom-events`);
     # restore the PyPI pin once #6258 lands on main and releases.
     "pydantic-ai-slim[openai,anthropic,mcp]>=2.35.0",
-    "pydantic-ai-harness==0.23.0",
+    # Dogfood: speculative CodeMode + its capability events from the harness
+    # POC branch (pydantic-ai-harness#699), sourced below.
+    "pydantic-ai-harness[code-mode]",
     "anyio>=4.7.0",
     "typer>=0.12.0",
     "mcp>=1.9.4",
@@ -118,6 +120,9 @@ python-preference = "only-managed"
 # that stack's head, containing #7794 plus five review-hardening commits.
 # Pinned by commit SHA so builds are reproducible while the stack evolves.
 pydantic-ai-slim = { git = "https://github.com/pydantic/pydantic-ai.git", rev = "8e7c6a4a01372c9efb31f81cef6a9d545a5df004", subdirectory = "pydantic_ai_slim" }
+# Speculative CodeMode POC (pydantic-ai-harness#699); its branch pins the
+# same pydantic-ai SDK rev as above. Restore PyPI pins when both release.
+pydantic-ai-harness = { git = "https://github.com/pydantic/pydantic-ai-harness", branch = "spec-code-mode-poc" }
 
 [dependency-groups]
 dev = [

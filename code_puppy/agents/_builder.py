@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from pydantic_ai import Agent as PydanticAgent
 from pydantic_ai.capabilities import ProcessHistory
 
+from code_puppy.agents._code_mode import build_speculative_code_mode
 from code_puppy.agents._compaction import HistoryCompaction
 from code_puppy.agents._model_message_transform import build_model_message_transform
 from code_puppy.agents._subagent_recursion import build_subagent_recursion_guard
@@ -681,6 +682,13 @@ def build_pydantic_agent(
                 # tool body runs). Sole wrap_tool_execute implementer, so
                 # position is inert.
                 *build_subagent_recursion_guard(agent_tools),
+                # Speculative CodeMode folds the read-only file tools into a
+                # run_code sandbox and launches literal-argument calls while
+                # the snippet is still streaming (harness#699 dogfood). Its
+                # own ordering is declared outermost by the capability, so
+                # list position is inert; its speculation lifecycle leaves as
+                # typed code_mode.* CapabilityEvents for the bridge below.
+                *build_speculative_code_mode(agent_tools),
                 # LAST: the app-side event bridge. Capabilities above emit
                 # typed CapabilityEvents; the bridge's @on_event listeners
                 # translate them into legacy callbacks/spinner/messaging.
