@@ -116,19 +116,28 @@ def _split_patch(patch_text: str) -> list[tuple[str, str, list[str], str | None]
     normalized = patch_text.replace("\r\n", "\n").replace("\r", "\n").strip("\n")
     raw_lines = normalized.split("\n")
     try:
-        begin = next(i for i, line in enumerate(raw_lines) if line.strip() == "*** Begin Patch")
+        begin = next(
+            i for i, line in enumerate(raw_lines) if line.strip() == "*** Begin Patch"
+        )
         end = next(
             i
             for i, line in enumerate(raw_lines)
             if i > begin and line.strip() == "*** End Patch"
         )
     except StopIteration:
-        raise PatchError("patch must begin with '*** Begin Patch' and end with '*** End Patch'")
+        raise PatchError(
+            "patch must begin with '*** Begin Patch' and end with '*** End Patch'"
+        )
     lines = raw_lines[begin : end + 1]
 
     def is_file_boundary(line: str) -> bool:
         return line.startswith(
-            ("*** Add File: ", "*** Delete File: ", "*** Update File: ", "*** End Patch")
+            (
+                "*** Add File: ",
+                "*** Delete File: ",
+                "*** Update File: ",
+                "*** End Patch",
+            )
         )
 
     entries: list[tuple[str, str, list[str], str | None]] = []
@@ -145,7 +154,9 @@ def _split_patch(patch_text: str) -> list[tuple[str, str, list[str], str | None]
             entries.append(("add", path, body, None))
             continue
         elif header.startswith("*** Delete File: "):
-            entries.append(("delete", header.removeprefix("*** Delete File: "), [], None))
+            entries.append(
+                ("delete", header.removeprefix("*** Delete File: "), [], None)
+            )
         elif header.startswith("*** Update File: "):
             path = header.removeprefix("*** Update File: ")
             body: list[str] = []
@@ -227,7 +238,15 @@ def parse_patch(patch_text: str, *, base_dir: str | None = None) -> list[PatchCh
             move_to = _safe_path(raw_move_to, base) if raw_move_to else None
             if move_to and fs_access.exists(move_to):
                 raise PatchError(f"cannot move over existing file: {raw_move_to}")
-            changes.append(PatchChange(path, old_content, new_content, "move" if move_to else "update", move_to))
+            changes.append(
+                PatchChange(
+                    path,
+                    old_content,
+                    new_content,
+                    "move" if move_to else "update",
+                    move_to,
+                )
+            )
     return changes
 
 
@@ -321,4 +340,8 @@ def register_apply_patch(agent):
         except PatchError as exc:
             return {"success": False, "changed": False, "error": str(exc)}
         except Exception as exc:
-            return {"success": False, "changed": False, "error": f"apply_patch failed: {exc}"}
+            return {
+                "success": False,
+                "changed": False,
+                "error": f"apply_patch failed: {exc}",
+            }

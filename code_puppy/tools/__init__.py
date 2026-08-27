@@ -105,6 +105,7 @@ def should_use_codex_patch(model_name: str | None) -> bool:
         or normalized.startswith("gpt-5")
     )
 
+
 # Legacy tool names we silently ignore. Truly removed tools only — working
 # aliases belong in TOOL_REGISTRY.
 REMOVED_LEGACY_TOOLS: set[str] = set()
