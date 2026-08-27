@@ -153,15 +153,14 @@ class SpeculationPanel:
     def on_part_end(self) -> None:
         """The `run_code` args finished streaming; the snippet now executes.
 
-        Stops the live region so the message bus can render tool output
-        without interleaving; the annotated panel prints at `finalize` once
-        the outcome events have arrived.
+        The live region stays up through execution (tool output is bus-quiet
+        during speculative runs), so one Live spans the whole cycle: its final
+        frame becomes the permanent reveal at `finalize`, with no clear-and-
+        reprint boundary to fight the terminal's scroll state.
         """
         if self._phase == "streaming":
             self._phase = "executing"
-            live, self._live = self._live, None
-            if live is not None:
-                live.stop()
+            self._refresh()
 
     def on_stream_end(self) -> None:
         """One event stream ended; keep an executing cycle alive for its outcomes.
@@ -193,8 +192,13 @@ class SpeculationPanel:
             live, console = self._live, self._console
             self._live = None
             if live is not None:
+                # The final frame is the permanent record: update in place and
+                # stop non-transiently, so nothing is cleared or reprinted.
+                live.update(self._render_panel(final=True), refresh=True)
                 live.stop()
-            if console is not None and self._code:
+                if console is not None:
+                    console.print(self._session_line())
+            elif console is not None and self._code:
                 console.print(self._render_panel(final=True))
                 console.print(self._session_line())
             self._reset()
@@ -273,11 +277,17 @@ class SpeculationPanel:
     def _ensure_live(self, console: Console) -> None:
         if self._live is not None:
             return
+        # One Live per cycle, kept until finalize. `transient=False` means the
+        # last frame persists in the scrollback instead of being cleared and
+        # reprinted -- the clear/reprint boundary is what scrambled scrolling.
+        # `crop` keeps an over-tall frame from scrolling the screen on every
+        # refresh; the streaming renderer also tail-clips the code to fit.
         self._live = Live(
             self,
             console=console,
             refresh_per_second=10,
-            transient=True,
+            transient=False,
+            vertical_overflow="crop",
         )
         self._live.start()
 
@@ -288,7 +298,11 @@ class SpeculationPanel:
     def __rich_console__(
         self, console: Console, options: ConsoleOptions
     ) -> RenderResult:
-        yield self._render_panel(final=False)
+        # Tail-clip live frames to the terminal: a frame taller than the screen
+        # makes Live scroll the whole window on every refresh. The newest lines
+        # are the interesting ones while code streams in.
+        max_code_lines = max(console.size.height - 8, 4)
+        yield self._render_panel(final=False, max_code_lines=max_code_lines)
 
     def _gutter_for_line(self, lineno: int) -> Text:
         for launch in self._launches.values():
@@ -314,13 +328,17 @@ class SpeculationPanel:
                 return Text("wasted   ", style="grey50")
         return Text(" " * (_GUTTER_WIDTH - 1))
 
-    def _render_panel(self, *, final: bool) -> Panel:
+    def _render_panel(self, *, final: bool, max_code_lines: int | None = None) -> Panel:
         body = Text()
         highlighted = Syntax("", "python", theme="ansi_dark").highlight(self._code)
         highlighted.rstrip()
         code_lines = highlighted.split("\n")
         raw_lines = self._code.rstrip("\n").split("\n")
-        for i, raw in enumerate(raw_lines):
+        first = 0
+        if max_code_lines is not None and len(raw_lines) > max_code_lines:
+            first = len(raw_lines) - max_code_lines
+            body.append(f"(+{first} earlier lines)\n", style="dim")
+        for i, raw in enumerate(raw_lines[first:], start=first):
             lineno = i + 1
             body.append_text(self._gutter_for_line(lineno))
             closed = lineno <= self._closed_line or final or self._phase == "executing"

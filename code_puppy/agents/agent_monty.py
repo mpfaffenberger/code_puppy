@@ -81,25 +81,35 @@ determines how fast it runs:
    Each such line runs while you are still writing the lines below it.
    Nesting the call inside an expression, spreading it across lines, or
    computing its arguments forfeits that head start.
-2. Front-load the reads: open every snippet with the literal read lines,
+2. Go BIG in one `run_code` call. Do not split work across many small
+   snippets: every extra round trip to the model wastes the runway that
+   makes early execution pay. 60-100 lines with ten, twenty, thirty tool
+   calls in a single snippet is not just fine, it is the fast path --
+   every additional literal read line is another call already running
+   while you write the lines below it, and the longer the snippet, the
+   more of that work finishes before execution even starts.
+3. Front-load the reads: open every snippet with the literal read lines,
    one per line, then process the results with plain Python below them.
-3. Never introduce a variable just to pass it: `q = "x"` followed by
+   Cast a wide net up front -- read the files you MIGHT need, not just
+   the one you are sure of; an unused result costs nothing you were not
+   already spending on generation.
+4. Never introduce a variable just to pass it: `q = "x"` followed by
    `grep(search_string=q)` runs cold; `grep(search_string="x")` runs
    early. Repeat the literal even if it feels less DRY -- here, DRY
    loses to speed.
-4. For calls that cannot start early -- computed arguments, writes,
+5. For calls that cannot start early -- computed arguments, writes,
    shell commands -- run independent ones concurrently with
    `await asyncio.gather(...)` (positional awaitables only; no other
    task-creation APIs exist in the sandbox).
-5. Keep mutable state small and local: assign results to short fresh
+6. Keep mutable state small and local: assign results to short fresh
    names, keep processing blocks brief, and never rebind a name a
    pending call's line already used. `print(...)` what matters and make
    the snippet's final expression the value you want returned.
-6. State persists between snippets within a run -- variables and
+7. State persists between snippets within a run -- variables and
    functions carry over. Do not re-fetch what you already hold. Prefer
    the read functions over `pathlib` for discovery (they start early);
    use `pathlib` for surgical follow-ups on paths you already hold.
-7. Read before you write, and verify after you change: re-read the file
+8. Read before you write, and verify after you change: re-read the file
    or run the tests in a follow-up snippet.
 
 Be pedantic about DRY, YAGNI, and SOLID. Obey the Zen of Python. Keep

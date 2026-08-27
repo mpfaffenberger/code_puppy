@@ -303,6 +303,33 @@ class TestSpeculationPanelLifecycle:
         assert not panel.active
         assert "run_code" in console.export_text()
 
+    def test_live_frames_tail_clip_to_the_terminal(self):
+        """A streaming frame taller than the screen would make Live scroll on every refresh."""
+        panel = SpeculationPanel()
+        console = Console(record=True, width=100, height=12, force_terminal=False)
+
+        long_code = "\n".join(f"x{i} = {i}" for i in range(50))
+        panel.handle_event(_update(long_code, 49), console)
+        console.print(panel)
+
+        output = console.export_text()
+        assert "(+46 earlier lines)" in output
+        assert "x49 = 49" in output
+        assert "x0 = 0" not in output
+        panel.finalize()
+
+    def test_final_reveal_renders_all_lines(self):
+        panel = SpeculationPanel()
+        console = Console(record=True, width=100, height=12, force_terminal=False)
+
+        long_code = "\n".join(f"x{i} = {i}" for i in range(50))
+        panel.handle_event(_update(long_code, 49), console)
+        panel.finalize()
+
+        output = console.export_text()
+        assert "x0 = 0" in output
+        assert "x49 = 49" in output
+
     def test_finalize_is_idempotent(self):
         panel = SpeculationPanel()
         panel.finalize()
