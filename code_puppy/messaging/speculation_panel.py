@@ -209,12 +209,11 @@ class SpeculationPanel:
     # -- event handlers -------------------------------------------------
 
     def _on_update(self, event: SpeculativeCodeUpdateEvent, console: Console) -> None:
-        """Per-delta hot path: cheap string state only.
+        """Per-delta path: repaint every event so the tail grows smoothly.
 
-        Update events arrive at the model's delta cadence on the event loop
-        that is also consuming the stream, so no painting happens here (the
-        Live auto-refresh thread renders at 10fps) and the boundary search
-        only reruns when a statement actually closed.
+        The boundary search only reruns when a statement actually closed and
+        the highlight is cached per code revision, so the per-event repaint
+        stays cheap.
         """
         if self._phase == "idle":
             self._phase = "streaming"
@@ -226,6 +225,7 @@ class SpeculationPanel:
                 event.code, event.closed_statements
             )
         self._ensure_live(console)
+        self._refresh()
 
     def _on_launched(self, event: SpeculativeCallLaunchedEvent) -> None:
         self._launches[event.launch_id] = _Launch(
@@ -233,12 +233,14 @@ class SpeculationPanel:
             line_end=event.line_end,
             label=event.wrapped_tool_name,
         )
+        self._refresh()
 
     def _on_settled(self, event: SpeculativeCallSettledEvent) -> None:
         launch = self._launches.get(event.launch_id)
         if launch is not None:
             launch.state = event.outcome
             launch.elapsed_ms = event.elapsed_ms
+            self._refresh()
 
     def _on_claimed(self, event: SpeculativeCallClaimedEvent, console: Console) -> None:
         launch = self._launches.get(event.launch_id)
@@ -254,6 +256,7 @@ class SpeculationPanel:
         launch.state = "hit"
         launch.elapsed_ms = event.elapsed_ms
         launch.ready_at_claim = event.ready_at_claim
+        self._refresh()
 
     def _on_missed(self, event: SpeculativeCallMissedEvent, console: Console) -> None:
         if self._phase == "idle":
@@ -265,6 +268,7 @@ class SpeculationPanel:
             )
             return
         self._misses.append(event.wrapped_tool_name)
+        self._refresh()
 
     def _on_evicted(self, event: SpeculativeCallEvictedEvent, console: Console) -> None:
         launch = self._launches.get(event.launch_id)
@@ -277,8 +281,13 @@ class SpeculationPanel:
             )
             return
         launch.state = "wasted"
+        self._refresh()
 
     # -- rendering ------------------------------------------------------
+
+    def _refresh(self) -> None:
+        if self._live is not None:
+            self._live.refresh()
 
     def _ensure_live(self, console: Console) -> None:
         if self._live is not None:
