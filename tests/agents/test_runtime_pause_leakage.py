@@ -256,10 +256,10 @@ def test_steer_queued_mid_run_is_injected_via_history_processor():
     This is a unit test on the processor itself (we can't drive a real
     pydantic-ai agent in CI), but it locks the contract: queue a steer,
     invoke the processor, the steer shows up in the returned messages.
-    The actual pydantic-ai → ProcessHistory → model wiring is verified
+    The actual pydantic-ai → capability-chain → model wiring is verified
     by the unit tests in ``test_steer_history_processor.py`` and by the
-    ``_builder.py`` wiring (``capabilities=[ProcessHistory(compaction),
-    ProcessHistory(steer)]``).
+    ``_builder.py`` wiring (``capabilities=[HistoryCompaction(agent),
+    ProcessHistory(steer_processor), ...]``).
     """
     from unittest.mock import Mock
 
@@ -295,17 +295,17 @@ def test_steer_processor_is_wired_into_builder_after_compaction():
     from code_puppy.agents import _builder
 
     src = inspect.getsource(_builder)
-    # Both processors must be referenced in the builder.
+    # Both capabilities must be referenced in the builder.
     assert "make_steer_history_processor" in src
-    assert "make_history_processor" in src
+    assert "HistoryCompaction" in src
     # Order is checked textually against the capabilities list literal;
-    # ProcessHistory capabilities apply in registration order.
+    # before_model_request capabilities apply in registration order.
     cap_start = src.find("capabilities=[")
-    assert cap_start >= 0, "builder must register capabilities=[ProcessHistory(...)]"
+    assert cap_start >= 0, "builder must register a capabilities=[...] list"
     cap_block = src[cap_start : src.find("]", cap_start)]
-    # Just sanity-check both names appear and history_processor comes first.
-    h_idx = cap_block.find("ProcessHistory(history_processor)")
+    # Just sanity-check both names appear and compaction comes first.
+    h_idx = cap_block.find("history_compaction")
     s_idx = cap_block.find("ProcessHistory(steer_processor)")
     assert h_idx >= 0 and s_idx > h_idx, (
-        f"steer_processor must come AFTER history_processor: {cap_block!r}"
+        f"steer_processor must come AFTER history_compaction: {cap_block!r}"
     )
