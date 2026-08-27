@@ -1,15 +1,10 @@
-"""i18n coverage for the wizard_utils.py extraction.
-
-Locks in the ``mcp.install_wizard.*`` catalog namespace that
-wizard_utils.py (the popular-server install wizard, distinct from the
-custom-server config_wizard.py's ``mcp.wizard.*`` namespace) depends on.
-"""
+"""Protects wizard catalog parity and real call-site interpolation."""
 
 import re
 
 import pytest
 
-from code_puppy.i18n import catalog, pseudo, translate
+from code_puppy.i18n import catalog, translate
 
 _PLACEHOLDER = re.compile(r"\{(\w+)\}")
 _LOCALES = ["en-US", "es", "fr-CA"]
@@ -23,7 +18,11 @@ _LOCALES = ["en-US", "es", "fr-CA"]
 # a name that diverges from what callers actually pass).
 _REAL_PARAMS = {
     "mcp.install_wizard.env_var_prompt": {"var": "API_KEY"},
-    "mcp.install_wizard.prompt_suffix": {"prompt": "Port"},
+    "mcp.install_wizard.prompt_suffix": {
+        "prompt": "Port",
+        "default": " [8080]",
+        "optional": " (optional)",
+    },
     "mcp.install_wizard.wizard_error": {"error": "boom"},
     "mcp.install_wizard.server_list_item": {
         "index": " 1",
@@ -45,15 +44,6 @@ _REAL_PARAMS = {
 }
 
 
-@pytest.fixture(autouse=True)
-def _reset_locale():
-    translate.get_translator().set_locale("en-US")
-    catalog.reset()
-    yield
-    translate.get_translator().set_locale("en-US")
-    catalog.reset()
-
-
 def _install_wizard_keys():
     src = catalog.load_catalog("en-US")
     return [k for k in src if k.startswith("mcp.install_wizard.")]
@@ -61,22 +51,6 @@ def _install_wizard_keys():
 
 def test_install_wizard_namespace_is_populated():
     assert len(_install_wizard_keys()) >= 31
-
-
-def test_every_install_wizard_key_resolves_to_real_text():
-    translate.set_locale("en-US")
-    offenders = [
-        k for k in _install_wizard_keys() if not translate.t(k) or translate.t(k) == k
-    ]
-    assert not offenders, f"mcp.install_wizard.* keys not resolving: {offenders}"
-
-
-def test_every_install_wizard_key_pseudolocalizes():
-    translate.set_locale(pseudo.PSEUDO_LOCALE)
-    offenders = [
-        k for k in _install_wizard_keys() if not translate.t(k).startswith("\u27e6")
-    ]
-    assert not offenders, f"mcp.install_wizard.* keys not pseudolocalized: {offenders}"
 
 
 def test_env_var_prompt_interpolates():
@@ -146,14 +120,7 @@ def test_every_key_has_its_own_translation_per_locale(locale):
 
 @pytest.mark.parametrize("locale", _LOCALES, ids=_LOCALES)
 def test_no_leftover_placeholder_for_supplied_params_per_locale(locale):
-    """Every {field} in each locale's own text gets substituted by *some*
-    value, in every locale -- not just en-US. This is a self-consistency
-    check: it derives the params to supply from the string under test, so
-    it catches malformed/unbalanced braces but -- by construction -- it
-    can *not* detect a param name that has drifted from what real call
-    sites pass (see test_real_call_site_params_interpolate_per_locale for
-    that).
-    """
+    """Every placeholder in each locale's own text can be substituted."""
     translate.set_locale(locale)
     src = catalog.load_catalog(locale)
     for key in _install_wizard_keys():

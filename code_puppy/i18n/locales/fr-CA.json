@@ -253,7 +253,7 @@
   "mcp.install_wizard.catalog_unavailable": "Catalogue de serveurs non disponible",
   "mcp.install_wizard.select_prompt": "Entrez un numéro (1-{count}) ou 'q' pour quitter : ",
   "mcp.install_wizard.env_vars_header": "Variables d'environnement requises :",
-  "mcp.install_wizard.prompt_suffix": "{prompt} : ",
+  "mcp.install_wizard.prompt_suffix": "  {prompt}{default}{optional} : ",
   "mcp.install_wizard.no_servers": "Aucun serveur disponible dans le catalogue",
   "mcp.install_wizard.name_prompt": "Entrez le nom de ce serveur [{default_name}] : ",
   "mcp.install_wizard.install_success": "Serveur installé avec succès : {server_name}",

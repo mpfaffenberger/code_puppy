@@ -98,15 +98,17 @@ def run_interactive_install_wizard(manager, group_id: str) -> bool:
 
                 # If required or has default, prompt user
                 if required or default:
-                    arg_prompt = f"  {prompt}"
-                    if default:
-                        arg_prompt += f" [{default}]"
-                    if not required:
-                        arg_prompt += " " + t("mcp.install_wizard.optional_suffix")
-
-                    value = emit_prompt(
-                        t("mcp.install_wizard.prompt_suffix", prompt=arg_prompt)
-                    ).strip()
+                    prompt_text = t(
+                        "mcp.install_wizard.prompt_suffix",
+                        prompt=prompt,
+                        default=f" [{default}]" if default else "",
+                        optional=(
+                            t("mcp.install_wizard.optional_suffix")
+                            if not required
+                            else ""
+                        ),
+                    )
+                    value = emit_prompt(prompt_text).strip()
                     if value:
                         cmd_args[name] = value
                     elif default:

@@ -367,7 +367,7 @@
   "mcp.install_wizard.catalog_unavailable": "Server catalog not available",
   "mcp.install_wizard.select_prompt": "Enter number (1-{count}) or 'q' to quit: ",
   "mcp.install_wizard.env_vars_header": "Required Environment Variables:",
-  "mcp.install_wizard.prompt_suffix": "{prompt}: ",
+  "mcp.install_wizard.prompt_suffix": "  {prompt}{default}{optional}: ",
   "mcp.install_wizard.optional_suffix": "(optional)",
   "mcp.install_wizard.env_vars_summary_header": "Environment Variables:",
   "mcp.install_wizard.intro": "This wizard will help you install pre-configured MCP servers",
