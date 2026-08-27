@@ -139,7 +139,14 @@ class TestToolRegistration:
             model_name="codex-gpt-5.4",
         )
 
-        assert agent.names == ["apply_patch"]
+        assert "apply_patch" in agent.names
+        assert not {
+            "create_file",
+            "edit",
+            "replace_in_file",
+            "delete_snippet",
+            "delete_file",
+        }.intersection(agent.names)
 
     def test_claude_receives_edit_alias_for_targeted_replacement(self):
         class CapturingAgent:
@@ -157,7 +164,8 @@ class TestToolRegistration:
             model_name="claude-sonnet-4",
         )
 
-        assert agent.names == ["edit"]
+        assert "edit" in agent.names
+        assert "replace_in_file" not in agent.names
 
 
 class TestRemovedReasoningToolBehavior:

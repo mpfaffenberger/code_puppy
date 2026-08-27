@@ -19,10 +19,10 @@ backends continue to work.
 
 from __future__ import annotations
 
-import os
 import difflib
+import os
 from dataclasses import dataclass
-from typing import Any, Dict, List, Sequence
+from typing import Any, Dict, Sequence
 
 from pydantic import BaseModel
 from pydantic_ai import RunContext
@@ -122,7 +122,7 @@ def _split_patch(patch_text: str) -> list[tuple[str, str, list[str], str | None]
             for i, line in enumerate(raw_lines)
             if i > begin and line.strip() == "*** End Patch"
         )
-    except StopIteration as exc:
+    except StopIteration:
         raise PatchError("patch must begin with '*** Begin Patch' and end with '*** End Patch'")
     lines = raw_lines[begin : end + 1]
 
