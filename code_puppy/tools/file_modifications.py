@@ -377,6 +377,65 @@ def _delete_snippet_from_file(
         return {"error": str(exc), "diff": diff_text}
 
 
+def apply_replacements_to_content(
+    content: str, replacements: List[Dict[str, Any]]
+) -> Dict[str, Any]:
+    """Apply Claude Code-parity replacements to ``content`` (pure, no I/O).
+
+    Returns ``{"content": new_content}`` on success or ``{"error": message}``
+    using Claude Code's verbatim FileEditTool error strings. This is the
+    single source of truth for replacement semantics: the ``edit`` /
+    ``replace_in_file`` tools and permission-preview rendering (e.g. the
+    ``file_permission_handler`` core plugin) must all go through it so a
+    preview always shows exactly what the engine will do.
+    """
+    modified = content
+    for rep in replacements:
+        old_snippet = rep.get("old_str", "")
+        new_snippet = rep.get("new_str", "")
+        replace_all = bool(rep.get("replace_all", False))
+
+        # Claude Code FileEditTool.validateInput parity: refuse no-op
+        # edits, unmatched strings, and ambiguous matches instead of
+        # guessing (silent wrong-location edits) or fuzzy-matching.
+        if old_snippet == new_snippet:
+            return {
+                "error": (
+                    "No changes to make: old_string and new_string are "
+                    "exactly the same."
+                )
+            }
+
+        actual_old = _find_actual_string(modified, old_snippet) if old_snippet else None
+        if actual_old is None:
+            return {
+                "error": (
+                    f"String to replace not found in file.\nString: {old_snippet}"
+                )
+            }
+
+        matches = modified.count(actual_old)
+        if matches > 1 and not replace_all:
+            return {
+                "error": (
+                    f"Found {matches} matches of the string to replace, "
+                    "but replace_all is false. To replace all occurrences, "
+                    "set replace_all to true. To replace only one "
+                    "occurrence, please provide more context to uniquely "
+                    "identify the instance.\n"
+                    f"String: {old_snippet}"
+                )
+            }
+
+        actual_new = _preserve_quote_style(old_snippet, actual_old, new_snippet)
+        if replace_all:
+            modified = modified.replace(actual_old, actual_new)
+        else:
+            modified = modified.replace(actual_old, actual_new, 1)
+
+    return {"content": modified}
+
+
 def _replace_in_file(
     context: RunContext | None,
     path: str,
@@ -401,54 +460,10 @@ def _replace_in_file(
         except (UnicodeEncodeError, UnicodeDecodeError):
             pass
 
-        modified = original
-        for rep in replacements:
-            old_snippet = rep.get("old_str", "")
-            new_snippet = rep.get("new_str", "")
-            replace_all = bool(rep.get("replace_all", False))
-
-            # Claude Code FileEditTool.validateInput parity: refuse no-op
-            # edits, unmatched strings, and ambiguous matches instead of
-            # guessing (silent wrong-location edits) or fuzzy-matching.
-            if old_snippet == new_snippet:
-                return {
-                    "error": (
-                        "No changes to make: old_string and new_string are "
-                        "exactly the same."
-                    ),
-                    "diff": "",
-                }
-
-            actual_old = (
-                _find_actual_string(modified, old_snippet) if old_snippet else None
-            )
-            if actual_old is None:
-                return {
-                    "error": (
-                        f"String to replace not found in file.\nString: {old_snippet}"
-                    ),
-                    "diff": "",
-                }
-
-            matches = modified.count(actual_old)
-            if matches > 1 and not replace_all:
-                return {
-                    "error": (
-                        f"Found {matches} matches of the string to replace, "
-                        "but replace_all is false. To replace all occurrences, "
-                        "set replace_all to true. To replace only one "
-                        "occurrence, please provide more context to uniquely "
-                        "identify the instance.\n"
-                        f"String: {old_snippet}"
-                    ),
-                    "diff": "",
-                }
-
-            actual_new = _preserve_quote_style(old_snippet, actual_old, new_snippet)
-            if replace_all:
-                modified = modified.replace(actual_old, actual_new)
-            else:
-                modified = modified.replace(actual_old, actual_new, 1)
+        engine_result = apply_replacements_to_content(original, replacements)
+        if "error" in engine_result:
+            return {"error": engine_result["error"], "diff": ""}
+        modified = engine_result["content"]
 
         if modified == original:
             emit_warning(
