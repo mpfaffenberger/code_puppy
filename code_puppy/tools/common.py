@@ -150,6 +150,23 @@ def resolve_path(file_path: str) -> str:
     return os.path.abspath(os.path.join(get_working_directory(), expanded))
 
 
+def _no_color_setting() -> bool | None:
+    """Resolve the ``no_color`` argument for a Rich ``Console``.
+
+    ``CODE_PUPPY_NO_COLOR=1`` forces color off. Otherwise return ``None``
+    rather than ``False``: Rich only auto-detects the cross-tool
+    ``NO_COLOR`` standard (no-color.org) when ``no_color`` is left unset,
+    so passing an explicit ``False`` silently *overrides* that support and
+    keeps emitting SGR codes for users who asked for none. ``splash.py``
+    already honors ``NO_COLOR``; half-honoring a standard is worse than
+    ignoring it, because the user watches the splash obey and reasonably
+    assumes the rest did too.
+    """
+    if bool(int(os.environ.get("CODE_PUPPY_NO_COLOR", "0"))):
+        return True
+    return None
+
+
 # Import our queue-based console system
 try:
     from code_puppy.messaging import (
@@ -161,15 +178,13 @@ try:
     )
 
     # Use queue console by default, but allow fallback
-    NO_COLOR = bool(int(os.environ.get("CODE_PUPPY_NO_COLOR", "0")))
-    _rich_console = Console(no_color=NO_COLOR)
+    _rich_console = Console(no_color=_no_color_setting())
     console = get_queue_console()
     # Set the fallback console for compatibility
     console.fallback_console = _rich_console
 except ImportError:
     # Fallback to regular Rich console if messaging system not available
-    NO_COLOR = bool(int(os.environ.get("CODE_PUPPY_NO_COLOR", "0")))
-    console = Console(no_color=NO_COLOR)
+    console = Console(no_color=_no_color_setting())
 
     # Provide fallback emit functions
     def emit_error(msg: str) -> None:
