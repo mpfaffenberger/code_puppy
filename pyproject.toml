@@ -11,7 +11,10 @@ requires-python = ">=3.11,<3.15"
 dependencies = [
     "code-puppy-core-plugins>=0.0.27",
     "logfire>=4.0",
-    "pydantic-ai-slim[openai,anthropic,mcp]==2.35.0",
+    # TEMPORARY (integration branch only): pinned to the pydantic-ai #7794
+    # CapabilityEvent SDK PR head via [tool.uv.sources] below. Restore the
+    # PyPI pin once https://github.com/pydantic/pydantic-ai/pull/7794 ships.
+    "pydantic-ai-slim[openai,anthropic,mcp]>=2.35.0",
     "pydantic-ai-harness==0.23.0",
     "anyio>=4.7.0",
     "typer>=0.12.0",
@@ -107,6 +110,11 @@ omit = ["code_puppy/main.py"]
 
 [tool.uv]
 python-preference = "only-managed"
+
+[tool.uv.sources]
+# pydantic-ai #7794 (CapabilityEvent / on_event / emit_event SDK), unmerged.
+# Pinned by commit SHA so builds are reproducible while the PR evolves.
+pydantic-ai-slim = { git = "https://github.com/pydantic/pydantic-ai.git", rev = "13051f947c915482c1ffa0da8539a7a70ecede50", subdirectory = "pydantic_ai_slim" }
 
 [dependency-groups]
 dev = [
