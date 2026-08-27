@@ -6,15 +6,21 @@ requests, a dedicated summarization sub-agent with its own thread pool... All
 of that now lives in ``pydantic_ai_harness.compaction``, whose strategies
 preserve tool-call/tool-return pairing and provider ordering for us.
 
+The capability itself (``HistoryCompaction``) is now *pure* and lives in
+``code_puppy.capabilities.compaction``, staged for upstreaming: it takes
+its state through the ``CompactionStore`` protocol, its policy through
+injected callables, and reports exclusively through the ``compaction.*``
+capability-event family (pydantic-ai #7794). The application-side
+listeners live in ``code_puppy.events.bridge``.
+
 What remains here is the Code Puppy-specific glue:
 
   * ``build_compaction_strategy`` — config → ``FallbackCompaction`` wiring
     (summarize first, slide the window when summarization fails);
-  * the trigger check (``compaction_threshold * model context length``,
-    both from ``config.py``), reusing the same token estimates that feed
-    the spinner context badge;
-  * ``HistoryCompaction`` — the pydantic-ai capability owning the agent's
-    message accumulator, dedup hashes, and post-compaction hygiene.
+  * ``CodePuppyCompactionStore`` — the store adapter over an agent;
+  * ``build_history_compaction`` — dependency injection for the pure
+    capability (config getters bound late so monkeypatching works);
+  * the legacy ``compact()`` / ``HistoryCompaction(agent)`` shims.
 
 Manual ``/compact`` and ``/truncate`` drive the same strategies through the
 harness's ``compact_now`` (see ``run_compaction_sync``).
@@ -25,16 +31,14 @@ from __future__ import annotations
 import dataclasses
 from typing import Any, List, Optional, Set, Tuple
 
-from pydantic_ai.capabilities import AbstractCapability
 from pydantic_ai.exceptions import (
     FallbackExceptionGroup,
     ModelAPIError,
     UsageLimitExceeded,
 )
-from pydantic_ai.messages import ModelMessage, ModelResponse, ThinkingPart
-from pydantic_ai.models import Model, ModelRequestContext
+from pydantic_ai.messages import ModelMessage
+from pydantic_ai.models import Model
 from pydantic_ai.tools import RunContext
-from pydantic_ai.usage import RunUsage
 from pydantic_ai_harness.compaction import (
     FallbackCompaction,
     SlidingWindowCompaction,
@@ -47,9 +51,11 @@ from code_puppy.agents._history import (
     hash_message,
     sanitize_tool_call_ids,
 )
-from code_puppy.callbacks import (
-    on_message_history_processor_end,
-    on_message_history_processor_start,
+from code_puppy.capabilities.compaction import (
+    HistoryCompaction as PureHistoryCompaction,
+)
+from code_puppy.capabilities.compaction import (
+    strip_empty_thinking_parts,
 )
 from code_puppy.config import (
     get_compaction_strategy,
@@ -58,8 +64,15 @@ from code_puppy.config import (
     get_protected_token_count,
     get_summarization_model_name,
 )
-from code_puppy.messaging import emit_error, emit_success, emit_warning
-from code_puppy.messaging.spinner import format_context_info, update_spinner_context
+from code_puppy.messaging import emit_warning
+
+# Kept importable at module level for the context-indicator plugin, which
+# monkeypatches ``_compaction.update_spinner_context`` — the event bridge
+# routes spinner updates through this name so the patch keeps working.
+from code_puppy.messaging.spinner import (  # noqa: F401
+    format_context_info,
+    update_spinner_context,
+)
 
 # ---------------------------------------------------------------------------
 # Strategy construction
@@ -162,7 +175,98 @@ def run_compaction_sync(strategy: Any, messages: List[ModelMessage], *, model: M
 
 
 # ---------------------------------------------------------------------------
-# In-run compaction
+# Capability wiring (Code Puppy → pure capability)
+# ---------------------------------------------------------------------------
+
+
+@dataclasses.dataclass
+class CodePuppyCompactionStore:
+    """`CompactionStore` adapter over a Code Puppy agent.
+
+    The only place the pure ``HistoryCompaction`` capability's state
+    contract meets Code Puppy's agent attributes.
+    """
+
+    agent: Any
+
+    def get_history(self) -> List[ModelMessage]:
+        return self.agent._message_history
+
+    def replace_history(self, messages: List[ModelMessage]) -> None:
+        self.agent._message_history = messages
+
+    def compacted_hashes(self) -> Set[str]:
+        return self.agent._compacted_message_hashes
+
+    def model_max_tokens(self) -> int:
+        return self.agent._get_model_context_length()
+
+    def context_overhead(self) -> int:
+        return self.agent._estimate_context_overhead()
+
+    def model_name(self) -> Optional[str]:
+        if self.agent is None:
+            return None
+        try:
+            return self.agent.get_model_name()
+        except Exception:
+            return None
+
+    def identity(self) -> Tuple[Optional[str], Optional[str]]:
+        return (
+            getattr(self.agent, "name", None),
+            getattr(self.agent, "session_id", None),
+        )
+
+
+def _take_forced_compaction_request() -> bool:
+    from code_puppy.messaging.pause_controller import get_pause_controller
+
+    return get_pause_controller().take_compaction_request()
+
+
+def build_history_compaction(agent: Any) -> PureHistoryCompaction:
+    """Build the pure ``HistoryCompaction`` capability wired to Code Puppy.
+
+    All Code Puppy specifics are injected here; the capability itself has
+    no knowledge of Code Puppy and reports through the ``compaction.*``
+    capability-event family, which ``CapabilityEventBridge`` translates
+    into legacy callbacks/spinner/messaging.
+
+    Config getters are referenced late (through this module's globals) so
+    tests and plugins that monkeypatch ``_compaction.get_compaction_*``
+    keep working.
+    """
+    return PureHistoryCompaction(
+        store=CodePuppyCompactionStore(agent),
+        strategy_factory=lambda: build_compaction_strategy(),
+        strategy_name=lambda: get_compaction_strategy(),
+        compaction_threshold=lambda: get_compaction_threshold(),
+        token_estimator=estimate_tokens_for_message,
+        message_hasher=hash_message,
+        history_sanitizer=sanitize_tool_call_ids,
+        force_poll=_take_forced_compaction_request,
+    )
+
+
+def HistoryCompaction(agent: Any) -> PureHistoryCompaction:  # noqa: N802
+    """Backwards-compatible constructor-shaped factory.
+
+    Historical call sites (and tests) built ``HistoryCompaction(agent)``
+    directly; the capability is now pure and dependency-injected, so this
+    factory performs the Code Puppy wiring.
+    """
+    return build_history_compaction(agent)
+
+
+# Preserve the historical class-level API surface on the factory shim.
+HistoryCompaction.get_serialization_name = (  # type: ignore[attr-defined]
+    PureHistoryCompaction.get_serialization_name
+)
+
+
+# ---------------------------------------------------------------------------
+# Legacy direct-call compaction (tests + non-capability callers)
 # ---------------------------------------------------------------------------
 
 
@@ -175,252 +279,22 @@ async def compact(
     *,
     force: bool = False,
 ) -> Tuple[List[ModelMessage], List[ModelMessage]]:
-    """Unified in-run compaction entrypoint.
+    """Measure + compact ``messages`` directly (legacy signature).
 
-    Args:
-        agent: The owning agent. Used to resolve the active model name so
-            token estimates can apply per-model calibration multipliers.
-        messages: Current message history (already accumulated by the caller).
-        model_max: Effective model context window in tokens.
-        context_overhead: Estimated overhead for system prompt + tool schemas.
-        ctx: The live pydantic-ai ``RunContext`` — passing it through means
-            the summarizer's usage folds into the run's accounting.
-        force: Compact regardless of the configured context threshold. Used by
-            mid-run ``/compact`` at the next safe model-call boundary.
-
-    Returns:
-        ``(new_messages, dropped_messages_for_hash_tracking)``. On any
-        compaction failure the original messages come back untouched — the
-        run must always survive a failed compaction.
+    Thin wrapper over the pure capability's ``measure_and_compact`` so
+    there is exactly one compaction driver. Observation (spinner,
+    pre-compact hooks, failure messaging) rides the ``compaction.*``
+    events, which only dispatch when ``ctx`` belongs to a live run.
     """
-    model_name: Optional[str] = None
-    if agent is not None:
-        try:
-            model_name = agent.get_model_name()
-        except Exception:
-            model_name = None
-
-    message_tokens = sum(estimate_tokens_for_message(m, model_name) for m in messages)
-    total_tokens = message_tokens + context_overhead
-    proportion_used = total_tokens / model_max if model_max else 0.0
-
-    update_spinner_context(
-        format_context_info(total_tokens, model_max, proportion_used)
+    capability = build_history_compaction(agent)
+    return await capability.measure_and_compact(
+        ctx,
+        messages,
+        model_max=model_max,
+        context_overhead=context_overhead,
+        force=force,
     )
 
-    if not force and proportion_used <= get_compaction_threshold():
-        return messages, []
 
-    # Fire pre_compact hooks so Claude Code-style PreCompact hooks (and any
-    # other plugins) can observe / log compactions. Result is advisory.
-    try:
-        from code_puppy.callbacks import on_pre_compact
-
-        agent_name = getattr(agent, "name", "unknown") if agent else "unknown"
-        await on_pre_compact(
-            agent_name, get_compaction_strategy(), len(messages), total_tokens
-        )
-    except Exception:
-        # Hooks must never break compaction.
-        pass
-
-    # Oversized-payload guarding is no longer done here: ToolOutputLimits
-    # bounds tool returns at production time and ClampOversizedMessages
-    # clamps runaway response parts at request time (see _output_limits.py),
-    # both wired as pure capabilities in _builder.py.
-    try:
-        strategy = build_compaction_strategy()
-        # pydantic-ai-harness#528: shared usage + default request_limit=50 kills
-        # the summary past 50 parent requests. Detach the ledger, fold it back.
-        summary_usage = RunUsage()
-        strategy_ctx = dataclasses.replace(ctx, usage=summary_usage)
-        try:
-            result = await strategy.compact(list(messages), strategy_ctx)
-        finally:
-            ctx.usage.incr(summary_usage)
-    except Exception as e:
-        emit_error(f"Compaction failed: [{type(e).__name__}] {e}")
-        return messages, []
-
-    result_hashes = {hash_message(m) for m in result}
-    dropped = [m for m in messages if hash_message(m) not in result_hashes]
-
-    final_token_count = sum(estimate_tokens_for_message(m, model_name) for m in result)
-    update_spinner_context(
-        format_context_info(
-            final_token_count,
-            model_max,
-            final_token_count / model_max if model_max else 0.0,
-        )
-    )
-    return result, dropped
-
-
-# ---------------------------------------------------------------------------
-# History-compaction capability
-# ---------------------------------------------------------------------------
-
-
-def _strip_empty_thinking_parts(
-    messages: List[ModelMessage],
-) -> Tuple[List[ModelMessage], int]:
-    """Remove empty ThinkingParts without discarding replay signatures."""
-    cleaned: List[ModelMessage] = []
-    filtered_count = 0
-    for msg in messages:
-        parts = list(msg.parts)
-        if (
-            len(parts) == 1
-            and isinstance(parts[0], ThinkingPart)
-            and not parts[0].content
-            and not parts[0].signature
-        ):
-            filtered_count += 1
-            continue
-        if any(
-            isinstance(p, ThinkingPart) and not p.content and not p.signature
-            for p in parts
-        ):
-            msg = dataclasses.replace(
-                msg,
-                parts=[
-                    p
-                    for p in parts
-                    if not (
-                        isinstance(p, ThinkingPart)
-                        and not p.content
-                        and not p.signature
-                    )
-                ],
-            )
-            if not msg.parts:
-                filtered_count += 1
-                continue
-        cleaned.append(msg)
-    return cleaned, filtered_count
-
-
-@dataclasses.dataclass
-class HistoryCompaction(AbstractCapability[Any]):
-    """First-class capability owning in-run history accumulation + compaction.
-
-    Overrides ``before_model_request`` — the exact seam the generic
-    ``ProcessHistory`` capability uses internally — so registration order
-    against neighbouring capabilities (steer injection, response clamp) is
-    preserved byte-for-byte. On every model request it:
-
-      1. Fires ``on_message_history_processor_start``.
-      2. Merges any incoming messages not already in ``agent._message_history``
-         (preserving the last-message regardless of compacted-hash collisions).
-      3. Runs ``compact(...)`` if we're over threshold (or ``/compact`` forced).
-      4. Records dropped-message hashes in ``agent._compacted_message_hashes``.
-      5. Strips empty ThinkingParts that carry no replay signature.
-      6. Trims trailing ModelResponse messages so history ends with a ModelRequest.
-      7. Fires ``on_message_history_processor_end``.
-
-    Agent contract:
-      - ``agent._message_history: list``
-      - ``agent._compacted_message_hashes: set``
-      - ``agent._get_model_context_length() -> int``
-      - ``agent._estimate_context_overhead() -> int``
-      - ``agent.name`` / ``agent.session_id`` (optional)
-
-    ```python
-    agent = PydanticAgent(
-        ...,
-        capabilities=[
-            HistoryCompaction(code_puppy_agent),  # compaction FIRST
-            SteerInjection(...),  # steers must survive compaction
-        ],
-    )
-    ```
-    """
-
-    agent: Any
-    """The owning Code Puppy agent — durable message history, dedup hashes,
-    and context-window accounting all live on it."""
-
-    async def before_model_request(
-        self,
-        ctx: RunContext[Any],
-        request_context: ModelRequestContext,
-    ) -> ModelRequestContext:
-        """Replace the outbound messages with the compacted durable history."""
-        request_context.messages = await self._process(ctx, request_context.messages)
-        return request_context
-
-    async def _process(
-        self, ctx: RunContext[Any], messages: List[ModelMessage]
-    ) -> List[ModelMessage]:
-        # The live ctx is handed straight to the harness strategies so
-        # summary-call usage lands on the run's accounting.
-        agent = self.agent
-        history: List[ModelMessage] = agent._message_history
-        compacted_hashes: Set[str] = agent._compacted_message_hashes
-
-        on_message_history_processor_start(
-            agent_name=getattr(agent, "name", None),
-            session_id=getattr(agent, "session_id", None),
-            message_history=list(history),
-            incoming_messages=list(messages),
-        )
-
-        existing_hashes = {hash_message(m) for m in history}
-        messages_added = 0
-        last_idx = len(messages) - 1
-        for i, msg in enumerate(messages):
-            h = hash_message(msg)
-            if h in existing_hashes:
-                continue
-            # Always keep the newest message even on hash collision — short
-            # prompts like "yes"/"1" can collide and get silently dropped.
-            if i == last_idx or h not in compacted_hashes:
-                history.append(msg)
-                messages_added += 1
-
-        from code_puppy.messaging.pause_controller import get_pause_controller
-
-        force_compaction = get_pause_controller().take_compaction_request()
-        new_history, dropped = await compact(
-            agent,
-            history,
-            agent._get_model_context_length(),
-            agent._estimate_context_overhead(),
-            ctx,
-            force=force_compaction,
-        )
-        if force_compaction:
-            detail = "" if dropped else " History was already minimal."
-            emit_success(f"Mid-run compaction complete.{detail}")
-        agent._message_history = new_history
-        for m in dropped:
-            compacted_hashes.add(hash_message(m))
-
-        cleaned, filtered_count = _strip_empty_thinking_parts(agent._message_history)
-
-        # Ensure history ends with a ModelRequest — otherwise Anthropic etc.
-        # reject it with a "prefill" error.
-        while cleaned and isinstance(cleaned[-1], ModelResponse):
-            cleaned.pop()
-
-        # Sanitize tool_call_ids that don't match Anthropic's pattern: stale IDs
-        # from Kimi-style providers (dots/colons) cause a 400 after switching to
-        # Claude. Cheap no-op when all IDs already conform.
-        cleaned = sanitize_tool_call_ids(cleaned)
-
-        agent._message_history = cleaned
-
-        on_message_history_processor_end(
-            agent_name=getattr(agent, "name", None),
-            session_id=getattr(agent, "session_id", None),
-            message_history=list(cleaned),
-            messages_added=messages_added,
-            messages_filtered=len(messages) - messages_added + filtered_count,
-        )
-
-        return cleaned
-
-    @classmethod
-    def get_serialization_name(cls) -> Optional[str]:
-        """Not spec-serializable: holds a live agent reference."""
-        return None
+# Re-exported for backwards compatibility (tests import these from here).
+_strip_empty_thinking_parts = strip_empty_thinking_parts

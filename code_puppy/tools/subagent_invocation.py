@@ -443,6 +443,7 @@ async def _invoke_agent_impl(
             from code_puppy.agents._subagent_recursion import (
                 build_subagent_recursion_guard,
             )
+            from code_puppy.events.bridge import CapabilityEventBridge
             from code_puppy.agents._model_message_transform import (
                 build_model_message_transform,
             )
@@ -472,6 +473,9 @@ async def _invoke_agent_impl(
                     # the tool body runs. Sole wrap_tool_execute implementer,
                     # so position is inert.
                     *build_subagent_recursion_guard(agent_tools),
+                    # LAST: app-side event bridge translating typed
+                    # CapabilityEvents into legacy callbacks/messaging.
+                    CapabilityEventBridge(agent=agent_config),
                 ],
                 model_settings=model_settings,
             )

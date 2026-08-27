@@ -27,6 +27,7 @@ from code_puppy.agents._output_limits import (
 )
 from code_puppy.agents._steer_processor import make_steer_history_processor
 from code_puppy.agents.event_stream_handler import event_stream_handler
+from code_puppy.events.bridge import CapabilityEventBridge
 from code_puppy.callbacks import (
     on_pre_mcp_autostart,
     on_pre_mcp_autostart_sync,
@@ -680,6 +681,13 @@ def build_pydantic_agent(
                 # tool body runs). Sole wrap_tool_execute implementer, so
                 # position is inert.
                 *build_subagent_recursion_guard(agent_tools),
+                # LAST: the app-side event bridge. Capabilities above emit
+                # typed CapabilityEvents; the bridge's @on_event listeners
+                # translate them into legacy callbacks/spinner/messaging.
+                # Listener order follows registration order, so keeping it
+                # last means app observation runs after every capability
+                # listener that owns domain behavior.
+                CapabilityEventBridge(agent=agent),
             ],
             model_settings=model_settings,
         )
