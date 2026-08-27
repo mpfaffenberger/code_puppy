@@ -1,629 +1,586 @@
-"""Comprehensive test coverage for add_model_menu.py.
+"""Tests for the termflow-based add-model browser.
 
-Tests interactive model browser TUI including:
-- Menu initialization and registry loading
-- Provider/model list navigation and pagination
-- Model selection and addition to extra_models.json
-- Credential validation and prompting
-- Error handling and edge cases
-- Search/filter functionality
-- Custom model support
+Pure logic (config building, context parsing, extra_models writes) plus
+headless drives of the provider/model menus and TextInput flows.
 """
 
-from unittest.mock import MagicMock, patch
+import json
+from io import StringIO
+from unittest.mock import patch
 
-from code_puppy.command_line.add_model_menu import (
-    PAGE_SIZE,
-    PROVIDER_ENDPOINTS,
-    UNSUPPORTED_PROVIDERS,
-    AddModelMenu,
-)
+import pytest
 
-
-def _make_provider(name: str, provider_id: str):
-    provider = MagicMock()
-    provider.name = name
-    provider.id = provider_id
-    provider.model_count = 0
-    provider.api = "https://example.com"
-    provider.env = []
-    provider.doc = ""
-    return provider
+from code_puppy.command_line import add_model_menu as amm
+from code_puppy.models_dev_parser import ModelInfo, ProviderInfo
 
 
-class TestAddModelMenuInitialization:
-    """Test AddModelMenu initialization."""
+def make_provider(**kw):
+    defaults = dict(
+        id="acme", name="Acme AI", env=["ACME_API_KEY"], api="https://api.acme.ai/v1"
+    )
+    defaults.update(kw)
+    return ProviderInfo(**defaults)
 
-    @patch("code_puppy.command_line.add_model_menu.ModelsDevRegistry")
-    @patch("code_puppy.command_line.add_model_menu.emit_info")
-    def test_menu_initialization_success(self, mock_emit, mock_registry_class):
-        """Test successful menu initialization."""
-        # Mock the registry
-        mock_registry = MagicMock()
-        mock_providers = [
-            MagicMock(name="openai"),
-            MagicMock(name="anthropic"),
-        ]
-        mock_registry.get_providers.return_value = mock_providers
-        mock_registry_class.return_value = mock_registry
 
-        menu = AddModelMenu()
-        assert menu.registry is not None
-        assert menu.providers == mock_providers
-        assert menu.view_mode == "providers"
-        assert menu.selected_provider_idx == 0
+def make_model(**kw):
+    defaults = dict(
+        provider_id="acme",
+        model_id="acme-large",
+        name="Acme Large",
+        tool_call=True,
+        temperature=True,
+        context_length=200000,
+    )
+    defaults.update(kw)
+    return ModelInfo(**defaults)
 
-    @patch("code_puppy.command_line.add_model_menu.ModelsDevRegistry")
-    @patch("code_puppy.command_line.add_model_menu.emit_error")
-    def test_menu_initialization_registry_not_found(
-        self, mock_emit_error, mock_registry_class
-    ):
-        """Test initialization when models registry is not found."""
-        mock_registry_class.side_effect = FileNotFoundError(
-            "models_dev_api.json not found"
+
+class FakeRegistry:
+    def __init__(self, providers, models):
+        self._providers = providers
+        self._models = models
+
+    def get_providers(self):
+        return self._providers
+
+    def get_models(self, provider_id):
+        return [m for m in self._models if m.provider_id == provider_id]
+
+
+def scripted(factory, keys):
+    """Wrap a menu factory so its menus run headlessly on scripted keys."""
+
+    def build(*args, **kwargs):
+        script = iter(keys)
+        kwargs.setdefault("key_source", lambda: next(script))
+        kwargs.setdefault("output", StringIO())
+        kwargs.setdefault("size", lambda: (110, 30))
+        return factory(*args, **kwargs)
+
+    return build
+
+
+# -- pure logic --------------------------------------------------------------
+
+
+class TestProviderIdentity:
+    def test_mapped_and_fallback(self):
+        assert (
+            amm.derive_provider_identity(make_provider(id="together-ai"))
+            == "together_ai"
+        )
+        assert (
+            amm.derive_provider_identity(make_provider(id="some-new-guy"))
+            == "some_new_guy"
         )
 
-        AddModelMenu()
-        mock_emit_error.assert_called()
 
-    @patch("code_puppy.command_line.add_model_menu.ModelsDevRegistry")
-    @patch("code_puppy.command_line.add_model_menu.emit_error")
-    def test_menu_initialization_registry_error(
-        self, mock_emit_error, mock_registry_class
-    ):
-        """Test initialization when registry loading fails."""
-        mock_registry_class.side_effect = Exception("Registry error")
-
-        AddModelMenu()
-        mock_emit_error.assert_called()
-
-    @patch("code_puppy.command_line.add_model_menu.ModelsDevRegistry")
-    @patch("code_puppy.command_line.add_model_menu.emit_error")
-    def test_menu_initialization_empty_providers(
-        self, mock_emit_error, mock_registry_class
-    ):
-        """Test initialization when no providers are found."""
-        mock_registry = MagicMock()
-        mock_registry.get_providers.return_value = []
-        mock_registry_class.return_value = mock_registry
-
-        AddModelMenu()
-        mock_emit_error.assert_called()
+class TestParseContextSize:
+    def test_forms(self):
+        assert amm.parse_context_size("200000") == 200000
+        assert amm.parse_context_size("128k") == 128000
+        assert amm.parse_context_size("1M") == 1000000
+        assert amm.parse_context_size("1,000") == 1000
+        assert amm.parse_context_size("") == 128000
+        assert amm.parse_context_size("  ", default=42) == 42
+        assert amm.parse_context_size("banana") is None
 
 
-class TestMenuStateManagement:
-    """Test menu state management."""
-
-    @patch("code_puppy.command_line.add_model_menu.ModelsDevRegistry")
-    def test_initial_state(self, mock_registry_class):
-        """Test menu has correct initial state."""
-        mock_registry = MagicMock()
-        mock_registry.get_providers.return_value = [
-            MagicMock(name="openai"),
-            MagicMock(name="anthropic"),
-        ]
-        mock_registry_class.return_value = mock_registry
-
-        menu = AddModelMenu()
-        assert menu.view_mode == "providers"
-        assert menu.selected_provider_idx == 0
-        assert menu.selected_model_idx == 0
-        assert menu.current_page == 0
-        assert menu.result is None
-        assert menu.is_custom_model_selected is False
-
-    @patch("code_puppy.command_line.add_model_menu.ModelsDevRegistry")
-    def test_view_mode_switching(self, mock_registry_class):
-        """Test switching between providers and models view."""
-        mock_registry = MagicMock()
-        mock_registry.get_providers.return_value = [
-            MagicMock(name="openai"),
-        ]
-        mock_registry_class.return_value = mock_registry
-
-        menu = AddModelMenu()
-        assert menu.view_mode == "providers"
-        # Would switch to models view when selecting a provider
-        menu.view_mode = "models"
-        assert menu.view_mode == "models"
-
-
-class TestProviderNavigation:
-    """Test provider list navigation."""
-
-    @patch("code_puppy.command_line.add_model_menu.ModelsDevRegistry")
-    def test_provider_selection(self, mock_registry_class):
-        """Test selecting a provider."""
-        providers = [
-            MagicMock(name="openai", id="openai"),
-            MagicMock(name="anthropic", id="anthropic"),
-            MagicMock(name="google", id="google"),
-        ]
-        mock_registry = MagicMock()
-        mock_registry.get_providers.return_value = providers
-        mock_registry_class.return_value = mock_registry
-
-        menu = AddModelMenu()
-        menu.selected_provider_idx = 1
-        menu._get_current_provider()
-        # In real implementation, would return providers[1]
-
-    @patch("code_puppy.command_line.add_model_menu.ModelsDevRegistry")
-    def test_provider_navigation_up(self, mock_registry_class):
-        """Test navigating up in provider list."""
-        providers = [
-            MagicMock(name="openai"),
-            MagicMock(name="anthropic"),
-            MagicMock(name="google"),
-        ]
-        mock_registry = MagicMock()
-        mock_registry.get_providers.return_value = providers
-        mock_registry_class.return_value = mock_registry
-
-        menu = AddModelMenu()
-        menu.selected_provider_idx = 2
-        # Up arrow would decrement index
-        menu.selected_provider_idx = max(0, menu.selected_provider_idx - 1)
-        assert menu.selected_provider_idx == 1
-
-    @patch("code_puppy.command_line.add_model_menu.ModelsDevRegistry")
-    def test_provider_navigation_down(self, mock_registry_class):
-        """Test navigating down in provider list."""
-        providers = [
-            MagicMock(name="openai"),
-            MagicMock(name="anthropic"),
-            MagicMock(name="google"),
-        ]
-        mock_registry = MagicMock()
-        mock_registry.get_providers.return_value = providers
-        mock_registry_class.return_value = mock_registry
-
-        menu = AddModelMenu()
-        menu.selected_provider_idx = 0
-        # Down arrow would increment index
-        menu.selected_provider_idx = min(
-            len(providers) - 1, menu.selected_provider_idx + 1
+class TestBuildModelConfig:
+    def test_native_openai(self):
+        config = amm.build_model_config(
+            make_model(), make_provider(id="openai", env=["OPENAI_API_KEY"])
         )
-        assert menu.selected_provider_idx == 1
+        assert config["type"] == "openai"
+        assert "custom_endpoint" not in config
 
-    @patch("code_puppy.command_line.add_model_menu.ModelsDevRegistry")
-    def test_provider_navigation_bounds(self, mock_registry_class):
-        """Test navigation bounds are respected."""
-        providers = [
-            MagicMock(name="openai"),
-            MagicMock(name="anthropic"),
+    def test_custom_openai_uses_provider_api(self):
+        config = amm.build_model_config(
+            make_model(), make_provider(id="groq", env=["GROQ_API_KEY"])
+        )
+        assert config["type"] == "custom_openai"
+        assert config["custom_endpoint"]["api_key"] == "$GROQ_API_KEY"
+
+    def test_custom_openai_endpoint_fallback(self):
+        provider = make_provider(id="xai", api="N/A", env=["XAI_API_KEY"])
+        config = amm.build_model_config(make_model(), provider)
+        assert config["custom_endpoint"]["url"] == amm.PROVIDER_ENDPOINTS["xai"]
+
+    def test_minimax_strips_v1(self):
+        provider = make_provider(
+            id="minimax",
+            api="https://api.minimax.io/anthropic/v1",
+            env=["MINIMAX_API_KEY"],
+        )
+        config = amm.build_model_config(make_model(), provider)
+        assert config["type"] == "custom_anthropic"
+        assert config["custom_endpoint"]["url"] == "https://api.minimax.io/anthropic"
+
+    def test_supported_settings_variants(self):
+        anth = amm.build_model_config(make_model(), make_provider(id="anthropic"))
+        assert "extended_thinking" in anth["supported_settings"]
+        gpt5 = amm.build_model_config(
+            make_model(model_id="gpt-5-codex"), make_provider(id="openai")
+        )
+        assert gpt5["supported_settings"] == [
+            "temperature",
+            "top_p",
+            "reasoning_effort",
         ]
-        mock_registry = MagicMock()
-        mock_registry.get_providers.return_value = providers
-        mock_registry_class.return_value = mock_registry
+        default = amm.build_model_config(make_model(), make_provider(id="groq"))
+        assert default["supported_settings"] == ["temperature", "seed", "top_p"]
 
-        menu = AddModelMenu()
-        # Can't go below 0
-        menu.selected_provider_idx = -1
-        menu.selected_provider_idx = max(0, menu.selected_provider_idx)
-        assert menu.selected_provider_idx == 0
-
-        # Can't go past length
-        menu.selected_provider_idx = 10
-        menu.selected_provider_idx = min(len(providers) - 1, menu.selected_provider_idx)
-        assert menu.selected_provider_idx == 1
+    def test_context_length_carried(self):
+        config = amm.build_model_config(
+            make_model(context_length=42000), make_provider()
+        )
+        assert config["context_length"] == 42000
 
 
-class TestModelNavigation:
-    """Test model list navigation and pagination."""
+class TestExtraModelsWrite:
+    def test_adds_then_reports_duplicate(self, tmp_path):
+        target = tmp_path / "extra_models.json"
+        with patch.object(amm, "EXTRA_MODELS_FILE", str(target)):
+            assert amm.add_model_to_extra_config(make_model(), make_provider()) is True
+            data = json.loads(target.read_text())
+            assert "acme-acme-large" in data
+            # Second add: keeps file intact, still returns True.
+            assert amm.add_model_to_extra_config(make_model(), make_provider()) is True
+            assert len(json.loads(target.read_text())) == 1
 
-    @patch("code_puppy.command_line.add_model_menu.ModelsDevRegistry")
-    def test_pagination_first_page(self, mock_registry_class):
-        """Test first page of models in pagination."""
-        mock_registry = MagicMock()
-        mock_registry.get_providers.return_value = [MagicMock(name="openai")]
-        mock_registry_class.return_value = mock_registry
-
-        menu = AddModelMenu()
-        menu.current_page = 0
-        # Page 0 shows items 0 to PAGE_SIZE
-        start_idx = menu.current_page * PAGE_SIZE
-        end_idx = start_idx + PAGE_SIZE
-        assert start_idx == 0
-        assert end_idx == PAGE_SIZE
-
-    @patch("code_puppy.command_line.add_model_menu.ModelsDevRegistry")
-    def test_pagination_second_page(self, mock_registry_class):
-        """Test second page of models in pagination."""
-        mock_registry = MagicMock()
-        mock_registry.get_providers.return_value = [MagicMock(name="openai")]
-        mock_registry_class.return_value = mock_registry
-
-        menu = AddModelMenu()
-        menu.current_page = 1
-        # Page 1 shows items PAGE_SIZE to 2*PAGE_SIZE
-        start_idx = menu.current_page * PAGE_SIZE
-        end_idx = start_idx + PAGE_SIZE
-        assert start_idx == PAGE_SIZE
-        assert end_idx == 2 * PAGE_SIZE
-
-    @patch("code_puppy.command_line.add_model_menu.ModelsDevRegistry")
-    def test_pagination_page_up(self, mock_registry_class):
-        """Test paginating up to previous page."""
-        mock_registry = MagicMock()
-        mock_registry.get_providers.return_value = [MagicMock(name="openai")]
-        mock_registry_class.return_value = mock_registry
-
-        menu = AddModelMenu()
-        menu.current_page = 2
-        # Page up would decrement page
-        menu.current_page = max(0, menu.current_page - 1)
-        assert menu.current_page == 1
-
-    @patch("code_puppy.command_line.add_model_menu.ModelsDevRegistry")
-    def test_pagination_page_down(self, mock_registry_class):
-        """Test paginating down to next page."""
-        mock_registry = MagicMock()
-        mock_registry.get_providers.return_value = [MagicMock(name="openai")]
-        mock_registry_class.return_value = mock_registry
-
-        menu = AddModelMenu()
-        menu.current_page = 0
-        # Page down would increment page
-        menu.current_page = menu.current_page + 1
-        assert menu.current_page == 1
+    def test_non_dict_file_rejected(self, tmp_path):
+        target = tmp_path / "extra_models.json"
+        target.write_text("[]")
+        with patch.object(amm, "EXTRA_MODELS_FILE", str(target)):
+            assert amm.add_model_to_extra_config(make_model(), make_provider()) is False
 
 
-class TestModelAddition:
-    """Test adding models to extra_models.json."""
-
-    @patch("code_puppy.command_line.add_model_menu.set_config_value")
-    @patch("code_puppy.command_line.add_model_menu.EXTRA_MODELS_FILE", "/tmp/test.json")
-    @patch("code_puppy.command_line.add_model_menu.ModelsDevRegistry")
-    def test_add_model_to_extra_models(self, mock_registry_class, mock_set_config):
-        """Test adding a selected model to extra_models.json."""
-        mock_registry = MagicMock()
-        mock_registry.get_providers.return_value = [MagicMock(name="openai")]
-        mock_registry_class.return_value = mock_registry
-
-        AddModelMenu()
-        # Would serialize model and save to EXTRA_MODELS_FILE
-        mock_set_config("test_key", "test_value")
-        mock_set_config.assert_called_once()
-
-    @patch("code_puppy.command_line.add_model_menu.emit_info")
-    @patch("code_puppy.command_line.add_model_menu.set_config_value")
-    @patch("code_puppy.command_line.add_model_menu.ModelsDevRegistry")
-    def test_add_model_shows_success_message(
-        self, mock_registry_class, mock_set_config, mock_emit_info
-    ):
-        """Test that success message is shown after model addition."""
-        mock_registry = MagicMock()
-        mock_registry.get_providers.return_value = [MagicMock(name="openai")]
-        mock_registry_class.return_value = mock_registry
-
-        menu = AddModelMenu()
-        menu.result = "model_added"
-        if menu.result:
-            mock_emit_info("Model added successfully!")
-        mock_emit_info.assert_called_once()
+class TestMissingEnvVars:
+    def test_reports_only_unset(self, monkeypatch):
+        provider = make_provider(env=["SET_ONE", "UNSET_ONE"])
+        monkeypatch.setenv("SET_ONE", "x")
+        monkeypatch.delenv("UNSET_ONE", raising=False)
+        assert amm.missing_env_vars(provider) == ["UNSET_ONE"]
 
 
-class TestCredentialHandling:
-    """Test credential validation and prompting."""
-
-    @patch("code_puppy.command_line.add_model_menu.safe_input")
-    @patch("code_puppy.command_line.add_model_menu.ModelsDevRegistry")
-    def test_prompt_for_api_key(self, mock_registry_class, mock_input):
-        """Test prompting user for API key."""
-        mock_input.return_value = "sk-test123"
-        mock_registry = MagicMock()
-        mock_registry.get_providers.return_value = [MagicMock(name="openai")]
-        mock_registry_class.return_value = mock_registry
-
-        AddModelMenu()
-        api_key = mock_input("Enter your API key: ")
-        assert api_key == "sk-test123"
-
-    @patch("code_puppy.command_line.add_model_menu.emit_warning")
-    @patch("code_puppy.command_line.add_model_menu.ModelsDevRegistry")
-    def test_missing_api_key_warning(self, mock_registry_class, mock_emit_warning):
-        """Test warning when API key is not provided."""
-        mock_registry = MagicMock()
-        mock_registry.get_providers.return_value = [MagicMock(name="openai")]
-        mock_registry_class.return_value = mock_registry
-
-        AddModelMenu()
-        # Would warn if API key is empty
-        api_key = ""
-        if not api_key:
-            mock_emit_warning("API key is required")
-        mock_emit_warning.assert_called_once()
+class TestCustomModelInfo:
+    def test_defaults(self):
+        info = amm.create_custom_model_info("acme", "my-model", 64000)
+        assert info.tool_call is True
+        assert info.max_output == 16000
+        assert info.context_length == 64000
 
 
-class TestSupportedProviders:
-    """Test provider support detection."""
+# -- previews ----------------------------------------------------------------
 
+
+class TestDetailPreviews:
+    def test_provider_details_flags_unsupported_and_credentials(self):
+        provider = make_provider(id="amazon-bedrock", env=["AWS_THING"])
+        text = amm.provider_details(provider)
+        assert "UNSUPPORTED" in text
+        assert "AWS_THING" in text
+
+    def test_model_details_warns_on_no_tool_call(self):
+        text = amm.model_details(make_model(tool_call=False), make_provider())
+        assert "NO TOOL CALLING" in text
+
+    def test_custom_model_details_mentions_provider(self):
+        assert "Acme AI" in amm.custom_model_details(make_provider())
+
+
+# -- menus (headless) --------------------------------------------------------
+
+
+class TestMenus:
+    def test_provider_menu_search_and_select(self):
+        providers = [make_provider(), make_provider(id="zeta", name="Zeta", env=[])]
+        menu = amm.build_provider_menu(
+            providers,
+            key_source=iter(["z", "enter"]).__next__,
+            output=StringIO(),
+            size=lambda: (110, 30),
+        )
+        result = menu.run()
+        assert result.item.value.id == "zeta"
+
+    def test_provider_menu_ctrl_e_returns_sentinel(self):
+        menu = amm.build_provider_menu(
+            [make_provider()],
+            key_source=iter(["ctrl-e"]).__next__,
+            output=StringIO(),
+            size=lambda: (110, 30),
+        )
+        result = menu.run()
+        kind, provider = result.item.value
+        assert kind == amm._EDIT_CREDENTIALS
+        assert provider.id == "acme"
+
+    def test_models_menu_lists_custom_entry_last(self):
+        out = StringIO()
+        menu = amm.build_models_menu(
+            make_provider(),
+            [make_model()],
+            key_source=iter(["down", "enter"]).__next__,
+            output=out,
+            size=lambda: (110, 30),
+        )
+        result = menu.run()
+        assert result.item.value == amm._CUSTOM_MODEL_VALUE
+        assert "Custom model" in out.getvalue()
+
+    def test_confirm_no_tool_call_defaults_no(self):
+        assert (
+            amm.confirm_no_tool_call(
+                make_model(tool_call=False),
+                key_source=iter(["enter"]).__next__,
+                output=StringIO(),
+                size=lambda: (110, 30),
+            )
+            is False
+        )
+        assert (
+            amm.confirm_no_tool_call(
+                make_model(tool_call=False),
+                key_source=iter(["down", "enter"]).__next__,
+                output=StringIO(),
+                size=lambda: (110, 30),
+            )
+            is True
+        )
+
+
+# -- TextInput flows (headless) ----------------------------------------------
+
+
+class TestCredentialFlows:
+    def _keys(self, *keys):
+        script = iter(keys)
+        return {
+            "key_source": lambda: next(script),
+            "output": StringIO(),
+            "size": lambda: (90, 20),
+        }
+
+    def test_prompt_saves_typed_credential(self, monkeypatch):
+        monkeypatch.delenv("ACME_API_KEY", raising=False)
+        with patch.object(amm, "set_config_value") as mock_set:
+            ok = amm.prompt_for_credentials(
+                make_provider(), **self._keys("s", "k", "enter")
+            )
+        assert ok is True
+        mock_set.assert_called_once_with("ACME_API_KEY", "sk")
+        import os
+
+        assert os.environ.pop("ACME_API_KEY") == "sk"
+
+    def test_prompt_empty_skips(self, monkeypatch):
+        monkeypatch.delenv("ACME_API_KEY", raising=False)
+        with patch.object(amm, "set_config_value") as mock_set:
+            assert amm.prompt_for_credentials(make_provider(), **self._keys("enter"))
+        mock_set.assert_not_called()
+
+    def test_prompt_escape_cancels(self, monkeypatch):
+        monkeypatch.delenv("ACME_API_KEY", raising=False)
+        assert (
+            amm.prompt_for_credentials(make_provider(), **self._keys("escape")) is False
+        )
+
+    def test_prompt_noop_when_all_set(self, monkeypatch):
+        monkeypatch.setenv("ACME_API_KEY", "present")
+        assert amm.prompt_for_credentials(make_provider()) is True
+
+    def test_editor_saves_via_save_credential(self):
+        with patch.object(amm, "save_credential") as mock_save:
+            ok = amm.edit_provider_credentials(
+                make_provider(), **self._keys("n", "e", "w", "enter")
+            )
+        assert ok is True
+        mock_save.assert_called_once_with("ACME_API_KEY", "new")
+
+    def test_editor_empty_keeps_current(self):
+        with patch.object(amm, "save_credential") as mock_save:
+            assert amm.edit_provider_credentials(make_provider(), **self._keys("enter"))
+        mock_save.assert_not_called()
+
+
+class TestProviderCredentialFlowHook:
+    """The provider_credential_flow seam in prompt_for_credentials."""
+
+    def _keys(self, *keys):
+        script = iter(keys)
+        return {
+            "key_source": lambda: next(script),
+            "output": StringIO(),
+            "size": lambda: (90, 20),
+        }
+
+    def test_hook_handles_credential_skips_manual_prompt(self, monkeypatch):
+        monkeypatch.delenv("ACME_API_KEY", raising=False)
+
+        def fake_hook(*, provider_id, env_var):
+            assert provider_id == "acme"
+            assert env_var == "ACME_API_KEY"
+            monkeypatch.setenv(env_var, "oauth-minted")
+            return True
+
+        with patch("code_puppy.callbacks.on_provider_credential_flow", fake_hook):
+            # No keys scripted: reaching the TextInput would blow up the test.
+            assert amm.prompt_for_credentials(make_provider(), **self._keys()) is True
+
+    def test_hook_true_without_env_falls_back_to_manual(self, monkeypatch):
+        monkeypatch.delenv("ACME_API_KEY", raising=False)
+        with (
+            patch(
+                "code_puppy.callbacks.on_provider_credential_flow",
+                lambda **kw: True,  # lies: never actually sets the env var
+            ),
+            patch.object(amm, "set_config_value") as mock_set,
+        ):
+            ok = amm.prompt_for_credentials(
+                make_provider(), **self._keys("s", "k", "enter")
+            )
+        assert ok is True
+        mock_set.assert_called_once_with("ACME_API_KEY", "sk")
+        import os
+
+        assert os.environ.pop("ACME_API_KEY") == "sk"
+
+    def test_hook_deferring_falls_back_to_manual(self, monkeypatch):
+        monkeypatch.delenv("ACME_API_KEY", raising=False)
+        with (
+            patch(
+                "code_puppy.callbacks.on_provider_credential_flow",
+                lambda **kw: False,
+            ),
+            patch.object(amm, "set_config_value") as mock_set,
+        ):
+            ok = amm.prompt_for_credentials(
+                make_provider(), **self._keys("s", "k", "enter")
+            )
+        assert ok is True
+        mock_set.assert_called_once_with("ACME_API_KEY", "sk")
+        import os
+
+        assert os.environ.pop("ACME_API_KEY") == "sk"
+
+    def test_on_provider_credential_flow_short_circuits(self):
+        from code_puppy import callbacks
+
+        calls = []
+
+        def first(**kw):
+            calls.append("first")
+            return True
+
+        def second(**kw):
+            calls.append("second")
+            return True
+
+        callbacks.register_callback("provider_credential_flow", first)
+        callbacks.register_callback("provider_credential_flow", second)
+        try:
+            assert (
+                callbacks.on_provider_credential_flow(
+                    provider_id="acme", env_var="ACME_API_KEY"
+                )
+                is True
+            )
+            assert calls == ["first"]
+        finally:
+            callbacks.unregister_callback("provider_credential_flow", first)
+            callbacks.unregister_callback("provider_credential_flow", second)
+
+    def test_on_provider_credential_flow_isolates_errors(self):
+        from code_puppy import callbacks
+
+        def boom(**kw):
+            raise RuntimeError("kaboom")
+
+        def fine(**kw):
+            return True
+
+        callbacks.register_callback("provider_credential_flow", boom)
+        callbacks.register_callback("provider_credential_flow", fine)
+        try:
+            assert (
+                callbacks.on_provider_credential_flow(
+                    provider_id="acme", env_var="ACME_API_KEY"
+                )
+                is True
+            )
+        finally:
+            callbacks.unregister_callback("provider_credential_flow", boom)
+            callbacks.unregister_callback("provider_credential_flow", fine)
+
+    def test_on_provider_credential_flow_no_callbacks(self):
+        from code_puppy import callbacks
+
+        assert (
+            callbacks.on_provider_credential_flow(
+                provider_id="acme", env_var="ACME_API_KEY"
+            )
+            is False
+        )
+
+
+class TestCustomModelPrompt:
+    def _keys(self, *keys):
+        script = iter(keys)
+        return {
+            "key_source": lambda: next(script),
+            "output": StringIO(),
+            "size": lambda: (90, 20),
+        }
+
+    def test_happy_path_with_k_suffix(self):
+        result = amm.prompt_for_custom_model(
+            make_provider(), **self._keys("m", "1", "enter", "6", "4", "k", "enter")
+        )
+        assert result == ("m1", 64000)
+
+    def test_empty_context_defaults(self):
+        result = amm.prompt_for_custom_model(
+            make_provider(), **self._keys("m", "enter", "enter")
+        )
+        assert result == ("m", 128000)
+
+    def test_cancel_returns_none(self):
+        assert (
+            amm.prompt_for_custom_model(make_provider(), **self._keys("escape")) is None
+        )
+
+
+# -- orchestration -----------------------------------------------------------
+
+
+class TestRunAddModelFlow:
+    def _registry(self, provider=None, model=None):
+        provider = provider or make_provider()
+        model = model or make_model()
+        return FakeRegistry([provider], [model]), provider, model
+
+    def test_full_add_path(self, tmp_path, monkeypatch):
+        registry, provider, model = self._registry()
+        monkeypatch.setenv("ACME_API_KEY", "set")
+        target = tmp_path / "extra.json"
+        with patch.object(amm, "EXTRA_MODELS_FILE", str(target)):
+            added = amm.run_add_model_flow(
+                registry=registry,
+                provider_menu_factory=scripted(amm.build_provider_menu, ["enter"]),
+                models_menu_factory=scripted(amm.build_models_menu, ["enter"]),
+            )
+        assert added is True
+        assert "acme-acme-large" in json.loads(target.read_text())
+
+    def test_cancel_at_providers(self):
+        registry, *_ = self._registry()
+        assert (
+            amm.run_add_model_flow(
+                registry=registry,
+                provider_menu_factory=scripted(amm.build_provider_menu, ["escape"]),
+            )
+            is False
+        )
+
+    def test_escape_in_models_returns_to_providers(self):
+        registry, *_ = self._registry()
+        provider_scripts = iter([["enter"], ["escape"]])
+        models_scripts = iter([["escape"]])
+
+        def provider_factory(providers, **kw):
+            return scripted(amm.build_provider_menu, next(provider_scripts))(
+                providers, **kw
+            )
+
+        def models_factory(provider, models, **kw):
+            return scripted(amm.build_models_menu, next(models_scripts))(
+                provider, models, **kw
+            )
+
+        assert (
+            amm.run_add_model_flow(
+                registry=registry,
+                provider_menu_factory=provider_factory,
+                models_menu_factory=models_factory,
+            )
+            is False
+        )
+
+    def test_unsupported_provider_blocks_add(self):
+        provider = make_provider(id="amazon-bedrock", name="Bedrock", env=[])
+        registry = FakeRegistry([provider], [make_model(provider_id="amazon-bedrock")])
+        assert (
+            amm.run_add_model_flow(
+                registry=registry,
+                provider_menu_factory=scripted(amm.build_provider_menu, ["enter"]),
+                models_menu_factory=scripted(amm.build_models_menu, ["enter"]),
+            )
+            is False
+        )
+
+    def test_custom_model_path(self, tmp_path, monkeypatch):
+        registry, provider, _ = self._registry()
+        monkeypatch.setenv("ACME_API_KEY", "set")
+        target = tmp_path / "extra.json"
+        with patch.object(amm, "EXTRA_MODELS_FILE", str(target)):
+            added = amm.run_add_model_flow(
+                registry=registry,
+                provider_menu_factory=scripted(amm.build_provider_menu, ["enter"]),
+                models_menu_factory=scripted(amm.build_models_menu, ["down", "enter"]),
+                custom_model_prompt=lambda p: ("shiny-new", 32000),
+            )
+        assert added is True
+        assert "acme-shiny-new" in json.loads(target.read_text())
+
+    def test_no_tool_call_requires_confirmation(self, tmp_path, monkeypatch):
+        provider = make_provider()
+        model = make_model(tool_call=False)
+        registry = FakeRegistry([provider], [model])
+        monkeypatch.setenv("ACME_API_KEY", "set")
+        target = tmp_path / "extra.json"
+        with patch.object(amm, "EXTRA_MODELS_FILE", str(target)):
+            added = amm.run_add_model_flow(
+                registry=registry,
+                provider_menu_factory=scripted(amm.build_provider_menu, ["enter"]),
+                models_menu_factory=scripted(amm.build_models_menu, ["enter"]),
+                tool_call_confirm=lambda m: False,
+            )
+        assert added is False
+        assert not target.exists()
+
+    def test_ctrl_e_edits_credentials_then_reopens(self):
+        registry, provider, _ = self._registry()
+        edited = []
+        provider_scripts = iter([["ctrl-e"], ["escape"]])
+
+        def provider_factory(providers, **kw):
+            return scripted(amm.build_provider_menu, next(provider_scripts))(
+                providers, **kw
+            )
+
+        assert (
+            amm.run_add_model_flow(
+                registry=registry,
+                provider_menu_factory=provider_factory,
+                credentials_editor=lambda p: edited.append(p.id) or True,
+            )
+            is False
+        )
+        assert edited == ["acme"]
+
+    def test_empty_registry_fails_cleanly(self):
+        assert amm.run_add_model_flow(registry=FakeRegistry([], [])) is False
+
+
+class TestConstants:
     def test_openai_compatible_endpoints_exist(self):
-        """Test that OpenAI-compatible endpoint mappings exist."""
-        assert "xai" in PROVIDER_ENDPOINTS
-        assert "groq" in PROVIDER_ENDPOINTS
-        assert "mistral" in PROVIDER_ENDPOINTS
+        assert "groq" in amm.PROVIDER_ENDPOINTS
+        assert all(v.startswith("https://") for v in amm.PROVIDER_ENDPOINTS.values())
 
     def test_unsupported_providers_listed(self):
-        """Test that unsupported providers are documented."""
-        assert "amazon-bedrock" in UNSUPPORTED_PROVIDERS
-        assert "google-vertex" in UNSUPPORTED_PROVIDERS
-        assert "cloudflare-workers-ai" in UNSUPPORTED_PROVIDERS
+        assert "amazon-bedrock" in amm.UNSUPPORTED_PROVIDERS
 
-    @patch("code_puppy.command_line.add_model_menu.ModelsDevRegistry")
-    def test_unsupported_provider_warning(self, mock_registry_class):
-        """Test warning when selecting unsupported provider."""
-        provider = MagicMock(id="amazon-bedrock")
-        # Would check if provider is in UNSUPPORTED_PROVIDERS
-        is_unsupported = provider.id in UNSUPPORTED_PROVIDERS
-        assert is_unsupported is True
-
-
-class TestCustomModelSupport:
-    """Test custom model input."""
-
-    @patch("code_puppy.command_line.add_model_menu.safe_input")
-    @patch("code_puppy.command_line.add_model_menu.ModelsDevRegistry")
-    def test_enable_custom_model_mode(self, mock_registry_class, mock_input):
-        """Test enabling custom model mode."""
-        mock_registry = MagicMock()
-        mock_registry.get_providers.return_value = [MagicMock(name="openai")]
-        mock_registry_class.return_value = mock_registry
-
-        menu = AddModelMenu()
-        menu.is_custom_model_selected = True
-        assert menu.is_custom_model_selected is True
-
-    @patch("code_puppy.command_line.add_model_menu.safe_input")
-    @patch("code_puppy.command_line.add_model_menu.ModelsDevRegistry")
-    def test_custom_model_name_input(self, mock_registry_class, mock_input):
-        """Test inputting custom model name."""
-        mock_input.return_value = "my-custom-model"
-        mock_registry = MagicMock()
-        mock_registry.get_providers.return_value = [MagicMock(name="openai")]
-        mock_registry_class.return_value = mock_registry
-
-        menu = AddModelMenu()
-        menu.is_custom_model_selected = True
-        custom_name = mock_input("Enter model name: ")
-        menu.custom_model_name = custom_name
-        assert menu.custom_model_name == "my-custom-model"
-
-
-class TestErrorRecovery:
-    """Test error handling and recovery."""
-
-    @patch("code_puppy.command_line.add_model_menu.emit_error")
-    @patch("code_puppy.command_line.add_model_menu.ModelsDevRegistry")
-    def test_recovery_from_selection_error(self, mock_registry_class, mock_emit_error):
-        """Test recovery from selection error."""
-        mock_registry = MagicMock()
-        mock_registry.get_providers.return_value = [MagicMock(name="openai")]
-        mock_registry_class.return_value = mock_registry
-
-        AddModelMenu()
-        # Would emit error and continue
-        mock_emit_error("Selection error")
-        mock_emit_error.assert_called_once()
-
-    @patch("code_puppy.command_line.add_model_menu.emit_error")
-    @patch("code_puppy.command_line.add_model_menu.ModelsDevRegistry")
-    def test_recovery_from_addition_error(self, mock_registry_class, mock_emit_error):
-        """Test recovery from model addition error."""
-        mock_registry = MagicMock()
-        mock_registry.get_providers.return_value = [MagicMock(name="openai")]
-        mock_registry_class.return_value = mock_registry
-
-        AddModelMenu()
-        # Would emit error and allow retry
-        mock_emit_error("Failed to add model")
-        mock_emit_error.assert_called_once()
-
-
-class TestMenuExit:
-    """Test menu exit behavior."""
-
-    @patch("code_puppy.command_line.add_model_menu.ModelsDevRegistry")
-    def test_exit_without_selection(self, mock_registry_class):
-        """Test exiting menu without selecting a model."""
-        mock_registry = MagicMock()
-        mock_registry.get_providers.return_value = [MagicMock(name="openai")]
-        mock_registry_class.return_value = mock_registry
-
-        menu = AddModelMenu()
-        menu.result = None
-        assert menu.result is None
-
-    @patch("code_puppy.command_line.add_model_menu.ModelsDevRegistry")
-    def test_exit_with_selection(self, mock_registry_class):
-        """Test exiting menu after selecting a model."""
-        mock_registry = MagicMock()
-        mock_registry.get_providers.return_value = [MagicMock(name="openai")]
-        mock_registry_class.return_value = mock_registry
-
-        menu = AddModelMenu()
-        menu.result = "model_selected"
-        assert menu.result == "model_selected"
-
-
-class TestSharedPaginationState:
-    """Test shared pagination behavior in the add model menu."""
-
-    @patch("code_puppy.command_line.add_model_menu.ModelsDevRegistry")
-    def test_provider_selection_updates_page_when_moving_down(
-        self, mock_registry_class
-    ):
-        providers = [_make_provider(f"Provider{i}", f"prov{i}") for i in range(20)]
-        mock_registry = MagicMock()
-        mock_registry.get_providers.return_value = providers
-        mock_registry_class.return_value = mock_registry
-
-        menu = AddModelMenu()
-        menu.update_display = lambda: None
-        menu.selected_provider_idx = PAGE_SIZE
-        menu.current_page = 0
-
-        menu._ensure_selection_visible()
-
-        assert menu.current_page == 1
-
-    @patch("code_puppy.command_line.add_model_menu.ModelsDevRegistry")
-    def test_go_to_previous_page_selects_first_item_on_page(self, mock_registry_class):
-        providers = [_make_provider(f"Provider{i}", f"prov{i}") for i in range(20)]
-        mock_registry = MagicMock()
-        mock_registry.get_providers.return_value = providers
-        mock_registry_class.return_value = mock_registry
-
-        menu = AddModelMenu()
-        menu.update_display = lambda: None
-        menu.current_page = 1
-        menu.selected_provider_idx = PAGE_SIZE + 2
-
-        menu._go_to_previous_page()
-
-        assert menu.current_page == 0
-        assert menu.selected_provider_idx == 0
-
-    @patch("code_puppy.command_line.add_model_menu.ModelsDevRegistry")
-    def test_go_to_next_page_selects_first_model_on_page(self, mock_registry_class):
-        providers = [_make_provider("OpenAI", "openai")]
-        mock_registry = MagicMock()
-        mock_registry.get_providers.return_value = providers
-        mock_registry.get_models.return_value = [MagicMock() for _ in range(20)]
-        mock_registry_class.return_value = mock_registry
-
-        menu = AddModelMenu()
-        menu.update_display = lambda: None
-        menu.current_provider = providers[0]
-        menu.current_models = mock_registry.get_models.return_value
-        menu.view_mode = "models"
-        menu.current_page = 0
-        menu.selected_model_idx = 3
-
-        menu._go_to_next_page()
-
-        assert menu.current_page == 1
-        assert menu.selected_model_idx == PAGE_SIZE
-
-    @patch("code_puppy.command_line.add_model_menu.ModelsDevRegistry")
-    def test_return_to_providers_restores_provider_page(self, mock_registry_class):
-        providers = [_make_provider(f"Provider{i}", f"prov{i}") for i in range(20)]
-        mock_registry = MagicMock()
-        mock_registry.get_providers.return_value = providers
-        mock_registry.get_models.return_value = [MagicMock() for _ in range(3)]
-        mock_registry_class.return_value = mock_registry
-
-        menu = AddModelMenu()
-        menu.update_display = lambda: None
-        menu.selected_provider_idx = PAGE_SIZE + 1
-        menu.current_page = 0
-        menu._ensure_selection_visible()
-        menu._enter_provider()
-
-        assert menu.view_mode == "models"
-        assert menu.current_page == 0
-
-        menu._go_back_to_providers()
-
-        assert menu.view_mode == "providers"
-        assert menu.current_page == 1
-        assert menu.selected_provider_idx == PAGE_SIZE + 1
-
-
-class TestFilteringBehavior:
-    @patch("code_puppy.command_line.add_model_menu.ModelsDevRegistry")
-    def test_provider_filter_reduces_visible_providers(self, mock_registry_class):
-        providers = [
-            _make_provider("OpenAI", "openai"),
-            _make_provider("Anthropic", "anthropic"),
-            _make_provider("Google", "google"),
-        ]
-        mock_registry = MagicMock()
-        mock_registry.get_providers.return_value = providers
-        mock_registry_class.return_value = mock_registry
-
-        menu = AddModelMenu()
-        menu._set_provider_filter("anth")
-
-        assert menu._filtered_providers() == [providers[1]]
-        assert menu._get_current_provider() == providers[1]
-
-    @patch("code_puppy.command_line.add_model_menu.ModelsDevRegistry")
-    def test_model_filter_preserves_custom_selection_when_visible(
-        self, mock_registry_class
-    ):
-        provider = _make_provider("OpenAI", "openai")
-        models = [
-            MagicMock(name="GPT-5", model_id="gpt-5", full_id="openai/gpt-5"),
-            MagicMock(name="o3-mini", model_id="o3-mini", full_id="openai/o3-mini"),
-        ]
-        models[0].name = "GPT-5"
-        models[1].name = "o3-mini"
-        mock_registry = MagicMock()
-        mock_registry.get_providers.return_value = [provider]
-        mock_registry.get_models.return_value = models
-        mock_registry_class.return_value = mock_registry
-
-        menu = AddModelMenu()
-        menu.current_provider = provider
-        menu.current_models = models
-        menu.view_mode = "models"
-        menu.selected_model_idx = len(models)
-
-        menu._set_model_filter("custom")
-
-        assert menu._filtered_models() == []
-        assert menu._is_custom_model_selected() is True
-
-    @patch("code_puppy.command_line.add_model_menu.ModelsDevRegistry")
-    def test_model_filter_matches_model_id_and_name(self, mock_registry_class):
-        provider = _make_provider("OpenAI", "openai")
-        named_model = MagicMock(
-            name="GPT Five", model_id="gpt-5-mini", full_id="openai/gpt-5-mini"
-        )
-        named_model.name = "GPT Five"
-        other_model = MagicMock(
-            name="Claude Sonnet",
-            model_id="claude-sonnet",
-            full_id="anthropic/claude-sonnet",
-        )
-        other_model.name = "Claude Sonnet"
-        mock_registry = MagicMock()
-        mock_registry.get_providers.return_value = [provider]
-        mock_registry_class.return_value = mock_registry
-
-        menu = AddModelMenu()
-        menu.current_provider = provider
-        menu.current_models = [named_model, other_model]
-        menu.view_mode = "models"
-
-        menu._set_model_filter("mini")
-
-        assert menu._filtered_models() == [named_model]
-
-    @patch("code_puppy.command_line.add_model_menu.ModelsDevRegistry")
-    def test_try_add_current_model_uses_custom_entry_when_filter_hides_builtins(
-        self, mock_registry_class
-    ):
-        provider = _make_provider("OpenAI", "openai")
-        model = MagicMock(
-            name="GPT Five", model_id="gpt-5-mini", full_id="openai/gpt-5-mini"
-        )
-        model.name = "GPT Five"
-        mock_registry = MagicMock()
-        mock_registry.get_providers.return_value = [provider]
-        mock_registry_class.return_value = mock_registry
-
-        menu = AddModelMenu()
-        menu.current_provider = provider
-        menu.current_models = [model]
-        menu.view_mode = "models"
-
-        menu._set_model_filter("nope")
-
-        assert menu._filtered_models() == []
-        assert menu._should_show_custom_model() is True
-        assert menu._get_total_items() == 1
-        assert menu._try_add_current_model() is True
-        assert menu.result == "pending_custom_model"
+    def test_env_hints_cover_major_providers(self):
+        assert "OPENAI_API_KEY" in amm.ENV_VAR_HINTS
+        assert pytest  # keep import honest

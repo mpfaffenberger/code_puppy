@@ -96,6 +96,7 @@ approval. With `fail_closed=True` its exception is reported as a block instead. 
 | `load_models_config` | Inject models | `() -> dict` |
 | `load_model_descriptions` | Inject description overlays | `() -> dict[str, str]` |
 | `get_model_system_prompt` | Per-model prompt | `(model_name, default_prompt, user_prompt) -> dict \| None` |
+| `provider_credential_flow` | `/add_model` hit a missing credential | `(*, provider_id, env_var) -> bool \| None` — save the credential (config + env) and return `True` to skip manual entry; short-circuits on first `True` |
 | `stream_event` | Response streaming | `(event_type, event_data, agent_session_id=None) -> None` |
 | `transform_model_messages` | Before each model request, after history processing | `(agent_name, messages) -> None` — mutate the final `list[ModelMessage]` in place |
 | `pre_mcp_autostart` | Before bound MCP servers auto-start | `(agent_name, server_names) -> None` (refresh tokens / mint creds here) |

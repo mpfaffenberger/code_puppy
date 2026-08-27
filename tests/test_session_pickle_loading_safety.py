@@ -102,6 +102,21 @@ def test_build_into_module_namespace_is_refused():
     assert not hasattr(sys, "_cp_pwn")
 
 
+def test_dateutil_tz_reexports_are_surrogates():
+    """dateutil.tz re-exports os/sys; those names must not resolve live."""
+    import io
+    import os
+    import sys
+
+    from code_puppy.session_surrogate_unpickler import SurrogateBase, SurrogateUnpickler
+
+    unpickler = SurrogateUnpickler(io.BytesIO(b""))
+    for name, real in (("os", os), ("sys", sys)):
+        resolved = unpickler.find_class("dateutil.tz", name)
+        assert resolved is not real, name
+        assert issubclass(resolved, SurrogateBase), name
+
+
 def test_exit_quit_help_do_not_resolve_to_real_callables():
     """builtins.exit/quit/help must resolve to surrogates, not the real callables.
 

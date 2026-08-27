@@ -187,9 +187,7 @@ class TestRender:
 
     def _make_formatted_text(self, text=">>> "):
         """Return a minimal FormattedText-like list for the default prompt."""
-        from prompt_toolkit.formatted_text import FormattedText
-
-        return FormattedText([("class:arrow", text)])
+        return [("class:arrow", text)]
 
     def test_render_returns_default_when_no_status_text(self):
         from code_puppy_core_plugins.statusline.prompt_patch import _render
@@ -280,7 +278,7 @@ class TestRender:
                 return_value="replace",
             ),
             patch(
-                "prompt_toolkit.formatted_text.to_formatted_text",
+                "code_puppy_core_plugins.statusline.prompt_patch._status_fragments",
                 side_effect=ValueError("bad ansi"),
             ),
         ):
@@ -298,7 +296,7 @@ class TestInstallPromptPatch:
     def test_idempotent(self):
         """Calling install_prompt_patch() twice must not double-wrap."""
         from code_puppy_core_plugins.statusline import prompt_patch
-        import code_puppy.command_line.prompt_toolkit_completion as ptc
+        import code_puppy.command_line.completers as ptc
 
         # Clean slate
         if hasattr(ptc, prompt_patch._PATCH_ATTR):
@@ -322,7 +320,7 @@ class TestInstallPromptPatch:
     def test_patch_replaces_function(self):
         """After install, get_prompt_with_active_model should be a new callable."""
         from code_puppy_core_plugins.statusline import prompt_patch
-        import code_puppy.command_line.prompt_toolkit_completion as ptc
+        import code_puppy.command_line.completers as ptc
 
         if hasattr(ptc, prompt_patch._PATCH_ATTR):
             delattr(ptc, prompt_patch._PATCH_ATTR)
