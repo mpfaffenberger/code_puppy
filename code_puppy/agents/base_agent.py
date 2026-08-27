@@ -69,9 +69,11 @@ class BaseAgent(ABC):
 
     When True, the builder folds this agent's tools into a single `run_code`
     Monty sandbox with speculative execution: the model sees no native tools,
-    and calls with literal arguments start executing while the snippet is
-    still streaming. Only agents whose entire tool surface is side-effect
-    free should opt in; see ``agents/_code_mode.py`` and the Monty agent.
+    and read-only calls with literal arguments start executing while the
+    snippet is still streaming. Speculation itself is capped to the
+    side-effect-free allowlist in ``agents/_code_mode.py``, so the rest of
+    the tool surface is sandboxed but never launched early. See the Monty
+    agent for the resident example.
     """
 
     def __init__(self) -> None:

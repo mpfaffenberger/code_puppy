@@ -7,6 +7,7 @@ from pydantic_ai_harness.code_mode import CodeMode
 
 from code_puppy.agents._code_mode import (
     SANDBOXED_READ_ONLY_TOOLS,
+    SilenceToolOutput,
     build_speculative_code_mode,
 )
 from code_puppy.agents.agent_monty import MontyAgent
@@ -54,11 +55,31 @@ class TestBuildSpeculativeCodeMode:
         )
         agent = MontyAgent()
 
-        (capability,) = build_speculative_code_mode(agent, agent.get_available_tools())
+        code_mode, silencer = build_speculative_code_mode(
+            agent, agent.get_available_tools()
+        )
 
-        assert isinstance(capability, CodeMode)
-        assert capability.tools == "all"
-        assert capability.speculate == list(SANDBOXED_READ_ONLY_TOOLS)
+        assert isinstance(code_mode, CodeMode)
+        assert code_mode.tools == "all"
+        assert code_mode.speculate == list(SANDBOXED_READ_ONLY_TOOLS)
+        assert isinstance(silencer, SilenceToolOutput)
+
+    def test_sandbox_gets_workspace_mount_and_os_access(self, monkeypatch):
+        import os
+
+        monkeypatch.setattr(
+            "code_puppy.agents._code_mode.get_speculative_code_mode_enabled",
+            lambda: True,
+        )
+        agent = MontyAgent()
+
+        code_mode, _ = build_speculative_code_mode(agent, agent.get_available_tools())
+
+        assert code_mode.mount is not None
+        assert code_mode.mount.host_path == os.getcwd()
+        assert code_mode.mount.virtual_path == os.getcwd()
+        assert code_mode.mount.mode == "read-write"
+        assert code_mode.os_access is not None
 
     def test_speculation_never_exceeds_the_read_only_trio(self, monkeypatch):
         """A tool added to an opted-in agent later is sandboxed but not launched early."""
@@ -66,7 +87,7 @@ class TestBuildSpeculativeCodeMode:
             "code_puppy.agents._code_mode.get_speculative_code_mode_enabled",
             lambda: True,
         )
-        (capability,) = build_speculative_code_mode(
+        capability, _ = build_speculative_code_mode(
             MontyAgent(), ["read_file", "grep", "some_future_tool"]
         )
 
@@ -75,8 +96,16 @@ class TestBuildSpeculativeCodeMode:
 
 
 class TestMontyAgent:
-    def test_declares_only_the_read_only_trio(self):
-        assert MontyAgent().get_available_tools() == list(SANDBOXED_READ_ONLY_TOOLS)
+    def test_carries_the_full_code_puppy_toolkit(self):
+        from code_puppy.agents.agent_code_puppy import CodePuppyAgent
+
+        assert (
+            MontyAgent().get_available_tools() == CodePuppyAgent().get_available_tools()
+        )
+
+    def test_toolkit_includes_the_speculatable_trio(self):
+        tools = MontyAgent().get_available_tools()
+        assert all(name in tools for name in SANDBOXED_READ_ONLY_TOOLS)
 
     def test_opts_into_speculative_code_mode(self):
         assert MontyAgent.speculative_code_mode is True

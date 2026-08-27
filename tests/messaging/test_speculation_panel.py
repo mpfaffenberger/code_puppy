@@ -113,6 +113,11 @@ class TestSpeculationPanelLifecycle:
         assert "hit" in output
         assert "hits 1 (48ms hidden)" in output
         assert "grep" in output
+        # The panel box has no left border: content flows flush-left.
+        for line in output.splitlines():
+            assert not line.startswith("\u2502")
+            assert not line.startswith("\u256d")
+            assert not line.startswith("\u2570")
 
     def test_miss_and_eviction_annotate_the_reveal(self):
         panel = SpeculationPanel()

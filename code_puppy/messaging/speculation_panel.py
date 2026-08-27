@@ -34,6 +34,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+from rich.box import Box
 from rich.console import Console, ConsoleOptions, RenderResult
 from rich.live import Live
 from rich.panel import Panel
@@ -53,6 +54,10 @@ logger = logging.getLogger(__name__)
 
 _SPINNER_FRAMES = "|/-\\"
 _GUTTER_WIDTH = 10
+
+# ROUNDED with the left edge blanked: streamed output in Code Puppy flows
+# flush-left, and a full box reads as a wall between the code and the page.
+_NO_LEFT_BOX = Box(" ─┬╮\n  ││\n ─┼┤\n  ││\n ─┼┤\n ─┼┤\n  ││\n ─┴╯\n")
 
 
 def _closed_boundary_line(code: str, closed_statements: int) -> int:
@@ -288,7 +293,13 @@ class SpeculationPanel:
             body.append("\n")
         body.append_text(self._footer())
         title = "run_code" if final else "run_code (streaming)"
-        return Panel(body, title=title, title_align="left", border_style="grey50")
+        return Panel(
+            body,
+            title=title,
+            title_align="left",
+            border_style="grey50",
+            box=_NO_LEFT_BOX,
+        )
 
     def _footer(self) -> Text:
         running = sum(1 for c in self._launches.values() if c.state == "running")

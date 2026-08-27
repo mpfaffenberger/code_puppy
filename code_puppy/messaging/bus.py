@@ -74,6 +74,11 @@ class MessageBus:
         """
         self._maxsize = maxsize
         self._lock = threading.Lock()
+        # Depth counter (not a bool: nested runs) for suppressing
+        # TOOL_OUTPUT-category messages. Used by speculative CodeMode runs,
+        # where every tool executes inside run_code and its UI rendering
+        # would duplicate what the snippet already returns to the model.
+        self._tool_output_quiet_depth = 0
 
         # Use sync queues by default (works in any context)
         self._outgoing: queue.Queue[AnyMessage] = queue.Queue(maxsize=maxsize)
@@ -96,18 +101,42 @@ class MessageBus:
     # Outgoing Messages (Agent → UI)
     # =========================================================================
 
+    def push_tool_output_quiet(self) -> None:
+        """Suppress TOOL_OUTPUT messages until the matching pop.
+
+        A plain process-wide counter rather than a contextvar: tools stream
+        output from background threads (e.g. shell readers), which would not
+        inherit a task-local flag.
+        """
+        with self._lock:
+            self._tool_output_quiet_depth += 1
+
+    def pop_tool_output_quiet(self) -> None:
+        """Re-enable TOOL_OUTPUT messages when the outermost pop lands."""
+        with self._lock:
+            self._tool_output_quiet_depth = max(0, self._tool_output_quiet_depth - 1)
+
     def emit(self, message: AnyMessage) -> None:
         """Emit a message to the UI.
 
         Thread-safe. Can be called from sync or async context.
         If no renderer is active, messages are buffered for later.
         Auto-tags message with current session_id if not already set.
+        TOOL_OUTPUT messages are dropped while a quiet scope is active
+        (see `push_tool_output_quiet`); warnings and errors always pass.
 
         Args:
             message: The message to emit.
         """
         # Auto-tag message with current session if not already set
         with self._lock:
+            if (
+                self._tool_output_quiet_depth > 0
+                and getattr(message, "category", None) == MessageCategory.TOOL_OUTPUT
+                and getattr(message, "level", None)
+                not in (MessageLevel.WARNING, MessageLevel.ERROR)
+            ):
+                return
             if message.session_id is None and self._current_session_id is not None:
                 message.session_id = self._current_session_id
 
