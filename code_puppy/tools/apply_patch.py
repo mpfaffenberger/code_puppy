@@ -39,8 +39,10 @@ class ApplyPatchPayload(BaseModel):
 
 @dataclass(frozen=True)
 class _Chunk:
+    change_context: str | None
     old_lines: tuple[str, ...]
     new_lines: tuple[str, ...]
+    is_end_of_file: bool
 
 
 @dataclass(frozen=True)
@@ -73,43 +75,143 @@ def _safe_path(raw_path: str, base_dir: str) -> str:
     return resolved
 
 
+def _unexpected_update_line(line: str) -> PatchError:
+    return PatchError(
+        f"Unexpected line found in update hunk: '{line}'. Every line should start "
+        "with ' ' (context line), '+' (added line), or '-' (removed line)"
+    )
+
+
 def _parse_chunks(lines: Sequence[str], path: str) -> list[_Chunk]:
     chunks: list[_Chunk] = []
-    old_lines: list[str] = []
-    new_lines: list[str] = []
-    saw_hunk = False
+    index = 0
 
-    def flush() -> None:
-        nonlocal old_lines, new_lines
-        if old_lines or new_lines:
-            chunks.append(_Chunk(tuple(old_lines), tuple(new_lines)))
-            old_lines, new_lines = [], []
+    while index < len(lines):
+        # Codex tolerates blank separators before a chunk.
+        if lines[index].strip() == "":
+            index += 1
+            continue
+        if lines[index].startswith("***"):
+            break
 
-    for line in lines:
-        if line.startswith("@@"):
-            flush()
-            saw_hunk = True
-            continue
-        if line in (r"\ No newline at end of file", "*** End of File"):
-            continue
-        if not line:
-            raise PatchError(f"invalid empty patch line in update for {path}")
-        marker, content = line[0], line[1:]
-        if marker == " ":
-            old_lines.append(content)
-            new_lines.append(content)
-        elif marker == "-":
-            old_lines.append(content)
-        elif marker == "+":
-            new_lines.append(content)
+        line = lines[index]
+        if line == "@@":
+            change_context = None
+            index += 1
+        elif line.startswith("@@ "):
+            change_context = line[3:]
+            index += 1
+        elif not chunks:
+            # Only the first chunk may start directly with diff lines.
+            change_context = None
         else:
             raise PatchError(
-                f"invalid patch line for {path}: expected ' ', '-', or '+', got {line!r}"
+                f"Expected update hunk to start with a @@ context marker, got: '{line}'"
             )
-    flush()
-    if not saw_hunk:
-        raise PatchError(f"update for {path} contains no @@ hunk")
+
+        if index >= len(lines):
+            raise PatchError("Update hunk does not contain any lines")
+
+        old_lines: list[str] = []
+        new_lines: list[str] = []
+        is_end_of_file = False
+        parsed_lines = 0
+
+        while index < len(lines):
+            line = lines[index]
+            if parsed_lines and line.strip() == "":
+                next_nonblank = index
+                while next_nonblank < len(lines) and lines[next_nonblank].strip() == "":
+                    next_nonblank += 1
+                if next_nonblank < len(lines) and lines[next_nonblank].startswith("@@"):
+                    # Let the outer loop discard separators before the next chunk.
+                    break
+            if line == "*** End of File":
+                if parsed_lines == 0:
+                    raise PatchError("Update hunk does not contain any lines")
+                is_end_of_file = True
+                index += 1
+                break
+
+            if not line:
+                old_lines.append("")
+                new_lines.append("")
+            elif line[0] == " ":
+                old_lines.append(line[1:])
+                new_lines.append(line[1:])
+            elif line[0] == "+":
+                new_lines.append(line[1:])
+            elif line[0] == "-":
+                old_lines.append(line[1:])
+            elif parsed_lines == 0:
+                raise _unexpected_update_line(line)
+            else:
+                # A context marker or other non-diff line begins the next chunk.
+                break
+
+            parsed_lines += 1
+            index += 1
+
+        chunks.append(
+            _Chunk(
+                change_context,
+                tuple(old_lines),
+                tuple(new_lines),
+                is_end_of_file,
+            )
+        )
+
+    if not chunks:
+        raise PatchError(f"Update file hunk for path '{path}' is empty")
     return chunks
+
+
+_UNICODE_PUNCTUATION = str.maketrans(
+    {
+        **{codepoint: "-" for codepoint in range(0x2010, 0x2016)},
+        0x2212: "-",
+        **{codepoint: "'" for codepoint in range(0x2018, 0x201C)},
+        **{codepoint: '"' for codepoint in range(0x201C, 0x2020)},
+        0x00A0: " ",
+        **{codepoint: " " for codepoint in range(0x2002, 0x200B)},
+        0x202F: " ",
+        0x205F: " ",
+        0x3000: " ",
+    }
+)
+
+
+def _seek_sequence(
+    lines: Sequence[str],
+    pattern: Sequence[str],
+    start: int,
+    eof: bool = False,
+) -> int | None:
+    if not pattern:
+        return start
+    if len(pattern) > len(lines):
+        return None
+
+    def normalized(line: str) -> str:
+        return line.strip().translate(_UNICODE_PUNCTUATION)
+
+    comparisons = (
+        lambda line: line,
+        lambda line: line.rstrip(),
+        lambda line: line.strip(),
+        normalized,
+    )
+    last_start = len(lines) - len(pattern)
+    search_start = last_start if eof else start
+
+    for transform in comparisons:
+        transformed_pattern = [transform(line) for line in pattern]
+        for candidate in range(search_start, last_start + 1):
+            if [
+                transform(line) for line in lines[candidate : candidate + len(pattern)]
+            ] == transformed_pattern:
+                return candidate
+    return None
 
 
 def _split_patch(patch_text: str) -> list[tuple[str, str, list[str], str | None]]:
@@ -180,31 +282,53 @@ def _split_patch(patch_text: str) -> list[tuple[str, str, list[str], str | None]
 
 
 def _apply_chunks(path: str, old_content: str, chunks: Sequence[_Chunk]) -> str:
-    had_final_newline = old_content.endswith("\n")
-    source = old_content.splitlines()
-    cursor = 0
-    output: list[str] = []
+    source = old_content.split("\n")
+    if source and source[-1] == "":
+        source.pop()
 
+    replacements: list[tuple[int, int, list[str]]] = []
+    cursor = 0
     for chunk in chunks:
+        if chunk.change_context is not None:
+            context_at = _seek_sequence(
+                source, [chunk.change_context], cursor, eof=False
+            )
+            if context_at is None:
+                raise PatchError(
+                    f"Failed to find context '{chunk.change_context}' in {path}"
+                )
+            cursor = context_at + 1
+
+        if not chunk.old_lines:
+            replacements.append((len(source), 0, list(chunk.new_lines)))
+            continue
+
         expected = list(chunk.old_lines)
-        # Codex hunks carry @@ locations, but the canonical patch format also
-        # permits context-only matching. Search from the previous hunk.
-        match_at = None
-        for candidate in range(cursor, len(source) - len(expected) + 1):
-            if source[candidate : candidate + len(expected)] == expected:
-                match_at = candidate
-                break
+        new_lines = list(chunk.new_lines)
+        match_at = _seek_sequence(source, expected, cursor, eof=chunk.is_end_of_file)
+        if match_at is None and expected[-1] == "":
+            expected.pop()
+            if new_lines and new_lines[-1] == "":
+                new_lines.pop()
+            match_at = _seek_sequence(
+                source, expected, cursor, eof=chunk.is_end_of_file
+            )
+
         if match_at is None:
-            raise PatchError(f"patch hunk did not match {path}")
-        output.extend(source[cursor:match_at])
-        output.extend(chunk.new_lines)
+            raise PatchError(
+                f"Failed to find expected lines in {path}:\n"
+                + "\n".join(chunk.old_lines)
+            )
+        replacements.append((match_at, len(expected), new_lines))
         cursor = match_at + len(expected)
 
-    output.extend(source[cursor:])
-    new_content = "\n".join(output)
-    if had_final_newline or new_content:
-        new_content += "\n"
-    return new_content
+    replacements.sort(key=lambda replacement: replacement[0])
+    for start, old_len, new_lines in reversed(replacements):
+        source[start : start + old_len] = new_lines
+
+    if not source or source[-1] != "":
+        source.append("")
+    return "\n".join(source)
 
 
 def parse_patch(patch_text: str, *, base_dir: str | None = None) -> list[PatchChange]:
