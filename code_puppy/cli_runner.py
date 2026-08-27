@@ -585,7 +585,10 @@ async def main():
             prompt_only_mode = False
 
         if prompt_only_mode:
-            await execute_single_prompt(
+            # Propagate the headless exit code: main_entry() feeds main()'s
+            # return straight into sys.exit(), so swallowing it here is what
+            # made a failed `-p` run report success to the shell.
+            return await execute_single_prompt(
                 initial_command,
                 message_renderer,
                 session_name=resolved_resume_session,
@@ -1464,13 +1467,19 @@ async def execute_single_prompt(
     *,
     session_name: str | None = None,
     usage_file: Path | None = None,
-) -> None:
+) -> int:
     """Execute one headless ``-p`` prompt, dispatching commands and autosaving.
 
     Agent turns persist under the explicitly resumed session, when supplied,
     or under this process's generated autosave session otherwise. Handled
     slash commands and shell pass-through do not create or overwrite sessions
     because they never invoke the agent.
+
+    Returns the process exit code: ``0`` on success, ``1`` when the run failed.
+    A failed headless run must not report success — ``code-puppy -p ... && next``
+    would otherwise run ``next`` after the agent did nothing. Only paths that
+    actually emit an error return non-zero; cancellation and empty-prompt
+    warnings keep their previous ``0`` status.
     """
     from code_puppy.command_line.shell_passthrough import (
         execute_shell_passthrough,
@@ -1479,7 +1488,7 @@ async def execute_single_prompt(
 
     if is_shell_passthrough(prompt):
         execute_shell_passthrough(prompt)
-        return
+        return 0
 
     from code_puppy.command_line.command_handler import handle_command
     from code_puppy.config import (
@@ -1504,18 +1513,19 @@ async def execute_single_prompt(
             command_result = handle_command(command_prompt)
         except Exception as command_error:
             emit_error(t("cli.command.error", error=command_error))
-            return
+            return 1
 
         if command_result is True:
-            return
+            return 0
         if command_result == "__AUTOSAVE_LOAD__":
             emit_warning(t("cli.autosave.headless_unsupported"))
-            return
+            return 0
         if isinstance(command_result, str):
             prompt = command_result
 
     effective_session_name = session_name or get_current_session_name()
     agent = None
+    exit_code = 0
     emit_info(t("cli.headless.executing", prompt=prompt))
 
     try:
@@ -1530,7 +1540,7 @@ async def execute_single_prompt(
                 use_run_ui=False,
             )
         if result is None:
-            return
+            return 0
 
         get_message_bus().emit(
             AgentResponseMessage(content=result.output, is_markdown=True)
@@ -1548,6 +1558,7 @@ async def execute_single_prompt(
         emit_warning(t("cli.headless.cancelled"))
     except Exception as error:
         emit_error(t("cli.headless.error", error=error))
+        exit_code = 1
     finally:
         try:
             session_agent = agent or get_current_agent()
@@ -1570,6 +1581,8 @@ async def execute_single_prompt(
                     error=save_error,
                 )
             )
+
+    return exit_code
 
 
 def _force_utf8_stdio():

@@ -491,8 +491,8 @@ def load_model_with_fallback(
                 continue
 
         friendly = (
-            "No valid model could be loaded. Update the model configuration or "
-            "set a valid model with `config set`."
+            "No valid model could be loaded. Run `/add_model` to configure one, "
+            "or `/model <name>` to select an already-configured model."
         )
         emit_error(friendly, message_group=message_group)
         raise ValueError(friendly) from exc
