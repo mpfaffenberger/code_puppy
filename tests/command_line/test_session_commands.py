@@ -82,6 +82,12 @@ class TestHandleSessionCommand:
 
 
 class TestHandleCompactCommand:
+    @pytest.fixture(autouse=True)
+    def _mock_autosave(self):
+        with patch("code_puppy.config.auto_save_session_if_enabled") as autosave:
+            self.autosave = autosave
+            yield
+
     def _run(self, cmd="/compact"):
         from code_puppy.command_line.session_commands import handle_compact_command
 
@@ -139,6 +145,7 @@ class TestHandleCompactCommand:
         ):
             assert self._run() is True
             rcs.assert_called_once()
+            self.autosave.assert_called_once_with()
             ms.assert_called_once()
             assert "truncation" in ms.call_args[0][0]
 
@@ -165,6 +172,7 @@ class TestHandleCompactCommand:
             patch("code_puppy.messaging.emit_success") as ms,
         ):
             assert self._run() is True
+            self.autosave.assert_called_once_with()
             ms.assert_called_once()
 
     def test_compaction_fails(self):
@@ -190,6 +198,7 @@ class TestHandleCompactCommand:
             patch("code_puppy.messaging.emit_error") as me,
         ):
             assert self._run() is True
+            self.autosave.assert_not_called()
             me.assert_called_once()
 
     def test_exception(self):
