@@ -1,4 +1,4 @@
-"""Tests for the speculative CodeMode wiring (`code_puppy.agents._code_mode`)."""
+"""Tests for the opt-in speculative CodeMode wiring (`code_puppy.agents._code_mode`)."""
 
 from unittest.mock import patch
 
@@ -9,6 +9,7 @@ from code_puppy.agents._code_mode import (
     SANDBOXED_READ_ONLY_TOOLS,
     build_speculative_code_mode,
 )
+from code_puppy.agents.agent_monty import MontyAgent
 
 
 def _leaves(capability):
@@ -21,57 +22,74 @@ def _leaves(capability):
     return out
 
 
+class _OrdinaryAgent:
+    """An agent that never opted in; the attribute may not even exist."""
+
+
 class TestBuildSpeculativeCodeMode:
+    def test_agent_without_opt_in_gets_nothing(self):
+        assert (
+            build_speculative_code_mode(
+                _OrdinaryAgent(), list(SANDBOXED_READ_ONLY_TOOLS)
+            )
+            == []
+        )
+
     def test_disabled_by_config_returns_empty(self, monkeypatch):
         monkeypatch.setattr(
             "code_puppy.agents._code_mode.get_speculative_code_mode_enabled",
             lambda: False,
         )
-        assert build_speculative_code_mode(list(SANDBOXED_READ_ONLY_TOOLS)) == []
+        assert (
+            build_speculative_code_mode(MontyAgent(), list(SANDBOXED_READ_ONLY_TOOLS))
+            == []
+        )
 
-    def test_agent_without_read_only_tools_returns_empty(self, monkeypatch):
+    def test_opted_in_agent_folds_everything_and_speculates_the_read_only_trio(
+        self, monkeypatch
+    ):
         monkeypatch.setattr(
             "code_puppy.agents._code_mode.get_speculative_code_mode_enabled",
             lambda: True,
         )
-        assert build_speculative_code_mode(["agent_run_shell_command"]) == []
+        agent = MontyAgent()
 
-    def test_folds_and_speculates_only_declared_read_only_tools(self, monkeypatch):
-        monkeypatch.setattr(
-            "code_puppy.agents._code_mode.get_speculative_code_mode_enabled",
-            lambda: True,
-        )
-        built = build_speculative_code_mode(["read_file", "grep", "edit_file"])
+        (capability,) = build_speculative_code_mode(agent, agent.get_available_tools())
 
-        assert len(built) == 1
-        capability = built[0]
         assert isinstance(capability, CodeMode)
-        assert capability.tools == ["read_file", "grep"]
+        assert capability.tools == "all"
+        assert capability.speculate == list(SANDBOXED_READ_ONLY_TOOLS)
+
+    def test_speculation_never_exceeds_the_read_only_trio(self, monkeypatch):
+        """A tool added to an opted-in agent later is sandboxed but not launched early."""
+        monkeypatch.setattr(
+            "code_puppy.agents._code_mode.get_speculative_code_mode_enabled",
+            lambda: True,
+        )
+        (capability,) = build_speculative_code_mode(
+            MontyAgent(), ["read_file", "grep", "some_future_tool"]
+        )
+
+        assert capability.tools == "all"
         assert capability.speculate == ["read_file", "grep"]
 
-    def test_write_and_shell_tools_are_never_folded(self, monkeypatch):
-        monkeypatch.setattr(
-            "code_puppy.agents._code_mode.get_speculative_code_mode_enabled",
-            lambda: True,
-        )
-        tools = [
-            "list_files",
-            "read_file",
-            "grep",
-            "edit_file",
-            "delete_file",
-            "agent_run_shell_command",
-            "invoke_agent",
-        ]
-        (capability,) = build_speculative_code_mode(tools)
-        assert set(capability.tools) == set(SANDBOXED_READ_ONLY_TOOLS)
+
+class TestMontyAgent:
+    def test_declares_only_the_read_only_trio(self):
+        assert MontyAgent().get_available_tools() == list(SANDBOXED_READ_ONLY_TOOLS)
+
+    def test_opts_into_speculative_code_mode(self):
+        assert MontyAgent.speculative_code_mode is True
+
+    def test_prompt_teaches_the_single_tool_contract(self):
+        prompt = MontyAgent().get_system_prompt()
+        assert "run_code" in prompt
+        assert "literal" in prompt
 
 
 class TestBuilderIntegration:
-    def test_code_puppy_agent_gets_code_mode(self):
-        """The built agent's capability tree contains the configured CodeMode leaf."""
+    def _build(self, agent):
         from code_puppy.agents import _builder
-        from code_puppy.agents.agent_code_puppy import CodePuppyAgent
 
         with (
             patch.object(
@@ -89,10 +107,27 @@ class TestBuilderIntegration:
                 lambda *_args, **_kwargs: None,
             ),
         ):
-            pydantic_agent = _builder.build_pydantic_agent(CodePuppyAgent())
+            return _builder.build_pydantic_agent(agent)
 
-        leaves = _leaves(pydantic_agent._root_capability)
-        code_modes = [leaf for leaf in leaves if isinstance(leaf, CodeMode)]
+    def test_monty_gets_code_mode(self):
+        pydantic_agent = self._build(MontyAgent())
+
+        code_modes = [
+            leaf
+            for leaf in _leaves(pydantic_agent._root_capability)
+            if isinstance(leaf, CodeMode)
+        ]
         assert len(code_modes) == 1
-        assert code_modes[0].tools == list(SANDBOXED_READ_ONLY_TOOLS)
+        assert code_modes[0].tools == "all"
         assert code_modes[0].speculate == list(SANDBOXED_READ_ONLY_TOOLS)
+
+    def test_code_puppy_agent_does_not(self):
+        from code_puppy.agents.agent_code_puppy import CodePuppyAgent
+
+        pydantic_agent = self._build(CodePuppyAgent())
+
+        assert not [
+            leaf
+            for leaf in _leaves(pydantic_agent._root_capability)
+            if isinstance(leaf, CodeMode)
+        ]

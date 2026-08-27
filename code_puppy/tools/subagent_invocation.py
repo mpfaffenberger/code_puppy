@@ -474,10 +474,11 @@ async def _invoke_agent_impl(
                     # the tool body runs. Sole wrap_tool_execute implementer,
                     # so position is inert.
                     *build_subagent_recursion_guard(agent_tools),
-                    # Speculative CodeMode: read-only tools fold into a
-                    # run_code sandbox with early launches during streaming
-                    # (harness#699 dogfood); same wiring as the main builder.
-                    *build_speculative_code_mode(agent_tools),
+                    # Speculative CodeMode for opted-in agents (currently
+                    # Monty): the whole tool surface folds into run_code with
+                    # early launches during streaming (harness#699 dogfood);
+                    # same wiring as the main builder.
+                    *build_speculative_code_mode(agent_config, agent_tools),
                     # LAST: app-side event bridge translating typed
                     # CapabilityEvents into legacy callbacks/messaging.
                     CapabilityEventBridge(agent=agent_config),

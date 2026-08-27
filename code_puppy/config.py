@@ -159,14 +159,15 @@ def get_universal_constructor_enabled() -> bool:
 
 
 def get_speculative_code_mode_enabled() -> bool:
-    """Return True if speculative CodeMode is enabled (default True on this branch).
+    """Return True if speculative CodeMode is enabled (default True).
 
-    Folds the read-only file tools (list_files, read_file, grep) into a
-    harness CodeMode `run_code` sandbox with speculative execution: calls with
-    literal arguments start executing while the model is still streaming the
-    snippet. Dogfoods pydantic-ai-harness#699.
+    Applies only to agents that opt in with ``speculative_code_mode = True``
+    (currently the Monty agent): their whole tool surface folds into a
+    harness CodeMode `run_code` sandbox with speculative execution, so calls
+    with literal arguments start executing while the model is still streaming
+    the snippet. Dogfoods pydantic-ai-harness#699.
 
-    When False, agents keep their plain native tool calls.
+    When False, opted-in agents fall back to plain native tool calls.
     """
     return get_truthy_bool_value("enable_speculative_code_mode", True)
 

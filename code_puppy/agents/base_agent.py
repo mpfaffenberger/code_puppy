@@ -64,6 +64,16 @@ def _extract_pydantic_agent_tools(pyd_agent: Any) -> Optional[Dict[str, Any]]:
 class BaseAgent(ABC):
     """Abstract base for all Code Puppy agents."""
 
+    speculative_code_mode: bool = False
+    """Opt-in for speculative CodeMode (harness#699).
+
+    When True, the builder folds this agent's tools into a single `run_code`
+    Monty sandbox with speculative execution: the model sees no native tools,
+    and calls with literal arguments start executing while the snippet is
+    still streaming. Only agents whose entire tool surface is side-effect
+    free should opt in; see ``agents/_code_mode.py`` and the Monty agent.
+    """
+
     def __init__(self) -> None:
         self.id: str = str(uuid.uuid4())
         self._message_history: List[Any] = []

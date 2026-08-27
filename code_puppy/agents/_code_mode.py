@@ -1,21 +1,20 @@
-"""Speculative CodeMode capability: read-only tools in a sandbox that runs ahead of decode.
+"""Speculative CodeMode capability wiring for agents that opt in.
 
 Dogfoods speculative programmatic tool calling (sPTC) from
 https://github.com/pydantic/pydantic-ai-harness/pull/699 (design notes in
 pydantic-ai-notes#14, idea from https://alexzhang13.github.io/blog/2026/spec-ptc/).
 
-Only the read-only file tools are folded into ``run_code``:
+This is deliberately not wired into every agent. An agent opts in by setting
+``speculative_code_mode = True`` (see ``BaseAgent``), which asserts that its
+entire tool surface is side-effect free -- the safety contract speculation
+requires, since an early launch may run for a branch the snippet never takes.
+For an opted-in agent, ALL of its tools fold into the single ``run_code``
+sandbox (the model sees no native tools at all -- the RLM shape), and the
+read-only file tools additionally speculate.
 
-* they are side-effect free, which is the safety contract ``speculate`` requires
-  (an early launch may run for a branch the snippet never takes, so repeating or
-  discarding one must be harmless);
-* they are the calls whose latency actually overlaps decode in practice -- the
-  model writes ``grep(...)`` / ``read_file(...)`` chains with literal arguments
-  it has already decided on, hundreds of tokens before the snippet completes.
-
-Write tools, the shell, and sub-agent invocation stay native: models are trained
-on direct tool calls for single actions, and none of them are safe to launch
-speculatively anyway.
+The Monty agent (``agent_monty.py``) is the resident example; everything else
+keeps ordinary native tool calls, where models are strongest for single
+actions.
 """
 
 from __future__ import annotations
@@ -30,16 +29,23 @@ from code_puppy.config import get_speculative_code_mode_enabled
 SANDBOXED_READ_ONLY_TOOLS = ("list_files", "read_file", "grep")
 
 
-def build_speculative_code_mode(agent_tools: Sequence[str]) -> List[CodeMode[Any]]:
-    """Build the speculative CodeMode capability, or ``[]`` when it doesn't apply.
+def build_speculative_code_mode(
+    agent: Any, agent_tools: Sequence[str]
+) -> List[CodeMode[Any]]:
+    """Build the speculative CodeMode capability for an opted-in agent, else ``[]``.
 
     Returned as a list so the caller can splice it into ``capabilities=[...]``
-    unconditionally. Only tools the agent actually declares are folded, and an
-    agent with none of the read-only trio gets no ``run_code`` tool at all.
+    unconditionally. ``tools='all'`` folds the agent's whole tool surface into
+    ``run_code``; ``speculate`` stays restricted to the read-only trio the
+    agent actually declares, so a tool added to an opted-in agent later is
+    sandboxed but never launched early without showing up here first.
     """
+    # Identity check, not truthiness: the opt-in is an explicit class-level
+    # `True`, and duck-typed agent stand-ins (tests, plugins) with permissive
+    # `__getattr__` must not opt in by accident.
+    if getattr(agent, "speculative_code_mode", False) is not True:
+        return []
     if not get_speculative_code_mode_enabled():
         return []
-    sandboxed = [name for name in SANDBOXED_READ_ONLY_TOOLS if name in agent_tools]
-    if not sandboxed:
-        return []
-    return [CodeMode(tools=sandboxed, speculate=sandboxed)]
+    speculate = [name for name in SANDBOXED_READ_ONLY_TOOLS if name in agent_tools]
+    return [CodeMode(tools="all", speculate=speculate)]
