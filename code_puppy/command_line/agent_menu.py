@@ -1,19 +1,19 @@
 """Interactive terminal UI for selecting agents.
 
-Provides a split-panel interface for browsing and selecting agents
-with live preview of agent details.
+Provides a split-panel interface (termflow MenuBuilder) for browsing and
+selecting agents with live preview of agent details.
+
+Keys: up/down navigate, left/right page, Enter select, P pin model,
+B bind MCP servers, C clone, D delete clone, Esc/Ctrl+C cancel.
 """
 
 import asyncio
-import sys
 import unicodedata
 from typing import List, Optional, Tuple
 
-from prompt_toolkit.application import Application
-from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.layout import Dimension, Layout, VSplit, Window
-from prompt_toolkit.layout.controls import FormattedTextControl
-from prompt_toolkit.widgets import Frame
+from termflow.ansi.codes import BOLD_ON, DIM_ON, RESET
+from termflow.tui import MenuBuilder, MenuItem
+from termflow.tui.menu import MenuResult
 
 from code_puppy.agents import (
     clone_agent,
@@ -24,16 +24,12 @@ from code_puppy.agents import (
     is_clone_agent_name,
 )
 from code_puppy.command_line.mcp_binding_menu import interactive_mcp_binding_menu
+from code_puppy.command_line.menu_session import menu_session
+from code_puppy.command_line.tui_style import themed
 from code_puppy.mcp_.agent_bindings import get_bound_servers
 from code_puppy.command_line.model_picker_completion import (
     ModelSelectionMenu,
     load_model_names,
-)
-from code_puppy.command_line.pagination import (
-    ensure_visible_page,
-    get_page_bounds,
-    get_page_for_index,
-    get_total_pages,
 )
 from code_puppy.config import (
     clear_agent_pinned_model,
@@ -42,7 +38,6 @@ from code_puppy.config import (
 )
 from code_puppy.messaging import emit_info, emit_success, emit_warning
 from code_puppy.tools.command_runner import set_awaiting_user_input
-from code_puppy.callbacks import on_prompt_toolkit_style
 
 PAGE_SIZE = 10  # Agents per page
 
@@ -88,7 +83,7 @@ def _sanitize_display_text(text: str) -> str:
         text: Text that may contain emojis or wide characters
 
     Returns:
-        Sanitized text safe for prompt_toolkit rendering
+        Sanitized text safe for terminal rendering
     """
     # Keep only characters that render cleanly in terminals
     # Be aggressive about stripping anything that could cause width issues
@@ -271,184 +266,128 @@ def _get_agent_entries() -> List[Tuple[str, str, str]]:
     return entries
 
 
-def _render_menu_panel(
-    entries: List[Tuple[str, str, str]],
-    page: int,
-    selected_idx: int,
-    current_agent_name: str,
-) -> List:
-    """Render the left menu panel with pagination.
-
-    Args:
-        entries: List of (name, display_name, description) tuples
-        page: Current page number (0-indexed)
-        selected_idx: Currently selected index (global)
-        current_agent_name: Name of the current active agent
-
-    Returns:
-        List of (style, text) tuples for FormattedTextControl
-    """
-    lines = []
-    total_pages = get_total_pages(len(entries), PAGE_SIZE)
-    start_idx, end_idx = get_page_bounds(page, len(entries), PAGE_SIZE)
-
-    lines.append(("class:tui.header", "Agents"))
-    lines.append(("class:tui.muted", f" (Page {page + 1}/{total_pages})"))
-    lines.append(("", "\n\n"))
-
-    if not entries:
-        lines.append(("class:tui.warning", "  No agents found."))
-        lines.append(("", "\n\n"))
-    else:
-        # Show agents for current page
-        for i in range(start_idx, end_idx):
-            name, display_name, _ = entries[i]
-            is_selected = i == selected_idx
-            is_current = name == current_agent_name
-            pinned_model = _get_pinned_model(name)
-
-            # Sanitize display name to avoid emoji rendering issues
-            safe_display_name = _sanitize_display_text(display_name)
-
-            # Build the line
-            if is_selected:
-                lines.append(("class:tui.selected", f"▶ {safe_display_name}"))
+def _wrap(text: str, width: int) -> List[str]:
+    """Simple word wrap for the preview description."""
+    out: List[str] = []
+    for raw_line in text.split("\n"):
+        line = ""
+        for word in raw_line.split():
+            if len(line) + len(word) + 1 > width and line:
+                out.append(line)
+                line = word
             else:
-                lines.append(("class:tui.body", f"  {safe_display_name}"))
-
-            if pinned_model:
-                safe_pinned_model = _sanitize_display_text(pinned_model)
-                lines.append(("class:tui.label", f" → {safe_pinned_model}"))
-
-            # Add current marker
-            if is_current:
-                lines.append(("class:tui.success", " ← current"))
-
-            lines.append(("", "\n"))
-
-    # Navigation hints
-    lines.append(("", "\n"))
-    lines.append(("class:tui.help-key", "  ↑↓ "))
-    lines.append(("class:tui.help", "Navigate\n"))
-    lines.append(("class:tui.help-key", "  ←→ "))
-    lines.append(("class:tui.help", "Page\n"))
-    lines.append(("class:tui.help-key", "  Enter  "))
-    lines.append(("class:tui.help", "Select\n"))
-    lines.append(("class:tui.help-key", "  P "))
-    lines.append(("class:tui.help", "Pin model\n"))
-    lines.append(("class:tui.help-key", "  B "))
-    lines.append(("class:tui.help", "Bind MCP servers\n"))
-    lines.append(("class:tui.help-key", "  C "))
-    lines.append(("class:tui.help", "Clone\n"))
-    lines.append(("class:tui.help-key", "  D "))
-    lines.append(("class:tui.help", "Delete clone\n"))
-    lines.append(("class:tui.help-key", "  Ctrl+C "))
-    lines.append(("class:tui.help", "Cancel"))
-
-    return lines
+                line = word if not line else f"{line} {word}"
+        if line.strip():
+            out.append(line)
+    return out
 
 
-def _render_preview_panel(
-    entry: Optional[Tuple[str, str, str]],
-    current_agent_name: str,
-) -> List:
-    """Render the right preview panel with agent details.
-
-    Args:
-        entry: Tuple of (name, display_name, description) or None
-        current_agent_name: Name of the current active agent
-
-    Returns:
-        List of (style, text) tuples for FormattedTextControl
-    """
-    lines = []
-
-    lines.append(("class:tui.title", " AGENT DETAILS"))
-    lines.append(("", "\n\n"))
-
-    if not entry:
-        lines.append(("class:tui.warning", "  No agent selected."))
-        lines.append(("", "\n"))
-        return lines
-
+def _render_agent_details(entry: Tuple[str, str, str], current_agent_name: str) -> str:
+    """ANSI preview pane for the highlighted agent."""
     name, display_name, description = entry
     is_current = name == current_agent_name
     pinned_model = _get_pinned_model(name)
 
-    # Sanitize text to avoid emoji rendering issues
-    safe_display_name = _sanitize_display_text(display_name)
-    safe_description = _sanitize_display_text(description)
+    lines = [f"{BOLD_ON}AGENT DETAILS{RESET}", ""]
+    lines.append(f"{DIM_ON}Name:{RESET}          {name}")
+    lines.append(
+        f"{DIM_ON}Display Name:{RESET}  {_sanitize_display_text(display_name)}"
+    )
+    pinned = _sanitize_display_text(pinned_model) if pinned_model else "default"
+    lines.append(f"{DIM_ON}Pinned Model:{RESET}  {pinned}")
 
-    # Agent name (identifier)
-    lines.append(("class:tui.label", "Name: "))
-    lines.append(("", name))
-    lines.append(("", "\n\n"))
-
-    # Display name
-    lines.append(("class:tui.label", "Display Name: "))
-    lines.append(("class:tui.body", safe_display_name))
-    lines.append(("", "\n\n"))
-
-    # Pinned model
-    lines.append(("class:tui.label", "Pinned Model: "))
-    if pinned_model:
-        safe_pinned_model = _sanitize_display_text(pinned_model)
-        lines.append(("class:tui.body", safe_pinned_model))
-    else:
-        lines.append(("class:tui.muted", "default"))
-    lines.append(("", "\n\n"))
-
-    # MCP bindings summary
     try:
         bound = get_bound_servers(name)
     except Exception:
         bound = {}
-    lines.append(("class:tui.label", "MCP Servers: "))
     if bound:
         auto_count = sum(1 for opts in bound.values() if opts.get("auto_start"))
         summary = f"{len(bound)} bound"
         if auto_count:
             summary += f" ({auto_count} auto-start)"
-        lines.append(("class:tui.success", summary))
     else:
-        lines.append(("class:tui.muted", "none bound (strict opt-in)"))
-    lines.append(("", "\n\n"))
+        summary = "none bound (strict opt-in)"
+    lines.append(f"{DIM_ON}MCP Servers:{RESET}   {summary}")
+    lines.append("")
+    lines.append(f"{DIM_ON}Description:{RESET}")
+    lines.extend(_wrap(_sanitize_display_text(description), 55))
+    lines.append("")
+    status = "Currently Active" if is_current else "Not active"
+    lines.append(f"{DIM_ON}Status:{RESET} {status}")
+    return "\n".join(lines)
 
-    # Description
-    lines.append(("class:tui.label", "Description:"))
-    lines.append(("", "\n"))
 
-    # Wrap description to fit panel
-    desc_lines = safe_description.split("\n")
-    for desc_line in desc_lines:
-        # Word wrap long lines
-        words = desc_line.split()
-        current_line = ""
-        for word in words:
-            if len(current_line) + len(word) + 1 > 55:
-                lines.append(("class:tui.body", current_line))
-                lines.append(("", "\n"))
-                current_line = word
-            else:
-                if current_line == "":
-                    current_line = word
-                else:
-                    current_line += " " + word
-        if current_line.strip():
-            lines.append(("class:tui.body", current_line))
-            lines.append(("", "\n"))
+def _agent_items(
+    entries: List[Tuple[str, str, str]], current_agent_name: str
+) -> List[MenuItem]:
+    items = []
+    for name, display_name, _description in entries:
+        pinned = _get_pinned_model(name)
+        marks = []
+        if pinned:
+            marks.append(f"-> {_sanitize_display_text(pinned)}")
+        if name == current_agent_name:
+            marks.append("(current)")
+        items.append(
+            MenuItem(
+                _sanitize_display_text(display_name),
+                value=name,
+                description="  ".join(marks),
+            )
+        )
+    return items
 
-    lines.append(("", "\n"))
 
-    # Current status
-    lines.append(("class:tui.label", "  Status: "))
-    if is_current:
-        lines.append(("class:tui.success", "✓ Currently Active"))
-    else:
-        lines.append(("class:tui.muted", "Not active"))
-    lines.append(("", "\n"))
+def build_agent_menu(
+    entries: List[Tuple[str, str, str]],
+    current_agent_name: str,
+    pending_action: dict,
+    initial_index: int = 0,
+    **overrides,
+):
+    """Build the agent picker menu (overrides allow headless test driving)."""
+    entry_by_name = {name: entry for entry in entries for name in [entry[0]]}
 
-    return lines
+    def _action(action: str):
+        def handler(_menu, item: MenuItem) -> MenuResult:
+            pending_action["action"] = action
+            return MenuResult(item=item)
+
+        return handler
+
+    def _page_left(menu, _item: MenuItem) -> None:
+        menu.page_up()
+        return None
+
+    def _page_right(menu, _item: MenuItem) -> None:
+        menu.page_down()
+        return None
+
+    builder = themed(
+        MenuBuilder("Agents")
+        .items(_agent_items(entries, current_agent_name))
+        .page_size(PAGE_SIZE)
+        .list_width(45)
+        .initial_index(initial_index)
+        .preview(
+            lambda item: _render_agent_details(
+                entry_by_name[item.value], current_agent_name
+            )
+        )
+        .on_key("p", _action("pin"))
+        .on_key("b", _action("bind"))
+        .on_key("c", _action("clone"))
+        .on_key("d", _action("delete"))
+        .on_key("left", _page_left)
+        .on_key("right", _page_right)
+        .footer_hint(
+            "Up/Down navigate - Left/Right page - Enter select - P pin model - "
+            "B bind MCP - C clone - D delete clone - Esc cancel"
+        )
+    )
+    for name, value in overrides.items():
+        getattr(builder, name)(value)
+    return builder.build()
 
 
 async def interactive_agent_picker() -> Optional[str]:
@@ -465,228 +404,68 @@ async def interactive_agent_picker() -> Optional[str]:
         emit_info("No agents found.")
         return None
 
-    # State
-    selected_idx = [0]  # Current selection (global index)
-    current_page = [0]  # Current page
-    result = [None]  # Selected agent name
-    pending_action = [None]  # 'pin', 'clone', 'delete', or None
+    selected_index = 0
+    result: Optional[str] = None
 
-    total_pages = [get_total_pages(len(entries), PAGE_SIZE)]
-
-    def get_current_entry() -> Optional[Tuple[str, str, str]]:
-        if 0 <= selected_idx[0] < len(entries):
-            return entries[selected_idx[0]]
-        return None
-
-    def refresh_entries(selected_name: Optional[str] = None) -> None:
-        nonlocal entries
-
-        entries = _get_agent_entries()
-        total_pages[0] = get_total_pages(len(entries), PAGE_SIZE)
-
-        if not entries:
-            selected_idx[0] = 0
-            current_page[0] = 0
-            return
-
-        if selected_name:
-            for idx, (name, _, _) in enumerate(entries):
-                if name == selected_name:
-                    selected_idx[0] = idx
-                    break
-            else:
-                selected_idx[0] = min(selected_idx[0], len(entries) - 1)
-        else:
-            selected_idx[0] = min(selected_idx[0], len(entries) - 1)
-
-        current_page[0] = get_page_for_index(selected_idx[0], PAGE_SIZE)
-
-    # Build UI
-    menu_control = FormattedTextControl(text="")
-    preview_control = FormattedTextControl(text="")
-
-    def update_display():
-        """Update both panels."""
-        menu_control.text = _render_menu_panel(
-            entries, current_page[0], selected_idx[0], current_agent_name
-        )
-        preview_control.text = _render_preview_panel(
-            get_current_entry(), current_agent_name
-        )
-
-    menu_window = Window(
-        content=menu_control, wrap_lines=False, width=Dimension(weight=35)
-    )
-    preview_window = Window(
-        content=preview_control, wrap_lines=False, width=Dimension(weight=65)
-    )
-
-    menu_frame = Frame(menu_window, width=Dimension(weight=35), title="Agents")
-    preview_frame = Frame(preview_window, width=Dimension(weight=65), title="Preview")
-
-    root_container = VSplit(
-        [
-            menu_frame,
-            preview_frame,
-        ]
-    )
-
-    # Key bindings
-    kb = KeyBindings()
-
-    @kb.add("up")
-    def _(event):
-        if selected_idx[0] > 0:
-            selected_idx[0] -= 1
-            current_page[0] = ensure_visible_page(
-                selected_idx[0],
-                current_page[0],
-                len(entries),
-                PAGE_SIZE,
-            )
-            update_display()
-
-    @kb.add("down")
-    def _(event):
-        if selected_idx[0] < len(entries) - 1:
-            selected_idx[0] += 1
-            current_page[0] = ensure_visible_page(
-                selected_idx[0],
-                current_page[0],
-                len(entries),
-                PAGE_SIZE,
-            )
-            update_display()
-
-    @kb.add("left")
-    def _(event):
-        if current_page[0] > 0:
-            current_page[0] -= 1
-            selected_idx[0] = current_page[0] * PAGE_SIZE
-            update_display()
-
-    @kb.add("right")
-    def _(event):
-        if current_page[0] < total_pages[0] - 1:
-            current_page[0] += 1
-            selected_idx[0] = current_page[0] * PAGE_SIZE
-            update_display()
-
-    @kb.add("p")
-    def _(event):
-        if get_current_entry():
-            pending_action[0] = "pin"
-            event.app.exit()
-
-    @kb.add("b")
-    def _(event):
-        if get_current_entry():
-            pending_action[0] = "bind"
-            event.app.exit()
-
-    @kb.add("c")
-    def _(event):
-        if get_current_entry():
-            pending_action[0] = "clone"
-            event.app.exit()
-
-    @kb.add("d")
-    def _(event):
-        if get_current_entry():
-            pending_action[0] = "delete"
-            event.app.exit()
-
-    @kb.add("enter")
-    def _(event):
-        entry = get_current_entry()
-        if entry:
-            result[0] = entry[0]  # Store agent name
-        event.app.exit()
-
-    @kb.add("c-c")
-    def _(event):
-        result[0] = None
-        event.app.exit()
-
-    layout = Layout(root_container)
-    app = Application(
-        layout=layout,
-        key_bindings=kb,
-        full_screen=False,
-        mouse_support=False,
-        style=on_prompt_toolkit_style(),
-    )
+    def _index_of(agent_name: Optional[str]) -> int:
+        for idx, (name, _, _) in enumerate(entries):
+            if name == agent_name:
+                return idx
+        return min(selected_index, max(len(entries) - 1, 0))
 
     set_awaiting_user_input(True)
-
-    # Enter alternate screen buffer once for entire session
-    sys.stdout.write("\033[?1049h")  # Enter alternate buffer
-    sys.stdout.write("\033[2J\033[H")  # Clear and home
-    sys.stdout.flush()
-    await asyncio.sleep(0.05)
-
     try:
-        while True:
-            pending_action[0] = None
-            result[0] = None
-            update_display()
+        # One menu_session for the whole picker: single alternate screen
+        # across sub-menus, renderer paused (emit_* buffers until exit).
+        with menu_session():
+            while True:
+                pending_action: dict = {"action": None}
+                menu = build_agent_menu(
+                    entries,
+                    current_agent_name,
+                    pending_action,
+                    selected_index,
+                    alt_screen=False,
+                )
+                menu_result = await asyncio.to_thread(menu.run)
 
-            # Clear the current buffer
-            sys.stdout.write("\033[2J\033[H")
-            sys.stdout.flush()
+                highlighted = menu_result.item.value if menu_result.item else None
+                selected_index = _index_of(highlighted)
+                action = pending_action["action"]
 
-            # Run application
-            await app.run_async()
-
-            if pending_action[0] == "pin":
-                entry = get_current_entry()
-                if entry:
-                    selected_model = await _select_pinned_model(entry[0])
+                if action == "pin" and highlighted:
+                    selected_model = await _select_pinned_model(highlighted)
                     if selected_model:
-                        _apply_pinned_model(entry[0], selected_model)
-                continue
+                        _apply_pinned_model(highlighted, selected_model)
+                    continue
 
-            if pending_action[0] == "bind":
-                entry = get_current_entry()
-                if entry:
-                    await interactive_mcp_binding_menu(entry[0])
-                continue
+                if action == "bind" and highlighted:
+                    await interactive_mcp_binding_menu(highlighted)
+                    continue
 
-            if pending_action[0] == "clone":
-                entry = get_current_entry()
-                selected_name = None
-                if entry:
-                    cloned_name = clone_agent(entry[0])
-                    selected_name = cloned_name or entry[0]
-                refresh_entries(selected_name=selected_name)
-                continue
+                if action == "clone" and highlighted:
+                    cloned_name = clone_agent(highlighted)
+                    entries = _get_agent_entries()
+                    selected_index = _index_of(cloned_name or highlighted)
+                    continue
 
-            if pending_action[0] == "delete":
-                entry = get_current_entry()
-                selected_name = None
-                if entry:
-                    agent_name = entry[0]
-                    selected_name = agent_name
-                    if not is_clone_agent_name(agent_name):
+                if action == "delete" and highlighted:
+                    if not is_clone_agent_name(highlighted):
                         emit_warning("Only cloned agents can be deleted.")
-                    elif agent_name == current_agent_name:
+                    elif highlighted == current_agent_name:
                         emit_warning("Cannot delete the active agent. Switch first.")
-                    else:
-                        if delete_clone_agent(agent_name):
-                            selected_name = None
-                refresh_entries(selected_name=selected_name)
-                continue
+                    elif delete_clone_agent(highlighted):
+                        selected_index = 0
+                    entries = _get_agent_entries()
+                    if not entries:
+                        break
+                    selected_index = min(selected_index, len(entries) - 1)
+                    continue
 
-            break
-
+                if not menu_result.cancelled and highlighted:
+                    result = highlighted
+                break
     finally:
-        # Exit alternate screen buffer once at end
-        sys.stdout.write("\033[?1049l")  # Exit alternate buffer
-        sys.stdout.flush()
-        # Reset awaiting input flag
         set_awaiting_user_input(False)
 
-    # Clear exit message
-    emit_info("✓ Exited agent picker")
-
-    return result[0]
+    return result

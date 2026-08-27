@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from prompt_toolkit.document import Document
+from termflow.tui.completion import Document
 
 from code_puppy.command_line.mcp_completion import MCPCompleter, load_server_names
 

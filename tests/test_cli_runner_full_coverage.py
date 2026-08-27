@@ -16,6 +16,25 @@ import pytest
 # ---------------------------------------------------------------------------
 
 
+def _sync_input(fn):
+    """Adapt async-mock classic-input fns to the plain input() seam."""
+    import inspect as _inspect
+
+    def _call(*args, **kwargs):
+        result = fn(*args, **kwargs)
+        if _inspect.iscoroutine(result):
+            # Async mocks complete without awaiting anything; drive them
+            # synchronously (we are already inside the event loop).
+            try:
+                result.send(None)
+            except StopIteration as stop:
+                return stop.value
+            raise RuntimeError("async input mock did not finish synchronously")
+        return result
+
+    return _call
+
+
 def _mock_renderer():
     r = MagicMock()
     r.console = MagicMock()
@@ -82,9 +101,6 @@ def _base_main_patches():
 def _interactive_patches():
     return {
         "code_puppy.cli_runner.print_truecolor_warning": MagicMock(),
-        "code_puppy.cli_runner.get_cancel_agent_display_name": MagicMock(
-            return_value="Ctrl+C"
-        ),
         "code_puppy.cli_runner.reset_windows_terminal_ansi": MagicMock(),
         "code_puppy.cli_runner.reset_windows_terminal_full": MagicMock(),
         "code_puppy.cli_runner.save_command_to_history": MagicMock(),
@@ -114,20 +130,7 @@ async def _run_interactive(
 
     with ExitStack() as stack:
         _apply_patches(stack, patches_dict)
-        stack.enter_context(
-            patch(
-                "code_puppy.command_line.prompt_toolkit_completion.get_input_with_combined_completion",
-                side_effect=input_fn
-                if callable(input_fn) and not isinstance(input_fn, AsyncMock)
-                else input_fn,
-            )
-        )
-        stack.enter_context(
-            patch(
-                "code_puppy.command_line.prompt_toolkit_completion.get_prompt_with_active_model",
-                return_value="> ",
-            )
-        )
+        stack.enter_context(patch("builtins.input", _sync_input(input_fn)))
         stack.enter_context(
             patch(
                 "code_puppy.agents.agent_manager.get_current_agent",
@@ -225,17 +228,19 @@ class TestMain:
         mock_inter.assert_called_once()
 
     @pytest.mark.anyio
-    async def test_android_interactive_mode_uses_compact_banner(self):
+    async def test_narrow_terminal_interactive_mode_uses_compact_banner(self):
         mock_inter = AsyncMock()
         mock_figlet = MagicMock(return_value="LOGO\n\n")
-        await self._run_main(
-            ["code-puppy"],
-            extra_patches={
-                "code_puppy.cli_runner.interactive_mode": mock_inter,
-                "code_puppy.cli_runner.sys.platform": "android",
-                "pyfiglet.figlet_format": mock_figlet,
-            },
-        )
+        # Rich's Console honors COLUMNS, so this squeezes the banner width
+        # below the full CODE PUPPY figlet (79 cols).
+        with patch.dict(os.environ, {"COLUMNS": "50"}):
+            await self._run_main(
+                ["code-puppy"],
+                extra_patches={
+                    "code_puppy.cli_runner.interactive_mode": mock_inter,
+                    "pyfiglet.figlet_format": mock_figlet,
+                },
+            )
 
         mock_figlet.assert_called_once_with("PUP", font="ansi_shadow")
 
@@ -638,7 +643,9 @@ class TestInteractiveMode:
         )
 
     @pytest.mark.anyio
-    async def test_startup_instructions_describe_editor_shortcuts(self):
+    async def test_startup_shows_single_press_tab_line(self):
+        """Startup used to dump ~12 tip lines; now it's one pointer to the
+        Tab overlay. That content moved, it isn't gone."""
         emit_system_message = MagicMock()
 
         await _run_interactive(
@@ -651,18 +658,14 @@ class TestInteractiveMode:
         )
 
         messages = [call.args[0] for call in emit_system_message.call_args_list]
-        assert any("newline: Shift+Enter" in message for message in messages)
-        assert any(
-            "Ctrl+X Ctrl+E to open $EDITOR (Notepad on Windows)" in message
-            for message in messages
+        assert any("Tab" in message for message in messages), messages
+        # The old per-topic tip lines must be gone from startup output.
+        assert not any("newline: Shift+Enter" in message for message in messages)
+        assert not any(
+            "Ctrl+X Ctrl+E to open $EDITOR" in message for message in messages
         )
-        assert any(
-            "Ctrl+X Ctrl+B to background running shell commands" in message
-            for message in messages
-        )
-        assert any(
-            "Ctrl+X Ctrl+X to kill running shell commands" in message
-            for message in messages
+        assert not any(
+            "Type /help to view all commands" in message for message in messages
         )
 
     @pytest.mark.anyio
@@ -981,7 +984,6 @@ class TestInteractiveMode:
                 ),
                 "sys.stdin": mock_stdin,
                 "sys.stdout": mock_stdout,
-                "code_puppy.session_storage.restore_autosave_interactively": AsyncMock(),
             },
         )
 
@@ -1057,7 +1059,8 @@ class TestInteractiveMode:
             )
 
     @pytest.mark.anyio
-    async def test_autosave_load_exception(self):
+    async def test_autosave_load_non_tty_warns_instead_of_prompting(self):
+        """Non-TTY /autosave_load points at -r NAME instead of prompting."""
         fake_input = _scripted_input("/autosave_load")
 
         mock_stdin = MagicMock()
@@ -1078,9 +1081,6 @@ class TestInteractiveMode:
                 ),
                 "sys.stdin": mock_stdin,
                 "sys.stdout": mock_stdout,
-                "code_puppy.session_storage.restore_autosave_interactively": AsyncMock(
-                    side_effect=RuntimeError("fail")
-                ),
             },
         )
 
@@ -1475,7 +1475,6 @@ class TestInteractiveModeEdgeCases:
                     ),
                     "sys.stdin": mock_stdin,
                     "sys.stdout": mock_stdout,
-                    "code_puppy.session_storage.restore_autosave_interactively": AsyncMock(),
                 },
             )
 
@@ -1687,19 +1686,7 @@ class TestImportErrorFallbacks:
 
         with ExitStack() as stack:
             _apply_patches(stack, patches)
-            stack.enter_context(
-                patch(
-                    "code_puppy.command_line.prompt_toolkit_completion.get_input_with_combined_completion",
-                    new_callable=AsyncMock,
-                    return_value="/exit",
-                )
-            )
-            stack.enter_context(
-                patch(
-                    "code_puppy.command_line.prompt_toolkit_completion.get_prompt_with_active_model",
-                    return_value="> ",
-                )
-            )
+            stack.enter_context(patch("builtins.input", return_value="/exit"))
             stack.enter_context(
                 patch(
                     "code_puppy.agents.agent_manager.get_current_agent",

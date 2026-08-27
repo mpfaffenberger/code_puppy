@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import dataclasses
 import hashlib
+import io
 import json
 import math
 import re
@@ -80,6 +81,11 @@ def stringify_part(part: Any) -> str:
                 attributes.append(f"content={item}")
             elif isinstance(item, BinaryContent):
                 attributes.append(f"BinaryContent={_digest_bytes(item.data)}")
+            else:
+                # ImageUrl / DocumentUrl / anything pydantic-ai adds later.
+                # Without this arm such items contribute nothing, so two
+                # messages pointing at different URLs hash identically.
+                attributes.append(f"content={repr(item)}")
     else:
         attributes.append(f"content={repr(content)}")
 
@@ -109,6 +115,62 @@ def hash_message(message: Any) -> str:
 def estimate_tokens(text: str) -> int:
     """Dirt-simple tiktoken replacement: ``max(1, floor(len(text) / 2.5))``."""
     return max(1, math.floor(len(text) / 2.5))
+
+
+# Vision models bill images by area, not by the handful of characters our
+# digest happens to occupy. Anthropic documents roughly (width * height) / 750
+# tokens and OpenAI's tile math lands in the same ballpark, so use that.
+_IMAGE_PIXELS_PER_TOKEN = 750
+
+# Charged when dimensions can't be read: a corrupt or unsupported image, or a
+# non-image attachment such as a PDF whose real cost isn't visible from here.
+# Deliberately generous, because undercounting is the failure that silently
+# skips compaction and ends the run on a provider 400.
+_BINARY_CONTENT_FALLBACK_TOKENS = 1500
+
+
+def _image_dimensions(data: bytes) -> Optional[tuple[int, int]]:
+    """``(width, height)`` of an encoded image, or None if it can't be read.
+
+    ``Image.open`` parses only the header; pixel data is loaded lazily and we
+    never touch it, so this stays cheap enough for the estimation path.
+    """
+    try:
+        from PIL import Image
+
+        with Image.open(io.BytesIO(data)) as img:
+            return img.size
+    except Exception:
+        return None
+
+
+def estimate_binary_content_tokens(item: Any) -> int:
+    """Token charge for a single ``BinaryContent`` attachment.
+
+    ``stringify_part`` deliberately reduces binary data to a short digest so
+    hashes stay stable and cheap, which means the digest string tells us
+    nothing about what the image actually costs. Estimate that here instead.
+    """
+    media_type = getattr(item, "media_type", "") or ""
+    data = getattr(item, "data", b"") or b""
+    if media_type.startswith("image/"):
+        dimensions = _image_dimensions(data)
+        if dimensions is not None:
+            width, height = dimensions
+            return max(1, (width * height) // _IMAGE_PIXELS_PER_TOKEN)
+    return _BINARY_CONTENT_FALLBACK_TOKENS
+
+
+def _binary_tokens_in_part(part: Any) -> int:
+    """Total binary-attachment token charge for one message part."""
+    content = getattr(part, "content", None)
+    if not isinstance(content, list):
+        return 0
+    return sum(
+        estimate_binary_content_tokens(item)
+        for item in content
+        if isinstance(item, BinaryContent)
+    )
 
 
 # Models whose tokenizer the char/2.5 heuristic systematically *under*counts;
@@ -155,6 +217,7 @@ def estimate_tokens_for_message(
         part_str = stringify_part(part)
         if part_str:
             total += estimate_tokens(part_str)
+        total += _binary_tokens_in_part(part)
     return _apply_multiplier(max(1, total), model_name)
 
 
@@ -487,67 +550,6 @@ def has_pending_tool_calls(messages: List[ModelMessage]) -> bool:
 
     tool_call_ids, tool_return_ids = _collect_tool_ids(messages)
     return bool(tool_call_ids - tool_return_ids)
-
-
-_OVERSIZED_TOOL_RETURN_CONTENT = (
-    "[Tool result omitted: it exceeded the per-message size limit and was "
-    "dropped from history. The tool DID run and completed — do not re-issue "
-    "the same call.]"
-)
-
-
-def _shrink_oversized_tool_returns(
-    message: ModelMessage, model_name: Optional[str]
-) -> Optional[ModelMessage]:
-    """Replace an oversized message's tool-return bodies with a placeholder.
-
-    A >50k-token ``ModelRequest`` is almost always a bulky tool result. Dropping
-    the whole message would leave its ``tool-call`` dangling, and prune would
-    then close it with an ``interrupted`` return — telling the model the tool
-    never ran, so it re-issues the identical oversized call (infinite re-read
-    loop). Swapping each ``tool-return`` body for a short placeholder keeps the
-    pair intact and records that the tool completed. Returns ``None`` when the
-    message has no tool return to shrink, or stays over budget afterwards — the
-    caller then drops it as before.
-    """
-    new_parts: List[Any] = []
-    shrank = False
-    for part in getattr(message, "parts", []) or []:
-        if getattr(part, "part_kind", None) == "tool-return":
-            new_parts.append(
-                dataclasses.replace(part, content=_OVERSIZED_TOOL_RETURN_CONTENT)
-            )
-            shrank = True
-        else:
-            new_parts.append(part)
-    if not shrank:
-        return None
-    shrunk = dataclasses.replace(message, parts=new_parts)
-    if estimate_tokens_for_message(shrunk, model_name) >= 50000:
-        return None
-    return shrunk
-
-
-def filter_huge_messages(
-    messages: List[ModelMessage],
-    model_name: Optional[str] = None,
-) -> List[ModelMessage]:
-    """Cap individual messages at a 50k-token budget, then repair pairing.
-
-    An oversized tool-result message is shrunk in place (body replaced with a
-    placeholder) rather than dropped, so a completed call is never mistaken for
-    an interrupted one; anything still over budget is dropped, then pruning
-    repairs any pairing the drop broke.
-    """
-    filtered: List[ModelMessage] = []
-    for m in messages:
-        if estimate_tokens_for_message(m, model_name) < 50000:
-            filtered.append(m)
-            continue
-        shrunk = _shrink_oversized_tool_returns(m, model_name)
-        if shrunk is not None:
-            filtered.append(shrunk)
-    return prune_interrupted_tool_calls(filtered)
 
 
 # Anthropic requires tool_use IDs to match this pattern; other providers

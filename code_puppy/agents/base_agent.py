@@ -71,6 +71,12 @@ class BaseAgent(ABC):
         self._code_generation_agent: Any = None
         self._last_model_name: Optional[str] = None
         self._runtime_model_name_override: Optional[str] = None
+        self._runtime_system_prompt_additions: List[str] = []
+        # Model chosen by a ``model_select`` hook for the current run. Slots
+        # below an explicit runtime override but above pinned/JSON/global, and
+        # is reset at the start of every run (see resolve_run_model_selection),
+        # so it never leaks across turns.
+        self._auto_model_override: Optional[str] = None
         self._puppy_rules: Optional[str] = None
         self._mcp_servers: List[Any] = []
         self.cur_model: Optional[pydantic_ai.models.Model] = None
@@ -111,6 +117,15 @@ class BaseAgent(ABC):
     def get_user_prompt(self) -> Optional[str]:
         return None
 
+    def get_model_settings_overrides(self) -> Dict[str, Any]:
+        """Return request-setting overrides scoped to this agent.
+
+        Values use the same setting names as ``/model_settings`` and take
+        precedence over global and per-model standard settings. Unsupported
+        settings are filtered for the effective model before requests run.
+        """
+        return {}
+
     def get_runtime_model_name_override(self) -> Optional[str]:
         """Return a temporary per-run model override, if one is active."""
         return self._runtime_model_name_override
@@ -124,6 +139,14 @@ class BaseAgent(ABC):
         """
         self._runtime_model_name_override = model_name
 
+    def get_auto_model_override(self) -> Optional[str]:
+        """Return the model chosen by a ``model_select`` hook for this run."""
+        return self._auto_model_override
+
+    def set_auto_model_override(self, model_name: Optional[str]) -> None:
+        """Set the ``model_select``-chosen model for this run (not persisted)."""
+        self._auto_model_override = model_name
+
     @contextmanager
     def temporary_model_name_override(
         self, model_name: Optional[str]
@@ -136,10 +159,26 @@ class BaseAgent(ABC):
         finally:
             self.set_runtime_model_name_override(previous_model_name)
 
+    @contextmanager
+    def temporary_system_prompt_addition(self, prompt: str) -> Iterator[None]:
+        """Append a system instruction for the duration of one scoped run."""
+        self._runtime_system_prompt_additions.append(prompt)
+        try:
+            yield
+        finally:
+            popped = self._runtime_system_prompt_additions.pop()
+            if popped != prompt:
+                raise RuntimeError(
+                    "Runtime system prompt additions exited out of order"
+                )
+
     def get_model_name(self) -> Optional[str]:
         override = self.get_runtime_model_name_override()
         if override:
             return override
+        auto = self.get_auto_model_override()
+        if auto:
+            return auto
         pinned = get_agent_pinned_model(self.name)
         return pinned if pinned else get_global_model_name()
 
@@ -172,6 +211,8 @@ class BaseAgent(ABC):
         prompt_additions = callbacks.on_load_prompt()
         if prompt_additions:
             prompt += "\n" + "\n".join(prompt_additions)
+        if self._runtime_system_prompt_additions:
+            prompt += "\n" + "\n".join(self._runtime_system_prompt_additions)
         return prompt + self.get_identity_prompt()
 
     # ---- Message history (plain dict-level access) ------------------------

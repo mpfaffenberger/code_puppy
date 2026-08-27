@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from prompt_toolkit.completion import Completer, Completion
+from termflow.tui.completion import Completer, Completion
 
 from code_puppy.config import CONFIG_DIR
 

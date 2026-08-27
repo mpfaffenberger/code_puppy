@@ -336,6 +336,26 @@ Use `custom_openai` for OpenAI-compatible Chat Completions endpoints. If an endp
 }
 ```
 
+## Multiple System Messages
+
+Custom OpenAI-compatible endpoints (`custom_openai`, `openrouter`, `cerebras`, and Zhipu `zai_coding`/`zai_api`) default to merging consecutive leading `system` messages into one. Strict backends (SGLang, some vLLM deployments) reject more than one leading system message — this surfaces after auto-compact, which inserts a compaction-summary system message alongside the agent's own system instructions, as a `400: System message must be at the beginning.`
+
+The merge is harmless for endpoints that *do* support multiple system messages. If you know your endpoint handles them, opt out per model with `"supports_multiple_system_messages": true` (a JSON boolean):
+
+```json
+{
+  "my_model": {
+    "type": "custom_openai",
+    "name": "qwen3-sglang",
+    "supports_multiple_system_messages": true,
+    "custom_endpoint": {
+      "url": "http://localhost:30000/v1",
+      "api_key": "$API_KEY"
+    }
+  }
+}
+```
+
 ## Custom Model Timeouts
 
 For custom model endpoints (`custom_openai`, `custom_anthropic`, `custom_gemini`, `cerebras`), you can configure custom timeout values to handle slow or unreliable endpoints. The default timeout for these custom endpoint models is 180 seconds.
@@ -486,6 +506,11 @@ Create JSON files in your agents directory following this schema:
   "system_prompt": "Instructions...",    // REQUIRED: Agent instructions
   "tools": ["tool1", "tool2"],        // REQUIRED: Array of tool names
   "user_prompt": "How can I help?",     // OPTIONAL: Custom greeting
+  "model": "gpt-5",                    // OPTIONAL: Pinned model alias
+  "model_settings": {                   // OPTIONAL: Per-agent request settings
+    "reasoning_effort": "high",
+    "verbosity": "low"
+  },
   "tools_config": {                    // OPTIONAL: Tool configuration
     "timeout": 60
   }
@@ -499,9 +524,18 @@ Create JSON files in your agents directory following this schema:
 - **`tools`**: Array of available tool names
 
 #### Optional Fields
-- **`display_name`**: Pretty display name (defaults to title-cased name + 🤖)
+- **`display_name`**: Pretty display name (defaults to title-cased name with an icon)
 - **`user_prompt`**: Custom user greeting
+- **`model`**: Model alias pinned to this agent; omit it to use the global model
+- **`model_settings`**: Request settings scoped to this agent, such as
+  `reasoning_effort`, `verbosity`, or `temperature`
 - **`tools_config`**: Tool configuration object
+
+Per-agent model settings override standard global and per-model values. Settings
+the selected model does not support are ignored, and provider-specific
+conversions are still applied before the request is sent. Low-level Custom
+params configured through `/model_settings` remain the final wire-level
+override.
 
 ## Available Tools
 
@@ -659,6 +693,7 @@ Both Python and JSON agents implement this interface:
 - `description`: Brief description of purpose
 - `get_system_prompt()`: Returns agent-specific system prompt
 - `get_available_tools()`: Returns list of tool names
+- `get_model_settings_overrides()`: Optionally returns per-agent request settings
 
 ### Agent Manager Integration
 The `agent_manager.py` provides:
@@ -715,6 +750,9 @@ class MyCustomAgent(BaseAgent):
             "agent_run_shell_command",
             "agent_share_your_reasoning"
         ]
+
+    def get_model_settings_overrides(self) -> dict[str, object]:
+        return {"reasoning_effort": "high"}
 ```
 
 ## Troubleshooting

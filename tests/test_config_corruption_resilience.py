@@ -66,6 +66,58 @@ class TestLoadConfigCorruption:
         assert isinstance(config, configparser.ConfigParser)
         assert glob.glob(f"{cfg_path}.corrupted-*")
 
+    def test_utf8_bom_is_accepted_without_quarantine(self, cfg_path):
+        cfg_path.write_bytes("[puppy]\nowner_name = María\n".encode("utf-8-sig"))
+
+        config = config_file.load_config(str(cfg_path))
+
+        assert config.get("puppy", "owner_name") == "María"
+        assert not glob.glob(f"{cfg_path}.corrupted-*")
+
+    def test_windows_locale_encoded_config_is_accepted(self, cfg_path, monkeypatch):
+        cfg_path.write_bytes("[puppy]\nowner_name = María\n".encode("cp1252"))
+        monkeypatch.setattr(config_file.os, "name", "nt", raising=False)
+        monkeypatch.setattr(
+            config_file.locale,
+            "getpreferredencoding",
+            lambda _do_setlocale=False: "cp1252",
+        )
+
+        config = config_file.load_config(str(cfg_path))
+
+        assert config.get("puppy", "owner_name") == "María"
+        assert not glob.glob(f"{cfg_path}.corrupted-*")
+
+    def test_windows_locale_fallback_logs_warning(self, cfg_path, monkeypatch, caplog):
+        cfg_path.write_bytes("[puppy]\nowner_name = María\n".encode("cp1252"))
+        monkeypatch.setattr(config_file.os, "name", "nt", raising=False)
+        monkeypatch.setattr(
+            config_file.locale,
+            "getpreferredencoding",
+            lambda _do_setlocale=False: "cp1252",
+        )
+
+        with caplog.at_level("WARNING"):
+            config_file.load_config(str(cfg_path))
+
+        assert any(
+            "Windows locale fallback encoding" in message for message in caplog.messages
+        )
+
+    def test_windows_locale_fallback_rejects_non_ini_text(self, cfg_path, monkeypatch):
+        cfg_path.write_bytes(b"\x96\x97\x98\x99\x80")
+        monkeypatch.setattr(config_file.os, "name", "nt", raising=False)
+        monkeypatch.setattr(
+            config_file.locale,
+            "getpreferredencoding",
+            lambda _do_setlocale=False: "cp1252",
+        )
+
+        config = config_file.load_config(str(cfg_path))
+
+        assert isinstance(config, configparser.ConfigParser)
+        assert glob.glob(f"{cfg_path}.corrupted-*")
+
     def test_healthy_config_is_left_untouched(self, cfg_path):
         cfg_path.write_text("[puppy]\npuppy_name = leoncito\n")
 

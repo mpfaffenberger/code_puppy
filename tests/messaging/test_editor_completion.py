@@ -13,7 +13,7 @@ from code_puppy.messaging.line_editor import RunningLineEditor
 
 
 class FakeCompleter:
-    """Static prompt_toolkit-style completer (pure logic)."""
+    """Static duck-typed completer (pure logic)."""
 
     def __init__(self, words):
         self._words = words
@@ -22,7 +22,7 @@ class FakeCompleter:
     def get_completions(self, document, _event):
         self.calls.append((document.text, document.cursor_position))
         prefix = document.text_before_cursor
-        from prompt_toolkit.completion import Completion
+        from termflow.tui.completion import Completion
 
         for w in self._words:
             if w.startswith(prefix):

@@ -8,7 +8,7 @@ import pathlib
 from typing import Any, Optional
 
 from code_puppy.config_file import load_config, mutate_config
-from code_puppy.session_storage import save_session
+from code_puppy.session_storage import compute_scope_key, save_session
 
 logger = logging.getLogger(__name__)
 
@@ -81,10 +81,7 @@ def get_subagent_verbose() -> bool:
     for parallel execution. When True, sub-agents produce full verbose output
     like the main agent (useful for debugging).
     """
-    cfg_val = get_value("subagent_verbose")
-    if cfg_val is None:
-        return False
-    return str(cfg_val).strip().lower() in {"1", "true", "yes", "on"}
+    return get_truthy_bool_value("subagent_verbose", False)
 
 
 def get_subagent_recursion_limit() -> int:
@@ -145,10 +142,7 @@ def get_pack_agents_enabled() -> bool:
 
     When True, pack agents are available for use.
     """
-    cfg_val = get_value("enable_pack_agents")
-    if cfg_val is None:
-        return False
-    return str(cfg_val).strip().lower() in {"1", "true", "yes", "on"}
+    return get_truthy_bool_value("enable_pack_agents", False)
 
 
 def get_universal_constructor_enabled() -> bool:
@@ -160,10 +154,8 @@ def get_universal_constructor_enabled() -> bool:
 
     When False, the universal_constructor tool is not registered with agents.
     """
-    cfg_val = get_value("enable_universal_constructor")
-    if cfg_val is None:
-        return True  # Enabled by default
-    return str(cfg_val).strip().lower() in {"1", "true", "yes", "on"}
+    # Enabled to True as default.
+    return get_truthy_bool_value("enable_universal_constructor", True)
 
 
 def set_universal_constructor_enabled(enabled: bool) -> None:
@@ -184,10 +176,7 @@ def get_mcp_unbound_warning_silenced() -> bool:
     but power users who *know* about the unbound servers can silence the
     nag via ``/mcp silence-warning``.
     """
-    cfg_val = get_value("mcp_unbound_warning_silenced")
-    if cfg_val is None:
-        return False
-    return str(cfg_val).strip().lower() in {"1", "true", "yes", "on"}
+    return get_truthy_bool_value("mcp_unbound_warning_silenced", False)
 
 
 def set_mcp_unbound_warning_silenced(silenced: bool) -> None:
@@ -223,9 +212,19 @@ def get_enable_streaming() -> bool:
     Returns True if streaming is enabled, False otherwise.
     Defaults to True.
     """
-    val = get_value("enable_streaming")
+    # Default to True for better UX.
+    return get_truthy_bool_value("enable_streaming", True)
+
+
+def get_enable_logfire() -> bool:
+    """
+    Get the enable_logfire configuration value.
+    Controls whether Logfire observability instrumentation is enabled.
+    Strictly opt-in: defaults to False.
+    """
+    val = get_value("enable_logfire")
     if val is None:
-        return True  # Default to True for better UX
+        return False  # Opt-in: no telemetry unless the user asks for it
     return str(val).lower() in ("1", "true", "yes", "on")
 
 
@@ -240,6 +239,7 @@ def get_retry_main_strategy() -> str:
         from code_puppy.agents.retry_profiles import resolve
 
         return resolve("main").strategy
+
     except Exception:
         return "balanced"
 
@@ -250,6 +250,7 @@ def get_retry_main_max_attempts() -> int:
         from code_puppy.agents.retry_profiles import resolve
 
         return resolve("main").max_attempts
+
     except Exception:
         return 5
 
@@ -260,6 +261,7 @@ def get_retry_subagent_strategy() -> str:
         from code_puppy.agents.retry_profiles import resolve
 
         return resolve("subagent").strategy
+
     except Exception:
         return "balanced"
 
@@ -270,6 +272,7 @@ def get_retry_subagent_max_attempts() -> int:
         from code_puppy.agents.retry_profiles import resolve
 
         return resolve("subagent").max_attempts
+
     except Exception:
         return 9
 
@@ -279,10 +282,8 @@ def get_suppress_directory_listing() -> bool:
     Get the suppress_directory_listing configuration value.
     Returns True if directory listing displays should be suppressed, False otherwise.
     """
-    val = get_value("suppress_directory_listing")
-    if val is None:
-        return True  # Default to True (suppress by default)
-    return str(val).lower() in ("1", "true", "yes", "on")
+    # Default to True: suppress by default.
+    return get_truthy_bool_value("suppress_directory_listing", True)
 
 
 DEFAULT_SECTION = "puppy"
@@ -351,6 +352,10 @@ def ensure_config_exists():
     # Set default values for important config keys if they don't exist
     if not config[DEFAULT_SECTION].get("auto_save_session"):
         config[DEFAULT_SECTION]["auto_save_session"] = "true"
+    # port_base: seed so users discover the knob in their generated puppy.cfg
+    # (starting port for the HTTP-server port probe; searches port_base..+920).
+    if not config[DEFAULT_SECTION].get("port_base"):
+        config[DEFAULT_SECTION]["port_base"] = str(DEFAULT_PORT_BASE)
 
     # Write the config if we made any changes. Re-reads under the config lock
     # and re-applies the prompted values on top of that fresh snapshot, so a
@@ -365,6 +370,8 @@ def ensure_config_exists():
                 cfg[DEFAULT_SECTION][key] = val
             if not cfg[DEFAULT_SECTION].get("auto_save_session"):
                 cfg[DEFAULT_SECTION]["auto_save_session"] = "true"
+            if not cfg[DEFAULT_SECTION].get("port_base"):
+                cfg[DEFAULT_SECTION]["port_base"] = str(DEFAULT_PORT_BASE)
 
         config = mutate_config(CONFIG_FILE, _apply)
     return config
@@ -374,6 +381,24 @@ def get_value(key: str):
     config = _load_config()
     val = config.get(DEFAULT_SECTION, key, fallback=None)
     return val
+
+
+def get_truthy_bool_value(key: str, default_val: bool) -> bool:
+    """Set default_val as required to enforce specification."""
+    val = get_value(key)
+    if val is None:
+        return default_val
+
+    return str(val).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def get_falsy_bool_value(key: str, default_val: bool) -> bool:
+    """Set default_val as required to enforce specification."""
+    val = get_value(key)
+    if val is None:
+        return default_val
+
+    return str(val).strip().lower() in {"0", "false", "no", "off"}
 
 
 def get_puppy_name():
@@ -410,10 +435,8 @@ def get_allow_recursion() -> bool:
     Get the allow_recursion configuration value.
     Returns True if recursion is allowed, False otherwise.
     """
-    val = get_value("allow_recursion")
-    if val is None:
-        return True  # Default to True to allow recursion unless explicitly disabled
-    return str(val).lower() in ("1", "true", "yes", "on")
+    # Default to True to allow recursion unless explicitly disabled.
+    return get_truthy_bool_value("allow_recursion", True)
 
 
 def get_model_context_length() -> int:
@@ -474,6 +497,8 @@ def get_config_keys():
     default_keys.append("max_hook_retries")
     # Add streaming control key
     default_keys.append("enable_streaming")
+    # Opt-in Logfire observability (see code_puppy/observability.py)
+    default_keys.append("enable_logfire")
     # Add suppress directory listing key
     default_keys.append("suppress_directory_listing")
     # Add cancel agent key configuration
@@ -488,6 +513,9 @@ def get_config_keys():
     default_keys.append("resume_message_count")
     # Per-file AGENTS.md character cap (see get_agents_md_max_chars()).
     default_keys.append("agents_md_max_chars")
+    # Tool-output reduction threshold in chars for the harness ToolOutputLimits
+    # capability (see get_tool_output_limit_chars()). 0 or negative disables.
+    default_keys.append("tool_output_limit_chars")
     # Add /goal iteration cap (owned by the wiggum plugin, surfaced here so
     # /set autocompletes it). See plugins/wiggum/register_callbacks.py.
     default_keys.append("goal_max_iterations")
@@ -567,7 +595,7 @@ def _parse_mcp_servers_mapping(raw_text: str) -> dict:
     return servers
 
 
-def load_mcp_server_configs():
+def load_mcp_server_configs(*, raise_on_error: bool = False):
     """Load MCP server configs, merging user-level and trusted project-level.
 
     Sources, in ascending order of precedence:
@@ -582,6 +610,11 @@ def load_mcp_server_configs():
     Project entries win on name collision, matching how project agents, skills,
     and plugins override their user-level counterparts. Returns an empty dict
     when nothing is configured.
+
+    When *raise_on_error* is true, a parse/IO failure of an existing user-level
+    file (or a failure of the project loader) is re-raised after the error is
+    emitted, so callers that unregister missing names can skip that drop
+    instead of treating ``{}`` as "configure nothing".
     """
     from code_puppy.messaging.message_queue import emit_error
 
@@ -594,6 +627,8 @@ def load_mcp_server_configs():
                 configs.update(_parse_mcp_servers_mapping(f.read()))
     except Exception as e:
         emit_error(f"Failed to load MCP servers - {str(e)}")
+        if raise_on_error:
+            raise
 
     # 2. Project-level config (opt-in, trust-gated). A broken or untrusted
     #    project file must never break user-level loading.
@@ -605,6 +640,8 @@ def load_mcp_server_configs():
             configs.update(project_configs)
     except Exception as e:
         emit_error(f"Failed to load project MCP servers - {str(e)}")
+        if raise_on_error:
+            raise
 
     return configs
 
@@ -1410,11 +1447,7 @@ def get_yolo_mode() -> bool:
     if _cli_yolo_override is not None:
         return _cli_yolo_override
 
-    true_vals = {"1", "true", "yes", "on"}
-    cfg_val = get_value("yolo_mode")
-    if cfg_val is not None:
-        return str(cfg_val).strip().lower() in true_vals
-    return True
+    return get_truthy_bool_value("yolo_mode", True)
 
 
 def get_safety_permission_level():
@@ -1440,13 +1473,7 @@ def get_mcp_disabled():
     Allowed values for ON: 1, '1', 'true', 'yes', 'on' (all case-insensitive for value).
     When enabled, Code Puppy will skip loading MCP servers entirely.
     """
-    true_vals = {"1", "true", "yes", "on"}
-    cfg_val = get_value("disable_mcp")
-    if cfg_val is not None:
-        if str(cfg_val).strip().lower() in true_vals:
-            return True
-        return False
-    return False
+    return get_truthy_bool_value("disable_mcp", False)
 
 
 def get_grep_output_verbose():
@@ -1458,13 +1485,7 @@ def get_grep_output_verbose():
     When False (default): Shows only file names with match counts
     When True: Shows full output with line numbers and content
     """
-    true_vals = {"1", "true", "yes", "on"}
-    cfg_val = get_value("grep_output_verbose")
-    if cfg_val is not None:
-        if str(cfg_val).strip().lower() in true_vals:
-            return True
-        return False
-    return False
+    return get_truthy_bool_value("grep_output_verbose", False)
 
 
 def get_disable_dangerous_command_guard() -> bool:
@@ -1482,13 +1503,7 @@ def get_disable_dangerous_command_guard() -> bool:
     - Force push guard (git push --force, git push -f, etc.)
     - Destructive command guard (rm -rf, docker system prune, etc.)
     """
-    true_vals = {"1", "true", "yes", "on"}
-    cfg_val = get_value("disable_dangerous_command_guard")
-    if cfg_val is not None:
-        if str(cfg_val).strip().lower() in true_vals:
-            return True
-        return False
-    return False
+    return get_truthy_bool_value("disable_dangerous_command_guard", False)
 
 
 def normalize_guard_pattern_name(name: str) -> str:
@@ -1575,6 +1590,34 @@ def get_protected_token_count():
         return min(50000, max_protected_tokens)
 
 
+# Char threshold above which a tool return is reduced (spilled to a file the
+# model can read back through the harness read_tool_result tool, truncated as
+# fallback). Matches the pydantic-ai-harness ToolOutputLimits default.
+TOOL_OUTPUT_LIMIT_CHARS_DEFAULT = 10_000
+
+
+def get_tool_output_limit_chars() -> int:
+    """Return the tool-output reduction threshold in characters.
+
+    Read from the ``tool_output_limit_chars`` config key (settable via
+    ``/set tool_output_limit_chars=<int>``). Defaults to
+    ``TOOL_OUTPUT_LIMIT_CHARS_DEFAULT`` (10,000) when unset or non-numeric.
+    Zero or negative disables tool-output reduction entirely — no clamp is
+    applied here because "disable" is a legitimate choice, unlike the
+    compaction knobs where a bad value would wedge the run.
+    """
+    val = get_value("tool_output_limit_chars")
+    # `val is None`-style unset check (not `if not val:`): get_value returns
+    # str | None today, but a falsy non-None value (int 0 through a future
+    # cache) must stay an explicit opt-out, never a fallback to the default.
+    if val is None or not str(val).strip():
+        return TOOL_OUTPUT_LIMIT_CHARS_DEFAULT
+    try:
+        return int(val)
+    except (ValueError, TypeError):
+        return TOOL_OUTPUT_LIMIT_CHARS_DEFAULT
+
+
 def get_resume_message_count() -> int:
     """
     Returns the number of messages to display when resuming a session.
@@ -1653,10 +1696,7 @@ def get_http2() -> bool:
     Get the http2 configuration value.
     Returns False if not set (default).
     """
-    val = get_value("http2")
-    if val is None:
-        return False
-    return str(val).lower() in ("1", "true", "yes", "on")
+    return get_truthy_bool_value("http2", False)
 
 
 def set_http2(enabled: bool) -> None:
@@ -1808,13 +1848,7 @@ def get_auto_save_session() -> bool:
     Defaults to True if not set.
     Allowed values for ON: 1, '1', 'true', 'yes', 'on' (all case-insensitive for value).
     """
-    true_vals = {"1", "true", "yes", "on"}
-    cfg_val = get_value("auto_save_session")
-    if cfg_val is not None:
-        if str(cfg_val).strip().lower() in true_vals:
-            return True
-        return False
-    return True
+    return get_truthy_bool_value("auto_save_session", True)
 
 
 def set_auto_save_session(enabled: bool):
@@ -2240,9 +2274,9 @@ def set_current_autosave_from_session_name(session_name: str) -> str:
     return pin_current_session_name(session_name)
 
 
-def auto_save_session_if_enabled() -> bool:
-    """Automatically save the current session if auto_save_session is enabled."""
-    if not get_auto_save_session():
+def auto_save_session_if_enabled(*, force: bool = False) -> bool:
+    """Save the current session when enabled, or unconditionally when forced."""
+    if not force and not get_auto_save_session():
         return False
 
     try:
@@ -2267,6 +2301,7 @@ def auto_save_session_if_enabled() -> bool:
             timestamp=now.isoformat(),
             token_estimator=current_agent.estimate_tokens_for_message,
             auto_saved=True,
+            scope_key=compute_scope_key(pathlib.Path.cwd()),
         )
 
         # Point quick-resume at this save; every turn/exit/finalize routes through
@@ -2694,13 +2729,7 @@ def get_suppress_thinking_messages() -> bool:
     Allowed values for ON: 1, '1', 'true', 'yes', 'on' (all case-insensitive for value).
     When enabled, thinking messages (agent_reasoning, planned_next_steps) will be hidden.
     """
-    true_vals = {"1", "true", "yes", "on"}
-    cfg_val = get_value("suppress_thinking_messages")
-    if cfg_val is not None:
-        if str(cfg_val).strip().lower() in true_vals:
-            return True
-        return False
-    return False
+    return get_truthy_bool_value("suppress_thinking_messages", False)
 
 
 def set_suppress_thinking_messages(enabled: bool):
@@ -2720,12 +2749,7 @@ def get_smooth_thinking_stream() -> bool:
     When enabled, THINKING block deltas are buffered and drained to the
     console at a steady, consistent rate instead of being printed in bursts.
     """
-    false_vals = {"0", "false", "no", "off"}
-    cfg_val = get_value("smooth_thinking_stream")
-    if cfg_val is not None:
-        if str(cfg_val).strip().lower() in false_vals:
-            return False
-    return True
+    return get_falsy_bool_value("smooth_thinking_stream", True)
 
 
 def set_smooth_thinking_stream(enabled: bool):
@@ -2745,12 +2769,7 @@ def get_smooth_response_stream() -> bool:
     When enabled, the AGENT RESPONSE markdown is typed out one character at a
     time at a steady rate instead of appearing line-by-line in bursts.
     """
-    false_vals = {"0", "false", "no", "off"}
-    cfg_val = get_value("smooth_response_stream")
-    if cfg_val is not None:
-        if str(cfg_val).strip().lower() in false_vals:
-            return False
-    return True
+    return get_falsy_bool_value("smooth_response_stream", True)
 
 
 def set_smooth_response_stream(enabled: bool):
@@ -2769,13 +2788,7 @@ def get_suppress_informational_messages() -> bool:
     Allowed values for ON: 1, '1', 'true', 'yes', 'on' (all case-insensitive for value).
     When enabled, informational messages (info, success, warning) will be hidden.
     """
-    true_vals = {"1", "true", "yes", "on"}
-    cfg_val = get_value("suppress_informational_messages")
-    if cfg_val is not None:
-        if str(cfg_val).strip().lower() in true_vals:
-            return True
-        return False
-    return False
+    return get_truthy_bool_value("suppress_informational_messages", False)
 
 
 def set_suppress_informational_messages(enabled: bool):
@@ -2950,10 +2963,8 @@ def set_default_agent(agent_name: str) -> None:
 # --- FRONTEND EMITTER CONFIGURATION ---
 def get_frontend_emitter_enabled() -> bool:
     """Check if frontend emitter is enabled."""
-    val = get_value("frontend_emitter_enabled")
-    if val is None:
-        return True  # Enabled by default
-    return str(val).lower() in ("1", "true", "yes", "on")
+    # Enabled to True by default.
+    return get_truthy_bool_value("frontend_emitter_enabled", True)
 
 
 def get_frontend_emitter_max_recent_events() -> int:
@@ -2976,3 +2987,69 @@ def get_frontend_emitter_queue_size() -> int:
         return int(val)
     except ValueError:
         return 100
+
+
+# Port-probe bounds:
+#   MIN_PORT_BASE=1024 avoids privileged ports the user process can't bind anyway.
+#   PORT_PROBE_WIDTH is how many consecutive ports find_available_port() scans.
+#   MAX_PORT_BASE keeps port_base + width within the 16-bit port space.
+MIN_PORT_BASE = 1024
+PORT_PROBE_WIDTH = 920
+MAX_PORT_BASE = 65535 - PORT_PROBE_WIDTH
+DEFAULT_PORT_BASE = 8090
+
+
+def _coerce_port_base(raw, source: str) -> int | None:
+    """Parse + range-check a candidate port_base. Returns None (with warning)
+    on invalid input so callers can fall through to the next source.
+    """
+    if raw is None or (isinstance(raw, str) and not raw.strip()):
+        return None
+    try:
+        val = int(str(raw).strip())
+    except (TypeError, ValueError):
+        _warn_port_base(f"Ignoring invalid {source} port_base={raw!r}: not an integer")
+        return None
+    if not (MIN_PORT_BASE <= val <= MAX_PORT_BASE):
+        _warn_port_base(
+            f"Ignoring {source} port_base={val}: must be in "
+            f"[{MIN_PORT_BASE}, {MAX_PORT_BASE}] so port+{PORT_PROBE_WIDTH} stays valid"
+        )
+        return None
+    return val
+
+
+def _warn_port_base(msg: str) -> None:
+    """Lazy-import emit_warning to avoid config <-> messaging import cycles."""
+    try:
+        from code_puppy.messaging import emit_warning
+
+        emit_warning(msg)
+    except Exception:
+        # Messaging bus not up yet (early startup); silent skip is fine --
+        # the fallback value still applies.
+        pass
+
+
+def resolve_port_base(cli_value=None) -> int:
+    """
+    Full precedence chain for the port probe's starting port:
+    CLI --port-base > CODE_PUPPY_PORT_BASE env > puppy.cfg[port_base] > default.
+
+    Invalid values at any layer are warned about and skipped, not crashed on.
+    """
+    candidates = (
+        (cli_value, "--port-base"),
+        (os.environ.get("CODE_PUPPY_PORT_BASE"), "CODE_PUPPY_PORT_BASE"),
+        (get_value("port_base"), "puppy.cfg[port_base]"),
+    )
+    for raw, source in candidates:
+        val = _coerce_port_base(raw, source)
+        if val is not None:
+            return val
+    return DEFAULT_PORT_BASE
+
+
+def get_port_base() -> int:
+    """Back-compat wrapper: resolve without a CLI-supplied value."""
+    return resolve_port_base(cli_value=None)
