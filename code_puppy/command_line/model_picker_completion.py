@@ -1,16 +1,11 @@
 import asyncio
 import logging
-import os
 from typing import Iterable, Optional
 
-from prompt_toolkit import PromptSession
-from prompt_toolkit.completion import Completer, Completion
-from prompt_toolkit.document import Document
-from prompt_toolkit.history import FileHistory
+from termflow.tui.completion import Completer, Completion, Document
 from termflow.tui import MenuBuilder, MenuItem
 from termflow.tui.menu import MenuResult
 
-from code_puppy.callbacks import on_prompt_toolkit_style
 from code_puppy.command_line.completion_cache import TTLCache
 from code_puppy.command_line.menu_session import menu_session
 from code_puppy.command_line.tui_style import themed
@@ -414,22 +409,3 @@ async def interactive_model_picker() -> Optional[str]:
             return _normalize_legacy_picker_choice(selected)
     finally:
         set_awaiting_user_input(False, notify=False)
-
-
-async def get_input_with_model_completion(
-    prompt_str: str = ">>> ",
-    trigger: str = "/model",
-    history_file: Optional[str] = None,
-) -> str:
-    history = FileHistory(os.path.expanduser(history_file)) if history_file else None
-    session = PromptSession(
-        completer=ModelNameCompleter(trigger),
-        history=history,
-        complete_while_typing=True,
-        style=on_prompt_toolkit_style(),
-    )
-    text = await session.prompt_async(prompt_str)
-    possibly_stripped = update_model_in_input(text)
-    if possibly_stripped is not None:
-        return possibly_stripped
-    return text

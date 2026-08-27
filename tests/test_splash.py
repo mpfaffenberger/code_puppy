@@ -93,7 +93,7 @@ class TestFrame:
 
     def test_frames_are_wrapped_in_synchronized_output(self):
         stream = FakeTty()
-        handle = splash.start_splash(stream=stream, force=True, min_seconds=0.1)
+        handle = splash.start_splash(stream=stream, force=True)
         handle.stop()
         output = stream.getvalue()
         assert output.count(splash._SYNC_START) == output.count(splash._SYNC_END)
@@ -162,7 +162,7 @@ class TestComposeRows:
 class TestLifecycle:
     def test_start_animate_stop(self):
         stream = FakeTty()
-        handle = splash.start_splash(stream=stream, force=True, min_seconds=0)
+        handle = splash.start_splash(stream=stream, force=True)
         assert isinstance(handle, splash._Splash)
         time.sleep(0.15)  # let a few frames render
         handle.stop()
@@ -175,7 +175,7 @@ class TestLifecycle:
 
     def test_fullscreen_alt_screen_entered_then_left(self):
         stream = FakeTty()
-        handle = splash.start_splash(stream=stream, force=True, min_seconds=0.05)
+        handle = splash.start_splash(stream=stream, force=True)
         time.sleep(0.05)
         handle.stop()
         output = stream.getvalue()
@@ -194,14 +194,14 @@ class TestLifecycle:
             lambda fallback=(80, 24): os.terminal_size((120, 50)),
         )
         stream = FakeTty()
-        handle = splash.start_splash(stream=stream, force=True, min_seconds=0)
+        handle = splash.start_splash(stream=stream, force=True)
         handle.stop()
         assert handle._top_row == (50 - handle._height) // 2 + 1
         assert f"\x1b[{handle._top_row};1H" in stream.getvalue()
 
     def test_stop_is_idempotent(self):
         stream = FakeTty()
-        handle = splash.start_splash(stream=stream, force=True, min_seconds=0)
+        handle = splash.start_splash(stream=stream, force=True)
         handle.stop()
         before = stream.getvalue()
         handle.stop()
@@ -215,23 +215,18 @@ class TestLifecycle:
             def write(self, *_a, **_k):
                 raise OSError("terminal went for a walk")
 
-        handle = splash.start_splash(stream=BrokenTty(), force=True, min_seconds=0)
+        handle = splash.start_splash(stream=BrokenTty(), force=True)
         time.sleep(0.05)
         handle.stop()  # must not raise
 
-    def test_stop_honors_minimum_showtime(self):
+    def test_stop_does_not_enforce_minimum_showtime(self):
         stream = FakeTty()
-        handle = splash.start_splash(stream=stream, force=True, min_seconds=0.3)
+        handle = splash.start_splash(stream=stream, force=True)
         t0 = time.monotonic()
-        handle.stop()  # called "instantly" -- must block out the remainder
+        handle.stop()
         elapsed = time.monotonic() - t0
-        assert elapsed >= 0.25  # slack for scheduler jitter
+        assert elapsed < 0.25
         assert not handle._thread.is_alive()
-        # the extra showtime produced extra frames, not a frozen screen
-        assert stream.getvalue().count(splash._SYNC_START) > 1
-
-    def test_default_minimum_is_three_seconds(self):
-        assert splash._MIN_SHOW_SECONDS == 3.0
 
 
 class TestStreamCapture:
@@ -239,7 +234,7 @@ class TestStreamCapture:
         import sys
 
         stream = FakeTty()
-        handle = splash.start_splash(stream=stream, force=True, min_seconds=0)
+        handle = splash.start_splash(stream=stream, force=True)
         try:
             assert sys.stdout is handle._cap_out
             assert sys.stderr is handle._cap_err
@@ -258,7 +253,7 @@ class TestStreamCapture:
         import sys
 
         stream = FakeTty()
-        handle = splash.start_splash(stream=stream, force=True, min_seconds=0)
+        handle = splash.start_splash(stream=stream, force=True)
         foreign = FakeTty()
         sys.stdout = foreign  # someone else grabbed stdout mid-import
         try:
@@ -269,7 +264,7 @@ class TestStreamCapture:
 
     def test_capture_mirrors_isatty(self):
         stream = FakeTty()
-        handle = splash.start_splash(stream=stream, force=True, min_seconds=0)
+        handle = splash.start_splash(stream=stream, force=True)
         try:
             assert handle._cap_out.isatty() is handle._orig_out.isatty()
         finally:

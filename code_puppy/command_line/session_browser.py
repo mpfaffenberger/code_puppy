@@ -24,7 +24,10 @@ from termflow.ansi.color import fg_color
 from termflow.ansi.utils import visible_length
 from termflow.render.style import RenderStyle
 from termflow.tui.keys import Key, read_key
-from termflow.tui.menu import RESIZE_POLL_S, _truncate, _two_columns
+from termflow.tui.layout import collapsed
+from termflow.tui.layout import truncate as _truncate
+from termflow.tui.layout import two_columns as _two_columns
+from termflow.tui.menu import RESIZE_POLL_S
 from termflow.tui.terminal import alt_screen, raw_mode, terminal_size
 
 from code_puppy.command_line.autosave_search import SessionContentIndex, entry_matches
@@ -175,7 +178,7 @@ class SessionBrowser:
                 right = self._c(s.symbol, "/ search")  # stats are droppable chrome
         return _fit(left, right, width)
 
-    def _left_lines(self, height: int) -> List[str]:
+    def _left_lines(self, width: int, height: int) -> List[str]:
         s = self._style
         lines = [f"{BOLD_ON}PROJECTS ({len(self._projects)}){RESET}", ""]
         focused = self._mode == "projects"
@@ -192,7 +195,7 @@ class SessionBrowser:
             count = f"{total} session{'s' if total != 1 else ''}"
             count_col = self._c(s.head if selected else s.bright, count)
             row = f"{self._c(s.head, pointer) if selected else pointer}{label}"
-            lines.append(_fit(row, count_col, self._list_width()))
+            lines.append(_fit(row, count_col, width))
         return lines[: height - 4]
 
     def _list_width(self) -> int:
@@ -392,13 +395,21 @@ class SessionBrowser:
         # termflow >= 0.5.1 Menu/TextInput frames.
         width = max(20, width - 1)
         frame = [self._header_line(width), ""]
-        list_width = self._list_width()
-        body_width = max(20, width - list_width - 3)
         if self._mode == "browse":
             body = self._browse_lines(width, height)
             frame.extend(_truncate(line, width) for line in body)
+        elif collapsed(width):
+            # Phone-sized: two-phase master/detail flow. The projects
+            # pane owns the full width until a project is opened, then
+            # the session list takes over (termflow.tui.layout policy).
+            if self._mode == "projects":
+                frame.extend(self._left_lines(width, height))
+            else:
+                frame.extend(self._right_lines(width, height))
         else:
-            left = self._left_lines(height)
+            list_width = self._list_width()
+            body_width = max(20, width - list_width - 3)
+            left = self._left_lines(list_width, height)
             right = self._right_lines(body_width, height)
             frame.extend(_two_columns(left, right, list_width, width))
         frame = frame[: height - 2]

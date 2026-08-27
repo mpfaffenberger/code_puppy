@@ -4,8 +4,10 @@ Targets all uncovered lines to reach 100% coverage.
 """
 
 import asyncio
+from contextlib import nullcontext
+from io import StringIO
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from rich.text import Text
@@ -390,113 +392,87 @@ class TestGenerateGroupId:
 
 
 # ---------------------------------------------------------------------------
-# arrow_select_async (mock Application)
+# arrow_select / arrow_select_async (headless termflow drives)
 # ---------------------------------------------------------------------------
+
+
+def _drive_selector(choices, keys, preview_callback=None):
+    """Build the inline selector and drive it with scripted keys."""
+    from code_puppy.tools.common import _build_arrow_select_menu
+
+    script = iter(keys)
+    out = StringIO()
+    menu = _build_arrow_select_menu(
+        "Pick:",
+        choices,
+        preview_callback,
+        key_source=lambda: next(script),
+        output=out,
+        size=lambda: (80, 24),
+    )
+    return menu.run(), out.getvalue()
 
 
 class TestArrowSelectAsync:
-    def test_selector_uses_semantic_literal_fragments(self):
-        from code_puppy.tools.common import _format_selector
+    def test_scripted_selection_returns_choice(self):
+        result, raw = _drive_selector(["choice1", "choice2"], ["down", "enter"])
+        assert result.item.value == "choice2"
+        assert "choice1" in raw
 
-        fragments = list(
-            _format_selector(
-                "Pick <b>literally</b>",
-                ["one & only", "two"],
-                0,
-                preview_callback=lambda _: "preview <dim>literally</dim>",
-            )
+    def test_ctrl_n_and_ctrl_p_move_the_cursor(self):
+        result, _ = _drive_selector(
+            ["a", "b", "c"], ["ctrl-n", "ctrl-n", "ctrl-p", "enter"]
         )
-        styles = {style for style, _ in fragments}
-        text = "".join(text for _, text in fragments)
+        assert result.item.value == "b"
 
-        assert {
-            "class:tui.header",
-            "class:tui.selected",
-            "class:tui.body",
-            "class:tui.border",
-            "class:tui.muted",
-            "class:tui.help",
-            "class:tui.help-key",
-        } <= styles
-        assert "<b>literally</b>" in text
-        assert "one & only" in text
-        assert "<dim>literally</dim>" in text
+    def test_renders_inline_not_fullscreen(self):
+        _, raw = _drive_selector(["a"], ["escape"])
+        assert "\x1b[H" not in raw  # no cursor-home: transcript survives
+        assert "\x1b[?1049" not in raw  # no alt screen
 
-    @pytest.mark.asyncio
-    async def test_basic_selection(self):
-        # Mock the Application to immediately return first choice
-        with patch("code_puppy.tools.common.Application") as MockApp:
-            app_instance = MagicMock()
-            MockApp.return_value = app_instance
+    def test_preview_callback_receives_index(self):
+        seen = []
 
-            async def fake_run_async():
-                # Simulate selecting first choice (index 0)
-                pass
+        def preview(index):
+            seen.append(index)
+            return f"Preview {index}"
 
-            app_instance.run_async = fake_run_async
+        _, raw = _drive_selector(["a", "b"], ["down", "escape"], preview)
+        assert "Preview 0" in raw and "Preview 1" in raw
+        assert 0 in seen and 1 in seen
 
-            # We need to simulate the accept keybinding being triggered
-            # The simplest approach: patch at a higher level
-            with patch("code_puppy.tools.common.arrow_select_async") as mock_sel:
-                mock_sel.return_value = "choice1"
-                result = await mock_sel("Pick:", ["choice1", "choice2"])
-                assert result == "choice1"
+    def test_preview_with_empty_text(self):
+        result, _ = _drive_selector(["a"], ["enter"], lambda i: "")
+        assert result.item.value == "a"
 
     @pytest.mark.asyncio
-    async def test_cancel_raises_keyboard_interrupt(self):
-        from code_puppy.tools.common import arrow_select_async
+    async def test_async_wrapper_selects_and_cancels(self):
+        from code_puppy.tools import common
 
-        with patch("code_puppy.tools.common.Application") as MockApp:
-            app_instance = MagicMock()
-            MockApp.return_value = app_instance
+        def scripted_menu(keys):
+            def build(message, choices, preview_callback=None, **overrides):
+                script = iter(keys)
+                overrides.setdefault("key_source", lambda: next(script))
+                overrides.setdefault("output", StringIO())
+                overrides.setdefault("size", lambda: (80, 24))
+                return _original_build(message, choices, preview_callback, **overrides)
 
-            async def fake_run_async():
-                pass  # result stays None -> KeyboardInterrupt
+            return build
 
-            app_instance.run_async = fake_run_async
-
-            with pytest.raises(KeyboardInterrupt):
-                await arrow_select_async("Pick:", ["a", "b"])
-
-    @pytest.mark.asyncio
-    async def test_with_preview_callback(self):
-        from code_puppy.tools.common import arrow_select_async
-
-        with patch("code_puppy.tools.common.Application") as MockApp:
-            app_instance = MagicMock()
-            MockApp.return_value = app_instance
-
-            async def fake_run_async():
-                pass  # result stays None
-
-            app_instance.run_async = fake_run_async
-
-            with pytest.raises(KeyboardInterrupt):
-                await arrow_select_async(
-                    "Pick:", ["a", "b"], preview_callback=lambda i: f"Preview {i}"
-                )
-
-    @pytest.mark.asyncio
-    async def test_preview_with_empty_text(self):
-        """Test preview_callback returning empty string."""
-        from code_puppy.tools.common import arrow_select_async
-
-        with patch("code_puppy.tools.common.Application") as MockApp:
-            app_instance = MagicMock()
-            MockApp.return_value = app_instance
-
-            async def fake_run_async():
-                pass
-
-            app_instance.run_async = fake_run_async
-
-            with pytest.raises(KeyboardInterrupt):
-                await arrow_select_async("Pick:", ["a"], preview_callback=lambda i: "")
-
-
-# ---------------------------------------------------------------------------
-# arrow_select (sync) - test error in async context
-# ---------------------------------------------------------------------------
+        _original_build = common._build_arrow_select_menu
+        with patch(
+            "code_puppy.agents._key_listeners.suspended_key_listener",
+            nullcontext,
+        ):
+            with patch.object(
+                common, "_build_arrow_select_menu", scripted_menu(["enter"])
+            ):
+                assert await common.arrow_select_async("Pick:", ["a", "b"]) == "a"
+            with patch.object(
+                common, "_build_arrow_select_menu", scripted_menu(["escape"])
+            ):
+                with pytest.raises(KeyboardInterrupt):
+                    await common.arrow_select_async("Pick:", ["a", "b"])
 
 
 class TestArrowSelect:
@@ -510,16 +486,32 @@ class TestArrowSelect:
 
         asyncio.run(_inner())
 
-    def test_cancel_raises_keyboard_interrupt(self):
-        from code_puppy.tools.common import arrow_select
+    def test_sync_selection_and_cancel(self):
+        from code_puppy.tools import common
 
-        with patch("code_puppy.tools.common.Application") as MockApp:
-            app_instance = MagicMock()
-            MockApp.return_value = app_instance
-            app_instance.run = MagicMock()  # result stays None
+        _original_build = common._build_arrow_select_menu
 
-            with pytest.raises(KeyboardInterrupt):
-                arrow_select("Pick:", ["a", "b"])
+        def scripted(keys):
+            def build(message, choices, preview_callback=None, **overrides):
+                script = iter(keys)
+                overrides.setdefault("key_source", lambda: next(script))
+                overrides.setdefault("output", StringIO())
+                overrides.setdefault("size", lambda: (80, 24))
+                return _original_build(message, choices, preview_callback, **overrides)
+
+            return build
+
+        with patch(
+            "code_puppy.agents._key_listeners.suspended_key_listener",
+            nullcontext,
+        ):
+            with patch.object(
+                common, "_build_arrow_select_menu", scripted(["down", "enter"])
+            ):
+                assert common.arrow_select("Pick:", ["a", "b"]) == "b"
+            with patch.object(common, "_build_arrow_select_menu", scripted(["escape"])):
+                with pytest.raises(KeyboardInterrupt):
+                    common.arrow_select("Pick:", ["a", "b"])
 
 
 # ---------------------------------------------------------------------------

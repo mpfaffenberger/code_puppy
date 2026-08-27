@@ -20,8 +20,7 @@ import glob
 import os
 from typing import Iterable, List, Tuple
 
-from prompt_toolkit.completion import Completer, Completion
-from prompt_toolkit.document import Document
+from termflow.tui.completion import Completer, Completion, Document
 
 from code_puppy.command_line import file_index
 

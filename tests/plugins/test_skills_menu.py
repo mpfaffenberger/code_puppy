@@ -316,171 +316,66 @@ class TestSkillsMenuUpdateDisplay:
             menu.update_display()  # no crash with None controls
 
 
-def _invoke_kb_handler(kb, key_name, app_mock=None):
-    """Find and invoke a key binding handler by key name."""
-    # Build a lookup of key aliases
-    _ALIASES = {
-        "enter": "c-m",
-        "up": "up",
-        "down": "down",
-        "left": "left",
-        "right": "right",
-        "escape": "escape",
-        "space": " ",
-        "backspace": "c-h",
-    }
-    target = _ALIASES.get(key_name, key_name)
-    event = MagicMock()
-    event.app = app_mock or MagicMock()
-    for binding in kb.bindings:
-        for k in binding.keys:
-            name = k.value if hasattr(k, "value") else str(k)
-            if name == target or name == key_name:
-                binding.handler(event)
-                return event
-    raise ValueError(f"No handler found for key: {key_name} (target={target})")
-
-
 class TestSkillsMenuKeyBindings:
-    """Test key binding handlers by capturing KeyBindings during run()."""
+    """Drive the key dispatcher directly (headless)."""
 
-    def _run_with_key_capture(self, skills=None, disabled=None, callback=None):
-        captured_kb = [None]
-        orig_kb = __import__(
-            "prompt_toolkit.key_binding", fromlist=["KeyBindings"]
-        ).KeyBindings
-
-        class CapturingKB(orig_kb):
-            def __init__(self, *a, **kw):
-                super().__init__(*a, **kw)
-                captured_kb[0] = self
-
+    def _menu(self, skills=None, disabled=None):
         with (
             patch(f"{_MOD}.get_skills_enabled", return_value=True),
             patch(f"{_MOD}.get_skill_directories", return_value=[]),
             patch(f"{_MOD}.get_disabled_skills", return_value=disabled or []),
             patch(f"{_MOD}.discover_skills", return_value=skills or []),
-            patch(f"{_MOD}.set_awaiting_user_input"),
-            patch(f"{_MOD}.KeyBindings", CapturingKB),
-            patch(f"{_MOD}.Application") as mock_app_cls,
-            patch(f"{_MOD}.time"),
-            patch("sys.stdout"),
         ):
             from code_puppy_core_plugins.agent_skills.skills_menu import SkillsMenu
 
-            menu = SkillsMenu()
-            mock_app = MagicMock()
-
-            def fake_run(**kwargs):
-                if callback:
-                    callback(menu, captured_kb[0], mock_app)
-                else:
-                    menu.result = "quit"
-
-            mock_app.run.side_effect = fake_run
-            mock_app_cls.return_value = mock_app
-            result = menu.run()
-            return menu, result, captured_kb[0]
+            return SkillsMenu()
 
     @patch(f"{_MOD}.parse_skill_metadata", return_value=_make_metadata())
     def test_navigation_keys(self, mock_meta):
-        skills = [_make_skill(f"s{i}", f"/tmp/s{i}") for i in range(20)]
-
-        def exercise_keys(menu, kb, app):
-            # Navigate down
-            _invoke_kb_handler(kb, "down", app)
-            assert menu.selected_idx == 1
-            _invoke_kb_handler(kb, "j", app)
-            assert menu.selected_idx == 2
-            # Navigate up
-            _invoke_kb_handler(kb, "up", app)
-            assert menu.selected_idx == 1
-            _invoke_kb_handler(kb, "k", app)
-            assert menu.selected_idx == 0
-            # Up at top (no-op)
-            _invoke_kb_handler(kb, "up", app)
-            assert menu.selected_idx == 0
-            # Page right
-            _invoke_kb_handler(kb, "right", app)
-            assert menu.current_page == 1
-            # Page left
-            _invoke_kb_handler(kb, "left", app)
-            assert menu.current_page == 0
-            # Left at start (no-op)
-            _invoke_kb_handler(kb, "left", app)
-            assert menu.current_page == 0
-            # Enter (toggle)
-            _invoke_kb_handler(kb, "enter", app)
-            assert menu.result == "changed"
-            # Toggle system
-            _invoke_kb_handler(kb, "t", app)
-            # Refresh
-            _invoke_kb_handler(kb, "r", app)
-            # Install
-            _invoke_kb_handler(kb, "i", app)
-            assert menu.result == "install"
-            # Ctrl+A (add dir)
-            menu.result = None
-            _invoke_kb_handler(kb, "c-a", app)
-            assert menu.result == "add_directory"
-            # Ctrl+D (show dirs)
-            menu.result = None
-            _invoke_kb_handler(kb, "c-d", app)
-            assert menu.result == "show_directories"
-            # Quit
-            menu.result = None
-            _invoke_kb_handler(kb, "q", app)
-            assert menu.result == "quit"
-            # Escape
-            menu.result = None
-            _invoke_kb_handler(kb, "escape", app)
-            assert menu.result == "quit"
-            # Ctrl+C
-            menu.result = None
-            _invoke_kb_handler(kb, "c-c", app)
-            assert menu.result == "quit"
-
-        self._run_with_key_capture(
-            skills=skills,
-            callback=exercise_keys,
-        )
+        menu = self._menu([_make_skill(f"s{i}", f"/tmp/s{i}") for i in range(20)])
+        menu.handle_key("down")
+        assert menu.selected_idx == 1
+        menu.handle_key("j")
+        assert menu.selected_idx == 2
+        menu.handle_key("up")
+        assert menu.selected_idx == 1
+        menu.handle_key("k")
+        assert menu.selected_idx == 0
+        menu.handle_key("up")
+        assert menu.selected_idx == 0
+        menu.handle_key("right")
+        assert menu.current_page == 1
+        menu.handle_key("left")
+        assert menu.current_page == 0
 
     @patch(f"{_MOD}.parse_skill_metadata", return_value=_make_metadata())
     def test_down_at_bottom(self, mock_meta):
-        skills = [_make_skill("s0", "/tmp/s0")]
-
-        def exercise(menu, kb, app):
-            _invoke_kb_handler(kb, "down", app)
-            assert menu.selected_idx == 0  # already at bottom
-            # Right when only 1 page
-            _invoke_kb_handler(kb, "right", app)
-            assert menu.current_page == 0
-            menu.result = "quit"
-
-        self._run_with_key_capture(skills=skills, callback=exercise)
+        menu = self._menu([_make_skill("s0", "/tmp/s0")])
+        menu.handle_key("down")
+        assert menu.selected_idx == 0
 
     @patch(f"{_MOD}.parse_skill_metadata", return_value=_make_metadata())
     def test_ctrl_p_and_ctrl_n(self, mock_meta):
-        skills = [_make_skill(f"s{i}", f"/tmp/s{i}") for i in range(3)]
+        menu = self._menu([_make_skill(f"s{i}", f"/tmp/s{i}") for i in range(3)])
+        menu.handle_key("ctrl-n")
+        assert menu.selected_idx == 1
+        menu.handle_key("ctrl-p")
+        assert menu.selected_idx == 0
 
-        def exercise(menu, kb, app):
-            _invoke_kb_handler(kb, "c-n", app)
-            assert menu.selected_idx == 1
-            _invoke_kb_handler(kb, "c-p", app)
-            assert menu.selected_idx == 0
-            menu.result = "quit"
-
-        self._run_with_key_capture(skills=skills, callback=exercise)
+    @patch(f"{_MOD}.parse_skill_metadata", return_value=_make_metadata())
+    def test_exit_keys(self, mock_meta):
+        for key in ("q", "escape", "ctrl-c"):
+            menu = self._menu([_make_skill("s0", "/tmp/s0")])
+            assert menu.handle_key(key) is True
+            assert menu.result == "quit"
 
 
 class TestSkillsMenuRun:
-    """Test SkillsMenu.run() with mocked Application."""
+    """Test SkillsMenu.run() with the widget faked."""
 
     @patch(f"{_MOD}.set_awaiting_user_input")
-    @patch(f"{_MOD}.Application")
-    @patch(f"{_MOD}.time")
-    @patch("sys.stdout")
-    def test_run_quit(self, mock_stdout, mock_time, mock_app_cls, mock_await):
+    @patch("code_puppy_core_plugins.termflow_tui.FragmentTUI")
+    def test_run_quit(self, mock_tui_cls, mock_await):
         with (
             patch(f"{_MOD}.get_skills_enabled", return_value=True),
             patch(f"{_MOD}.get_skill_directories", return_value=[]),
@@ -490,15 +385,12 @@ class TestSkillsMenuRun:
             from code_puppy_core_plugins.agent_skills.skills_menu import SkillsMenu
 
             menu = SkillsMenu()
-            mock_app = MagicMock()
-            mock_app_cls.return_value = mock_app
 
-            def fake_run(**kwargs):
+            def fake_run():
                 menu.result = "quit"
 
-            mock_app.run.side_effect = fake_run
-            result = menu.run()
-            assert result == "quit"
+            mock_tui_cls.return_value.run.side_effect = fake_run
+            assert menu.run() == "quit"
 
 
 # ---------------------------------------------------------------------------

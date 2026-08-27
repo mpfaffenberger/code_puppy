@@ -507,12 +507,19 @@ def _coalesce_paste_burst(items: list) -> Optional[str]:
     if any(kind != "char" for kind, _ in items):
         return None
     payload = "".join(value for _, value in items)
-    if "\x1b" in payload and _PASTE_OPEN not in payload and _PASTE_CLOSE not in payload:
+    if _PASTE_OPEN in payload or _PASTE_CLOSE in payload:
+        return payload
+    if "\x1b" in payload:
         # With VT input, special keys arrive as ESC sequences, not
         # \x00/\xe0 pairs — an arrow press is a 3+ all-text burst that
-        # would read as a paste. Pastes are always bracketed (while
-        # ?2004h is armed), so an ESC burst without markers is typing:
-        # dispatch per key and let the editor's CSI state machine cope.
+        # would read as a paste. Terminal pastes carry bracket markers,
+        # so an unmarked ESC burst is typing.
+        return None
+    if any(ord(ch) < 32 and ch not in "\t\r\n" or ch == "\x7f" for ch in payload):
+        # Held control keys repeat fast enough to land 3+ events inside
+        # one poll tick. In particular, misclassifying repeated Backspace
+        # as paste makes deletion appear to hitch whenever a burst is
+        # inserted as control text instead of dispatched as key presses.
         return None
     return payload
 

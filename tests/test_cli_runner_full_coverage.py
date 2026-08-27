@@ -16,6 +16,25 @@ import pytest
 # ---------------------------------------------------------------------------
 
 
+def _sync_input(fn):
+    """Adapt async-mock classic-input fns to the plain input() seam."""
+    import inspect as _inspect
+
+    def _call(*args, **kwargs):
+        result = fn(*args, **kwargs)
+        if _inspect.iscoroutine(result):
+            # Async mocks complete without awaiting anything; drive them
+            # synchronously (we are already inside the event loop).
+            try:
+                result.send(None)
+            except StopIteration as stop:
+                return stop.value
+            raise RuntimeError("async input mock did not finish synchronously")
+        return result
+
+    return _call
+
+
 def _mock_renderer():
     r = MagicMock()
     r.console = MagicMock()
@@ -111,20 +130,7 @@ async def _run_interactive(
 
     with ExitStack() as stack:
         _apply_patches(stack, patches_dict)
-        stack.enter_context(
-            patch(
-                "code_puppy.command_line.prompt_toolkit_completion.get_input_with_combined_completion",
-                side_effect=input_fn
-                if callable(input_fn) and not isinstance(input_fn, AsyncMock)
-                else input_fn,
-            )
-        )
-        stack.enter_context(
-            patch(
-                "code_puppy.command_line.prompt_toolkit_completion.get_prompt_with_active_model",
-                return_value="> ",
-            )
-        )
+        stack.enter_context(patch("builtins.input", _sync_input(input_fn)))
         stack.enter_context(
             patch(
                 "code_puppy.agents.agent_manager.get_current_agent",
@@ -978,7 +984,6 @@ class TestInteractiveMode:
                 ),
                 "sys.stdin": mock_stdin,
                 "sys.stdout": mock_stdout,
-                "code_puppy.session_storage.restore_autosave_interactively": AsyncMock(),
             },
         )
 
@@ -1054,7 +1059,8 @@ class TestInteractiveMode:
             )
 
     @pytest.mark.anyio
-    async def test_autosave_load_exception(self):
+    async def test_autosave_load_non_tty_warns_instead_of_prompting(self):
+        """Non-TTY /autosave_load points at -r NAME instead of prompting."""
         fake_input = _scripted_input("/autosave_load")
 
         mock_stdin = MagicMock()
@@ -1075,9 +1081,6 @@ class TestInteractiveMode:
                 ),
                 "sys.stdin": mock_stdin,
                 "sys.stdout": mock_stdout,
-                "code_puppy.session_storage.restore_autosave_interactively": AsyncMock(
-                    side_effect=RuntimeError("fail")
-                ),
             },
         )
 
@@ -1472,7 +1475,6 @@ class TestInteractiveModeEdgeCases:
                     ),
                     "sys.stdin": mock_stdin,
                     "sys.stdout": mock_stdout,
-                    "code_puppy.session_storage.restore_autosave_interactively": AsyncMock(),
                 },
             )
 
@@ -1684,19 +1686,7 @@ class TestImportErrorFallbacks:
 
         with ExitStack() as stack:
             _apply_patches(stack, patches)
-            stack.enter_context(
-                patch(
-                    "code_puppy.command_line.prompt_toolkit_completion.get_input_with_combined_completion",
-                    new_callable=AsyncMock,
-                    return_value="/exit",
-                )
-            )
-            stack.enter_context(
-                patch(
-                    "code_puppy.command_line.prompt_toolkit_completion.get_prompt_with_active_model",
-                    return_value="> ",
-                )
-            )
+            stack.enter_context(patch("builtins.input", return_value="/exit"))
             stack.enter_context(
                 patch(
                     "code_puppy.agents.agent_manager.get_current_agent",

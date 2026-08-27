@@ -662,6 +662,14 @@ class TestMCPServerConfigs:
                 result = cp_config.load_mcp_server_configs()
                 assert result == {}
 
+    def test_bad_json_raise_on_error(self, tmp_path):
+        f = tmp_path / "mcp_servers.json"
+        f.write_text("not json")
+        with patch.object(cp_config, "MCP_SERVERS_FILE", str(f)):
+            with patch("code_puppy.messaging.message_queue.emit_error"):
+                with pytest.raises(json.JSONDecodeError):
+                    cp_config.load_mcp_server_configs(raise_on_error=True)
+
 
 # ---------------------------------------------------------------------------
 # Config keys
@@ -870,6 +878,25 @@ class TestAutosaveSession:
     def test_auto_save_session_if_enabled_disabled(self):
         cp_config.set_auto_save_session(False)
         assert cp_config.auto_save_session_if_enabled() is False
+
+    def test_auto_save_session_force_overrides_disabled_setting(self):
+        cp_config.set_auto_save_session(False)
+        mock_agent = MagicMock()
+        mock_agent.get_message_history.return_value = [
+            {"role": "user", "content": "compacted"}
+        ]
+        mock_metadata = MagicMock(message_count=1, total_tokens=10)
+        with (
+            patch(
+                "code_puppy.agents.agent_manager.get_current_agent",
+                return_value=mock_agent,
+            ),
+            patch("code_puppy.config.save_session", return_value=mock_metadata),
+            patch("code_puppy.config.record_quick_resume_sessions"),
+            patch("code_puppy.messaging.emit_info"),
+            patch("code_puppy.session_lifecycle.fire_post_autosave_callback"),
+        ):
+            assert cp_config.auto_save_session_if_enabled(force=True) is True
 
     def test_auto_save_session_if_enabled_no_history(self):
         cp_config.set_auto_save_session(True)

@@ -1,8 +1,7 @@
 import logging
 from typing import Iterable
 
-from prompt_toolkit.completion import Completer, Completion
-from prompt_toolkit.document import Document
+from termflow.tui.completion import Completer, Completion, Document
 
 # Configure logging
 logger = logging.getLogger(__name__)

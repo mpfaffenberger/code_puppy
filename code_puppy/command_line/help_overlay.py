@@ -1,29 +1,25 @@
-"""Fullscreen, vi-cheat-sheet-style help overlay.
+"""Fullscreen, vi-cheat-sheet-style help overlay on the termflow Pager.
 
 Opened on Tab when the input buffer is empty; both REPL input paths
 (``line_editor.py`` and ``prompt_toolkit_completion.py``) call
-``show_help_overlay()``. It closes on Tab, Esc, or q, so no "is help open?"
-state lives outside this module for the two paths to keep in sync.
+``show_help_overlay()``. It closes on Tab, Esc, Enter, or q, so no
+"is help open?" state lives outside this module for the two paths to
+keep in sync.
+
+Callers are responsible for freeing stdin first (both paths already
+suspend their UI -- ``suspended_run_ui()`` / ``run_in_terminal`` --
+before invoking this), so the Pager can own raw mode + the alt screen
+for its blocking lifetime.
 """
 
 from __future__ import annotations
 
-import asyncio
-import concurrent.futures
 import threading
 
-from prompt_toolkit.application import Application
-from prompt_toolkit.formatted_text import FormattedText
-from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.layout import Layout
-from prompt_toolkit.layout.containers import HSplit, Window
-from prompt_toolkit.layout.controls import FormattedTextControl
-from prompt_toolkit.widgets import TextArea
-
-from code_puppy.callbacks import on_prompt_toolkit_style
 from code_puppy.command_line.help_catalog import HelpSection, build_help_sections
 
-_HEADER = "CODE PUPPY -- HELP  (Tab / Esc / q to close, arrows or j/k to scroll)"
+_TITLE = "CODE PUPPY -- HELP"
+_FOOTER = "Tab / Esc / q close - arrows or j/k scroll - g/G jump"
 
 
 def _column_width(sections: list) -> int:
@@ -51,63 +47,25 @@ def _render_sheet_text(sections: list) -> str:
     return "\n".join(lines).rstrip("\n") + "\n"
 
 
-def _build_application(sections: list) -> Application:
-    body_text = _render_sheet_text(sections)
+def _build_pager(sections: list, **overrides):
+    """Assemble the Pager. ``overrides`` map onto PagerBuilder setters."""
+    from termflow.tui import Key, PagerBuilder
+    from termflow.tui.pager import PagerResult
 
-    kb = KeyBindings()
+    from code_puppy.command_line.tui_style import menu_style
 
-    @kb.add("tab")
-    @kb.add("escape")
-    @kb.add("q")
-    @kb.add("c-c")
-    def _close(event) -> None:
-        event.app.exit()
-
-    # TextArea already handles arrows / PageUp / PageDown / Home / End.
-    @kb.add("j")
-    def _down(event) -> None:
-        event.current_buffer.cursor_down()
-
-    @kb.add("k")
-    def _up(event) -> None:
-        event.current_buffer.cursor_up()
-
-    @kb.add("g", "g")
-    def _top(event) -> None:
-        event.current_buffer.cursor_position = 0
-
-    @kb.add("G")
-    def _bottom(event) -> None:
-        event.current_buffer.cursor_position = len(event.current_buffer.text)
-
-    header = Window(
-        content=FormattedTextControl(FormattedText([("bold reverse", _HEADER)])),
-        height=1,
+    builder = (
+        PagerBuilder(_TITLE)
+        .text(_render_sheet_text(sections))
+        .footer_hint(_FOOTER)
+        .on_key(Key.TAB, lambda _pager: PagerResult(key=Key.TAB))
     )
-    body = TextArea(
-        text=body_text,
-        read_only=True,
-        scrollbar=True,
-        line_numbers=False,
-        wrap_lines=False,
-        focus_on_click=True,
-    )
-
-    layout = Layout(HSplit([header, body]), focused_element=body)
-
-    return Application(
-        layout=layout,
-        key_bindings=kb,
-        full_screen=True,
-        mouse_support=True,
-        color_depth="DEPTH_24_BIT",
-        style=on_prompt_toolkit_style(),
-    )
-
-
-async def _run_help_overlay_async(sections: list) -> None:
-    app = _build_application(sections)
-    await app.run_async()
+    style = menu_style()
+    if style is not None:
+        builder.style(style)
+    for name, value in overrides.items():
+        getattr(builder, name)(value)
+    return builder.build()
 
 
 _launch_lock = threading.Lock()
@@ -116,16 +74,15 @@ _launch_lock = threading.Lock()
 def show_help_overlay() -> None:
     """Show the fullscreen help overlay, blocking until the user closes it.
 
-    Safe to call from any synchronous context -- the raw editor's
-    key-listener thread or a prompt_toolkit key binding -- since it runs
-    its own event loop on a worker thread.
+    Runs synchronously on the calling thread -- the Pager owns raw mode
+    and the alt screen itself, so no worker thread or event loop is
+    needed (the callers have already released stdin).
 
     The lock guards a launch race: the raw-terminal path hops through
     ``run_coroutine_threadsafe`` and an executor before arriving here, so
     two fast Tab presses can both be scheduled before the first overlay
-    owns the terminal. A losing caller becomes a no-op rather than a second
-    ``Application`` fighting for the same stdin. ``future.result()`` is
-    deliberately untimed -- the user closes this on their own schedule.
+    owns the terminal. A losing caller becomes a no-op rather than a
+    second widget fighting for the same stdin.
     """
     if not _launch_lock.acquire(blocking=False):
         return
@@ -135,13 +92,9 @@ def show_help_overlay() -> None:
         except Exception:
             # A broken plugin's help text must not take the Tab key down.
             return
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            future = executor.submit(
-                lambda: asyncio.run(_run_help_overlay_async(sections))
-            )
-            try:
-                future.result()
-            except Exception:
-                pass
+        try:
+            _build_pager(sections).run()
+        except Exception:
+            pass
     finally:
         _launch_lock.release()
