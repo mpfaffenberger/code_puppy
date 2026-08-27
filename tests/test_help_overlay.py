@@ -1,13 +1,14 @@
-"""Tests for the fullscreen help overlay renderer/launcher."""
+"""Tests for the fullscreen help overlay renderer/launcher (termflow Pager)."""
 
-from unittest.mock import AsyncMock, patch
+from io import StringIO
+from unittest.mock import patch
 
 import pytest
 
 from code_puppy.command_line import help_overlay
 from code_puppy.command_line.help_catalog import HelpEntry, HelpSection
 from code_puppy.command_line.help_overlay import (
-    _build_application,
+    _build_pager,
     _column_width,
     _render_sheet_text,
     show_help_overlay,
@@ -22,6 +23,21 @@ def _sections():
         ),
         HelpSection("Commands", [HelpEntry("/help", "Show help")]),
     ]
+
+
+def _drive(sections, keys):
+    """Run the real Pager headlessly on a key script. Returns output."""
+    script = iter(keys)
+    out = StringIO()
+    pager = _build_pager(
+        sections,
+        key_source=lambda: next(script),
+        output=out,
+        size=lambda: (80, 24),
+        alt_screen=False,
+    )
+    result = pager.run()
+    return result, out.getvalue()
 
 
 @pytest.mark.parametrize(
@@ -51,45 +67,51 @@ def test_render_sheet_text_omits_trailing_column_for_entries_without_right():
     assert "just-a-label  \n" not in text.replace("\n\n", "\n")
 
 
-def test_build_application_does_not_crash_and_wires_close_keys():
-    from prompt_toolkit.keys import Keys
-
-    app = _build_application(_sections())
-    # Building the Application object must not require a live terminal.
-    assert app.full_screen is True
-    bindings = app.key_bindings.bindings
-    bound_keys = {tuple(b.keys) for b in bindings}
-    # "tab" normalizes to Ctrl-I and "escape" to Keys.Escape.
-    assert (Keys.ControlI,) in bound_keys
-    assert (Keys.Escape,) in bound_keys
-    assert ("q",) in bound_keys
-    assert (Keys.ControlC,) in bound_keys
+def test_pager_paints_sheet_and_all_close_keys_work():
+    for close_key in ("tab", "q", "escape", "enter", "ctrl-c"):
+        result, out = _drive(_sections(), [close_key])
+        assert "CODE PUPPY -- HELP" in out
+        assert "KEYBINDINGS" in out
 
 
-def test_show_help_overlay_builds_sections_and_runs_the_application():
-    # AsyncMock, not Mock: the launch path calls asyncio.run() on the
-    # result, and a plain Mock's None return would raise inside
-    # show_help_overlay's own except -- passing the test without ever
-    # exercising the launch.
+def test_pager_scrolls_long_sheets():
+    sections = [
+        HelpSection(f"Section {i}", [HelpEntry(f"key-{i}", f"desc {i}")])
+        for i in range(30)
+    ]
+    _, out = _drive(sections, ["G", "q"])
+    assert "SECTION 29" in out  # bottom reachable via G (titles are uppercased)
+    first_frame = out.split("\x1b[H")[1]
+    assert "SECTION 29" not in first_frame  # but not visible at the top
+
+
+def test_show_help_overlay_builds_sections_and_runs_the_pager():
+    ran = []
+
+    class FakePager:
+        def run(self):
+            ran.append(True)
+
     with (
         patch(
             "code_puppy.command_line.help_overlay.build_help_sections",
             return_value=_sections(),
         ) as mock_build,
         patch(
-            "code_puppy.command_line.help_overlay._run_help_overlay_async",
-            new_callable=AsyncMock,
-        ) as mock_run,
+            "code_puppy.command_line.help_overlay._build_pager",
+            return_value=FakePager(),
+        ) as mock_pager,
     ):
         show_help_overlay()
 
     mock_build.assert_called_once()
-    mock_run.assert_awaited_once_with(_sections())
+    mock_pager.assert_called_once_with(_sections())
+    assert ran == [True]
 
 
 def test_show_help_overlay_is_a_noop_while_already_running():
     """Two Tab presses in quick succession must not spin up a second
-    fullscreen Application on top of the first."""
+    fullscreen widget on top of the first."""
     acquired = help_overlay._launch_lock.acquire(blocking=False)
     assert acquired, "test setup: lock should have been free"
     try:
@@ -103,14 +125,18 @@ def test_show_help_overlay_is_a_noop_while_already_running():
 
 
 def test_show_help_overlay_releases_the_lock_after_a_normal_run():
+    class FakePager:
+        def run(self):
+            pass
+
     with (
         patch(
             "code_puppy.command_line.help_overlay.build_help_sections",
             return_value=_sections(),
         ),
         patch(
-            "code_puppy.command_line.help_overlay._run_help_overlay_async",
-            new_callable=AsyncMock,
+            "code_puppy.command_line.help_overlay._build_pager",
+            return_value=FakePager(),
         ),
     ):
         show_help_overlay()
@@ -122,8 +148,8 @@ def test_show_help_overlay_releases_the_lock_after_a_normal_run():
             return_value=_sections(),
         ) as mock_build,
         patch(
-            "code_puppy.command_line.help_overlay._run_help_overlay_async",
-            new_callable=AsyncMock,
+            "code_puppy.command_line.help_overlay._build_pager",
+            return_value=FakePager(),
         ),
     ):
         show_help_overlay()
@@ -140,4 +166,26 @@ def test_show_help_overlay_releases_the_lock_even_if_catalog_build_fails():
 
     acquired = help_overlay._launch_lock.acquire(blocking=False)
     assert acquired, "lock must be released even when catalog build raises"
+    help_overlay._launch_lock.release()
+
+
+def test_show_help_overlay_survives_a_crashing_pager():
+    class ExplodingPager:
+        def run(self):
+            raise OSError("no tty")
+
+    with (
+        patch(
+            "code_puppy.command_line.help_overlay.build_help_sections",
+            return_value=_sections(),
+        ),
+        patch(
+            "code_puppy.command_line.help_overlay._build_pager",
+            return_value=ExplodingPager(),
+        ),
+    ):
+        show_help_overlay()  # must not raise
+
+    acquired = help_overlay._launch_lock.acquire(blocking=False)
+    assert acquired
     help_overlay._launch_lock.release()

@@ -1,7 +1,6 @@
 """Completion-provider seam and Ollama plugin registration tests."""
 
-from prompt_toolkit.completion import Completer, Completion
-from prompt_toolkit.document import Document
+from termflow.tui.completion import Completer, Completion, Document
 
 from code_puppy import callbacks
 from code_puppy.messaging.editor_completion import build_completer

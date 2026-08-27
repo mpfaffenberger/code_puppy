@@ -20,9 +20,55 @@ import json
 import logging
 from typing import Any
 
-import httpx
+import httpx2
 
 logger = logging.getLogger(__name__)
+
+
+def _merge_output_items(
+    envelope_output: list[dict], streamed_items: list[dict]
+) -> list[dict]:
+    """Merge `response.completed` envelope output with streamed item payloads.
+
+    The streamed ``output_item.done`` payloads are richer (they carry
+    reasoning ids and ``encrypted_content`` needed for replay), so they win
+    for any item present in both. Items only the envelope saw (a dropped
+    stream event) keep their envelope position; items only the stream saw
+    (a partial store=false envelope) are inserted before the item that
+    followed them in stream order, preserving reasoning-before-message
+    pairing.
+    """
+    envelope_ids = {item.get("id") for item in envelope_output if item.get("id")}
+    if not envelope_ids:
+        return list(streamed_items)
+
+    streamed_by_id = {item.get("id"): item for item in streamed_items if item.get("id")}
+    if envelope_ids <= streamed_by_id.keys():
+        # Envelope is a subset of the stream: stream order is complete.
+        return list(streamed_items)
+
+    # Rare: the envelope has an item the stream missed. Use the envelope as
+    # the spine, swap in richer streamed twins, and slot stream-only items
+    # ahead of their stream successor (or at the end).
+    pending_before: dict[str, list[dict]] = {}
+    carry: list[dict] = []
+    for item in streamed_items:
+        item_id = item.get("id")
+        if item_id in envelope_ids:
+            if carry:
+                pending_before[item_id] = carry
+                carry = []
+        else:
+            carry.append(item)
+    tail = carry
+
+    merged: list[dict] = []
+    for item in envelope_output:
+        item_id = item.get("id")
+        merged.extend(pending_before.get(item_id, []))
+        merged.append(streamed_by_id.get(item_id, item))
+    merged.extend(tail)
+    return merged
 
 
 def _is_reasoning_model(model_name: str) -> bool:
@@ -37,7 +83,7 @@ def _is_reasoning_model(model_name: str) -> bool:
     return any(model_lower.startswith(prefix) for prefix in reasoning_models)
 
 
-class ChatGPTCodexAsyncClient(httpx.AsyncClient):
+class ChatGPTCodexAsyncClient(httpx2.AsyncClient):
     """Async HTTP client that handles ChatGPT Codex API requirements.
 
     This client:
@@ -47,8 +93,8 @@ class ChatGPTCodexAsyncClient(httpx.AsyncClient):
     """
 
     async def send(
-        self, request: httpx.Request, *args: Any, **kwargs: Any
-    ) -> httpx.Response:
+        self, request: httpx2.Request, *args: Any, **kwargs: Any
+    ) -> httpx2.Response:
         """Intercept requests and inject required Codex fields."""
         force_stream_conversion = False
 
@@ -105,7 +151,7 @@ class ChatGPTCodexAsyncClient(httpx.AsyncClient):
         return response
 
     @staticmethod
-    def _extract_body_bytes(request: httpx.Request) -> bytes | None:
+    def _extract_body_bytes(request: httpx2.Request) -> bytes | None:
         """Extract the request body as bytes."""
         try:
             content = request.content
@@ -153,7 +199,7 @@ class ChatGPTCodexAsyncClient(httpx.AsyncClient):
             forced_stream = True  # Only convert if WE forced streaming
             modified = True
 
-        # Add reasoning settings for reasoning models (gpt-5.2, o-series, etc.)
+        # Add the default reasoning settings for supported reasoning models.
         model = data.get("model", "")
         if "reasoning" not in data and _is_reasoning_model(model):
             data["reasoning"] = {
@@ -227,8 +273,8 @@ class ChatGPTCodexAsyncClient(httpx.AsyncClient):
         return json.dumps(data).encode("utf-8"), forced_stream
 
     async def _convert_stream_to_response(
-        self, response: httpx.Response
-    ) -> httpx.Response:
+        self, response: httpx2.Response
+    ) -> httpx2.Response:
         """Convert an SSE streaming response to a complete response.
 
         Consumes the SSE stream and reconstructs the final response object.
@@ -298,10 +344,16 @@ class ChatGPTCodexAsyncClient(httpx.AsyncClient):
         # (empty when store=false) output with the collected output_item.done items.
         if final_response_data:
             response_body = dict(final_response_data)
-            existing_output = response_body.get("output") or []
-            if not existing_output and completed_output_items:
-                response_body["output"] = completed_output_items
-            elif not existing_output:
+            # The completed envelope may contain a partial output (for example,
+            # only the message). Prefer the complete output_item.done payloads,
+            # which preserve reasoning ids and encrypted_content for replay --
+            # but merge rather than replace, so an item whose done event was
+            # dropped mid-stream is never lost if the envelope still has it.
+            if completed_output_items:
+                response_body["output"] = _merge_output_items(
+                    response_body.get("output") or [], completed_output_items
+                )
+            else:
                 # No items captured either — fall back to text/tool deltas.
                 rebuilt: list[dict] = []
                 if collected_text:
@@ -362,7 +414,7 @@ class ChatGPTCodexAsyncClient(httpx.AsyncClient):
         body_bytes = json.dumps(response_body).encode("utf-8")
         logger.debug(f"Reconstructed response body: {len(body_bytes)} bytes")
 
-        new_response = httpx.Response(
+        new_response = httpx2.Response(
             status_code=response.status_code,
             headers=response.headers,
             content=body_bytes,
@@ -380,6 +432,6 @@ def create_codex_async_client(
     return ChatGPTCodexAsyncClient(
         headers=headers,
         verify=verify,
-        timeout=httpx.Timeout(300.0, connect=30.0),
+        timeout=httpx2.Timeout(300.0, connect=30.0),
         **kwargs,
     )

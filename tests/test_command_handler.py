@@ -1130,7 +1130,7 @@ def test_unpin_command_nonexistent_agent_case_insensitive():
 
 def test_pin_model_completion_case_insensitive_agent():
     """Test that pin model completion works case-insensitively for agents."""
-    from prompt_toolkit.document import Document
+    from termflow.tui.completion import Document
 
     from code_puppy.command_line.pin_command_completion import PinModelCompleter
 
@@ -1158,7 +1158,7 @@ def test_pin_model_completion_case_insensitive_agent():
 
 def test_pin_model_completion_case_insensitive_model():
     """Test that pin model completion works case-insensitively for models."""
-    from prompt_toolkit.document import Document
+    from termflow.tui.completion import Document
 
     from code_puppy.command_line.pin_command_completion import PinModelCompleter
 
@@ -1186,7 +1186,7 @@ def test_pin_model_completion_case_insensitive_model():
 
 def test_unpin_completion_case_insensitive_agent():
     """Test that unpin completion works case-insensitively for agents."""
-    from prompt_toolkit.document import Document
+    from termflow.tui.completion import Document
 
     from code_puppy.command_line.pin_command_completion import UnpinCompleter
 

@@ -758,6 +758,10 @@ def clone_agent(agent_name: str) -> Optional[str]:
             if tools_config is not None:
                 clone_config["tools_config"] = tools_config
 
+            model_settings_overrides = agent_instance.get_model_settings_overrides()
+            if model_settings_overrides:
+                clone_config["model_settings"] = model_settings_overrides
+
             pinned_model = get_agent_pinned_model(agent_instance.name)
             if pinned_model:
                 clone_config["model"] = pinned_model

@@ -14,8 +14,7 @@ import logging
 import time
 from typing import Iterable, List
 
-from prompt_toolkit.completion import Completer, Completion
-from prompt_toolkit.document import Document
+from termflow.tui.completion import Completer, Completion, Document
 
 from code_puppy.skill_provider import get_skill_provider
 

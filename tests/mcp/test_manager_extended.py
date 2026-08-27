@@ -646,11 +646,21 @@ class TestMCPManagerExtended:
         with patch("code_puppy.mcp_.manager.ServerRegistry") as mock_registry_class:
             mock_registry = Mock()
             mock_registry.list_all.return_value = configs
+            mock_registry.get_by_name.side_effect = lambda name: next(
+                (c for c in configs if c.name == name), None
+            )
             mock_registry_class.return_value = mock_registry
 
             with (
                 patch("code_puppy.mcp_.manager.ManagedMCPServer") as mock_managed_class,
                 patch("code_puppy.mcp_.manager.ServerStatusTracker"),
+                patch(
+                    "code_puppy.config.load_mcp_server_configs",
+                    return_value={
+                        "server1": {"type": "stdio", "command": "echo"},
+                        "server2": {"type": "sse", "url": "http://localhost:8080"},
+                    },
+                ),
             ):
                 manager = MCPManager()
 
@@ -687,6 +697,9 @@ class TestMCPManagerExtended:
         with patch("code_puppy.mcp_.manager.ServerRegistry") as mock_registry_class:
             mock_registry = Mock()
             mock_registry.list_all.return_value = configs
+            mock_registry.get_by_name.side_effect = lambda name: next(
+                (c for c in configs if c.name == name), None
+            )
             mock_registry_class.return_value = mock_registry
 
             # Make second server creation fail
@@ -702,6 +715,13 @@ class TestMCPManagerExtended:
                 patch(
                     "code_puppy.mcp_.manager.ServerStatusTracker"
                 ) as mock_tracker_class,
+                patch(
+                    "code_puppy.config.load_mcp_server_configs",
+                    return_value={
+                        "good-server": {"type": "stdio", "command": "echo"},
+                        "bad-server": {"type": "stdio", "command": "bad"},
+                    },
+                ),
             ):
                 mock_tracker = Mock()
                 mock_tracker_class.return_value = mock_tracker

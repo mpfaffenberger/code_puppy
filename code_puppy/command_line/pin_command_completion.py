@@ -1,8 +1,7 @@
 import json
 from typing import Iterable
 
-from prompt_toolkit.completion import Completer, Completion
-from prompt_toolkit.document import Document
+from termflow.tui.completion import Completer, Completion, Document
 
 from code_puppy.command_line.completion_cache import TTLCache
 

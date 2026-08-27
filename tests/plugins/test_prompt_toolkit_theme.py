@@ -1,6 +1,12 @@
 """Contract tests for the theme plugin's central prompt-toolkit adapter."""
 
-from prompt_toolkit.styles import Style
+import pytest
+
+pytest.importorskip(
+    "prompt_toolkit",
+    reason="old-core compat shim; prompt_toolkit is no longer a runtime dep",
+)
+from prompt_toolkit.styles import Style  # noqa: E402
 
 from code_puppy_core_plugins.theme.bundled_palettes import (
     CATPPUCCIN_MOCHA,

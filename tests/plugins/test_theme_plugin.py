@@ -37,7 +37,9 @@ from code_puppy_core_plugins.theme.bundled_palettes import (
     TOKYO_NIGHT,
     VAPORWAVE,
 )
-from code_puppy_core_plugins.theme.picker import build_theme_menu
+from code_puppy_core_plugins.theme.picker import (
+    build_theme_menu,
+)
 from code_puppy_core_plugins.theme.rich_themes import (
     make_remap,
     _swap_color,
@@ -266,54 +268,66 @@ class TestResolveThemeArg:
 # ---------------------------------------------------------------------------
 # picker.py
 # ---------------------------------------------------------------------------
-class TestThemePickerMenu:
-    """Drive the termflow-based picker headlessly with scripted keys."""
+def _drive_picker(keys, rows=40):
+    """Run the theme menu headlessly with a scripted key sequence."""
+    from io import StringIO
 
-    def _drive(self, keys, rows=40):
-        from io import StringIO
+    script = iter(keys)
+    out = StringIO()
+    menu = build_theme_menu(
+        key_source=lambda: next(script),
+        output=out,
+        size=lambda: (140, rows),
+        alt_screen=False,
+    )
+    return menu.run(), out.getvalue()
 
-        script = iter(keys)
-        out = StringIO()
-        menu = build_theme_menu(
-            key_source=lambda: next(script),
-            output=out,
-            size=lambda: (120, rows),
-            alt_screen=False,
-        )
-        result = menu.run()
-        return result, out.getvalue()
 
+class TestThemePicker:
     def test_tall_terminal_shows_whole_catalog(self):
         from termflow.ansi.utils import visible
 
-        _, screen = self._drive(["escape"], rows=40)
-        text = visible(screen)
-        assert "Ocean" in text
-        assert "Green Screen" in text
+        assert len(MENU) == 16
+        _, screen = _drive_picker(["escape"], rows=40)
+        rendered = visible(screen)
+        assert all(theme["label"] in rendered for _, theme in MENU)
 
-    def test_short_terminal_paginates(self):
-        from termflow.ansi.utils import visible
-
-        # 10 rows -> 6 themes per page; later entries are off-page.
-        _, screen = self._drive(["escape"], rows=10)
-        text = visible(screen.split("\x1b[H")[-1])
-        assert "Ocean" in text
-        assert "Green Screen" not in text
-
-    def test_page_down_reaches_later_entries_when_paginated(self):
-        from termflow.ansi.utils import visible
-
-        _, screen = self._drive(["page-down", "escape"], rows=10)
-        assert "Green Screen" in visible(screen)
-
-    def test_enter_selects_theme(self):
-        result, _ = self._drive(["down", "enter"])
+    def test_enter_selects_first_theme(self):
+        result, _ = _drive_picker(["enter"])
         assert not result.cancelled
-        assert result.item is not None
+        assert result.item.value == MENU[0][0]
 
     def test_escape_cancels(self):
-        result, _ = self._drive(["escape"])
+        result, _ = _drive_picker(["escape"])
         assert result.cancelled
+
+    def test_arrow_navigation_selects_second_theme(self):
+        result, _ = _drive_picker(["down", "enter"])
+        assert result.item.value == MENU[1][0]
+
+    def test_page_down_reaches_second_page_on_short_terminal(self):
+        # 12 rows -> 8 themes per page (12 - 4 chrome overhead).
+        result, _ = _drive_picker(["page-down", "enter"], rows=12)
+        assert result.item.value == MENU[8][0]
+
+    def test_short_terminal_only_renders_the_selected_page(self):
+        from termflow.ansi.utils import visible
+
+        _, screen = _drive_picker(["page-down", "escape"], rows=12)
+        rendered = visible(screen.split("\x1b[H")[-1])  # final frame
+        page_two = [theme["label"] for _, theme in MENU[8:16]]
+        page_one = [theme["label"] for _, theme in MENU[:8]]
+        assert all(label in rendered for label in page_two)
+        assert not any(label in rendered for label in page_one)
+
+    def test_preview_pane_shows_highlighted_theme(self):
+        from termflow.ansi.utils import visible
+
+        _, screen = _drive_picker(["escape"])
+        rendered = visible(screen)
+        first_label = MENU[0][1]["label"]
+        # Preview header echoes the highlighted theme's label.
+        assert rendered.count(first_label) >= 2  # list row + preview header
 
 
 # ---------------------------------------------------------------------------
@@ -631,6 +645,12 @@ class TestRegisterCallbacks:
             assert _termflow_style(default) is default
 
     def test_prompt_toolkit_style_shim_delegates_to_merge(self):
+        import pytest
+
+        pytest.importorskip(
+            "prompt_toolkit",
+            reason="old-core compat shim; not a runtime dep anymore",
+        )
         """The lazy shim must forward its argument to merge_with_active_style.
 
         Regression guard: an earlier version used ``*args, **kwargs`` which

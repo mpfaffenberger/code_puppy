@@ -5,6 +5,11 @@ Prompt caching is configured through pydantic-ai's native
 markers; it only owns transport concerns that cannot be expressed there:
 OAuth refresh/retry, Claude Code tool-name prefixing, request headers, URL
 parameters, and the Opus summarized-thinking compatibility transform.
+
+Built on ``httpx2`` (not ``httpx``): every consumer of this client hands it
+to ``anthropic.AsyncAnthropic``, and the Anthropic SDK moved to httpx2 in
+its 1.0 release (pydantic-ai >= 2.35 followed). The rest of Code Puppy
+(OpenAI providers, http_utils) still rides classic httpx.
 """
 
 from __future__ import annotations
@@ -17,7 +22,7 @@ import time
 from typing import Any, Callable, MutableMapping
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
-import httpx
+import httpx2
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +66,7 @@ def _enforce_thinking_display_summary(payload):
     return True
 
 
-class ClaudeCacheAsyncClient(httpx.AsyncClient):
+class ClaudeCacheAsyncClient(httpx2.AsyncClient):
     """Async HTTP client with Claude Code OAuth transformations.
 
     Handles:
@@ -128,7 +133,7 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
             logger.debug("Failed to decode JWT age: %s", exc)
             return None
 
-    def _extract_bearer_token(self, request: httpx.Request) -> str | None:
+    def _extract_bearer_token(self, request: httpx2.Request) -> str | None:
         """Extract the bearer token from request headers."""
         auth_header = request.headers.get("Authorization") or request.headers.get(
             "authorization"
@@ -137,7 +142,7 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
             return auth_header[7:]  # Strip "Bearer " prefix
         return None
 
-    def _jwt_refresh_decision(self, request: httpx.Request) -> bool | None:
+    def _jwt_refresh_decision(self, request: httpx2.Request) -> bool | None:
         """Return a JWT-based refresh decision, or ``None`` for stored fallback."""
         token = self._extract_bearer_token(request)
         if not token:
@@ -163,14 +168,14 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
             )
         return should_refresh
 
-    def _should_refresh_token(self, request: httpx.Request) -> bool:
+    def _should_refresh_token(self, request: httpx2.Request) -> bool:
         """Synchronously check JWT age, then the stored-token callback."""
         decision = self._jwt_refresh_decision(request)
         if decision is not None:
             return decision
         return self._log_stored_token_refresh(self._check_stored_token_expiry())
 
-    async def _should_refresh_token_async(self, request: httpx.Request) -> bool:
+    async def _should_refresh_token_async(self, request: httpx2.Request) -> bool:
         """Check token expiry while awaiting async providers in ``send()``."""
         decision = self._jwt_refresh_decision(request)
         if decision is not None:
@@ -320,7 +325,7 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
                 del headers[key]
 
     @staticmethod
-    def _add_beta_query_param(url: httpx.URL) -> httpx.URL:
+    def _add_beta_query_param(url: httpx2.URL) -> httpx2.URL:
         """Add ?beta=true query parameter to the URL if not already present."""
         parsed = urlparse(str(url))
         query_params = parse_qs(parsed.query)
@@ -328,12 +333,12 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
             query_params["beta"] = ["true"]
             new_query = urlencode(query_params, doseq=True)
             new_parsed = parsed._replace(query=new_query)
-            return httpx.URL(urlunparse(new_parsed))
+            return httpx2.URL(urlunparse(new_parsed))
         return url
 
     async def send(
-        self, request: httpx.Request, *args: Any, **kwargs: Any
-    ) -> httpx.Response:  # type: ignore[override]
+        self, request: httpx2.Request, *args: Any, **kwargs: Any
+    ) -> httpx2.Response:  # type: ignore[override]
         is_messages_endpoint = request.url.path.endswith("/v1/messages")
         if not request.extensions.get("claude_oauth_proactive_refresh_attempted"):
             try:
@@ -450,10 +455,10 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
         return response
 
     async def _send_with_retries(
-        self, request: httpx.Request, *args: Any, **kwargs: Any
-    ) -> httpx.Response:
+        self, request: httpx2.Request, *args: Any, **kwargs: Any
+    ) -> httpx2.Response:
         """Retry rate limits, server failures, and transient connections."""
-        last_response: httpx.Response | None = None
+        last_response: httpx2.Response | None = None
         last_exception: Exception | None = None
         for attempt in range(MAX_RETRIES + 1):
             status_code: int | None = None
@@ -467,7 +472,7 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
                     return response
                 status_code = response.status_code
                 await response.aclose()
-            except (httpx.ConnectError, httpx.ReadTimeout, httpx.PoolTimeout) as exc:
+            except (httpx2.ConnectError, httpx2.ReadTimeout, httpx2.PoolTimeout) as exc:
                 last_exception = exc
                 if attempt >= MAX_RETRIES:
                     raise
@@ -515,7 +520,7 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
         raise RuntimeError("Retry loop completed without response or exception")
 
     @staticmethod
-    def _extract_body_bytes(request: httpx.Request) -> bytes | None:
+    def _extract_body_bytes(request: httpx2.Request) -> bytes | None:
         try:
             content = request.content
             if content:
@@ -547,7 +552,7 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
             headers["Authorization"] = bearer_value
 
     @staticmethod
-    async def _is_cloudflare_html_error(response: httpx.Response) -> bool:
+    async def _is_cloudflare_html_error(response: httpx2.Response) -> bool:
         """Return whether a 400 HTML response is a Cloudflare auth failure."""
         if "text/html" not in response.headers.get("content-type", "").lower():
             return False
