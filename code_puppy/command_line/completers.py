@@ -9,8 +9,10 @@ through :func:`build_completer_stack`.
 from __future__ import annotations
 
 import os
+import shutil
 import unicodedata
 
+from rich.cells import cell_len
 from termflow.tui.completion import Completer, Completion, merge_completers
 
 from code_puppy.command_line.command_registry import get_unique_commands
@@ -386,11 +388,121 @@ PROMPT_STYLES = {
 }
 
 
+#: Columns kept clear to the right of the prompt so there is always room to
+#: type. Below this the prompt is not a prompt, it is a wall.
+_MIN_TYPING_ROOM = 24
+
+#: Give up and render a bare arrow rather than a shredded prefix.
+_MIN_PREFIX_BUDGET = 8
+
+
+def _middle_truncate(text: str, limit: int) -> str:
+    """Shorten ``text`` to ``limit`` cells, dropping from the middle.
+
+    Model ids carry their meaning at both ends (``openrouter/...`` and
+    ``...-opus-4-8``), so a trailing ellipsis throws away the half that
+    tells you which model is actually spending your money.
+    """
+    if limit <= 0:
+        return ""
+    if cell_len(text) <= limit:
+        return text
+    if limit <= 1:
+        return "…"
+    keep = limit - 1
+    head = (keep + 1) // 2
+    tail = keep - head
+    return text[:head] + "…" + (text[len(text) - tail :] if tail else "")
+
+
+def _fit_prompt_parts(
+    puppy: str,
+    agent_display: str,
+    model_display: str,
+    cwd_display: str,
+    base: str,
+    columns: int,
+) -> tuple:
+    """Trim prompt segments to fit ``columns``, most droppable first.
+
+    ``platform_utils.startup_banner_text`` already budgets the *banner* by
+    width; the prompt had no such budget, so at 80 columns -- the most
+    common terminal width there is -- the line wrapped and split the
+    ``>>>`` marker across two rows, leaving the user typing after a lone
+    ``>``. Reduce in priority order instead: the arrow always survives,
+    then the model (you need to know what you are paying for), then the
+    agent, then cwd, then the puppy name.
+
+    Returns ``(puppy, agent_display, model_display, cwd_display)`` with
+    dropped segments as empty strings.
+    """
+    budget = columns - _MIN_TYPING_ROOM - cell_len(base)
+    if budget < _MIN_PREFIX_BUDGET:
+        return "", "", "", ""
+
+    def width(p: str, a: str, m: str, c: str) -> int:
+        total = 0
+        if p:
+            total += cell_len(p) + 1
+        if a:
+            total += cell_len(a) + 3  # "[" + "] "
+        if m:
+            total += cell_len(m) + 1
+        if c:
+            total += cell_len(c) + 3  # "(" + ") "
+        return total
+
+    if width(puppy, agent_display, model_display, cwd_display) <= budget:
+        return puppy, agent_display, model_display, cwd_display
+
+    # 1. cwd to its basename -- the leaf is the part you actually read.
+    if cwd_display:
+        leaf = cwd_display.rstrip("/").rsplit("/", 1)[-1] or cwd_display
+        if leaf != cwd_display:
+            cwd_display = "…/" + leaf
+            if width(puppy, agent_display, model_display, cwd_display) <= budget:
+                return puppy, agent_display, model_display, cwd_display
+
+    # 2. Drop the puppy name -- decorative once the line is under pressure.
+    if puppy:
+        puppy = ""
+        if width(puppy, agent_display, model_display, cwd_display) <= budget:
+            return puppy, agent_display, model_display, cwd_display
+
+    # 3. Drop cwd entirely.
+    if cwd_display:
+        cwd_display = ""
+        if width(puppy, agent_display, model_display, cwd_display) <= budget:
+            return puppy, agent_display, model_display, cwd_display
+
+    # 4. Drop the agent label before mangling the model id.
+    if agent_display:
+        agent_display = ""
+        if width(puppy, agent_display, model_display, cwd_display) <= budget:
+            return puppy, agent_display, model_display, cwd_display
+
+    # 5. Last resort: squeeze the model itself.
+    if model_display:
+        model_display = _middle_truncate(model_display, max(budget - 1, 0))
+
+    return puppy, agent_display, model_display, cwd_display
+
+
 def get_prompt_with_active_model(base: str = ">>> ") -> list:
     """Styled prompt fragments: puppy [agent] [model] (cwd) >>>.
 
     Returns a plain list of ``(style, text)`` tuples (the FormattedText
     shape without the class) for ``flatten_prompt_fragments``.
+
+    Segments are fitted to the detected terminal width so the prompt never
+    wraps and never splits its own arrow.
+
+    The signature is deliberately frozen at ``(base)``. Shipped plugins
+    (``statusline``, ``prompt_newline``) wrap this function with
+    ``def patched(base=">>> ")`` and no ``**kwargs``, so adding a
+    parameter here raises ``TypeError`` and takes the prompt out entirely
+    for anyone running them. Width is detected inside instead; tests
+    drive it by patching ``shutil.get_terminal_size``.
     """
     from code_puppy.agents.agent_manager import get_current_agent
     from code_puppy.command_line.model_picker_completion import get_active_model
@@ -421,14 +533,23 @@ def get_prompt_with_active_model(base: str = ">>> ") -> list:
         cwd_display = "~" + cwd[len(home) :]
     else:
         cwd_display = cwd
-    return [
-        ("class:puppy class:tui.header", f"{puppy}"),
-        ("", " "),
-        (
-            "class:agent class:tui.label",
-            f"[{_normalize_emoji_spacing(agent_display)}] ",
-        ),
-        ("class:model class:tui.title", model_display + " "),
-        ("class:cwd class:tui.muted", "(" + str(cwd_display) + ") "),
-        ("class:arrow class:tui.help-key", str(base)),
-    ]
+
+    columns = shutil.get_terminal_size(fallback=(80, 24)).columns
+
+    agent_display = _normalize_emoji_spacing(agent_display)
+    puppy, agent_display, model_display, cwd_display = _fit_prompt_parts(
+        puppy, agent_display, model_display, str(cwd_display), base, columns
+    )
+
+    fragments = []
+    if puppy:
+        fragments.append(("class:puppy class:tui.header", f"{puppy}"))
+        fragments.append(("", " "))
+    if agent_display:
+        fragments.append(("class:agent class:tui.label", f"[{agent_display}] "))
+    if model_display:
+        fragments.append(("class:model class:tui.title", model_display + " "))
+    if cwd_display:
+        fragments.append(("class:cwd class:tui.muted", "(" + cwd_display + ") "))
+    fragments.append(("class:arrow class:tui.help-key", str(base)))
+    return fragments
