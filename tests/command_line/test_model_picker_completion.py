@@ -1,9 +1,9 @@
 """Tests for model_picker_completion.py to achieve 100% coverage."""
 
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import call, patch
 
 import pytest
-from prompt_toolkit.document import Document
+from termflow.tui.completion import Document
 
 from code_puppy.command_line.model_picker_completion import ModelSelectionMenu
 
@@ -441,101 +441,3 @@ class TestInteractiveModelPicker:
         assert result == "gpt-4"
         mock_run.assert_called_once()
         mock_set.assert_has_calls([call(True, notify=False), call(False, notify=False)])
-
-
-class TestGetInputWithModelCompletion:
-    @pytest.mark.asyncio
-    async def test_basic(self):
-        from code_puppy.command_line.model_picker_completion import (
-            get_input_with_model_completion,
-        )
-
-        with (
-            patch(
-                "code_puppy.command_line.model_picker_completion._load_models_config",
-                return_value={"gpt-4": {}},
-            ),
-            patch(
-                "code_puppy.command_line.model_picker_completion.PromptSession"
-            ) as mock_session_cls,
-        ):
-            mock_session = MagicMock()
-            mock_session.prompt_async = MagicMock(
-                return_value=self._make_coro("hello world")
-            )
-            mock_session_cls.return_value = mock_session
-            result = await get_input_with_model_completion()
-            assert result == "hello world"
-
-    @pytest.mark.asyncio
-    async def test_with_model_command(self):
-        from code_puppy.command_line.model_picker_completion import (
-            get_input_with_model_completion,
-        )
-
-        with (
-            patch(
-                "code_puppy.command_line.model_picker_completion._load_models_config",
-                return_value={"gpt-4": {}},
-            ),
-            patch(
-                "code_puppy.command_line.model_picker_completion.PromptSession"
-            ) as mock_session_cls,
-            patch(
-                "code_puppy.command_line.model_picker_completion.set_model_and_reload_agent"
-            ),
-        ):
-            mock_session = MagicMock()
-            mock_session.prompt_async = MagicMock(
-                return_value=self._make_coro("/model gpt-4 hello")
-            )
-            mock_session_cls.return_value = mock_session
-            result = await get_input_with_model_completion()
-            assert "hello" in result
-
-    @pytest.mark.asyncio
-    async def test_with_history_file(self, tmp_path):
-        from code_puppy.command_line.model_picker_completion import (
-            get_input_with_model_completion,
-        )
-
-        hfile = str(tmp_path / "history.txt")
-        with (
-            patch(
-                "code_puppy.command_line.model_picker_completion._load_models_config",
-                return_value={},
-            ),
-            patch(
-                "code_puppy.command_line.model_picker_completion.PromptSession"
-            ) as mock_session_cls,
-        ):
-            mock_session = MagicMock()
-            mock_session.prompt_async = MagicMock(return_value=self._make_coro("test"))
-            mock_session_cls.return_value = mock_session
-            result = await get_input_with_model_completion(history_file=hfile)
-            assert result == "test"
-
-    @staticmethod
-    async def _make_coro(value):
-        return value
-
-    @pytest.mark.parametrize(
-        "cmd", ["  /model  gpt-4", "  /m  gpt-4"], ids=["model", "m"]
-    )
-    def test_idx_not_found(self, cmd):
-        """Cover the return None when idx == -1 (extra spacing hides pattern)."""
-        from code_puppy.command_line.model_picker_completion import (
-            update_model_in_input,
-        )
-
-        with (
-            patch(
-                "code_puppy.command_line.model_picker_completion._load_models_config",
-                return_value={"gpt-4": {}},
-            ),
-            patch(
-                "code_puppy.command_line.model_picker_completion.set_model_and_reload_agent"
-            ),
-        ):
-            result = update_model_in_input(cmd)
-            assert result is None

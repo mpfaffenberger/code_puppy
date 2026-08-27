@@ -161,10 +161,7 @@ class MCPManager:
         try:
             from code_puppy.config import load_mcp_server_configs
 
-            configs = load_mcp_server_configs()
-            if not configs:
-                logger.debug("No servers found in mcp_servers.json")
-                return
+            configs = load_mcp_server_configs(raise_on_error=True) or {}
 
             synced_count = 0
             updated_count = 0
@@ -209,9 +206,23 @@ class MCPManager:
                     logger.warning(f"Failed to sync server '{name}' from config: {e}")
                     continue
 
-            if synced_count > 0 or updated_count > 0:
+            configured_names = {
+                name for name, conf in configs.items() if isinstance(conf, dict)
+            }
+            dropped_count = 0
+            for existing in list(self.registry.list_all()):
+                if existing.name not in configured_names:
+                    if self.remove_server(existing.id):
+                        dropped_count += 1
+                        logger.debug(
+                            "Dropped server no longer in mcp_servers.json: %s",
+                            existing.name,
+                        )
+
+            if synced_count > 0 or updated_count > 0 or dropped_count > 0:
                 logger.info(
-                    f"Synced {synced_count} new and updated {updated_count} servers from mcp_servers.json"
+                    f"Synced {synced_count} new, updated {updated_count}, "
+                    f"dropped {dropped_count} servers from mcp_servers.json"
                 )
 
         except Exception as e:

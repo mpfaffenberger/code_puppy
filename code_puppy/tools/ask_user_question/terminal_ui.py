@@ -1,6 +1,6 @@
 """Terminal UI for ask_user_question tool.
 
-Uses prompt_toolkit for a split-panel TUI similar to the /colors command.
+Termflow split-panel TUI (state machine here, event loop in tui_loop).
 Left panel (20%): Question headers/tabs
 Right panel (80%): Current question with options
 
@@ -320,8 +320,8 @@ async def interactive_question_picker(
     state.timeout_seconds = timeout_seconds
     set_awaiting_user_input(True)
 
-    # Suspend the agent-runtime key listener so prompt_toolkit owns stdin:
-    # racing readers swallow ~half the keystrokes. Use the REFCOUNTED variant —
+    # Suspend the agent-runtime key listener so the widget owns stdin:
+    # racing readers swallow ~half the keystrokes. Use the REFCOUNTED variant --
     # tui_loop nests suspended_run_ui() here, and a raw resume would wake the
     # listener while an outer suspension still held stdin. Local import for standalone callers.
     from code_puppy.agents._key_listeners import suspended_key_listener
@@ -330,7 +330,7 @@ async def interactive_question_picker(
         with suspended_key_listener():
             from .tui_loop import run_question_tui
 
-            # prompt_toolkit manages alt screen via full_screen=True
+            # The widget manages raw mode + alt screen itself.
             return await run_question_tui(state)
     finally:
         set_awaiting_user_input(False)

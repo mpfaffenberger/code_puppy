@@ -211,6 +211,232 @@ def test_custom_timeout_config(monkeypatch, env_var, model_type, model_name):
     assert model is not None
 
 
+# --- Regression tests: 'System message must be at the beginning.' after auto-compact.
+# Strict OpenAI-compatible backends (SGLang, vLLM) reject >1 leading system
+# message. After SummarizingCompaction the wire format has two: the
+# compaction-summary SystemPromptPart + the agent's per-turn
+# instruction_parts. The profile must set
+# openai_chat_supports_multiple_system_messages=False so pydantic-ai's
+# _merge_leading_system_messages joins them into one.
+
+
+def test_custom_openai_merges_system_messages(monkeypatch):
+    """custom_openai defaults to merging leading system messages."""
+    monkeypatch.setenv("OPENAI_API_KEY", "ok")
+    config = {
+        "custom": {
+            "type": "custom_openai",
+            "name": "qwen-sglang",
+            "custom_endpoint": {
+                "url": "https://fake.url",
+                "api_key": "$OPENAI_API_KEY",
+            },
+        }
+    }
+    model = ModelFactory.get_model("custom", config)
+    assert model is not None
+    assert model.profile.get("openai_chat_supports_multiple_system_messages") is False
+
+
+def test_custom_openai_multiple_system_messages_override(monkeypatch):
+    """Users can opt out with ``supports_multiple_system_messages: true``."""
+    monkeypatch.setenv("OPENAI_API_KEY", "ok")
+    config = {
+        "custom": {
+            "type": "custom_openai",
+            "name": "qwen-sglang",
+            "supports_multiple_system_messages": True,
+            "custom_endpoint": {
+                "url": "https://fake.url",
+                "api_key": "$OPENAI_API_KEY",
+            },
+        }
+    }
+    model = ModelFactory.get_model("custom", config)
+    assert model is not None
+    assert model.profile.get("openai_chat_supports_multiple_system_messages") is True
+
+
+def test_custom_openai_explicit_false_stays_false():
+    """A JSON ``false`` (Python ``False``) correctly produces ``False``."""
+    from code_puppy.model_factory import _strict_openai_profile
+
+    profile = _strict_openai_profile("m", {"supports_multiple_system_messages": False})
+    assert profile.get("openai_chat_supports_multiple_system_messages") is False
+
+
+def test_openrouter_merges_system_messages(monkeypatch):
+    """OpenRouter routes to various backends, so merge by default too."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "ok")
+    config = {
+        "or": {
+            "type": "openrouter",
+            "name": "openai/test-model",
+        },
+    }
+    model = ModelFactory.get_model("or", config)
+    assert model is not None
+    assert model.profile.get("openai_chat_supports_multiple_system_messages") is False
+
+
+def test_cerebras_profile_has_both_flags(monkeypatch):
+    """Cerebras keeps strict-tool-def=False AND gains system-message merge."""
+    monkeypatch.setenv("CEREBRAS_API_KEY", "ok")
+    config = {
+        "cb": {
+            "type": "cerebras",
+            "name": "llama-4-scout",
+        },
+    }
+    model = ModelFactory.get_model("cb", config)
+    assert model is not None
+    assert model.profile.get("openai_supports_strict_tool_definition") is False
+    assert model.profile.get("openai_chat_supports_multiple_system_messages") is False
+
+
+def test_zai_coding_merges_system_messages(monkeypatch):
+    """ZAI coding endpoint gets the same safe default."""
+    monkeypatch.setenv("ZAI_API_KEY", "ok")
+    config = {
+        "zai": {
+            "type": "zai_coding",
+            "name": "glm-4.6",
+        },
+    }
+    model = ModelFactory.get_model("zai", config)
+    assert model is not None
+    assert model.profile.get("openai_chat_supports_multiple_system_messages") is False
+
+
+def test_zai_api_merges_system_messages(monkeypatch):
+    """ZAI API endpoint gets the same safe default (symmetry with zai_coding)."""
+    monkeypatch.setenv("ZAI_API_KEY", "ok")
+    config = {
+        "zai": {
+            "type": "zai_api",
+            "name": "glm-4.6",
+        },
+    }
+    model = ModelFactory.get_model("zai", config)
+    assert model is not None
+    assert model.profile.get("openai_chat_supports_multiple_system_messages") is False
+
+
+def test_strict_openai_profile_helper():
+    """_strict_openai_profile merges thinking tags + multiple-system-messages setting."""
+    from code_puppy.model_factory import _strict_openai_profile
+    from pydantic_ai.profiles.openai import OpenAIModelProfile
+
+    # Default: merge is on (False means merge)
+    profile = _strict_openai_profile("test-model", {})
+    assert profile.get("openai_chat_supports_multiple_system_messages") is False
+
+    # Override via config
+    profile = _strict_openai_profile(
+        "test-model", {"supports_multiple_system_messages": True}
+    )
+    assert profile.get("openai_chat_supports_multiple_system_messages") is True
+
+    # Extra profile settings are preserved alongside the merge flag
+    extra = OpenAIModelProfile(openai_supports_strict_tool_definition=False)
+    profile = _strict_openai_profile("test-model", {}, extra=extra)
+    assert profile.get("openai_supports_strict_tool_definition") is False
+    assert profile.get("openai_chat_supports_multiple_system_messages") is False
+
+    # Thinking-tags config + extra + merge flag all coexist (cerebras-style triple-merge)
+    profile = _strict_openai_profile(
+        "minimax-m3",
+        {"provider": "lilac", "name": "minimax-m3"},
+        extra=OpenAIModelProfile(openai_supports_strict_tool_definition=False),
+    )
+    assert profile.get("openai_chat_supports_multiple_system_messages") is False
+    assert profile.get("openai_supports_strict_tool_definition") is False
+    # Unconditional: the lilac/minimax-m3 config must resolve custom thinking
+    # tags, and they must survive the extra-merge.
+    from code_puppy.model_utils import get_thinking_tags
+
+    expected_tags = get_thinking_tags(
+        "minimax-m3", {"provider": "lilac", "name": "minimax-m3"}
+    )
+    assert expected_tags is not None
+    assert profile["thinking_tags"] == expected_tags
+
+
+def test_strict_openai_profile_rejects_non_bool():
+    """A non-bool ``supports_multiple_system_messages`` fails fast with TypeError.
+
+    A JSON string like ``"false"`` would otherwise silently invert the user's
+    intent (it is truthy); ``bool()``-coercion is no cure since
+    ``bool("false")`` is ``True``.
+    """
+    from code_puppy.model_factory import _strict_openai_profile
+
+    with pytest.raises(TypeError, match="must be a JSON boolean"):
+        _strict_openai_profile("m", {"supports_multiple_system_messages": "false"})
+
+
+@pytest.mark.asyncio
+async def test_wire_format_merges_leading_system_messages():
+    """Integration test: after compaction, the wire format has exactly one system message.
+
+    This directly proves the bug is fixed — two leading SystemPromptParts +
+    instruction_parts produce one merged system message on the wire, not two.
+    """
+    import httpx
+    from pydantic_ai.messages import (
+        InstructionPart,
+        ModelRequest,
+        ModelResponse,
+        SystemPromptPart,
+        TextPart,
+        UserPromptPart,
+    )
+    from pydantic_ai.models import ModelRequestParameters
+    from pydantic_ai.models.openai import OpenAIChatModel
+    from pydantic_ai.providers.openai import OpenAIProvider
+
+    from code_puppy.model_factory import _strict_openai_profile
+
+    async with httpx.AsyncClient(base_url="http://localhost:30000") as client:
+        provider = OpenAIProvider(api_key="dummy", http_client=client)
+        model = OpenAIChatModel(
+            model_name="qwen-sglang",
+            provider=provider,
+            profile=_strict_openai_profile("qwen-sglang", {}),
+        )
+
+        # Simulate a post-compaction history: summary + preserved turns
+        messages = [
+            ModelRequest(
+                parts=[SystemPromptPart(content="[compaction-summary] Previous work.")]
+            ),
+            ModelRequest(parts=[UserPromptPart(content="What is 2+2?")]),
+            ModelResponse(parts=[TextPart(content="4")], model_name="qwen-sglang"),
+            ModelRequest(
+                parts=[UserPromptPart(content="continue")],
+                instructions="You are a helpful assistant.",
+            ),
+        ]
+
+        prepared = model.prepare_messages(messages, None)
+        mrp = ModelRequestParameters(
+            function_tools=[],
+            output_mode="text",
+            output_object=None,
+            output_tools=[],
+            instruction_parts=[InstructionPart(content="You are a helpful assistant.")],
+        )
+        openai_messages = await model._map_messages(prepared, mrp, model_settings=None)
+
+    system_roles = [m for m in openai_messages if m.get("role") == "system"]
+    assert len(system_roles) == 1, (
+        f"Expected exactly 1 system message after merge, got {len(system_roles)}"
+    )
+    content = system_roles[0].get("content", "")
+    assert "[compaction-summary]" in content
+    assert "You are a helpful assistant." in content
+
+
 def test_custom_anthropic_timeout_config(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "ok")
     config = {

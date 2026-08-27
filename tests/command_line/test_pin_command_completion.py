@@ -3,7 +3,7 @@
 from unittest.mock import mock_open, patch
 
 import pytest
-from prompt_toolkit.document import Document
+from termflow.tui.completion import Document
 
 
 class TestGetJsonAgentsForModel:
