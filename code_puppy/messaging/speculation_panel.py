@@ -163,6 +163,18 @@ class SpeculationPanel:
             if live is not None:
                 live.stop()
 
+    def on_stream_end(self) -> None:
+        """One event stream ended; keep an executing cycle alive for its outcomes.
+
+        The claim/miss/eviction events flush in a later handler invocation than
+        the one that streamed the snippet (tool execution runs between them), so
+        an `executing` cycle must survive the gap; its reveal prints when the
+        next part starts. A cycle still `streaming` here was cut mid-part:
+        finalize it so the live region never outlives its stream.
+        """
+        if self._phase == "streaming":
+            self.finalize()
+
     def finalize(self) -> None:
         """Close the cycle: stop the live region, print the permanent record."""
         try:

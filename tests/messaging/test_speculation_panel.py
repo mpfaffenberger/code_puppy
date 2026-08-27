@@ -261,6 +261,48 @@ class TestSpeculationPanelLifecycle:
         output = second.export_text()
         assert "speculation this session: hits 1 (0.6s hidden) - misses 1" in output
 
+    def test_executing_cycle_survives_the_stream_gap(self):
+        """Outcomes arriving in a later handler invocation still hit the live cycle.
+
+        This is the dogfooding bug: finalizing at stream end printed a zeroed
+        reveal, and the claims that arrived next invocation degraded to
+        one-liner fallbacks.
+        """
+        panel = SpeculationPanel()
+        console = _console()
+
+        panel.handle_event(_update(CODE, 1), console)
+        panel.handle_event(_launch(), console)
+        panel.on_part_end()
+        panel.on_stream_end()
+        assert panel.active
+
+        panel.handle_event(
+            SpeculativeCallClaimedEvent(
+                tool_call_id="p1",
+                launch_id="p1__spec_1",
+                nested_tool_call_id="p1__1",
+                wrapped_tool_name="grep",
+                ready_at_claim=True,
+                elapsed_ms=48.0,
+            ),
+            console,
+        )
+        panel.finalize()
+
+        output = console.export_text()
+        assert "hits 1 (48ms hidden)" in output
+
+    def test_stream_end_finalizes_a_cycle_cut_mid_part(self):
+        panel = SpeculationPanel()
+        console = _console()
+
+        panel.handle_event(_update(CODE, 1), console)
+        panel.on_stream_end()
+
+        assert not panel.active
+        assert "run_code" in console.export_text()
+
     def test_finalize_is_idempotent(self):
         panel = SpeculationPanel()
         panel.finalize()
@@ -295,6 +337,9 @@ class TestHandlerRouting:
             def on_part_end(self):
                 handled.append(("part_end", None))
 
+            def on_stream_end(self):
+                handled.append(("stream_end", None))
+
             def finalize(self):
                 handled.append(("finalize", None))
 
@@ -309,4 +354,7 @@ class TestHandlerRouting:
         await esh.event_stream_handler(SimpleNamespace(), events())
 
         assert ("event", CODE) in handled
-        assert ("finalize", None) in handled
+        # Stream end must NOT finalize: outcome events arrive in a later
+        # handler invocation, so the handler defers to on_stream_end.
+        assert ("stream_end", None) in handled
+        assert ("finalize", None) not in handled

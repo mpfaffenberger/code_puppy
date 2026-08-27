@@ -595,6 +595,7 @@ async def event_stream_handler(
     for writer in list(termflow_writers.values()):
         await writer.close()
     termflow_writers.clear()
-    # Outcome events flush within this stream (after_tool_execute position),
-    # so stream end closes any remaining speculation cycle.
-    spec_panel.finalize()
+    # Outcome events arrive in a later handler invocation (tool execution runs
+    # between streams), so stream end only closes cycles cut mid-part; an
+    # executing cycle survives the gap and reveals on the next part start.
+    spec_panel.on_stream_end()
