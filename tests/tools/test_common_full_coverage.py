@@ -332,37 +332,6 @@ class TestFormatDiffWithColors:
 
 
 # ---------------------------------------------------------------------------
-# _find_best_window
-# ---------------------------------------------------------------------------
-
-
-class TestFindBestWindow:
-    def test_exact_match(self):
-        from code_puppy.tools.common import _find_best_window
-
-        haystack = ["line1", "line2", "line3"]
-        span, score = _find_best_window(haystack, "line2")
-        assert span is not None
-        assert score > 0.9
-
-    def test_no_match(self):
-        from code_puppy.tools.common import _find_best_window
-
-        haystack = ["aaa", "bbb", "ccc"]
-        span, score = _find_best_window(haystack, "zzzzzzzzzzzzzzz")
-        # Score should be low
-        assert score < 0.9
-
-    def test_multi_line_needle(self):
-        from code_puppy.tools.common import _find_best_window
-
-        haystack = ["def foo():", "    return 1", "", "def bar():"]
-        span, score = _find_best_window(haystack, "def foo():\n    return 1")
-        assert span is not None
-        assert span[0] == 0
-
-
-# ---------------------------------------------------------------------------
 # generate_group_id
 # ---------------------------------------------------------------------------
 

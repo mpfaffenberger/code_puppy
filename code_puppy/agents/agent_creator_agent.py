@@ -198,6 +198,9 @@ create_file(file_path="example.py", content="print('hello')")
 #### `replace_in_file(file_path, replacements)`
 Apply targeted text replacements to an existing file. **This is the preferred way to edit files.**
 Each replacement specifies an `old_str` to find and a `new_str` to replace it with.
+Each replacement may also set `replace_all` (default false) to replace every
+occurrence. If `old_str` matches more than once and `replace_all` is not set,
+the edit is refused — provide more surrounding context to make it unique.
 
 Example:
 ```python

@@ -1408,10 +1408,13 @@ def _find_best_window(
     haystack_lines: list[str],
     needle: str,
 ) -> Tuple[Optional[Tuple[int, int]], float]:
-    """
-    Return (start, end) indices of the window with the highest
-    Jaro-Winkler similarity to `needle`, along with that score.
-    If nothing clears JW_THRESHOLD, return (None, score).
+    """DEPRECATED: fuzzy window matcher retained only for plugin previews.
+
+    The edit engine no longer fuzzy-matches (Claude Code parity: an edit
+    either matches exactly/via quote normalization or is refused). The
+    published ``code-puppy-core-plugins`` permission handler still imports
+    this helper to render diff previews, so it remains as a compatibility
+    shim until the plugin drops it.
     """
     needle = needle.rstrip("\n")
     needle_lines = needle.splitlines()
