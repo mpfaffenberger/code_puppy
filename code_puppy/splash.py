@@ -110,6 +110,33 @@ _SHEEN_PERIOD = 70
 _SHEEN_WIDTH = 7
 _FRAME_SECONDS = 0.033
 
+#: Frame interval over a remote link. Each frame repaints the whole
+#: raster, so the ~30fps local rate writes roughly a megabyte of escape
+#: sequences during a one-second boot -- 99.7% of everything the CLI
+#: writes to the terminal at startup. On a local terminal that is free.
+#: Over SSH or a forwarded tmux it is the dominant cost of launching, and
+#: the animation ends up *slower* than the imports it was hiding.
+_REMOTE_FRAME_SECONDS = 0.1
+
+#: Environment markers set by sshd on the remote side of a session.
+_REMOTE_MARKERS = ("SSH_CONNECTION", "SSH_TTY", "SSH_CLIENT")
+
+
+def _frame_seconds() -> float:
+    """Seconds between splash repaints, eased off on a remote link.
+
+    Same animation, roughly a third of the bytes. Kept deliberately
+    coarse: a precise bandwidth estimate is not worth a syscall on the
+    startup path, and being wrong only costs a slightly choppier splash.
+    """
+    try:
+        if any(os.environ.get(marker) for marker in _REMOTE_MARKERS):
+            return _REMOTE_FRAME_SECONDS
+    except Exception:
+        pass
+    return _FRAME_SECONDS
+
+
 # argv values that still mean "interactive boot" (splash-worthy).
 _INTERACTIVE_ARGS = frozenset({"-i", "--interactive"})
 
@@ -287,7 +314,8 @@ class _Splash:
                 f"{_SYNC_START}{reposition}{first}{_SYNC_END}"
             )
             self._stream.flush()
-            while not self._stop_event.wait(_FRAME_SECONDS):
+            frame_seconds = _frame_seconds()
+            while not self._stop_event.wait(frame_seconds):
                 phase = (phase + 2) % _SHEEN_PERIOD
                 frame = _build_frame(phase, self._truecolor, self._rows)
                 # One atomic write per frame: no tearing between reposition
