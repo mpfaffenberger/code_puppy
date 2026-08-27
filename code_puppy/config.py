@@ -2274,9 +2274,9 @@ def set_current_autosave_from_session_name(session_name: str) -> str:
     return pin_current_session_name(session_name)
 
 
-def auto_save_session_if_enabled() -> bool:
-    """Automatically save the current session if auto_save_session is enabled."""
-    if not get_auto_save_session():
+def auto_save_session_if_enabled(*, force: bool = False) -> bool:
+    """Save the current session when enabled, or unconditionally when forced."""
+    if not force and not get_auto_save_session():
         return False
 
     try:
