@@ -31,6 +31,51 @@ def test_grep_returns_context_lines(tmp_path):
     assert contents.count("match") == 3
 
 
+def test_grep_searches_a_root_nested_under_an_ignored_directory(tmp_path):
+    """A root sitting *inside* an ignored directory name must still be searched.
+
+    ``DIR_IGNORE_PATTERNS`` carries ``**/tmp/**`` (and ``**/.cache/**``,
+    ``**/node_modules/**`` ...) to prune a project's own scratch dirs. Matched
+    against absolute paths they also matched the search root's *ancestors*, so a
+    root under /tmp -- every pytest tmp_path on Linux, and any project parked in
+    /tmp, ~/.cache or node_modules -- had every file skipped: zero matches, no
+    error, completely silent. CI only runs macOS, whose temp dirs live elsewhere.
+    """
+    root = tmp_path / ".cache" / "checkout"
+    root.mkdir(parents=True)
+    (root / "app.py").write_text("needle\n")
+
+    out = _grep(None, "needle", str(root))
+
+    assert out.error is None
+    assert [m.line_content for m in out.matches] == ["needle"]
+
+
+def test_grep_still_prunes_ignored_dirs_inside_the_search_root(tmp_path):
+    """The ancestor fix must not weaken ignoring below the root.
+
+    Also pins that reported paths stay absolute now that ripgrep is handed '.'.
+    """
+    (tmp_path / "node_modules").mkdir()
+    (tmp_path / "node_modules" / "vendored.py").write_text("needle\n")
+    (tmp_path / "app.py").write_text("needle\n")
+
+    out = _grep(None, "needle", str(tmp_path))
+
+    assert out.error is None
+    assert {m.file_path for m in out.matches} == {str(tmp_path / "app.py")}
+
+
+def test_grep_missing_directory_names_the_directory(tmp_path):
+    """A bad target must blame itself, not the ripgrep binary we cwd'd into it."""
+    missing = tmp_path / "nope"
+
+    out = _grep(None, "needle", str(missing))
+
+    assert out.matches == []
+    assert out.error is not None and "does not exist" in out.error
+
+
 def test_grep_type_flag_restricts_matches(tmp_path):
     _setup(tmp_path)
 
