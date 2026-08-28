@@ -79,15 +79,14 @@ class MessageBus:
         self._outgoing: queue.Queue[AnyMessage] = queue.Queue(maxsize=maxsize)
         self._incoming: queue.Queue[AnyCommand] = queue.Queue(maxsize=maxsize)
 
-        # Event loop reference for async request/response (optional)
-        self._event_loop: Optional[asyncio.AbstractEventLoop] = None
-
         # Startup buffering
         self._startup_buffer: List[AnyMessage] = []
         self._has_active_renderer = False
 
-        # Request/Response correlation: prompt_id → Future (for async usage)
-        self._pending_requests: Dict[str, asyncio.Future[Any]] = {}
+        # Request/Response correlation: prompt_id → owning loop and Future.
+        self._pending_requests: Dict[
+            str, Tuple[asyncio.AbstractEventLoop, asyncio.Future[Any]]
+        ] = {}
 
         # Session context for multi-agent tracking
         self._current_session_id: Optional[str] = None
@@ -234,7 +233,7 @@ class MessageBus:
         future: asyncio.Future[str] = loop.create_future()
 
         with self._lock:
-            self._pending_requests[prompt_id] = future
+            self._pending_requests[prompt_id] = (loop, future)
 
         # Emit the request
         request = UserInputRequest(
@@ -281,7 +280,7 @@ class MessageBus:
         future: asyncio.Future[Tuple[bool, Optional[str]]] = loop.create_future()
 
         with self._lock:
-            self._pending_requests[prompt_id] = future
+            self._pending_requests[prompt_id] = (loop, future)
 
         request = ConfirmationRequest(
             prompt_id=prompt_id,
@@ -324,7 +323,7 @@ class MessageBus:
         future: asyncio.Future[Tuple[int, str]] = loop.create_future()
 
         with self._lock:
-            self._pending_requests[prompt_id] = future
+            self._pending_requests[prompt_id] = (loop, future)
 
         request = SelectionRequest(
             prompt_id=prompt_id,
@@ -399,27 +398,24 @@ class MessageBus:
                     pass
 
     def _complete_request(self, prompt_id: str, result: object) -> None:
-        """Complete a pending request with the given result."""
+        """Complete a pending request on the Future's owning event loop."""
         with self._lock:
-            future = self._pending_requests.get(prompt_id)
+            pending = self._pending_requests.get(prompt_id)
 
-        if future is not None and not future.done():
-            # Must set result from the event loop thread if we have one
-            if self._event_loop is not None:
-                try:
-                    self._event_loop.call_soon_threadsafe(
-                        self._set_future_result, future, result
-                    )
+        if pending is None:
+            return
 
-                except RuntimeError:
-                    # Event loop closed - try direct set
-                    self._set_future_result(future, result)
+        loop, future = pending
+        try:
+            loop.call_soon_threadsafe(self._set_future_result, future, result)
 
-            else:
-                # No event loop - try direct set
-                self._set_future_result(future, result)
+        except RuntimeError:
+            # A closed loop cannot resume its waiter. Never mutate its Future
+            # directly from this potentially foreign thread.
+            return
 
-    def _set_future_result(self, future: asyncio.Future[Any], result: object) -> None:
+    @staticmethod
+    def _set_future_result(future: asyncio.Future[Any], result: object) -> None:
         """Set a future's result if not already done."""
         if not future.done():
             future.set_result(result)
