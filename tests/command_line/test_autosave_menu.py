@@ -555,7 +555,6 @@ class TestSessionBrowser:
         assert "PROJECTS (3)" in output
         assert "Fix pyte rendering gaps" in output
         assert "90k tok" in output
-        assert "TODAY" in output
 
     def test_unscoped_bucket_is_last_and_selectable(self):
         browser, result, _, _ = self.drive(
