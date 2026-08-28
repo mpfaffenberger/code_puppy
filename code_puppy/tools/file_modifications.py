@@ -10,6 +10,7 @@ Key guarantees
 
 from __future__ import annotations
 
+import asyncio
 import difflib
 import json
 import os
@@ -738,8 +739,12 @@ async def delete_snippet_from_file_async(
     if _permission_denied(permission_results):
         return _create_rejection_response(file_path)
 
-    res = _delete_snippet_from_file(
-        context, file_path, snippet, message_group=message_group
+    res = await asyncio.to_thread(
+        _delete_snippet_from_file,
+        context,
+        file_path,
+        snippet,
+        message_group=message_group,
     )
     diff = res.get("diff", "")
     if diff:
@@ -767,8 +772,13 @@ async def write_to_file_async(
     if _permission_denied(permission_results):
         return _create_rejection_response(path)
 
-    res = _write_to_file(
-        context, path, content, overwrite=overwrite, message_group=message_group
+    res = await asyncio.to_thread(
+        _write_to_file,
+        context,
+        path,
+        content,
+        overwrite=overwrite,
+        message_group=message_group,
     )
     diff = res.get("diff", "")
     if diff:
@@ -796,7 +806,13 @@ async def replace_in_file_async(
     if _permission_denied(permission_results):
         return _create_rejection_response(path)
 
-    res = _replace_in_file(context, path, replacements, message_group=message_group)
+    res = await asyncio.to_thread(
+        _replace_in_file,
+        context,
+        path,
+        replacements,
+        message_group=message_group,
+    )
     diff = res.get("diff", "")
     if diff:
         _emit_diff_message(path, "modify", diff)
@@ -1034,10 +1050,11 @@ async def _delete_file_async(
     if _permission_denied(permission_results):
         return _create_rejection_response(file_path)
 
-    try:
-        if not fs_access.exists(file_path) or not fs_access.is_file(file_path):
-            res = {"error": f"File '{file_path}' does not exist.", "diff": ""}
-        else:
+    def _delete() -> Dict[str, Any]:
+        try:
+            if not fs_access.exists(file_path) or not fs_access.is_file(file_path):
+                return {"error": f"File '{file_path}' does not exist.", "diff": ""}
+
             original = fs_access.read_text(file_path)
             try:
                 original = original.encode("utf-8", errors="surrogatepass").decode(
@@ -1057,16 +1074,18 @@ async def _delete_file_async(
                 )
             )
             fs_access.delete_file(file_path)
-            res = {
+            return {
                 "success": True,
                 "path": file_path,
                 "message": f"File '{file_path}' deleted successfully.",
                 "changed": True,
                 "diff": diff_text,
             }
-    except Exception as exc:
-        _log_error("Unhandled exception in delete_file", exc)
-        res = {"error": str(exc), "diff": ""}
+        except Exception as exc:
+            _log_error("Unhandled exception in delete_file", exc)
+            return {"error": str(exc), "diff": ""}
+
+    res = await asyncio.to_thread(_delete)
 
     diff = res.get("diff", "")
     if diff:
