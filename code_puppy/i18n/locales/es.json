@@ -233,5 +233,17 @@
   "agent.model_settings.minimum": "model_settings[{key!r}] debe ser >= {minimum} (se obtuvo {value!r})",
   "agent.model_settings.maximum": "model_settings[{key!r}] debe ser <= {maximum} (se obtuvo {value!r})",
   "agent.model_settings.choice": "model_settings[{key!r}] debe ser uno de {choices} (se obtuvo {value!r})",
-  "agent.model_settings.boolean_type": "model_settings[{key!r}] debe ser verdadero o falso (se obtuvo {value!r})"
+  "agent.model_settings.boolean_type": "model_settings[{key!r}] debe ser verdadero o falso (se obtuvo {value!r})",
+  "mcp.catalog.installing_as": "\n   Instalando {display_name} como '{server_name}'...",
+  "mcp.catalog.env_already_set": "      {var}: Ya está configurada",
+  "mcp.catalog.installing": "\n Instalando: {display_name}\n",
+  "mcp.catalog.configuration_header": "\n   Configuración:",
+  "mcp.catalog.installed": "\n   ¡'{server_name}' se instaló correctamente!",
+  "mcp.catalog.required_missing": "No se proporcionó el valor requerido '{name}'",
+  "mcp.catalog.override_prompt": "  El servidor '{server_name}' ya existe. ¿Sobrescribirlo? [s/N]: ",
+  "mcp.catalog.cancelled": "Instalación cancelada",
+  "mcp.catalog.environment_header": "\n   Variables de entorno:",
+  "mcp.catalog.description": "   {description}\n",
+  "mcp.catalog.start_hint": "  Usa '/mcp start {server_name}' para iniciar el servidor.\n",
+  "mcp.catalog.install_failed": "\n   La instalación falló.\n"
 }

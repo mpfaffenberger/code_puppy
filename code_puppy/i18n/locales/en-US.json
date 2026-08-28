@@ -357,5 +357,17 @@
   "agent.model_settings.minimum": "model_settings[{key!r}] must be >= {minimum} (got {value!r})",
   "agent.model_settings.maximum": "model_settings[{key!r}] must be <= {maximum} (got {value!r})",
   "agent.model_settings.choice": "model_settings[{key!r}] must be one of {choices} (got {value!r})",
-  "agent.model_settings.boolean_type": "model_settings[{key!r}] must be true or false (got {value!r})"
+  "agent.model_settings.boolean_type": "model_settings[{key!r}] must be true or false (got {value!r})",
+  "mcp.catalog.installing_as": "\n  📦 Installing {display_name} as '{server_name}'...",
+  "mcp.catalog.env_already_set": "      {var}: Already set",
+  "mcp.catalog.installing": "\n  📦 Installing: {display_name}\n",
+  "mcp.catalog.configuration_header": "\n  ⚙ Configuration:",
+  "mcp.catalog.required_missing": "Required value '{name}' not provided",
+  "mcp.catalog.override_prompt": "  Server '{server_name}' exists. Override? [y/N]: ",
+  "mcp.catalog.environment_header": "\n  🔑 Environment Variables:",
+  "mcp.catalog.description": "   {description}\n",
+  "mcp.catalog.installed": "\n  ✅ Successfully installed '{server_name}'!",
+  "mcp.catalog.install_failed": "\n  ❌ Installation failed.\n",
+  "mcp.catalog.cancelled": "Installation cancelled",
+  "mcp.catalog.start_hint": "  Use '/mcp start {server_name}' to start the server.\n"
 }
