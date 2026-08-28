@@ -68,9 +68,14 @@ def _custom_openai_uses_responses_api(
     model_name: str, model_config: Dict[str, Any]
 ) -> bool:
     """Return whether a custom OpenAI model should use the Responses API."""
+    underlying_model = str(model_config.get("name", "")).lower()
     return (
         model_config.get("type") == "custom_openai_responses"
         or model_name == _LEGACY_CUSTOM_OPENAI_RESPONSES_MODEL
+        # GPT-5.6 is Responses-native. Inferring from the underlying model keeps
+        # aliases such as `boodleton-gpt-5.6-luna` from accidentally constructing
+        # OpenAIChatModel merely because an older config says `custom_openai`.
+        or underlying_model.startswith("gpt-5.6")
     )
 
 

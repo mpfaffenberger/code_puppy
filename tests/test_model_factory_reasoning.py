@@ -1,6 +1,10 @@
 from unittest.mock import patch
 
-from code_puppy.model_factory import ModelFactory, make_model_settings
+from code_puppy.model_factory import (
+    ModelFactory,
+    _custom_openai_uses_responses_api,
+    make_model_settings,
+)
 
 
 def test_openai_gpt5_alias_uses_responses_reasoning_settings():
@@ -47,6 +51,18 @@ def test_gpt56_alias_profile_enables_reasoning_fields():
     assert profile["openai_responses_supports_reasoning_mode"] is True
     assert profile["openai_responses_supports_reasoning_context"] is True
     assert profile["openai_supports_encrypted_reasoning_content"] is True
+
+
+def test_custom_gpt56_alias_uses_responses_api_despite_legacy_type():
+    config = {"type": "custom_openai", "name": "gpt-5.6-luna"}
+
+    assert _custom_openai_uses_responses_api("boodleton-luna", config) is True
+
+
+def test_custom_non_gpt56_model_keeps_chat_completions_api():
+    config = {"type": "custom_openai", "name": "qwen3.8-27b"}
+
+    assert _custom_openai_uses_responses_api("boodleton-qwen", config) is False
 
 
 def test_alias_keyed_custom_responses_model_gets_reasoning_settings():
