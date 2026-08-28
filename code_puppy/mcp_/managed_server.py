@@ -269,10 +269,19 @@ class ManagedMCPServer:
         'optional'. Pinned off to preserve the direct-call semantics our
         timeout/stderr-capture/blocking-startup plumbing was built against;
         servers that *require* tasks still get them regardless of this flag.
+
+        ``tool_error_behavior="failed"``: a failing MCP tool must not end the
+        session. The default ``"retry"`` exhausts the retry budget and then
+        raises ``UnexpectedModelBehavior``, which is not an ``McpError`` and
+        so reaches the generic handler in ``run_agent_task`` and aborts the
+        run. ``"failed"`` hands the model a failed tool result instead, like
+        a native tool returning an error string. Bound repeated failures with
+        ``UsageLimits`` at the run level.
         """
         kwargs: Dict[str, Any] = {
             "process_tool_call": process_tool_call,
             "prefer_tasks": False,
+            "tool_error_behavior": "failed",
         }
         if "timeout" in config:
             kwargs["init_timeout"] = config["timeout"]
