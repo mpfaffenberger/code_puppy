@@ -400,7 +400,7 @@ class MessageBus:
     def _complete_request(self, prompt_id: str, result: object) -> None:
         """Complete a pending request on the Future's owning event loop."""
         with self._lock:
-            pending = self._pending_requests.get(prompt_id)
+            pending = self._pending_requests.pop(prompt_id, None)
 
         if pending is None:
             return
