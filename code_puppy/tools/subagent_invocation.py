@@ -245,7 +245,10 @@ async def _invoke_agent_impl(
     at all, so ``invoke_agent`` callers see zero behavioral or performance
     change from before this instrumentation existed.
 
-    ``is_fork`` is set by the ``/fork`` command only; it flags the emitted
+    ``is_fork`` is set by the ``/fork`` plugin (a companion package,
+    ``code_puppy_core_plugins.fork.register_callbacks::_run_fork``, which
+    feature-detects this kwarg via ``inspect.signature`` before passing it --
+    this repo has no direct caller). It flags the emitted
     ``SubAgentInvocationMessage`` so renderers can show a distinct banner
     instead of the generic tool-call one.
     """
