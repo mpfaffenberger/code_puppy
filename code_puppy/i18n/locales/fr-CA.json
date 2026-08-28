@@ -233,5 +233,17 @@
   "agent.model_settings.minimum": "model_settings[{key!r}] doit être >= {minimum} (valeur obtenue : {value!r})",
   "agent.model_settings.maximum": "model_settings[{key!r}] doit être <= {maximum} (valeur obtenue : {value!r})",
   "agent.model_settings.choice": "model_settings[{key!r}] doit être l’une de {choices} (valeur obtenue : {value!r})",
-  "agent.model_settings.boolean_type": "model_settings[{key!r}] doit être vrai ou faux (valeur obtenue : {value!r})"
+  "agent.model_settings.boolean_type": "model_settings[{key!r}] doit être vrai ou faux (valeur obtenue : {value!r})",
+  "tools.common.approval.reject_feedback": "Refuser avec commentaires (dites à {puppy_name} quoi modifier)",
+  "tools.common.approval.tell": "Dites à {puppy_name} quoi modifier :",
+  "tools.common.approval.approve": "Approuver",
+  "tools.common.approval.approved": "Approuvé!",
+  "tools.common.approval.preview": "Aperçu des modifications :",
+  "tools.common.approval.noninteractive": "Approbation de « {title} » refusée : l'entrée standard n'est pas interactive.",
+  "tools.common.approval.cancelled": "Annulé par l’utilisateur",
+  "tools.common.approval.telling_feedback": "Message à {puppy_name} : « {feedback} »",
+  "tools.common.approval.prompt": "Que souhaitez-vous faire ?",
+  "tools.common.approval.rejected_feedback": "Refusé avec commentaires!",
+  "tools.common.approval.rejected": "Refusé.",
+  "tools.common.approval.reject": "Refuser"
 }

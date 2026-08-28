@@ -357,5 +357,17 @@
   "agent.model_settings.minimum": "model_settings[{key!r}] must be >= {minimum} (got {value!r})",
   "agent.model_settings.maximum": "model_settings[{key!r}] must be <= {maximum} (got {value!r})",
   "agent.model_settings.choice": "model_settings[{key!r}] must be one of {choices} (got {value!r})",
-  "agent.model_settings.boolean_type": "model_settings[{key!r}] must be true or false (got {value!r})"
+  "agent.model_settings.boolean_type": "model_settings[{key!r}] must be true or false (got {value!r})",
+  "tools.common.approval.reject_feedback": "Reject with feedback (tell {puppy_name} what to change)",
+  "tools.common.approval.tell": "Tell {puppy_name} what to change:",
+  "tools.common.approval.approved": "Approved!",
+  "tools.common.approval.preview": "Preview of changes:",
+  "tools.common.approval.telling_feedback": "Telling {puppy_name}: \"{feedback}\"",
+  "tools.common.approval.prompt": "What would you like to do?",
+  "tools.common.approval.approve": "Approve",
+  "tools.common.approval.noninteractive": "Approval for '{title}' rejected: stdin is not interactive.",
+  "tools.common.approval.cancelled": "Cancelled by user",
+  "tools.common.approval.rejected_feedback": "Rejected with feedback!",
+  "tools.common.approval.rejected": "Rejected.",
+  "tools.common.approval.reject": "Reject"
 }
