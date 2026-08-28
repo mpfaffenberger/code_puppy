@@ -29,7 +29,7 @@ class CodePuppyAgent(BaseAgent):
             "read_file",
             "grep",
             "create_file",
-            "replace_in_file",
+            "edit",
             "delete_snippet",
             "delete_file",
             "agent_run_shell_command",
@@ -84,7 +84,7 @@ Important rules:
 {r["pre_tool_rule"]}
 - Explore directories before reading/modifying files
 - Read existing files before modifying them
-- Prefer replace_in_file over create_file. Keep diffs small (100-300 lines).
+- Prefer edit over create_file. Keep diffs small (100-300 lines).
 {r["loop_rule"]}
 - Continue autonomously unless user input is definitively required
 """

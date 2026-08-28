@@ -1285,6 +1285,11 @@ def _find_best_window(
     Return (start, end) indices of the window with the highest
     Jaro-Winkler similarity to `needle`, along with that score.
     If nothing clears JW_THRESHOLD, return (None, score).
+
+    Note: the edit engine no longer fuzzy-matches (Claude Code parity —
+    see ``file_modifications.apply_replacements_to_content``). This helper
+    remains part of the plugin API surface (``code-puppy-core-plugins``
+    permission previews on released versions import it).
     """
     needle = needle.rstrip("\n")
     needle_lines = needle.splitlines()
