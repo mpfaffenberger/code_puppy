@@ -210,6 +210,38 @@ def test_list_files_tool_uses_backend(backend):
     assert "c.txt" in out.content
 
 
+def test_list_files_tool_lists_backend_root_under_ignored_dir(backend):
+    """Recursive listing must not be vetoed by the root's *ancestors*.
+
+    Same traversal and same ancestor-matching bug as grep: a root under ``/tmp``
+    matched ``**/tmp/**`` against every absolute candidate path, so each entry was
+    skipped and the listing came back empty -- with no error at all.
+    """
+    from code_puppy.tools.file_operations import _list_files
+
+    backend.write_text_file("/tmp/ws/a.py", "x\n")
+    backend.write_text_file("/tmp/ws/pkg/b.py", "y\n")
+
+    out = _list_files(None, "/tmp/ws", recursive=True)
+
+    assert out.error is None
+    assert "a.py" in out.content
+    assert "b.py" in out.content
+
+
+def test_list_files_tool_prunes_ignored_dirs_inside_backend_root(backend):
+    """The ancestor fix must not weaken ignoring *below* the backend root."""
+    from code_puppy.tools.file_operations import _list_files
+
+    backend.write_text_file("/ws/node_modules/vendored.py", "z\n")
+
+    out = _list_files(None, "/ws", recursive=True)
+
+    assert out.error is None
+    assert "vendored.py" not in out.content
+    assert "a.py" in out.content
+
+
 def test_grep_tool_searches_backend(backend):
     """``_grep`` searches the backend's files (walk + read), not local ripgrep."""
     from code_puppy.tools.file_operations import _grep
@@ -220,6 +252,42 @@ def test_grep_tool_searches_backend(backend):
     assert ("/ws/pkg/b.py", "NEEDLE = 42") in hits
     # c.txt has no match -> not present
     assert all(m.file_path != "/ws/pkg/c.txt" for m in out.matches)
+
+
+def test_grep_tool_searches_backend_root_under_ignored_dir(backend):
+    """A backend root nested under an ignored dir name is still searched.
+
+    The ignore patterns exist to prune directories *inside* the root. Matched
+    against absolute paths they also matched the root's ancestors, so a root like
+    this one -- under /tmp -- silently produced no matches.
+    """
+    from code_puppy.tools.file_operations import _grep
+
+    backend.write_text_file("/tmp/ws/app.py", "MARKER = 1\n")
+
+    out = _grep(None, "MARKER", "/tmp/ws")
+
+    assert out.error is None
+    assert any(m.file_path == "/tmp/ws/app.py" for m in out.matches)
+
+
+def test_grep_tool_prunes_ignored_dirs_inside_backend_root(backend):
+    """The ancestor fix must not weaken ignoring *below* the backend root.
+
+    Matching ignore patterns relative to the root changed what they are compared
+    against, so this pins the other half of that trade: a ``node_modules`` sitting
+    under the root is still pruned, while ordinary files are still found.
+    """
+    from code_puppy.tools.file_operations import _grep
+
+    backend.write_text_file("/ws/node_modules/vendored.py", "NEEDLE = 99\n")
+
+    out = _grep(None, "NEEDLE", "/ws")
+
+    assert out.error is None
+    hits = {m.file_path for m in out.matches}
+    assert "/ws/node_modules/vendored.py" not in hits
+    assert "/ws/pkg/b.py" in hits
 
 
 def test_created_file_is_listable_and_greppable(backend):
