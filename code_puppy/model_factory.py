@@ -5,7 +5,6 @@ import pathlib
 from collections.abc import Mapping
 from typing import Any, Dict, Optional
 
-import httpx
 from anthropic import AsyncAnthropic
 from openai import AsyncAzureOpenAI
 from pydantic_ai.models.anthropic import AnthropicModel, AnthropicModelSettings
@@ -27,6 +26,7 @@ from . import callbacks
 from .claude_cache_client import ClaudeCacheAsyncClient
 from .config import EXTRA_MODELS_FILE, get_value, get_yolo_mode
 from .http_utils import create_async_client, get_cert_bundle_path, get_http2
+from .httpx2_utils import create_async_client as create_provider_async_client
 from .provider_identity import (
     make_anthropic_provider,
     make_openai_provider,
@@ -943,14 +943,13 @@ class ModelFactory:
 
         elif model_type in _CUSTOM_OPENAI_MODEL_TYPES:
             url, headers, verify, api_key, timeout = get_custom_config(model_config)
-            client = create_async_client(
+            # httpx2: pydantic-ai's providers deprecate caller-owned legacy httpx clients.
+            client = create_provider_async_client(
                 headers=headers,
                 verify=verify,
                 timeout=timeout if timeout is not None else 180,
             )
-            provider_args = {"base_url": url}
-            if isinstance(client, httpx.AsyncClient):
-                provider_args["http_client"] = client
+            provider_args = {"base_url": url, "http_client": client}
             if api_key:
                 provider_args["api_key"] = api_key
             provider = make_openai_provider(provider_identity, **provider_args)
@@ -1040,7 +1039,8 @@ class ModelFactory:
             headers["X-Cerebras-3rd-Party-Integration"] = "code-puppy"
             # "cerebras" tells RetryingAsyncClient to ignore Cerebras's aggressive
             # Retry-After headers (they send 60s!). [name] is internal, not provider.
-            client = create_async_client(
+            # httpx2: pydantic-ai's providers deprecate caller-owned legacy httpx clients.
+            client = create_provider_async_client(
                 headers=headers,
                 verify=verify,
                 model_name="cerebras",
