@@ -3,11 +3,44 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from code_puppy.private_inference import run_private_prompt
+from code_puppy.private_inference import (
+    _disable_anthropic_thinking,
+    _disable_chat_template_thinking,
+    run_private_prompt,
+)
 
 
 class _Output:
     pass
+
+
+def test_chat_template_thinking_is_not_injected_for_standard_providers():
+    settings = {"max_tokens": 64}
+
+    _disable_chat_template_thinking(settings)
+
+    assert settings == {"max_tokens": 64}
+
+
+def test_anthropic_thinking_is_explicitly_disabled():
+    settings = {
+        "anthropic_thinking": {"type": "adaptive"},
+        "extra_body": {
+            "output_config": {"effort": "high"},
+            "provider_option": "preserved",
+        },
+    }
+
+    _disable_anthropic_thinking(
+        "private-claude",
+        {"type": "claude_code", "name": "claude-opus-5"},
+        settings,
+    )
+
+    assert settings == {
+        "anthropic_thinking": {"type": "disabled"},
+        "extra_body": {"provider_option": "preserved"},
+    }
 
 
 @pytest.mark.asyncio

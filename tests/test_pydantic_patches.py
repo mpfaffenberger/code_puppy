@@ -11,6 +11,7 @@ The contract under test:
 
 import builtins
 import logging
+from types import SimpleNamespace
 
 import pytest
 
@@ -39,6 +40,57 @@ def test_unrepairable_pre_tool_args_are_not_marked_for_writeback(monkeypatch):
 
     assert args == {"raw": "nope"}
     assert mode is None
+
+
+def test_prefixed_private_agent_tool_resolves_against_its_registry(monkeypatch):
+    """A Claude private agent need not match the globally selected model."""
+    monkeypatch.setattr(
+        "code_puppy.config.get_global_model_name", lambda: "codex-gpt-5.6"
+    )
+    manager = SimpleNamespace(tools={"final_result": object()})
+
+    normalized = pydantic_patches._normalize_claude_code_tool_name(
+        manager, "cp_final_result"
+    )
+
+    assert normalized == "final_result"
+
+
+def test_registered_prefixed_tool_name_is_preserved():
+    manager = SimpleNamespace(tools={"cp_status": object(), "status": object()})
+
+    normalized = pydantic_patches._normalize_claude_code_tool_name(manager, "cp_status")
+
+    assert normalized == "cp_status"
+
+
+@pytest.mark.asyncio
+async def test_structured_output_validation_normalizes_prefixed_tool(monkeypatch):
+    from pydantic_ai.tool_manager import ToolManager
+
+    calls = []
+
+    async def validate_output(_manager, call, **kwargs):
+        calls.append((call.tool_name, kwargs))
+        return "validated"
+
+    # Record every method the patch replaces so monkeypatch restores the class
+    # after this focused behavior test.
+    for method_name in ("execute_tool_call", "get_tool_def", "validate_tool_call"):
+        monkeypatch.setattr(ToolManager, method_name, getattr(ToolManager, method_name))
+    monkeypatch.setattr(ToolManager, "validate_output_tool_call", validate_output)
+
+    assert pydantic_patches.patch_tool_call_callbacks() is True
+    manager = SimpleNamespace(tools={"final_result": object()})
+    call = SimpleNamespace(tool_name="cp_final_result")
+
+    result = await ToolManager.validate_output_tool_call(
+        manager, call, schema="decision"
+    )
+
+    assert result == "validated"
+    assert call.tool_name == "final_result"
+    assert calls == [("final_result", {"schema": "decision"})]
 
 
 def _error_records(caplog):
@@ -89,6 +141,12 @@ def test_apply_all_patches_returns_all_patch_names():
             "patch_tool_call_callbacks",
             lambda mp: mp.delattr(
                 "pydantic_ai.tool_manager.ToolManager.execute_tool_call"
+            ),
+        ),
+        (
+            "patch_tool_call_callbacks",
+            lambda mp: mp.delattr(
+                "pydantic_ai.tool_manager.ToolManager.validate_output_tool_call"
             ),
         ),
         (

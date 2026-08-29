@@ -25,6 +25,13 @@ import logging
 import warnings
 from typing import Any
 
+from code_puppy._pydantic_tool_helpers import (
+    _block_reason,
+    _normalize_claude_code_tool_name,
+    _tool_args_for_pre_tool_call,
+    _writeback_tool_args,
+)
+
 logger = logging.getLogger(__name__)
 
 # Loud failures recorded during the current apply_all_patches() run, so the
@@ -184,91 +191,6 @@ def patch_tool_call_json_repair() -> bool:
         )
 
 
-def _writeback_tool_args(call: Any, tool_args: dict, mode: str | None) -> None:
-    """Persist pre_tool_call mutations of ``tool_args`` back onto ``call.args``.
-
-    pydantic-ai's ``ToolCallPart.args`` is usually a JSON *string* (what the
-    LLM emitted). The pre_tool_call hook contract gives plugins a *dict* view
-    to mutate. Without this writeback, mutations vanish before the real tool
-    runs and the model sees nothing changed.
-
-    Args:
-        call: The ``ToolCallPart`` (or compatible) whose ``args`` we update.
-        tool_args: The dict view that hooks may have mutated.
-        mode: ``"str"`` to re-serialize as JSON, ``"dict"`` to assign directly,
-              or ``None`` to skip (unparseable input — don't corrupt it).
-
-    Failures are swallowed: writeback must never block tool execution.
-    """
-    if mode is None:
-        return
-    try:
-        if mode == "str":
-            import json
-
-            call.args = json.dumps(tool_args)
-        elif mode == "dict":
-            call.args = tool_args
-    except Exception:
-        pass  # never block tool execution on writeback failure
-
-
-def _tool_args_for_pre_tool_call(call_args: Any) -> tuple[dict, str | None]:
-    """Build a best-effort repaired dict view for ``pre_tool_call`` hooks.
-
-    Editors now use model-native names (notably ``edit`` and ``apply_patch``),
-    so JSON repair belongs at this shared seam instead of in a
-    ``replace_in_file``-specific path.
-    """
-    if isinstance(call_args, dict):
-        return call_args, "dict"
-    if not isinstance(call_args, str):
-        return {}, None
-
-    try:
-        import json
-        import json_repair
-
-        parsed = json.loads(json_repair.repair_json(call_args))
-        if isinstance(parsed, dict):
-            return parsed, "str"
-    except Exception:
-        pass
-
-    # Keep the diagnostic view, but do not write it back and corrupt history.
-    return {"raw": call_args}, None
-
-
-#: Shown when a hook denies without a usable reason, or when producing its
-#: reason fails. A deny always renders as a deny — never as an allow.
-_GENERIC_BLOCK_REASON = "Tool execution blocked by hook"
-
-
-def _block_reason(callback_result: dict) -> str:
-    """Render a hook's deny reason, tolerating any value it supplied.
-
-    `error_message`/`reason` come from plugin code and are not guaranteed to be
-    strings. A non-string previously raised inside the caller's broad `except`,
-    which silently turned an explicit deny into an allow.
-
-    Total by construction: extraction is inside the guard too, because `.get`
-    and the truthiness of a plugin's own object can raise just as easily as
-    `__str__`, and none of that may escape into the caller.
-    """
-    try:
-        raw = (
-            callback_result.get("error_message") or callback_result.get("reason") or ""
-        )
-        if not isinstance(raw, str):
-            raw = str(raw)
-        marker = raw.find("[BLOCKED]")
-        if marker != -1:
-            return raw[marker:].strip() or _GENERIC_BLOCK_REASON
-        return raw.strip() or _GENERIC_BLOCK_REASON
-    except Exception:
-        return _GENERIC_BLOCK_REASON
-
-
 def patch_tool_call_callbacks() -> bool:
     """Patch pydantic-ai tool handling to support callbacks and Claude Code tool names.
 
@@ -277,12 +199,13 @@ def patch_tool_call_callbacks() -> bool:
     ``_call_tool`` is too late: prefixed tools get marked as ``unknown`` and can
     burn through result retries, eventually raising ``UnexpectedModelBehavior``.
 
-    This patch normalizes Claude Code tool names early (during lookup and
-    validation, before classification) and wraps ``execute_tool_call`` (the
-    single execution entry point since pydantic-ai split validation from
-    execution in the public ``pydantic_ai.tool_manager`` module) so every tool
-    invocation also triggers the ``pre_tool_call`` and ``post_tool_call``
-    callbacks defined in ``code_puppy.callbacks``.
+    This patch normalizes Claude Code tool names early (during regular and
+    structured-output validation, before classification) and wraps
+    ``execute_tool_call`` (the single execution entry point since pydantic-ai
+    split validation from execution in the public
+    ``pydantic_ai.tool_manager`` module) so every tool invocation also triggers
+    the ``pre_tool_call`` and ``post_tool_call`` callbacks defined in
+    ``code_puppy.callbacks``.
 
     Why not the v2 ``Hooks`` capability? Evaluated against pydantic-ai
     2.31.0 and rejected:
@@ -305,43 +228,13 @@ def patch_tool_call_callbacks() -> bool:
 
         _original_execute_tool_call = ToolManager.execute_tool_call
         _original_get_tool_def = ToolManager.get_tool_def
+        _original_validate_output_tool_call = ToolManager.validate_output_tool_call
         _original_validate_tool_call = ToolManager.validate_tool_call
 
-        # Strip the cp_ prefix on return only while a claude-code model is active;
-        # unconditional stripping would corrupt legit ``cp_`` names from other types.
-        TOOL_PREFIX = "cp_"
-        # Matches claude_code_oauth's model-name convention (prompt_handler.py).
-        _CLAUDE_CODE_MODEL_PREFIX = "claude-code"
-
-        def _is_claude_code_model_active() -> bool:
-            """Best-effort check: is the currently selected model a claude-code one?
-
-            Lazy-imported so this patch stays safe to apply before config is
-            initialised; any failure means "not claude-code" so we never
-            accidentally strip prefixes from non-claude-code tool names.
-            """
-            try:
-                from code_puppy.config import get_global_model_name
-
-                model_name = get_global_model_name() or ""
-                return model_name.startswith(_CLAUDE_CODE_MODEL_PREFIX)
-            except Exception:
-                return False
-
-        def _normalize_tool_name(name: Any) -> Any:
-            """Strip the ``cp_`` prefix if present (claude-code models only)."""
-            if (
-                isinstance(name, str)
-                and name.startswith(TOOL_PREFIX)
-                and _is_claude_code_model_active()
-            ):
-                return name[len(TOOL_PREFIX) :]
-            return name
-
-        def _normalize_call_tool_name(call: Any) -> tuple[Any, Any]:
+        def _normalize_call_tool_name(self: Any, call: Any) -> tuple[Any, Any]:
             """Normalize the tool_name on a call object in-place."""
             tool_name = getattr(call, "tool_name", None)
-            normalized_name = _normalize_tool_name(tool_name)
+            normalized_name = _normalize_claude_code_tool_name(self, tool_name)
             if normalized_name != tool_name:
                 try:
                     call.tool_name = normalized_name
@@ -353,18 +246,24 @@ def patch_tool_call_callbacks() -> bool:
         # Run before classification so prefixed names resolve correctly.
 
         def _patched_get_tool_def(self, name: str):
-            return _original_get_tool_def(self, _normalize_tool_name(name))
+            normalized_name = _normalize_claude_code_tool_name(self, name)
+            return _original_get_tool_def(self, normalized_name)
 
         async def _patched_validate_tool_call(self, call, **kwargs):
             """Normalize the tool name before pydantic-ai classifies the call."""
-            _normalize_call_tool_name(call)
+            _normalize_call_tool_name(self, call)
             return await _original_validate_tool_call(self, call, **kwargs)
+
+        async def _patched_validate_output_tool_call(self, call, **kwargs):
+            """Normalize names used by structured result output tools."""
+            _normalize_call_tool_name(self, call)
+            return await _original_validate_output_tool_call(self, call, **kwargs)
 
         # -- execute_tool_call wrapper with callbacks ----------------------------
 
         async def _patched_execute_tool_call(self, validated, **kwargs):
             call = validated.call
-            tool_name, call = _normalize_call_tool_name(call)
+            tool_name, call = _normalize_call_tool_name(self, call)
 
             # Give hooks a dict view of the args. Prefer the already-validated
             # dict — execution passes it to the tool, so in-place mutations
@@ -469,9 +368,13 @@ def patch_tool_call_callbacks() -> bool:
                     pass  # never block tool execution
 
         ToolManager.get_tool_def = _patched_get_tool_def
+        ToolManager.validate_output_tool_call = _patched_validate_output_tool_call
         ToolManager.validate_tool_call = _patched_validate_tool_call
         ToolManager.execute_tool_call = _patched_execute_tool_call
         assert ToolManager.get_tool_def is _patched_get_tool_def
+        assert (
+            ToolManager.validate_output_tool_call is _patched_validate_output_tool_call
+        )
         assert ToolManager.validate_tool_call is _patched_validate_tool_call
         assert ToolManager.execute_tool_call is _patched_execute_tool_call
         return True

@@ -8,17 +8,59 @@ from typing import TypeVar
 
 from pydantic_ai import Agent, UsageLimits
 
-from code_puppy.model_factory import ModelFactory, make_model_settings
+from code_puppy.model_factory import (
+    ModelFactory,
+    _is_anthropic_model,
+    make_model_settings,
+)
 
 OutputT = TypeVar("OutputT")
 
 
 def _disable_chat_template_thinking(model_settings: dict[str, object]) -> None:
-    """Force the vLLM/SGLang chat-template thinking switch off in place."""
-    extra_body = dict(model_settings.get("extra_body") or {})
-    chat_template_kwargs = dict(extra_body.get("chat_template_kwargs") or {})
+    """Disable an already-configured vLLM/SGLang thinking switch in place.
+
+    ``chat_template_kwargs`` is not part of the OpenAI API.  Only preserve and
+    override it when model configuration already opted into that extension;
+    injecting it for providers such as ChatGPT OAuth causes a 400 response.
+    """
+    configured_extra_body = model_settings.get("extra_body")
+    if not isinstance(configured_extra_body, dict):
+        return
+
+    configured_chat_template = configured_extra_body.get("chat_template_kwargs")
+    if not isinstance(configured_chat_template, dict):
+        return
+
+    extra_body = dict(configured_extra_body)
+    chat_template_kwargs = dict(configured_chat_template)
     chat_template_kwargs["enable_thinking"] = False
     extra_body["chat_template_kwargs"] = chat_template_kwargs
+    model_settings["extra_body"] = extra_body
+
+
+def _disable_anthropic_thinking(
+    model_name: str,
+    model_config: dict[str, object],
+    model_settings: dict[str, object],
+) -> None:
+    """Explicitly override thinking embedded in Anthropic model defaults."""
+    if not _is_anthropic_model(model_name, model_config):
+        return
+
+    model_settings["anthropic_thinking"] = {"type": "disabled"}
+
+    # Plugin-created Anthropic models carry their own default settings. Agent
+    # settings are merged shallowly over those defaults, so explicitly replace
+    # extra_body as well or a model-level output_config.effort survives after
+    # thinking is disabled.
+    extra_body = dict(model_settings.get("extra_body") or {})
+    output_config = dict(extra_body.get("output_config") or {})
+    output_config.pop("effort", None)
+    if output_config:
+        extra_body["output_config"] = output_config
+    else:
+        extra_body.pop("output_config", None)
     model_settings["extra_body"] = extra_body
 
 
@@ -48,6 +90,11 @@ async def run_private_prompt(
         overrides=dict(model_settings_overrides or {}),
     )
     _disable_chat_template_thinking(model_settings)
+    _disable_anthropic_thinking(
+        model_name,
+        models_config[model_name],
+        model_settings,
+    )
     agent = Agent(
         model=model,
         instructions=instructions,
