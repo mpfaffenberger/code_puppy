@@ -118,8 +118,7 @@ def _install_project_plugin_finder() -> None:
 PLUGIN_ENTRY_POINT_GROUP = "code_puppy.plugins"
 
 # shell_safety implements the safety_permission_level threshold. Skip it only
-# when the user opted into high/critical autonomy; the default (medium) must
-# load it or the setting is a no-op.
+# at high/critical autonomy. Lower configured thresholds load the plugin.
 _SHELL_SAFETY_SKIP_LEVELS = frozenset({"high", "critical"})
 
 
