@@ -41,6 +41,53 @@ def test_apply_all_patches_success_no_errors(caplog):
     assert _error_records(caplog) == []
 
 
+# ---------------------------------------------------------------------------
+# Termflow table alignment regression coverage.
+# ---------------------------------------------------------------------------
+
+
+def _separator_alignments(separator):
+    from termflow import Parser
+
+    parser = Parser()
+    parser.parse_line("| A | B | C |\n")
+    events = parser.parse_line(f"{separator}\n")
+    event = next(
+        item for item in events if type(item).__name__ == "TableSeparatorEvent"
+    )
+    return event.alignments
+
+
+def test_termflow_table_alignment_preserves_unaligned_columns():
+    assert pydantic_patches.patch_termflow_table_alignment() is True
+
+    assert _separator_alignments("|---|---|---:|") == (
+        "none",
+        "none",
+        "right",
+    )
+
+
+def test_termflow_table_alignment_preserves_all_alignment_types():
+    assert pydantic_patches.patch_termflow_table_alignment() is True
+
+    assert _separator_alignments("|:---|:---:|---:|") == (
+        "left",
+        "center",
+        "right",
+    )
+
+
+def test_termflow_table_alignment_is_idempotent():
+    from termflow.parser.parser import Parser
+
+    assert pydantic_patches.patch_termflow_table_alignment() is True
+    patched = Parser._parse_table_alignments
+
+    assert pydantic_patches.patch_termflow_table_alignment() is True
+    assert Parser._parse_table_alignments is patched
+
+
 def test_apply_all_patches_returns_all_patch_names():
     results = pydantic_patches.apply_all_patches()
     assert set(results) == {p.__name__ for p in pydantic_patches._ALL_PATCHES}
@@ -126,6 +173,7 @@ def _block_import(monkeypatch, *names):
         ("patch_tool_call_json_repair", ("json_repair",)),
         ("patch_termflow_clipboard", ("termflow",)),
         ("patch_termflow_code_padding", ("termflow",)),
+        ("patch_termflow_table_alignment", ("termflow",)),
     ],
 )
 def test_missing_optional_lib_is_quiet(
@@ -181,4 +229,5 @@ def test_apply_all_patches_no_summary_for_optional_skips(monkeypatch, caplog):
 
     assert results["patch_termflow_clipboard"] is False
     assert results["patch_termflow_code_padding"] is False
+    assert results["patch_termflow_table_alignment"] is False
     assert _error_records(caplog) == []

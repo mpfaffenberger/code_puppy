@@ -25,6 +25,12 @@ import logging
 import warnings
 from typing import Any
 
+from code_puppy.termflow_patches import (
+    patch_termflow_clipboard,
+    patch_termflow_code_padding,
+    patch_termflow_table_alignment,
+)
+
 logger = logging.getLogger(__name__)
 
 # Loud failures recorded during the current apply_all_patches() run, so the
@@ -463,80 +469,6 @@ def patch_tool_call_callbacks() -> bool:
         )
 
 
-def patch_termflow_clipboard() -> bool:
-    """Disable termflow's OSC 52 clipboard hijacking globally.
-
-    termflow's ``RenderFeatures.clipboard`` defaults to ``True``.  When a
-    code block finishes rendering, the renderer emits an OSC 52 escape
-    sequence (``\x1b]52;c;<base64>\x07``) that modern terminals interpret
-    as a silent clipboard-write command — clobbering whatever the user had.
-
-    PR #335 added explicit ``RenderFeatures(clipboard=False)`` at the two
-    known instantiation sites, but that's whack-a-mole: any future code path
-    (or a new termflow version with changed defaults) reintroduces the bug.
-
-    This patch kills the behaviour at the source by replacing
-    ``Renderer._copy_to_clipboard`` with a no-op, so it does not matter
-    whether any caller remembers to disable the feature flag.
-    """
-    try:
-        from termflow.render.renderer import Renderer
-    except ImportError as exc:
-        return _optional_lib_missing("patch_termflow_clipboard", exc)
-
-    try:
-        if not hasattr(Renderer, "_copy_to_clipboard"):
-            raise AttributeError("termflow Renderer._copy_to_clipboard not found")
-        Renderer._copy_to_clipboard = lambda self, text: None  # type: ignore[method-assign]
-        return True
-    except Exception as exc:
-        return _patch_failed(
-            "patch_termflow_clipboard",
-            exc,
-            "OSC 52 clipboard hijacking is ACTIVE; code blocks may silently "
-            "overwrite the user's clipboard.",
-            target="termflow",
-        )
-
-
-def _no_pad_render_code_line(_line, highlighted, width, margin, style, pretty_pad=True):
-    """Drop-in for ``render_code_line`` minus the ``' ' * padding`` suffix."""
-    return f"{margin}{highlighted}"
-
-
-def patch_termflow_code_padding() -> bool:
-    """Strip trailing-space padding from termflow code lines (#505).
-
-    termflow's ``render_code_line`` right-pads to render width, but
-    termflow doesn't color code backgrounds -- so the padding is pure
-    invisible filler that corrupts copy/paste. Must patch both
-    ``termflow.render.code`` (the definition) AND
-    ``termflow.render.renderer`` (did ``from … import render_code_line``,
-    so it holds a stale reference).
-    """
-    try:
-        import termflow.render.code as _termflow_code
-        import termflow.render.renderer as _termflow_renderer
-    except ImportError as exc:
-        return _optional_lib_missing("patch_termflow_code_padding", exc)
-
-    try:
-        if not hasattr(_termflow_code, "render_code_line") or not hasattr(
-            _termflow_renderer, "render_code_line"
-        ):
-            raise AttributeError("termflow render_code_line not found")
-        _termflow_code.render_code_line = _no_pad_render_code_line
-        _termflow_renderer.render_code_line = _no_pad_render_code_line
-        return True
-    except Exception as exc:
-        return _patch_failed(
-            "patch_termflow_code_padding",
-            exc,
-            "code lines keep invisible trailing-space padding (copy/paste corruption).",
-            target="termflow",
-        )
-
-
 def patch_silence_anthropic_sampling_warnings() -> bool:
     """Silence pydantic-ai's unsupported-sampling-parameter UserWarning.
 
@@ -569,6 +501,7 @@ _ALL_PATCHES = (
     patch_tool_call_json_repair,
     patch_tool_call_callbacks,
     patch_termflow_clipboard,
+    patch_termflow_table_alignment,
     patch_termflow_code_padding,
 )
 
