@@ -299,6 +299,23 @@ class BaseAgent(ABC):
         return await run_with_mcp(self, prompt, **kwargs)
 
     # ---- MCP integration shims --------------------------------------------
+    def transform_mcp_toolsets(self, toolsets: List[Any]) -> List[Any]:
+        """Extension seam: post-process resolved MCP toolsets before build.
+
+        Called exactly once by ``_builder.build_pydantic_agent`` after MCP
+        toolsets have been resolved and filtered for tool-name collisions,
+        but before the final ``pydantic_ai.Agent`` is constructed. The
+        default implementation is a no-op identity transform. Subclasses may
+        override this to wrap, filter, or replace toolsets -- for example to
+        compact oversized tool results, or gate certain servers behind
+        runtime conditions.
+
+        Must return a list of toolsets. If an override raises, the builder
+        fails open: it logs a warning and falls back to the original,
+        pre-override toolsets list rather than crashing agent construction.
+        """
+        return toolsets
+
     def update_mcp_tool_cache_sync(self) -> None:
         """Best-effort warm of each MCP toolset's tool-definition cache.
 

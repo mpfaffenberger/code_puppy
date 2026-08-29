@@ -20,12 +20,12 @@ from pydantic_ai.capabilities import ProcessHistory
 
 from code_puppy.agents._compaction import make_history_processor
 from code_puppy.agents._model_message_transform import build_model_message_transform
-from code_puppy.agents._subagent_recursion import build_subagent_recursion_guard
 from code_puppy.agents._output_limits import (
     build_response_clamp,
     build_tool_output_limits,
 )
 from code_puppy.agents._steer_processor import make_steer_history_processor
+from code_puppy.agents._subagent_recursion import build_subagent_recursion_guard
 from code_puppy.agents.event_stream_handler import event_stream_handler
 from code_puppy.callbacks import (
     on_pre_mcp_autostart,
@@ -698,9 +698,28 @@ def build_pydantic_agent(
         mcp_servers, existing_tool_names
     )
 
+    # Extension seam: let a BaseAgent subclass post-process the resolved MCP
+    # toolsets (e.g. wrap/filter/replace) before the final agent is built.
+    # Default implementation is a no-op identity transform. Fails open: an
+    # override that raises falls back to the original filtered list rather
+    # than crashing agent construction. See ``BaseAgent.transform_mcp_toolsets``.
+    try:
+        final_mcp_servers = agent.transform_mcp_toolsets(filtered_mcp_servers)
+        if not isinstance(final_mcp_servers, list):
+            raise TypeError(
+                "transform_mcp_toolsets must return a list, got "
+                f"{type(final_mcp_servers).__name__}"
+            )
+    except Exception as exc:
+        emit_warning(
+            f"transform_mcp_toolsets override for agent '{logical_agent_name}' "
+            f"raised {exc!r}; falling back to unmodified MCP toolsets."
+        )
+        final_mcp_servers = filtered_mcp_servers
+
     # Pass 2: real build. MCP servers always go in the constructor; plugins
     # (e.g. DBOS) may swap them at run time via ``agent_run_context``.
-    final_pydantic = _new_pydantic_agent(toolsets=filtered_mcp_servers)
+    final_pydantic = _new_pydantic_agent(toolsets=final_mcp_servers)
     register_tools_for_agent(
         final_pydantic,
         agent_tools,
@@ -710,7 +729,7 @@ def build_pydantic_agent(
 
     agent.cur_model = model
     agent._last_model_name = resolved_model_name
-    agent._mcp_servers = filtered_mcp_servers
+    agent._mcp_servers = final_mcp_servers
 
     wrapped = on_wrap_pydantic_agent(
         agent,
