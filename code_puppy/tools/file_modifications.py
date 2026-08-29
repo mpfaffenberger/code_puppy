@@ -36,6 +36,7 @@ from code_puppy.tools import fs_access
 from code_puppy.tools.common import (
     generate_group_id,
     resolve_path,
+    read_text_sanitized,
     write_project_file,
 )
 from code_puppy.tools.file_permission_state import (
@@ -411,14 +412,10 @@ def _delete_snippet_from_file(
     try:
         if not fs_access.exists(file_path) or not fs_access.is_file(file_path):
             return {"error": f"File '{file_path}' does not exist.", "diff": diff_text}
-        original = fs_access.read_text(file_path)
-        # Sanitize any surrogate characters from reading
-        try:
-            original = original.encode("utf-8", errors="surrogatepass").decode(
-                "utf-8", errors="replace"
-            )
-        except (UnicodeEncodeError, UnicodeDecodeError):
-            pass
+
+        # Sanitize any surrogate characters from reading.
+        original = read_text_sanitized(file_path)
+
         if snippet not in original:
             return {
                 "error": f"Snippet not found in file '{file_path}'.",
@@ -521,15 +518,8 @@ def _replace_in_file(
         if not fs_access.exists(file_path) or not fs_access.is_file(file_path):
             return {"error": f"File '{file_path}' does not exist.", "diff": diff_text}
 
-        original = fs_access.read_text(file_path)
-
-        # Sanitize any surrogate characters from reading
-        try:
-            original = original.encode("utf-8", errors="surrogatepass").decode(
-                "utf-8", errors="replace"
-            )
-        except (UnicodeEncodeError, UnicodeDecodeError):
-            pass
+        # Sanitize any surrogate characters from reading.
+        original = read_text_sanitized(file_path)
 
         engine_result = apply_replacements_to_content(original, replacements)
         if "error" in engine_result:
@@ -596,14 +586,11 @@ def _write_to_file(
         from code_puppy.config import get_diff_context_lines
 
         if exists:
-            old_content = fs_access.read_text(file_path)
-            try:
-                old_content = old_content.encode(
-                    "utf-8", errors="surrogatepass"
-                ).decode("utf-8", errors="replace")
-            except (UnicodeEncodeError, UnicodeDecodeError):
-                pass
+            # Sanitize any surrogate characters from reading.
+            old_content = read_text_sanitized(file_path)
+
             old_lines = old_content.splitlines(keepends=True)
+
         else:
             old_lines = []
 
@@ -994,15 +981,11 @@ def _delete_file(
     try:
         if not fs_access.exists(file_path) or not fs_access.is_file(file_path):
             res = {"error": f"File '{file_path}' does not exist.", "diff": ""}
+
         else:
-            original = fs_access.read_text(file_path)
-            # Sanitize any surrogate characters from reading
-            try:
-                original = original.encode("utf-8", errors="surrogatepass").decode(
-                    "utf-8", errors="replace"
-                )
-            except (UnicodeEncodeError, UnicodeDecodeError):
-                pass
+            # Sanitize any surrogate characters from reading.
+            original = read_text_sanitized(file_path)
+
             from code_puppy.config import get_diff_context_lines
 
             diff_text = "".join(
@@ -1055,13 +1038,9 @@ async def _delete_file_async(
             if not fs_access.exists(file_path) or not fs_access.is_file(file_path):
                 return {"error": f"File '{file_path}' does not exist.", "diff": ""}
 
-            original = fs_access.read_text(file_path)
-            try:
-                original = original.encode("utf-8", errors="surrogatepass").decode(
-                    "utf-8", errors="replace"
-                )
-            except (UnicodeEncodeError, UnicodeDecodeError):
-                pass
+            # Sanitize any surrogate characters from reading.
+            original = read_text_sanitized(file_path)
+
             from code_puppy.config import get_diff_context_lines
 
             diff_text = "".join(

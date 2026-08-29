@@ -17,7 +17,6 @@ from code_puppy.tools.file_operations import (
     _grep,
     _list_files,
     _read_file,
-    _sanitize_string,
     is_likely_home_directory,
     is_project_directory,
     would_match_directory,
@@ -76,53 +75,6 @@ class TestWouldMatchDirectory:
         # Pattern with ? wildcard
         result = would_match_directory("test_???", str(test_dir))
         assert result is True
-
-
-class TestSanitizeString:
-    """Test the _sanitize_string Unicode sanitization function."""
-
-    def test_clean_string_passes_through(self):
-        """Test that clean strings pass through unchanged."""
-        clean = "Hello, World! 123"
-        result = _sanitize_string(clean)
-        assert result == clean
-
-    def test_empty_string(self):
-        """Test empty string handling."""
-        assert _sanitize_string("") == ""
-
-    def test_none_like_empty(self):
-        """Test falsy string values."""
-        # The function checks 'if not text' first
-        result = _sanitize_string("")
-        assert result == ""
-
-    def test_unicode_characters_preserved(self):
-        """Test that valid unicode characters are preserved."""
-        unicode_str = "Hello 世界 🐾 café"
-        result = _sanitize_string(unicode_str)
-        assert result == unicode_str
-
-    def test_surrogate_characters_replaced(self):
-        """Test that surrogate characters are replaced."""
-        # Create a string with surrogate characters (invalid standalone)
-        # Surrogates are in range 0xD800 to 0xDFFF
-        surrogate_str = "Hello" + chr(0xD800) + "World"
-        result = _sanitize_string(surrogate_str)
-        # Should replace surrogate with replacement character
-        assert "\ufffd" in result or result == "HelloWorld"
-        assert chr(0xD800) not in result
-
-    def test_mixed_valid_invalid(self):
-        """Test string with mix of valid and invalid characters."""
-        mixed = "Valid" + chr(0xDC00) + "Text" + chr(0xDFFF) + "End"
-        result = _sanitize_string(mixed)
-        # Surrogates should be replaced
-        assert chr(0xDC00) not in result
-        assert chr(0xDFFF) not in result
-        assert "Valid" in result
-        assert "Text" in result
-        assert "End" in result
 
 
 class TestGrepFunction:
