@@ -76,6 +76,14 @@ class TestCodePuppyAgentTools:
         assert "model_name" not in prompt
         assert "invoke_agent_with_model" not in prompt
 
+    def test_prompt_waits_for_gating_background_processes(self):
+        from code_puppy.agents.agent_code_puppy import CodePuppyAgent
+
+        prompt = CodePuppyAgent().get_system_prompt()
+
+        assert "do not stop and force the user to reprompt you" in prompt
+        assert "wait 60 seconds and check its progress" in prompt
+
 
 # =============================================================================
 # display.py line 39 – subagent early return

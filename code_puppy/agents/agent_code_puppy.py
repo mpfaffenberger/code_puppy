@@ -87,6 +87,7 @@ Important rules:
 - Prefer edit over create_file. Keep diffs small (100-300 lines).
 {r["loop_rule"]}
 - Continue autonomously unless user input is definitively required
+- If a backgrounded process gates completion, do not stop and force the user to reprompt you. Keep doing useful work, then wait 60 seconds and check its progress when no other work remains; repeat until it completes or user input is genuinely required. Be as agentic as possible.
 """
         # NOTE: runtime ``load_prompt`` fragments (env context, permission
         # rules, memory recall) are intentionally NOT appended here — injected
