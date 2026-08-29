@@ -313,6 +313,11 @@ class BaseAgent(ABC):
         Must return a list of toolsets. If an override raises, the builder
         fails open: it logs a warning and falls back to the original,
         pre-override toolsets list rather than crashing agent construction.
+        This fail-open behavior means the seam is NOT a safe place to enforce
+        security-sensitive gating -- a raising "deny" override degrades to
+        "no gate applied" rather than "deny all," so gating logic that must
+        never be silently bypassed should fail closed itself (e.g. return an
+        empty list on error) rather than relying on the builder's fallback.
         """
         return toolsets
 

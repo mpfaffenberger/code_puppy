@@ -95,8 +95,16 @@ def test_default_build_uses_unmodified_toolsets():
 
 
 def test_override_invoked_once_and_result_used_for_construction():
-    """An override's return value drives both the agent and lifecycle list."""
+    """An override's return value drives both the agent and lifecycle list.
+
+    The override must receive the *post-filter* toolset list (whatever
+    ``filter_conflicting_mcp_tools`` produced), not the raw pre-filter
+    ``mcp_servers`` the loader returned -- so this patches the filter step
+    to return a distinct sentinel object and asserts the seam saw exactly
+    that sentinel, by identity.
+    """
     original = [FunctionToolset()]
+    filtered_sentinel = [FunctionToolset()]  # distinct object from `original`
     replacement = [FunctionToolset(), FunctionToolset()]
     calls = []
 
@@ -106,11 +114,18 @@ def test_override_invoked_once_and_result_used_for_construction():
 
     agent = _FakeAgentConfig(transform=_transform)
 
-    with _patched_build(agent, original):
+    with (
+        _patched_build(agent, original),
+        patch.object(
+            _builder,
+            "filter_conflicting_mcp_tools",
+            lambda *_a, **_k: filtered_sentinel,
+        ),
+    ):
         built = _builder.build_pydantic_agent(agent)
 
     assert len(calls) == 1
-    assert calls[0] == original
+    assert calls[0] is filtered_sentinel
     assert agent._mcp_servers is replacement
     assert built is not None
 
@@ -135,23 +150,9 @@ def test_faulty_override_fails_open_to_original_toolsets():
     mock_warn.assert_called_once()
 
 
-def test_non_list_return_also_fails_open():
-    """An override that returns a non-list is treated as a fault, not used."""
-    original = [FunctionToolset()]
-    agent = _FakeAgentConfig(transform=lambda _toolsets: "not-a-list")
-
-    with (
-        _patched_build(agent, original),
-        patch.object(_builder, "emit_warning") as mock_warn,
-    ):
-        _builder.build_pydantic_agent(agent)
-
-    assert agent._mcp_servers == original
-    mock_warn.assert_called_once()
-
-
-@pytest.mark.parametrize("bad_result", [None, "nope", 42])
+@pytest.mark.parametrize("bad_result", [None, "nope", 42, "not-a-list"])
 def test_various_non_list_returns_fail_open(bad_result):
+    """An override that returns a non-list is treated as a fault, not used."""
     original = [FunctionToolset()]
     agent = _FakeAgentConfig(transform=lambda _toolsets: bad_result)
 

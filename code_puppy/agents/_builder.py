@@ -20,12 +20,12 @@ from pydantic_ai.capabilities import ProcessHistory
 
 from code_puppy.agents._compaction import make_history_processor
 from code_puppy.agents._model_message_transform import build_model_message_transform
+from code_puppy.agents._subagent_recursion import build_subagent_recursion_guard
 from code_puppy.agents._output_limits import (
     build_response_clamp,
     build_tool_output_limits,
 )
 from code_puppy.agents._steer_processor import make_steer_history_processor
-from code_puppy.agents._subagent_recursion import build_subagent_recursion_guard
 from code_puppy.agents.event_stream_handler import event_stream_handler
 from code_puppy.callbacks import (
     on_pre_mcp_autostart,
@@ -615,13 +615,15 @@ def build_pydantic_agent(
     - ``agent._last_model_name``      ← resolved model name
     - ``agent.pydantic_agent``        ← the final (possibly plugin-wrapped) agent
     - ``agent._code_generation_agent`` ← same as ``pydantic_agent``
-    - ``agent._mcp_servers``          ← MCP toolsets (post-filter)
+    - ``agent._mcp_servers``          ← MCP toolsets (post-filter,
+      post-``transform_mcp_toolsets``)
 
     The build happens in two passes: we construct once with ``toolsets=[]`` so
     we can introspect registered tool names, then rebuild with MCP servers
-    filtered against those names to prevent collisions. Plugins may wrap the
-    final pydantic agent via the ``wrap_pydantic_agent`` hook (e.g. to swap
-    in a durable-exec wrapper).
+    filtered against those names to prevent collisions and passed through
+    ``agent.transform_mcp_toolsets()`` (a subclass extension seam, no-op by
+    default). Plugins may wrap the final pydantic agent via the
+    ``wrap_pydantic_agent`` hook (e.g. to swap in a durable-exec wrapper).
     """
     from code_puppy.tools import register_tools_for_agent
 
@@ -700,22 +702,32 @@ def build_pydantic_agent(
 
     # Extension seam: let a BaseAgent subclass post-process the resolved MCP
     # toolsets (e.g. wrap/filter/replace) before the final agent is built.
-    # Default implementation is a no-op identity transform. Fails open: an
-    # override that raises falls back to the original filtered list rather
-    # than crashing agent construction. See ``BaseAgent.transform_mcp_toolsets``.
+    # Default implementation is a no-op identity transform. Fails open on a
+    # RAISING override: falls back to the original filtered list rather than
+    # crashing agent construction. NOTE: fail-open means this seam is not a
+    # safe place to enforce security-sensitive gating -- a raising gate
+    # override degrades to "no gate" rather than "deny all". See
+    # ``BaseAgent.transform_mcp_toolsets``.
+    final_mcp_servers = filtered_mcp_servers
     try:
-        final_mcp_servers = agent.transform_mcp_toolsets(filtered_mcp_servers)
-        if not isinstance(final_mcp_servers, list):
-            raise TypeError(
-                "transform_mcp_toolsets must return a list, got "
-                f"{type(final_mcp_servers).__name__}"
-            )
+        transformed = agent.transform_mcp_toolsets(filtered_mcp_servers)
     except Exception as exc:
         emit_warning(
             f"transform_mcp_toolsets override for agent '{logical_agent_name}' "
-            f"raised {exc!r}; falling back to unmodified MCP toolsets."
+            f"raised {exc!r}; falling back to unmodified MCP toolsets.",
+            message_group=message_group,
         )
-        final_mcp_servers = filtered_mcp_servers
+    else:
+        if isinstance(transformed, list):
+            final_mcp_servers = transformed
+        else:
+            emit_warning(
+                "transform_mcp_toolsets override for agent "
+                f"'{logical_agent_name}' returned "
+                f"{type(transformed).__name__}, not a list; falling back to "
+                "unmodified MCP toolsets.",
+                message_group=message_group,
+            )
 
     # Pass 2: real build. MCP servers always go in the constructor; plugins
     # (e.g. DBOS) may swap them at run time via ``agent_run_context``.
