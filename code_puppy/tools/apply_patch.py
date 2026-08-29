@@ -58,21 +58,28 @@ class PatchError(ValueError):
     """Raised when a patch is malformed, unsafe, or does not apply cleanly."""
 
 
-def _safe_path(raw_path: str, base_dir: str) -> str:
-    """Resolve a patch path while keeping it inside the active worktree."""
-    path = raw_path.strip()
-    if not path or os.path.isabs(path):
-        raise PatchError(f"patch path must be a non-empty relative path: {raw_path!r}")
+def _diff_operation(kind: str) -> str:
+    """Translate patch change kinds to the diff renderer's operation vocabulary."""
+    if kind == "add":
+        return "create"
+    if kind == "delete":
+        return "delete"
+    return "modify"
 
-    base = os.path.abspath(base_dir)
-    resolved = os.path.abspath(os.path.join(base, path))
-    try:
-        inside = os.path.commonpath((base, resolved)) == base
-    except ValueError:
-        inside = False
-    if not inside:
-        raise PatchError(f"patch path escapes the working directory: {raw_path!r}")
-    return resolved
+
+def _resolve_patch_path(raw_path: str, base_dir: str) -> str:
+    """Resolve a patch path using the same contract as the other file tools.
+
+    Absolute paths and relative paths containing ``..`` are valid. Permission
+    callbacks remain responsible for deciding whether a target may be modified.
+    """
+    path = raw_path.strip()
+    if not path:
+        raise PatchError("patch path must not be empty")
+    expanded = os.path.expanduser(path)
+    if os.path.isabs(expanded):
+        return os.path.abspath(expanded)
+    return os.path.abspath(os.path.join(base_dir, expanded))
 
 
 def _unexpected_update_line(line: str) -> PatchError:
@@ -336,7 +343,7 @@ def parse_patch(patch_text: str, *, base_dir: str | None = None) -> list[PatchCh
     base = base_dir or get_working_directory()
     changes: list[PatchChange] = []
     for kind, raw_path, body, raw_move_to in _split_patch(patch_text):
-        path = _safe_path(raw_path, base)
+        path = _resolve_patch_path(raw_path, base)
         if kind == "add":
             if fs_access.exists(path):
                 raise PatchError(f"cannot add existing file: {raw_path}")
@@ -359,7 +366,7 @@ def parse_patch(patch_text: str, *, base_dir: str | None = None) -> list[PatchCh
             old_content = fs_access.read_text(path)
             chunks = _parse_chunks(body, raw_path)
             new_content = _apply_chunks(path, old_content, chunks)
-            move_to = _safe_path(raw_move_to, base) if raw_move_to else None
+            move_to = _resolve_patch_path(raw_move_to, base) if raw_move_to else None
             if move_to and fs_access.exists(move_to):
                 raise PatchError(f"cannot move over existing file: {raw_move_to}")
             changes.append(
@@ -451,7 +458,7 @@ def register_apply_patch(agent):
                     )
                 )
                 if diff:
-                    _emit_diff_message(target, change.kind, diff)
+                    _emit_diff_message(target, _diff_operation(change.kind), diff)
             result: Dict[str, Any] = {
                 "success": True,
                 "changed": True,

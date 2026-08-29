@@ -7,10 +7,24 @@ import pytest
 from code_puppy.tools.apply_patch import (
     PatchError,
     _apply_changes,
+    _diff_operation,
     _parse_chunks,
     _seek_sequence,
     parse_patch,
 )
+
+
+@pytest.mark.parametrize(
+    ("kind", "operation"),
+    [
+        ("add", "create"),
+        ("update", "modify"),
+        ("move", "modify"),
+        ("delete", "delete"),
+    ],
+)
+def test_diff_operation_uses_renderer_vocabulary(kind: str, operation: str):
+    assert _diff_operation(kind) == operation
 
 
 def test_seek_sequence_exact_match():
@@ -297,12 +311,59 @@ def test_patch_changes_are_applied_after_full_validation(tmp_path: Path):
     assert not doomed.exists()
 
 
-@pytest.mark.parametrize("raw_path", ["../outside.txt", "/tmp/outside.txt", ""])
-def test_patch_rejects_paths_outside_or_without_a_target(tmp_path: Path, raw_path: str):
+def test_patch_accepts_sibling_path(tmp_path: Path):
+    base = tmp_path / "project"
+    base.mkdir()
+
+    changes = parse_patch(
+        """*** Begin Patch
+*** Add File: ../sibling/new.txt
++created
+*** End Patch""",
+        base_dir=str(base),
+    )
+
+    assert changes[0].path == str(tmp_path / "sibling" / "new.txt")
+
+
+def test_patch_accepts_absolute_path(tmp_path: Path):
+    target = tmp_path / "absolute.txt"
+
+    changes = parse_patch(
+        f"""*** Begin Patch
+*** Add File: {target}
++created
+*** End Patch""",
+        base_dir=str(tmp_path / "unrelated"),
+    )
+
+    assert changes[0].path == str(target)
+
+
+def test_patch_resolves_sibling_move_destination(tmp_path: Path):
+    base = tmp_path / "project"
+    base.mkdir()
+    (base / "old.txt").write_text("old\n")
+
+    changes = parse_patch(
+        """*** Begin Patch
+*** Update File: old.txt
+*** Move to: ../sibling/moved.txt
+@@
+-old
++moved
+*** End Patch""",
+        base_dir=str(base),
+    )
+
+    assert changes[0].move_to == str(tmp_path / "sibling" / "moved.txt")
+
+
+def test_patch_rejects_empty_path(tmp_path: Path):
     with pytest.raises(PatchError):
         parse_patch(
-            f"""*** Begin Patch
-*** Add File: {raw_path}
+            """*** Begin Patch
+*** Add File:
 +unsafe
 *** End Patch""",
             base_dir=str(tmp_path),
