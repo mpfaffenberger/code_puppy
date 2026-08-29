@@ -152,7 +152,7 @@ class TestValidPlugin:
 
 class TestBuiltinCollision:
     def test_warns_on_builtin_shadow(self, project_plugins_dir: Path, caplog):
-        _make_plugin(project_plugins_dir, "shell_safety")
+        _make_plugin(project_plugins_dir, "statusline")
 
         mock_spec = MagicMock()
         mock_spec.loader = MagicMock()
@@ -168,10 +168,10 @@ class TestBuiltinCollision:
             ),
         ):
             result = _load_project_plugins(
-                project_plugins_dir, builtin_names={"shell_safety"}, user_names=set()
+                project_plugins_dir, builtin_names={"statusline"}, user_names=set()
             )
 
-        assert "shell_safety" in result
+        assert "statusline" in result
         assert "shadows builtin plugin" in caplog.text
 
 
