@@ -23,7 +23,6 @@ def test_installed_plugins_load_deterministically_with_context():
 
     with (
         patch.object(plugins, "entry_points", return_value=points),
-        patch("code_puppy.config.get_safety_permission_level", return_value="low"),
         patch.object(
             plugins, "set_loading_context", side_effect=lambda name: events.append(name)
         ),
@@ -43,7 +42,6 @@ def test_installed_plugin_failures_are_isolated(caplog):
     points = [FakeEntryPoint("broken", fail), FakeEntryPoint("healthy", lambda: None)]
     with (
         patch.object(plugins, "entry_points", return_value=points),
-        patch("code_puppy.config.get_safety_permission_level", return_value="low"),
     ):
         assert plugins._load_installed_plugins() == ["healthy"]
 
