@@ -60,6 +60,11 @@ def _assistant_text(text: str) -> ModelMessage:
     return ModelResponse(parts=[TextPart(content=text)])
 
 
+class _IdentityStrategy:
+    async def compact(self, messages, ctx):
+        return messages
+
+
 def _tool_call(tool_name: str, args: dict, call_id: str) -> ModelMessage:
     return ModelResponse(
         parts=[ToolCallPart(tool_name=tool_name, args=args, tool_call_id=call_id)]
@@ -230,9 +235,49 @@ class TestBuildCompactionStrategy:
 
 
 class TestCompact:
+    async def test_summarization_reports_protected_and_older_messages(self):
+        msgs = [_user_msg("system"), _user_msg("old"), _user_msg("recent")]
+
+        with (
+            patch.multiple(
+                _compaction,
+                get_compaction_strategy=lambda: "summarization",
+                get_protected_token_count=lambda: 2,
+                estimate_tokens_for_message=lambda message, model_name: 1,
+                build_compaction_strategy=lambda: _IdentityStrategy(),
+            ),
+            patch.object(_compaction, "emit_info") as emit_info,
+        ):
+            await compact(None, msgs, 100, 0, _ctx(), force=True)
+
+        assert [call.args[0] for call in emit_info.call_args_list] == [
+            "\U0001f512 Protecting 2 recent messages (2 tokens, limit: 2)",
+            "\U0001f4dd Summarizing 1 older messages",
+        ]
+
+    async def test_truncation_reports_history_management(self):
+        msgs = [_user_msg("old"), _user_msg("recent")]
+
+        with (
+            patch.multiple(
+                _compaction,
+                get_compaction_strategy=lambda: "truncation",
+                build_compaction_strategy=lambda: _IdentityStrategy(),
+            ),
+            patch.object(_compaction, "emit_info") as emit_info,
+        ):
+            await compact(None, msgs, 100, 0, _ctx(), force=True)
+
+        emit_info.assert_called_once_with(
+            "Truncating message history to manage token usage"
+        )
+
     async def test_under_threshold_is_noop(self):
         msgs = _build_long_history(n_turns=2)
-        with patch.object(_compaction, "get_compaction_threshold", return_value=0.95):
+        with (
+            patch.object(_compaction, "get_compaction_threshold", return_value=0.95),
+            patch.object(_compaction, "emit_info") as emit_info,
+        ):
             new_msgs, dropped = await compact(
                 agent=None,
                 messages=msgs,
@@ -242,6 +287,7 @@ class TestCompact:
             )
         assert new_msgs is msgs, "under threshold must return the input unchanged"
         assert dropped == []
+        emit_info.assert_not_called()
 
     async def test_force_bypasses_threshold(self):
         msgs = _build_long_history(n_turns=20)

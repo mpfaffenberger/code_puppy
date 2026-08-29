@@ -52,7 +52,8 @@ from code_puppy.config import (
     get_protected_token_count,
     get_summarization_model_name,
 )
-from code_puppy.messaging import emit_error, emit_success, emit_warning
+from code_puppy.i18n import t
+from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 from code_puppy.messaging.spinner import format_context_info, update_spinner_context
 
 # ---------------------------------------------------------------------------
@@ -154,6 +155,46 @@ def run_compaction_sync(strategy: Any, messages: List[ModelMessage], *, model: M
 # ---------------------------------------------------------------------------
 
 
+def _report_compaction_start(
+    messages: List[ModelMessage], model_name: Optional[str]
+) -> None:
+    """Restore the progress reporting lost in the harness migration.
+
+    This is reporting only. The harness remains the sole owner of safe cutoff
+    selection, tool-pair preservation, and fallback execution.
+    """
+    if get_compaction_strategy() == "truncation":
+        emit_info(t("compaction.truncating"))
+        return
+
+    protected_tokens = get_protected_token_count()
+    running_tokens = (
+        estimate_tokens_for_message(messages[0], model_name) if messages else 0
+    )
+    protected_count = 1 if messages else 0
+    for message in reversed(messages[1:]):
+        message_tokens = estimate_tokens_for_message(message, model_name)
+        if running_tokens + message_tokens > protected_tokens:
+            break
+        running_tokens += message_tokens
+        protected_count += 1
+
+    emit_info(
+        t(
+            "compaction.protecting",
+            count=protected_count,
+            tokens=running_tokens,
+            limit=protected_tokens,
+        )
+    )
+    emit_info(
+        t(
+            "compaction.summarizing",
+            count=max(0, len(messages) - protected_count),
+        )
+    )
+
+
 async def compact(
     agent: Any,
     messages: List[ModelMessage],
@@ -211,6 +252,8 @@ async def compact(
     except Exception:
         # Hooks must never break compaction.
         pass
+
+    _report_compaction_start(messages, model_name)
 
     # Oversized-payload guarding is no longer done here: ToolOutputLimits
     # bounds tool returns at production time and ClampOversizedMessages
