@@ -472,6 +472,7 @@ def get_config_keys():
         "protected_token_count",
         "compaction_threshold",
         "summarization_model",
+        "auto_continue_model",
         "message_limit",
         "allow_recursion",
         "subagent_recursion_limit",
@@ -918,6 +919,19 @@ def set_model_name(model: str):
 
     # Clear model cache when switching models to ensure fresh validation
     clear_model_cache()
+
+
+def get_auto_continue_model_name() -> str | None:
+    """Return the model used by the automatic continuation classifier.
+
+    ``auto_continue_model`` is an optional dedicated override. An unset or
+    blank value follows the session's global model so existing installations
+    need no configuration change.
+    """
+    value = get_value("auto_continue_model")
+    if value and value.strip():
+        return value.strip()
+    return get_global_model_name()
 
 
 def get_summarization_model_name() -> str:
