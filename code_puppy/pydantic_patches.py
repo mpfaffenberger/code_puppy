@@ -213,6 +213,32 @@ def _writeback_tool_args(call: Any, tool_args: dict, mode: str | None) -> None:
         pass  # never block tool execution on writeback failure
 
 
+def _tool_args_for_pre_tool_call(call_args: Any) -> tuple[dict, str | None]:
+    """Build a best-effort repaired dict view for ``pre_tool_call`` hooks.
+
+    Editors now use model-native names (notably ``edit`` and ``apply_patch``),
+    so JSON repair belongs at this shared seam instead of in a
+    ``replace_in_file``-specific path.
+    """
+    if isinstance(call_args, dict):
+        return call_args, "dict"
+    if not isinstance(call_args, str):
+        return {}, None
+
+    try:
+        import json
+        import json_repair
+
+        parsed = json.loads(json_repair.repair_json(call_args))
+        if isinstance(parsed, dict):
+            return parsed, "str"
+    except Exception:
+        pass
+
+    # Keep the diagnostic view, but do not write it back and corrupt history.
+    return {"raw": call_args}, None
+
+
 #: Shown when a hook denies without a usable reason, or when producing its
 #: reason fails. A deny always renders as a deny — never as an allow.
 _GENERIC_BLOCK_REASON = "Tool execution blocked by hook"
@@ -355,16 +381,10 @@ def patch_tool_call_callbacks() -> bool:
             elif isinstance(call.args, dict):
                 tool_args = call.args
                 _args_writeback_mode = "dict"
-            elif isinstance(call.args, str):
-                try:
-                    import json
-
-                    tool_args = json.loads(call.args)
-                    _args_writeback_mode = "str"
-                except Exception:
-                    tool_args = {"raw": call.args}
-                    # Unparseable: never write back, would corrupt the original.
-                    _args_writeback_mode = None
+            else:
+                tool_args, _args_writeback_mode = _tool_args_for_pre_tool_call(
+                    call.args
+                )
 
             # Collected outside the try so it survives any callback exception.
             hook_context_messages: list[str] = []

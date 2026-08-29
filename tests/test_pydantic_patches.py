@@ -19,6 +19,28 @@ from code_puppy import pydantic_patches
 LOGGER_NAME = "code_puppy.pydantic_patches"
 
 
+@pytest.mark.parametrize("tool_name", ["replace_in_file", "edit", "apply_patch"])
+def test_editor_args_are_repaired_before_pre_tool_call(tool_name):
+    """Every model-native editor reaches hooks with repaired JSON args."""
+    raw_args = f'{{"tool": "{tool_name}", "file_path": "puppy.py"'
+
+    args, mode = pydantic_patches._tool_args_for_pre_tool_call(raw_args)
+
+    assert args == {"tool": tool_name, "file_path": "puppy.py"}
+    assert mode == "str"
+
+
+def test_unrepairable_pre_tool_args_are_not_marked_for_writeback(monkeypatch):
+    import json_repair
+
+    monkeypatch.setattr(json_repair, "repair_json", lambda _value: "[]")
+
+    args, mode = pydantic_patches._tool_args_for_pre_tool_call("nope")
+
+    assert args == {"raw": "nope"}
+    assert mode is None
+
+
 def _error_records(caplog):
     return [
         r
