@@ -13,6 +13,15 @@ from code_puppy.model_factory import ModelFactory, make_model_settings
 OutputT = TypeVar("OutputT")
 
 
+def _disable_chat_template_thinking(model_settings: dict[str, object]) -> None:
+    """Force the vLLM/SGLang chat-template thinking switch off in place."""
+    extra_body = dict(model_settings.get("extra_body") or {})
+    chat_template_kwargs = dict(extra_body.get("chat_template_kwargs") or {})
+    chat_template_kwargs["enable_thinking"] = False
+    extra_body["chat_template_kwargs"] = chat_template_kwargs
+    model_settings["extra_body"] = extra_body
+
+
 async def run_private_prompt(
     *,
     model_name: str,
@@ -33,17 +42,19 @@ async def run_private_prompt(
         raise ValueError(f"Unknown private-inference model: {model_name}")
 
     model = ModelFactory.get_model(model_name, models_config)
+    model_settings = make_model_settings(
+        model_name,
+        max_tokens=max_tokens,
+        overrides=dict(model_settings_overrides or {}),
+    )
+    _disable_chat_template_thinking(model_settings)
     agent = Agent(
         model=model,
         instructions=instructions,
         output_type=output_type,
         retries=0,
         toolsets=[],
-        model_settings=make_model_settings(
-            model_name,
-            max_tokens=max_tokens,
-            overrides=dict(model_settings_overrides or {}),
-        ),
+        model_settings=model_settings,
     )
     async with asyncio.timeout(timeout_seconds):
         result = await agent.run(

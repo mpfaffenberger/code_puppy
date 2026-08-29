@@ -17,7 +17,14 @@ async def test_private_prompt_builds_one_toolless_request():
     pydantic_agent = Mock(run=run)
     agent_factory = Mock(return_value=pydantic_agent)
     model = object()
-    settings = object()
+    settings = {
+        "extra_body": {
+            "chat_template_kwargs": {
+                "custom_option": "preserved",
+                "enable_thinking": True,
+            },
+        }
+    }
 
     with (
         patch(
@@ -56,7 +63,14 @@ async def test_private_prompt_builds_one_toolless_request():
         output_type=_Output,
         retries=0,
         toolsets=[],
-        model_settings=settings,
+        model_settings={
+            "extra_body": {
+                "chat_template_kwargs": {
+                    "custom_option": "preserved",
+                    "enable_thinking": False,
+                }
+            }
+        },
     )
     run.assert_awaited_once()
     assert run.await_args.args == ("payload",)
