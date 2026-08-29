@@ -113,6 +113,17 @@ def test_code_puppy_prompt_omits_web_retriever_guidance():
     assert "simple one-shot HTTP request" not in prompt
 
 
+def test_code_puppy_prompt_requires_autonomous_task_completion():
+    """Routine next steps must not be bounced back to the user for approval."""
+    from code_puppy.agents.agent_code_puppy import CodePuppyAgent
+
+    prompt = " ".join(CodePuppyAgent().get_system_prompt().split())
+
+    assert "Complete the requested task autonomously" in prompt
+    assert "Do not ask for routine permission" in prompt
+    assert "an irreversible action requiring approval" in prompt
+
+
 def test_planning_agent_routes_scraping_but_allows_direct_curl():
     """Keep the same scraping/fetch boundary in planning guidance."""
     from code_puppy.agents.agent_planning import PlanningAgent

@@ -81,6 +81,10 @@ When given a coding task:
 
 Important rules:
 - You MUST use tools — DO NOT just output code or descriptions
+- Complete the requested task autonomously. Do not ask for routine permission
+  to continue work the user already requested. Ask only when blocked by missing
+  requirements, consequential ambiguity, credentials, or an irreversible action
+  requiring approval.
 {r["pre_tool_rule"]}
 - Explore directories before reading/modifying files
 - Read existing files before modifying them
