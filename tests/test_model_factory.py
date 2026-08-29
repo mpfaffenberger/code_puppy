@@ -2,6 +2,7 @@ import os
 from unittest.mock import MagicMock, patch
 
 import httpx
+import httpx2
 import pytest
 
 from code_puppy.model_factory import ModelFactory, make_model_settings
@@ -178,14 +179,23 @@ def test_custom_openai_happy(monkeypatch):
     assert hasattr(model._provider, "base_url")
 
 
+# The factory has two HTTP-client seams. OpenAI-compatible paths must hand pydantic-ai an
+# httpx2 client (legacy httpx is deprecated there); custom_gemini feeds Code Puppy's own
+# GeminiModel, which is still typed against legacy httpx.
+_HTTPX2_SEAM = "create_provider_async_client"
+_LEGACY_SEAM = "create_async_client"
+
+
 @pytest.mark.parametrize(
-    ("env_var", "model_type", "model_name"),
+    ("env_var", "model_type", "model_name", "client_seam", "client_cls"),
     [
-        ("OPENAI_API_KEY", "custom_openai", "cust"),
-        ("CUSTOM_API_KEY", "custom_gemini", "gemini"),
+        ("OPENAI_API_KEY", "custom_openai", "cust", _HTTPX2_SEAM, httpx2.AsyncClient),
+        ("CUSTOM_API_KEY", "custom_gemini", "gemini", _LEGACY_SEAM, httpx.AsyncClient),
     ],
 )
-def test_custom_timeout_config(monkeypatch, env_var, model_type, model_name):
+def test_custom_timeout_config(
+    monkeypatch, env_var, model_type, model_name, client_seam, client_cls
+):
     monkeypatch.setenv(env_var, "ok")
     config = {
         "custom": {
@@ -201,8 +211,8 @@ def test_custom_timeout_config(monkeypatch, env_var, model_type, model_name):
         }
     }
 
-    with patch("code_puppy.model_factory.create_async_client") as mock_client:
-        mock_client.return_value = httpx.AsyncClient(timeout=600)
+    with patch(f"code_puppy.model_factory.{client_seam}") as mock_client:
+        mock_client.return_value = client_cls(timeout=600)
         model = ModelFactory.get_model("custom", config)
 
     mock_client.assert_called_once_with(
@@ -382,7 +392,6 @@ async def test_wire_format_merges_leading_system_messages():
     This directly proves the bug is fixed — two leading SystemPromptParts +
     instruction_parts produce one merged system message on the wire, not two.
     """
-    import httpx
     from pydantic_ai.messages import (
         InstructionPart,
         ModelRequest,
@@ -397,7 +406,7 @@ async def test_wire_format_merges_leading_system_messages():
 
     from code_puppy.model_factory import _strict_openai_profile
 
-    async with httpx.AsyncClient(base_url="http://localhost:30000") as client:
+    async with httpx2.AsyncClient(base_url="http://localhost:30000") as client:
         provider = OpenAIProvider(api_key="dummy", http_client=client)
         model = OpenAIChatModel(
             model_name="qwen-sglang",
@@ -489,8 +498,8 @@ def test_cerebras_timeout_config(monkeypatch):
         }
     }
 
-    with patch("code_puppy.model_factory.create_async_client") as mock_client:
-        mock_client.return_value = httpx.AsyncClient(timeout=600)
+    with patch(f"code_puppy.model_factory.{_HTTPX2_SEAM}") as mock_client:
+        mock_client.return_value = httpx2.AsyncClient(timeout=600)
         model = ModelFactory.get_model("custom", config)
 
     mock_client.assert_called_once_with(
@@ -652,8 +661,8 @@ def test_custom_timeout_precedence(monkeypatch):
         }
     }
 
-    with patch("code_puppy.model_factory.create_async_client") as mock_client:
-        mock_client.return_value = httpx.AsyncClient(timeout=300)
+    with patch(f"code_puppy.model_factory.{_HTTPX2_SEAM}") as mock_client:
+        mock_client.return_value = httpx2.AsyncClient(timeout=300)
         model = ModelFactory.get_model("custom", config)
 
     # Should use top-level timeout (300), not custom_endpoint timeout (600)
