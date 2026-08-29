@@ -22,7 +22,7 @@ from rich.console import Console
 
 from code_puppy import __version__, callbacks, get_core_plugins_version, plugins
 from code_puppy.agents import get_current_agent
-from code_puppy.i18n import t
+from code_puppy.i18n import t, use_detected_locale
 from code_puppy.command_line.attachments import (
     parse_prompt_attachments,
     resolve_user_prompt,
@@ -249,6 +249,7 @@ async def main():
     callbacks.on_register_cli_args(parser)
 
     args = parser.parse_args()
+    _initialize_locale()
     if args.disable_ask_user_question:
         os.environ["CODE_PUPPY_DISABLE_ASK_USER_QUESTION"] = "1"
 
@@ -1585,6 +1586,13 @@ def _force_utf8_stdio():
             stream.reconfigure(encoding="utf-8", errors="replace")
         except Exception:
             pass
+
+
+def _initialize_locale():
+    """Select the UI locale before any startup message is translated."""
+    from code_puppy.config import get_value
+
+    use_detected_locale(get_value("locale"))
 
 
 def main_entry():
