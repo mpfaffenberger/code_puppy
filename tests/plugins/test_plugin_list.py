@@ -23,25 +23,21 @@ _PLUGINS_CONFIG_MOD = "code_puppy.plugins.config"
 
 class TestFormatPluginList:
     def test_empty_list(self):
-        assert _format_plugin_list([], set()) == "  (none)"
+        assert _format_plugin_list([], "builtin", set()) == "  (none)"
 
     def test_single_plugin(self):
-        result = _format_plugin_list(["shell_safety"], set())
+        result = _format_plugin_list(["shell_safety"], "builtin", set())
         assert "shell_safety" in result
 
     def test_multiple_sorted(self):
-        result = _format_plugin_list(["zebra", "alpha", "mid"], set())
-        lines = result.split("\n")
-        assert len(lines) == 3
-        assert "alpha" in lines[0]
-        assert "mid" in lines[1]
-        assert "zebra" in lines[2]
+        result = _format_plugin_list(["zebra", "alpha", "mid"], "builtin", set())
+        assert result.index("  alpha") < result.index("  mid")
+        assert result.index("  mid") < result.index("  zebra")
 
     def test_disabled_shown(self):
-        result = _format_plugin_list(["alpha", "beta"], {"beta"})
-        lines = result.split("\n")
-        assert "(disabled)" not in lines[0]  # alpha
-        assert "(disabled)" in lines[1]  # beta
+        result = _format_plugin_list(["alpha", "beta"], "builtin", {"beta"})
+        assert "  alpha  (disabled)" not in result
+        assert "  beta  (disabled)" in result
 
 
 class TestBuildOutput:
