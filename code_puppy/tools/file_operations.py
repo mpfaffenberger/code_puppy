@@ -589,7 +589,7 @@ def _finalize_read_output(
     # issues when the content is later serialized or displayed.
     content = _sanitize_string(content)
 
-    # Simple approximation: ~4 characters per token
+    # Simple approximation: ~4 characters per token.
     num_tokens = len(content) // 4
     if num_tokens > 10000:
         return ReadFileOutput(
@@ -601,8 +601,10 @@ def _finalize_read_output(
     total_lines = content.count("\n") + (
         1 if content and not content.endswith("\n") else 0
     )
+
     emit_start_line = start_line if start_line is not None and start_line >= 1 else None
     emit_num_lines = num_lines if num_lines is not None and num_lines >= 1 else None
+
     get_message_bus().emit(
         FileContentMessage(
             path=file_path,
@@ -613,6 +615,7 @@ def _finalize_read_output(
             num_tokens=num_tokens,
         )
     )
+
     return ReadFileOutput(content=content, num_tokens=num_tokens)
 
 
