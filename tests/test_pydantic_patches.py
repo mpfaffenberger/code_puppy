@@ -124,7 +124,6 @@ def _block_import(monkeypatch, *names):
     "patch_fn_name,blocked_libs",
     [
         ("patch_tool_call_json_repair", ("json_repair",)),
-        ("patch_prompt_toolkit_emoji_width", ("wcwidth", "prompt_toolkit")),
         ("patch_termflow_clipboard", ("termflow",)),
         ("patch_termflow_code_padding", ("termflow",)),
     ],

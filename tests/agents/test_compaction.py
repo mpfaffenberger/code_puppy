@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 import pytest
 from opentelemetry.trace import NoOpTracer
-from pydantic_ai.exceptions import ModelHTTPError
+from pydantic_ai.exceptions import ModelHTTPError, UsageLimitExceeded
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
@@ -98,12 +98,12 @@ def _build_long_history(
     return msgs
 
 
-def _ctx(model: Any = None) -> RunContext[Any]:
+def _ctx(model: Any = None, usage: RunUsage | None = None) -> RunContext[Any]:
     """A minimal RunContext, mirroring the one compact_now fabricates."""
     return RunContext[Any](
         deps=None,
         model=model if model is not None else TestModel(),
-        usage=RunUsage(),
+        usage=usage if usage is not None else RunUsage(),
         tracer=NoOpTracer(),
     )
 
@@ -202,6 +202,9 @@ class TestBuildCompactionStrategy:
         assert summarizer.keep_tokens == 2000
         assert sliding.keep_tokens == 2000
         assert summarizer.max_tokens == 100_000
+        # pydantic-ai-harness#528: UsageLimitExceeded must trigger fallback so
+        # truncation still saves runs past pydantic-ai's default request cap.
+        assert UsageLimitExceeded in strategy.fallback_on
 
     def test_unavailable_summarizer_model_degrades_to_sliding_only(self):
         def _boom():
@@ -392,6 +395,41 @@ class TestCompact:
         orphan_calls, orphan_returns = _orphan_tool_ids(new_msgs)
         assert not orphan_calls and not orphan_returns
 
+    async def test_summarization_succeeds_past_default_request_cap(self):
+        """REGRESSION (harness#528): summarization must survive >50 parent
+        requests via the detached ledger, and still bill the parent."""
+        msgs = _build_long_history(n_turns=20)
+        parent_usage = RunUsage(requests=60)
+
+        with patch.multiple(
+            _compaction,
+            get_compaction_threshold=lambda: 0.01,
+            get_compaction_strategy=lambda: "summarization",
+            get_protected_token_count=lambda: 500,
+            get_model_context_length=lambda: 10_000,
+            _summarizer_model=lambda: _summary_model("HARNESS_SUMMARY"),
+        ):
+            new_msgs, dropped = await compact(
+                agent=None,
+                messages=msgs,
+                model_max=10_000,
+                context_overhead=0,
+                ctx=_ctx(usage=parent_usage),
+            )
+
+        assert len(new_msgs) < len(msgs)
+        assert any(
+            "HARNESS_SUMMARY" in str(getattr(p, "content", ""))
+            for m in new_msgs
+            for p in m.parts
+        ), "summary call must not be rejected by the parent's request count"
+        assert parent_usage.requests == 61, (
+            "the summary request must fold back into the parent's accounting"
+        )
+        assert len(dropped) > 0
+        orphan_calls, orphan_returns = _orphan_tool_ids(new_msgs)
+        assert not orphan_calls and not orphan_returns
+
     async def test_unexpected_strategy_error_returns_input_unchanged(self):
         """A non-API failure must never kill the run: compact() eats it and
         returns the original history for this cycle."""
@@ -547,6 +585,40 @@ class TestHistoryCompaction:
         with patch.object(_compaction, "get_compaction_threshold", return_value=0.95):
             await _fire(agent, [_user_msg("yes")])
         assert len(agent._message_history) == 1
+
+    async def test_repeated_user_prompt_is_not_dropped_as_duplicate(self):
+        """A second "yes" answering a different question must survive.
+
+        Hashes are timestamp-independent, so a repeated short prompt hashes
+        identically to the earlier one. Treating that as a duplicate dropped
+        the turn, and the trailing-ModelResponse pop then removed the previous
+        assistant answer as well, so the model lost both sides of the exchange.
+        """
+        agent = _FakeAgent(model_max=1_000_000)
+        agent._message_history = [_user_msg("yes"), _assistant_text("Deleting it now.")]
+        incoming = [
+            _user_msg("yes"),
+            _assistant_text("Deleting it now."),
+            _user_msg("yes"),
+        ]
+        with patch.object(_compaction, "get_compaction_threshold", return_value=0.95):
+            result = await HistoryCompaction(agent)._process(_ctx(), incoming)
+
+        user_turns = [m for m in result if isinstance(m, ModelRequest)]
+        assert len(user_turns) == 2, "the second 'yes' was dropped"
+        assert any(isinstance(m, ModelResponse) for m in result), (
+            "the earlier assistant answer was destroyed by the trailing pop"
+        )
+
+    async def test_resent_history_with_no_new_turn_still_dedupes(self):
+        """Guard the other direction: an identical resend must not grow history."""
+        agent = _FakeAgent(model_max=1_000_000)
+        agent._message_history = [_user_msg("yes"), _assistant_text("done")]
+        with patch.object(_compaction, "get_compaction_threshold", return_value=0.95):
+            await HistoryCompaction(agent)._process(
+                _ctx(), [_user_msg("yes"), _assistant_text("done")]
+            )
+        assert len(agent._message_history) == 1  # trailing response popped
 
     async def test_strips_trailing_model_responses(self):
         agent = _FakeAgent(model_max=1_000_000)

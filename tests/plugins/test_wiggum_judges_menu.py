@@ -164,36 +164,42 @@ def test_list_view_help_says_enter_edits_and_esc_closes():
 
 
 def test_list_view_keybindings_swap_enter_and_esc():
-    """Verify the actual prompt_toolkit binding wiring is right.
-
-    Source-level check: 'enter' is wired to the edit handler, 'escape' is
-    wired to the close handler, and 'enter' is NOT wired to close anymore.
-    """
+    """Enter edits the highlighted judge; Esc closes the menu."""
     import code_puppy_core_plugins.wiggum.judges_menu as jm
 
     source = open(jm.__file__, encoding="utf-8").read()
-
-    assert '@kb.add("enter")' in source
-    assert '@kb.add("e")' in source
-    assert 'pending_action[0] = "close"' in source
-
-    # The close handler must be reached via 'escape' / 'c-c', NOT 'enter'.
-    close_pos = source.find('pending_action[0] = "close"')
-    decorators_above = source[max(0, close_pos - 250) : close_pos]
-    assert '@kb.add("escape")' in decorators_above
-    assert '@kb.add("c-c")' in decorators_above
-    assert '@kb.add("enter")' not in decorators_above
+    assert 'key in ("enter", "e")' in source
+    assert 'pending[0] = "close"' in source
+    assert 'key in ("escape", "ctrl-c")' in source
 
 
-def test_form_escape_is_simple_cancel_binding():
-    """With the inline model list, Esc no longer has a chord partner, so
-    Esc-as-plain-cancel works fine. We just check it's bound.
-    """
+def test_form_cancel_paths_return_cancelled():
+    """Cancelling the name input aborts the whole chained form."""
+    from unittest.mock import patch
+
     import code_puppy_core_plugins.wiggum.judges_menu as jm
 
-    source = open(jm.__file__, encoding="utf-8").read()
-    assert '@kb.add("escape")' in source
-    assert '@kb.add("c-c")' in source
+    class FakeInput:
+        def run(self):
+            class R:
+                cancelled = True
+                value = None
+
+            return R()
+
+    class FakeBuilder:
+        def __init__(self, *a, **k):
+            pass
+
+        def __getattr__(self, name):
+            return lambda *a, **k: self
+
+        def build(self):
+            return FakeInput()
+
+    with patch("termflow.tui.TextInputBuilder", FakeBuilder):
+        result = jm._run_judge_form_sync(title="T")
+    assert result.cancelled is True and result.saved is False
 
 
 def test_render_model_list_empty_state():
@@ -239,17 +245,14 @@ def test_render_model_list_marker_changes_with_focus():
     assert "·" in flat_blurred
 
 
-def test_form_tab_cycle_has_three_sections():
-    """Tab must cycle Name ↔ Model ↔ Prompt (three sections, not two).
-
-    This is the user-requested feature: 'paginated 3rd section that you
-    can tab over to'. We verify the focus cycle list in the source.
-    """
+def test_form_chains_three_widgets():
+    """The chained form covers Name -> Model -> Prompt (three stages)."""
     import code_puppy_core_plugins.wiggum.judges_menu as jm
 
     source = open(jm.__file__, encoding="utf-8").read()
-    # The focus cycle list is constructed inline with three entries.
-    assert "_focus_cycle = [name_area, model_window, prompt_area]" in source
+    assert 'TextInputBuilder(f"{title} - Name")' in source
+    assert 'MenuBuilder(f"{title} - Model")' in source
+    assert "_edit_prompt_in_editor(initial_prompt)" in source
 
 
 def test_form_help_describes_arrow_keys_for_model_selection():

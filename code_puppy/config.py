@@ -352,6 +352,10 @@ def ensure_config_exists():
     # Set default values for important config keys if they don't exist
     if not config[DEFAULT_SECTION].get("auto_save_session"):
         config[DEFAULT_SECTION]["auto_save_session"] = "true"
+    # port_base: seed so users discover the knob in their generated puppy.cfg
+    # (starting port for the HTTP-server port probe; searches port_base..+920).
+    if not config[DEFAULT_SECTION].get("port_base"):
+        config[DEFAULT_SECTION]["port_base"] = str(DEFAULT_PORT_BASE)
 
     # Write the config if we made any changes. Re-reads under the config lock
     # and re-applies the prompted values on top of that fresh snapshot, so a
@@ -366,6 +370,8 @@ def ensure_config_exists():
                 cfg[DEFAULT_SECTION][key] = val
             if not cfg[DEFAULT_SECTION].get("auto_save_session"):
                 cfg[DEFAULT_SECTION]["auto_save_session"] = "true"
+            if not cfg[DEFAULT_SECTION].get("port_base"):
+                cfg[DEFAULT_SECTION]["port_base"] = str(DEFAULT_PORT_BASE)
 
         config = mutate_config(CONFIG_FILE, _apply)
     return config
@@ -589,7 +595,7 @@ def _parse_mcp_servers_mapping(raw_text: str) -> dict:
     return servers
 
 
-def load_mcp_server_configs():
+def load_mcp_server_configs(*, raise_on_error: bool = False):
     """Load MCP server configs, merging user-level and trusted project-level.
 
     Sources, in ascending order of precedence:
@@ -604,6 +610,11 @@ def load_mcp_server_configs():
     Project entries win on name collision, matching how project agents, skills,
     and plugins override their user-level counterparts. Returns an empty dict
     when nothing is configured.
+
+    When *raise_on_error* is true, a parse/IO failure of an existing user-level
+    file (or a failure of the project loader) is re-raised after the error is
+    emitted, so callers that unregister missing names can skip that drop
+    instead of treating ``{}`` as "configure nothing".
     """
     from code_puppy.messaging.message_queue import emit_error
 
@@ -616,6 +627,8 @@ def load_mcp_server_configs():
                 configs.update(_parse_mcp_servers_mapping(f.read()))
     except Exception as e:
         emit_error(f"Failed to load MCP servers - {str(e)}")
+        if raise_on_error:
+            raise
 
     # 2. Project-level config (opt-in, trust-gated). A broken or untrusted
     #    project file must never break user-level loading.
@@ -627,6 +640,8 @@ def load_mcp_server_configs():
             configs.update(project_configs)
     except Exception as e:
         emit_error(f"Failed to load project MCP servers - {str(e)}")
+        if raise_on_error:
+            raise
 
     return configs
 
@@ -2027,6 +2042,8 @@ DEFAULT_BANNER_COLORS = {
     "edit_file": "dark_goldenrod",  # Gold - modifications (legacy)
     "create_file": "dark_goldenrod",  # Gold - file creation
     "replace_in_file": "dark_goldenrod",  # Gold - file modifications
+    "edit": "dark_goldenrod",  # Claude/OpenCode targeted file edit
+    "apply_patch": "dark_goldenrod",  # Codex/OpenCode multi-file patch
     "delete_snippet": "dark_goldenrod",  # Gold - snippet removal
     "grep": "grey37",  # Silver - search results
     "directory_listing": "dodger_blue2",  # Sky - navigation
@@ -2259,9 +2276,9 @@ def set_current_autosave_from_session_name(session_name: str) -> str:
     return pin_current_session_name(session_name)
 
 
-def auto_save_session_if_enabled() -> bool:
-    """Automatically save the current session if auto_save_session is enabled."""
-    if not get_auto_save_session():
+def auto_save_session_if_enabled(*, force: bool = False) -> bool:
+    """Save the current session when enabled, or unconditionally when forced."""
+    if not force and not get_auto_save_session():
         return False
 
     try:
@@ -2972,3 +2989,69 @@ def get_frontend_emitter_queue_size() -> int:
         return int(val)
     except ValueError:
         return 100
+
+
+# Port-probe bounds:
+#   MIN_PORT_BASE=1024 avoids privileged ports the user process can't bind anyway.
+#   PORT_PROBE_WIDTH is how many consecutive ports find_available_port() scans.
+#   MAX_PORT_BASE keeps port_base + width within the 16-bit port space.
+MIN_PORT_BASE = 1024
+PORT_PROBE_WIDTH = 920
+MAX_PORT_BASE = 65535 - PORT_PROBE_WIDTH
+DEFAULT_PORT_BASE = 8090
+
+
+def _coerce_port_base(raw, source: str) -> int | None:
+    """Parse + range-check a candidate port_base. Returns None (with warning)
+    on invalid input so callers can fall through to the next source.
+    """
+    if raw is None or (isinstance(raw, str) and not raw.strip()):
+        return None
+    try:
+        val = int(str(raw).strip())
+    except (TypeError, ValueError):
+        _warn_port_base(f"Ignoring invalid {source} port_base={raw!r}: not an integer")
+        return None
+    if not (MIN_PORT_BASE <= val <= MAX_PORT_BASE):
+        _warn_port_base(
+            f"Ignoring {source} port_base={val}: must be in "
+            f"[{MIN_PORT_BASE}, {MAX_PORT_BASE}] so port+{PORT_PROBE_WIDTH} stays valid"
+        )
+        return None
+    return val
+
+
+def _warn_port_base(msg: str) -> None:
+    """Lazy-import emit_warning to avoid config <-> messaging import cycles."""
+    try:
+        from code_puppy.messaging import emit_warning
+
+        emit_warning(msg)
+    except Exception:
+        # Messaging bus not up yet (early startup); silent skip is fine --
+        # the fallback value still applies.
+        pass
+
+
+def resolve_port_base(cli_value=None) -> int:
+    """
+    Full precedence chain for the port probe's starting port:
+    CLI --port-base > CODE_PUPPY_PORT_BASE env > puppy.cfg[port_base] > default.
+
+    Invalid values at any layer are warned about and skipped, not crashed on.
+    """
+    candidates = (
+        (cli_value, "--port-base"),
+        (os.environ.get("CODE_PUPPY_PORT_BASE"), "CODE_PUPPY_PORT_BASE"),
+        (get_value("port_base"), "puppy.cfg[port_base]"),
+    )
+    for raw, source in candidates:
+        val = _coerce_port_base(raw, source)
+        if val is not None:
+            return val
+    return DEFAULT_PORT_BASE
+
+
+def get_port_base() -> int:
+    """Back-compat wrapper: resolve without a CLI-supplied value."""
+    return resolve_port_base(cli_value=None)

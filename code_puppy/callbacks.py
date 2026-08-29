@@ -16,6 +16,7 @@ PhaseType = Literal[
     "replace_in_file",
     "delete_snippet",
     "delete_file",
+    "apply_patch",
     "run_shell_command",
     "run_shell_command_output",
     "load_model_config",
@@ -49,6 +50,7 @@ PhaseType = Literal[
     "agent_run_end",
     "agent_run_result",
     "model_select",
+    "provider_credential_flow",
     "register_mcp_catalog_servers",
     "register_browser_types",
     "register_model_providers",
@@ -71,6 +73,7 @@ PhaseType = Literal[
     "pre_compact",
     "session_end",
     "post_autosave",
+    "session_browser_open",
     "notification",
     "awaiting_user_input",
     "git_branch_provider",
@@ -104,6 +107,7 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "replace_in_file": [],
     "delete_snippet": [],
     "delete_file": [],
+    "apply_patch": [],
     "run_shell_command": [],
     "run_shell_command_output": [],
     "load_model_config": [],
@@ -137,6 +141,7 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "agent_run_end": [],
     "agent_run_result": [],
     "model_select": [],
+    "provider_credential_flow": [],
     "register_mcp_catalog_servers": [],
     "register_browser_types": [],
     "register_model_providers": [],
@@ -159,6 +164,7 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "pre_compact": [],
     "session_end": [],
     "post_autosave": [],
+    "session_browser_open": [],
     "notification": [],
     "awaiting_user_input": [],
     "git_branch_provider": [],
@@ -568,6 +574,11 @@ def on_delete_file(*args, **kwargs) -> Any:
     return _trigger_callbacks_sync("delete_file", *args, **kwargs)
 
 
+def on_apply_patch(*args, **kwargs) -> Any:
+    """Notify plugins about the provider-native multi-file edit operation."""
+    return _trigger_callbacks_sync("apply_patch", *args, **kwargs)
+
+
 async def on_run_shell_command(*args, **kwargs) -> Any:
     return await _trigger_callbacks("run_shell_command", *args, **kwargs)
 
@@ -588,6 +599,18 @@ async def on_post_autosave(*args, **kwargs) -> List[Any]:
     to reach back into the autosave plumbing themselves.
     """
     return await _trigger_callbacks("post_autosave", *args, **kwargs)
+
+
+async def on_session_browser_open(*args, **kwargs) -> List[Any]:
+    """Fire when the ``/resume`` session browser is about to open.
+
+    Receives ``(base_dir: str, entries: list[tuple[str, dict]])`` where
+    each entry is ``(session_name, metadata_dict)``. The metadata dicts
+    are the browser's LIVE objects: plugins that enrich them in place
+    (titles, tags) surface on the browser's next repaint. Handlers must
+    return fast -- do slow work (model calls) on a background thread.
+    """
+    return await _trigger_callbacks("session_browser_open", *args, **kwargs)
 
 
 def on_load_prompt():
@@ -1209,6 +1232,44 @@ def on_model_select(
         if isinstance(result, str) and result.strip():
             return result
     return None
+
+
+def on_provider_credential_flow(*, provider_id: str, env_var: str) -> bool:
+    """Ask plugins to acquire a missing provider credential.
+
+    Fired by the ``/add_model`` flow for each required env var that is not
+    set, before falling back to manual key entry. A plugin that can mint the
+    credential itself (e.g. an OAuth flow that exchanges an authorization
+    code for an API key) should persist it so it takes effect immediately
+    (config + ``os.environ``) and return ``True``. Return ``None``/``False``
+    to defer to manual entry.
+
+    Unlike most hooks this one deliberately short-circuits: callbacks run
+    interactive, side-effectful flows, so the first one to return ``True``
+    wins and the rest are never invoked. Callbacks must gate on
+    ``provider_id``/``env_var`` and return ``None`` immediately for
+    providers they do not own.
+
+    Args:
+        provider_id: models.dev provider id (e.g. ``"openrouter"``).
+        env_var: The credential env var being requested.
+
+    Returns:
+        True when a callback reports the credential as acquired.
+    """
+    for callback in get_callbacks("provider_credential_flow"):
+        try:
+            result = callback(provider_id=provider_id, env_var=env_var)
+        except Exception as e:
+            logger.error(
+                f"Callback {getattr(callback, '__name__', callback)!r} failed "
+                f"in phase 'provider_credential_flow': {e}\n"
+                f"{traceback.format_exc()}"
+            )
+            continue
+        if result is True:
+            return True
+    return False
 
 
 async def on_agent_run_end(

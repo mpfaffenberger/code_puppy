@@ -65,7 +65,7 @@ def _capture_invoke_with_model():
     return captured["func"]
 
 
-def _build_agent_config(pinned_model_name):
+def _build_agent_config(pinned_model_name, model_settings_overrides=None):
     config = MagicMock()
 
     @contextmanager
@@ -74,6 +74,7 @@ def _build_agent_config(pinned_model_name):
 
     config.temporary_model_name_override.side_effect = temporary_override
     config.get_model_name.return_value = pinned_model_name
+    config.get_model_settings_overrides.return_value = model_settings_overrides or {}
     config.get_full_system_prompt.return_value = "Test instructions"
     config.get_available_tools.return_value = ["list_files"]
     config.get_message_history.return_value = []
@@ -88,7 +89,11 @@ def _passthrough_retry(*_args, **_kwargs):
 
 
 async def _invoke_with_dead_pin(
-    agent_name="test-agent", pinned_model="dead-model", conversation_scope="parent"
+    agent_name="test-agent",
+    pinned_model="dead-model",
+    conversation_scope="parent",
+    model_settings_overrides=None,
+    return_make_settings=False,
 ):
     """Drive ``invoke_agent`` for ``agent_name`` pinned to a model that isn't
     in ``models_config``, and return ``(output, mock_warning)``.
@@ -105,7 +110,7 @@ async def _invoke_with_dead_pin(
     """
     invoke = _capture_invoke_default()
     mock_context = MagicMock()
-    agent_config = _build_agent_config(pinned_model)
+    agent_config = _build_agent_config(pinned_model, model_settings_overrides)
 
     result = MagicMock()
     result.output = "subagent response"
@@ -181,7 +186,7 @@ async def _invoke_with_dead_pin(
                 side_effect=fake_get_model,
             )
         )
-        p(patch("code_puppy.model_factory.make_model_settings"))
+        mock_make_settings = p(patch("code_puppy.model_factory.make_model_settings"))
         p(
             patch(
                 "code_puppy.agents._builder.get_global_model_name",
@@ -230,6 +235,8 @@ async def _invoke_with_dead_pin(
 
         out = await invoke(mock_context, agent_name=agent_name, prompt="Hello")
 
+    if return_make_settings:
+        return out, mock_warning, mock_make_settings
     return out, mock_warning
 
 
@@ -245,6 +252,21 @@ class TestPinnedModelFallback:
         # A warning was emitted about the dead pin, not a swallowed silence.
         assert any(
             "dead-model" in str(call.args[0]) for call in mock_warning.call_args_list
+        )
+
+    @pytest.mark.asyncio
+    async def test_subagent_applies_agent_model_settings_after_fallback(self):
+        overrides = {"reasoning_effort": "high"}
+
+        out, _warning, mock_make_settings = await _invoke_with_dead_pin(
+            model_settings_overrides=overrides,
+            return_make_settings=True,
+        )
+
+        assert out.error is None
+        mock_make_settings.assert_called_once_with(
+            "global-default-model",
+            overrides=overrides,
         )
 
     @pytest.mark.asyncio

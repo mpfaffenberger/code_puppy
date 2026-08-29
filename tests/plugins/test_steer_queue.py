@@ -10,11 +10,11 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import pytest
-
 from code_puppy.messaging.pause_controller import (
     PauseController,
     reset_pause_controller,
 )
+
 from code_puppy_core_plugins.steer_queue import register_callbacks as rc
 from code_puppy_core_plugins.steer_queue.queue_menu import (
     QueueMenuApp,
@@ -207,13 +207,13 @@ def test_queue_state_reorders_items_and_tracks_selection():
 
 def test_queue_menu_app_constructs_with_empty_and_populated_queue():
     empty_app = QueueMenuApp(PauseController())
-    assert empty_app.application.full_screen is True
+    assert empty_app.handle_key("escape") is True  # exits cleanly
 
     pc = PauseController()
     pc.replace_pending_steer_queued(["inspect this", "then do that"])
     app = QueueMenuApp(pc)
     assert app.state.selected_text == "inspect this"
-    assert "inspect this" in app._editor_buffer.text
+    assert "inspect this" in app._editor_text
 
 
 def test_queue_menu_uses_shared_semantic_roles_without_local_palette():
@@ -224,17 +224,16 @@ def test_queue_menu_uses_shared_semantic_roles_without_local_palette():
     assert app._render_header()[0][0] == "class:tui.title"
     assert {style for style, _ in app._render_list()} >= {
         "class:tui.selected",
-        "class:tui.selected class:tui.muted",
         "class:tui.body",
-        "class:tui.body class:tui.muted",
+        "class:tui.muted",
     }
-    assert app._render_notice()[0][0] == "class:tui.warning"
+    assert app._render_footer()[0][0] == "class:tui.help"
     assert {style for style, _ in app._render_footer()} == {
         "class:tui.help",
         "class:tui.help-key",
     }
     app.state.editing = True
-    assert app._editor_prefix()[0][0] == "class:tui.label"
+    assert app._render_detail()[0][0] == "class:tui.label"
 
 
 # =========================================================================

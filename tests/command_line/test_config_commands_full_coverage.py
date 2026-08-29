@@ -43,39 +43,6 @@ class TestGetJsonAgentsPinnedToModel:
             assert result == []
 
 
-class TestHandleColorsCommand:
-    def _pool_mock(self, result):
-        mock_pool = MagicMock()
-        mock_future = MagicMock()
-        mock_future.result.return_value = result
-        mock_pool.__enter__ = MagicMock(return_value=mock_pool)
-        mock_pool.__exit__ = MagicMock(return_value=False)
-        mock_pool.submit.return_value = mock_future
-        return mock_pool
-
-    def test_error_applying(self):
-        from code_puppy.command_line.config_commands import handle_colors_command
-
-        pool = self._pool_mock({"thinking": "red"})
-        with (
-            patch("concurrent.futures.ThreadPoolExecutor", return_value=pool),
-            patch("code_puppy.config.set_banner_color", side_effect=Exception("fail")),
-            patch("code_puppy.messaging.emit_error"),
-        ):
-            assert handle_colors_command("/colors") is True
-
-    def test_with_result(self):
-        from code_puppy.command_line.config_commands import handle_colors_command
-
-        pool = self._pool_mock({"thinking": "red"})
-        with (
-            patch("concurrent.futures.ThreadPoolExecutor", return_value=pool),
-            patch("code_puppy.config.set_banner_color"),
-            patch("code_puppy.messaging.emit_success"),
-        ):
-            assert handle_colors_command("/colors") is True
-
-
 class TestHandlePinModelCommand:
     def _make_patches(self, **overrides):
         defaults = {
@@ -287,17 +254,3 @@ class TestHandleUnpinCommand:
             patch("code_puppy.messaging.emit_error"),
         ):
             assert handle_unpin_command("/unpin test") is True
-
-
-class TestShowColorOptions:
-    def test_additions(self):
-        from code_puppy.command_line.config_commands import _show_color_options
-
-        with patch("code_puppy.messaging.emit_info"):
-            _show_color_options("additions")
-
-    def test_deletions(self):
-        from code_puppy.command_line.config_commands import _show_color_options
-
-        with patch("code_puppy.messaging.emit_info"):
-            _show_color_options("deletions")

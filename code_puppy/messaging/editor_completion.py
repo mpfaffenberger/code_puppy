@@ -31,61 +31,15 @@ DEBOUNCE_S = 0.05
 
 
 def build_completer():
-    """The classic prompt's completer stack, as pure logic.
+    """The REPL completer stack (single source: command_line.completers)."""
+    from code_puppy.command_line.completers import build_completer_stack
 
-    NOTE: this list REPLICATES the inline construction in
-    ``command_line.prompt_toolkit_completion.get_input_with_combined_completion``
-    (the source of truth) — it's built inline there, so it can't be
-    imported without refactoring command_line/, which is off-limits.
-    Keep the two in sync when completers are added.
-    """
-    from prompt_toolkit.completion import merge_completers
-
-    from code_puppy.callbacks import get_completion_providers
-    from code_puppy.command_line.file_path_completion import FilePathCompleter
-    from code_puppy.command_line.load_context_completion import LoadContextCompleter
-    from code_puppy.command_line.mcp_completion import MCPCompleter
-    from code_puppy.command_line.model_picker_completion import ModelNameCompleter
-    from code_puppy.command_line.pin_command_completion import (
-        PinCompleter,
-        UnpinCompleter,
-    )
-    from code_puppy.command_line.prompt_toolkit_completion import (
-        AgentCompleter,
-        CDCompleter,
-        SetCompleter,
-        SlashCompleter,
-    )
-    from code_puppy.command_line.skills_completion import SkillsCompleter
-
-    return merge_completers(
-        [
-            FilePathCompleter(symbol="@"),
-            ModelNameCompleter(trigger="/model"),
-            ModelNameCompleter(trigger="/m"),
-            CDCompleter(trigger="/cd"),
-            SetCompleter(trigger="/set"),
-            LoadContextCompleter(trigger="/load_context"),
-            PinCompleter(trigger="/pin_model"),
-            UnpinCompleter(trigger="/unpin"),
-            AgentCompleter(trigger="/agent"),
-            AgentCompleter(trigger="/a"),
-            AgentCompleter(trigger="/switch-agent"),
-            AgentCompleter(trigger="/sa"),
-            AgentCompleter(trigger="/fork", prefix="@"),
-            ModelNameCompleter(trigger="/fork", prefix="@"),
-            MCPCompleter(trigger="/mcp"),
-            SkillsCompleter(trigger="/skills"),
-            *get_completion_providers(),
-            SlashCompleter(),
-        ]
-    )
+    return build_completer_stack()
 
 
 def query_completions(completer, text: str, cursor: int) -> List["Item"]:
     """Synchronously run the completer stack against (text, cursor)."""
-    from prompt_toolkit.completion import CompleteEvent
-    from prompt_toolkit.document import Document
+    from termflow.tui.completion import CompleteEvent, Document
 
     document = Document(text=text, cursor_position=cursor)
     items: List[Item] = []

@@ -10,10 +10,12 @@ Key guarantees
 
 from __future__ import annotations
 
+import asyncio
 import difflib
 import json
 import os
 import traceback
+from pathlib import Path
 from code_puppy.undo_manager import UndoManager
 import warnings
 from typing import Annotated, Any, Dict, List, Union
@@ -32,7 +34,6 @@ from code_puppy.messaging import (  # Structured messaging types
 )
 from code_puppy.tools import fs_access
 from code_puppy.tools.common import (
-    _find_best_window,
     generate_group_id,
     resolve_path,
     write_project_file,
@@ -43,6 +44,189 @@ from code_puppy.tools.file_permission_state import (
     get_last_user_feedback,
     was_diff_already_shown,
 )
+
+
+# --- Claude Code Edit-tool parity helpers -----------------------------------
+# Ported 1:1 from Claude Code's FileEditTool (leaked source: utils.ts /
+# FileEditTool.ts validateInput). Claude cannot emit curly quotes, so the
+# harness matches old_string against a quote-normalized view of the file and
+# then re-applies the file's typography to new_string.
+
+_LEFT_SINGLE_CURLY_QUOTE = "\u2018"
+_RIGHT_SINGLE_CURLY_QUOTE = "\u2019"
+_LEFT_DOUBLE_CURLY_QUOTE = "\u201c"
+_RIGHT_DOUBLE_CURLY_QUOTE = "\u201d"
+
+
+def _normalize_quotes(text: str) -> str:
+    """Convert curly quotes to straight quotes (Claude Code normalizeQuotes)."""
+    return (
+        text.replace(_LEFT_SINGLE_CURLY_QUOTE, "'")
+        .replace(_RIGHT_SINGLE_CURLY_QUOTE, "'")
+        .replace(_LEFT_DOUBLE_CURLY_QUOTE, '"')
+        .replace(_RIGHT_DOUBLE_CURLY_QUOTE, '"')
+    )
+
+
+def _find_actual_string(file_content: str, search_string: str) -> str | None:
+    """Find the actual substring of ``file_content`` matching ``search_string``.
+
+    Exact match first, then a curly-quote-normalized match that returns the
+    file's own bytes (Claude Code findActualString).
+    """
+    if search_string in file_content:
+        return search_string
+    normalized_search = _normalize_quotes(search_string)
+    normalized_file = _normalize_quotes(file_content)
+    search_index = normalized_file.find(normalized_search)
+    if search_index != -1:
+        return file_content[search_index : search_index + len(search_string)]
+    return None
+
+
+def _is_opening_context(chars: list[str], index: int) -> bool:
+    if index == 0:
+        return True
+    prev = chars[index - 1]
+    return prev in (" ", "\t", "\n", "\r", "(", "[", "{", "\u2014", "\u2013")
+
+
+def _apply_curly_double_quotes(text: str) -> str:
+    chars = list(text)
+    result: list[str] = []
+    for i, ch in enumerate(chars):
+        if ch == '"':
+            result.append(
+                _LEFT_DOUBLE_CURLY_QUOTE
+                if _is_opening_context(chars, i)
+                else _RIGHT_DOUBLE_CURLY_QUOTE
+            )
+        else:
+            result.append(ch)
+    return "".join(result)
+
+
+def _apply_curly_single_quotes(text: str) -> str:
+    chars = list(text)
+    result: list[str] = []
+    for i, ch in enumerate(chars):
+        if ch == "'":
+            prev = chars[i - 1] if i > 0 else None
+            nxt = chars[i + 1] if i < len(chars) - 1 else None
+            # An apostrophe between two letters is a contraction, not a quote.
+            if (
+                prev is not None
+                and nxt is not None
+                and prev.isalpha()
+                and nxt.isalpha()
+            ):
+                result.append(_RIGHT_SINGLE_CURLY_QUOTE)
+            else:
+                result.append(
+                    _LEFT_SINGLE_CURLY_QUOTE
+                    if _is_opening_context(chars, i)
+                    else _RIGHT_SINGLE_CURLY_QUOTE
+                )
+        else:
+            result.append(ch)
+    return "".join(result)
+
+
+def _preserve_quote_style(
+    old_string: str, actual_old_string: str, new_string: str
+) -> str:
+    """Re-apply the file's curly-quote typography to ``new_string``.
+
+    Only active when ``old_string`` matched via quote normalization
+    (Claude Code preserveQuoteStyle).
+    """
+    if old_string == actual_old_string:
+        return new_string
+    has_double = (
+        _LEFT_DOUBLE_CURLY_QUOTE in actual_old_string
+        or _RIGHT_DOUBLE_CURLY_QUOTE in actual_old_string
+    )
+    has_single = (
+        _LEFT_SINGLE_CURLY_QUOTE in actual_old_string
+        or _RIGHT_SINGLE_CURLY_QUOTE in actual_old_string
+    )
+    if not has_double and not has_single:
+        return new_string
+    result = new_string
+    if has_double:
+        result = _apply_curly_double_quotes(result)
+    if has_single:
+        result = _apply_curly_single_quotes(result)
+    return result
+
+
+def _split_existing(path: Path) -> tuple[Path, tuple[str, ...]]:
+    """Deepest existing ancestor of *path*, plus the missing trailing names."""
+    missing: list[str] = []
+    current = path
+    while True:
+        if current.exists():
+            return current.resolve(), tuple(reversed(missing))
+        parent = current.parent
+        if parent == current:
+            return current, tuple(reversed(missing))
+        missing.append(current.name)
+        current = parent
+
+
+def _casefold_has_prefix(parts: tuple[str, ...], prefix: tuple[str, ...]) -> bool:
+    if len(parts) < len(prefix):
+        return False
+    return all(a.casefold() == b.casefold() for a, b in zip(prefix, parts))
+
+
+def _is_inside_user_plugin_root(target: Path, root: Path) -> bool:
+    """Containment that survives APFS case-folding. ``Path.resolve`` does not."""
+    target_existing, target_rest = _split_existing(target)
+    root_existing, root_rest = _split_existing(root)
+
+    if os.path.samefile(target_existing, root_existing):
+        return _casefold_has_prefix(target_rest, root_rest)
+
+    current = target_existing
+    while True:
+        if os.path.samefile(current, root_existing):
+            return not root_rest
+        parent = current.parent
+        if parent == current:
+            return False
+        current = parent
+
+
+def _is_user_plugin_tree_path(file_path: str) -> bool:
+    """True if *file_path* is inside ``~/.code_puppy/plugins``.
+
+    That tree is imported at the next process start with no trust ceremony.
+    File tools must not plant ``register_callbacks.py`` there.
+    Canonicalization errors fail closed (treated as inside).
+    """
+    from code_puppy.plugins import USER_PLUGINS_DIR
+
+    try:
+        resolved = Path(resolve_path(file_path)).resolve()
+        root = Path(USER_PLUGINS_DIR).expanduser().resolve()
+        return _is_inside_user_plugin_root(resolved, root)
+    except (OSError, RuntimeError, ValueError):
+        return True
+
+
+def _refuse_user_plugin_tree(file_path: str) -> Dict[str, Any] | None:
+    if not _is_user_plugin_tree_path(file_path):
+        return None
+    return {
+        "success": False,
+        "path": file_path,
+        "message": (
+            "Refused: file tools cannot modify ~/.code_puppy/plugins. "
+            "That directory is imported at startup."
+        ),
+        "changed": False,
+    }
 
 
 def _permission_denied(permission_results: List[Any]) -> bool:
@@ -264,6 +448,65 @@ def _delete_snippet_from_file(
         return {"error": str(exc), "diff": diff_text}
 
 
+def apply_replacements_to_content(
+    content: str, replacements: List[Dict[str, Any]]
+) -> Dict[str, Any]:
+    """Apply Claude Code-parity replacements to ``content`` (pure, no I/O).
+
+    Returns ``{"content": new_content}`` on success or ``{"error": message}``
+    using Claude Code's verbatim FileEditTool error strings. This is the
+    single source of truth for replacement semantics: the ``edit`` /
+    ``replace_in_file`` tools and permission-preview rendering (e.g. the
+    ``file_permission_handler`` core plugin) must all go through it so a
+    preview always shows exactly what the engine will do.
+    """
+    modified = content
+    for rep in replacements:
+        old_snippet = rep.get("old_str", "")
+        new_snippet = rep.get("new_str", "")
+        replace_all = bool(rep.get("replace_all", False))
+
+        # Claude Code FileEditTool.validateInput parity: refuse no-op
+        # edits, unmatched strings, and ambiguous matches instead of
+        # guessing (silent wrong-location edits) or fuzzy-matching.
+        if old_snippet == new_snippet:
+            return {
+                "error": (
+                    "No changes to make: old_string and new_string are "
+                    "exactly the same."
+                )
+            }
+
+        actual_old = _find_actual_string(modified, old_snippet) if old_snippet else None
+        if actual_old is None:
+            return {
+                "error": (
+                    f"String to replace not found in file.\nString: {old_snippet}"
+                )
+            }
+
+        matches = modified.count(actual_old)
+        if matches > 1 and not replace_all:
+            return {
+                "error": (
+                    f"Found {matches} matches of the string to replace, "
+                    "but replace_all is false. To replace all occurrences, "
+                    "set replace_all to true. To replace only one "
+                    "occurrence, please provide more context to uniquely "
+                    "identify the instance.\n"
+                    f"String: {old_snippet}"
+                )
+            }
+
+        actual_new = _preserve_quote_style(old_snippet, actual_old, new_snippet)
+        if replace_all:
+            modified = modified.replace(actual_old, actual_new)
+        else:
+            modified = modified.replace(actual_old, actual_new, 1)
+
+    return {"content": modified}
+
+
 def _replace_in_file(
     context: RunContext | None,
     path: str,
@@ -288,39 +531,10 @@ def _replace_in_file(
         except (UnicodeEncodeError, UnicodeDecodeError):
             pass
 
-        modified = original
-        for rep in replacements:
-            old_snippet = rep.get("old_str", "")
-            new_snippet = rep.get("new_str", "")
-
-            if old_snippet and old_snippet in modified:
-                modified = modified.replace(old_snippet, new_snippet, 1)
-                continue
-
-            had_trailing_newline = modified.endswith("\n")
-            orig_lines = modified.splitlines()
-            loc, score = _find_best_window(orig_lines, old_snippet)
-
-            if score < 0.95 or loc is None:
-                return {
-                    "error": "No suitable match in file (JW < 0.95)",
-                    "jw_score": score,
-                    "received": old_snippet,
-                    "diff": "",
-                }
-
-            start, end = loc
-            prefix = "\n".join(orig_lines[:start])
-            suffix = "\n".join(orig_lines[end:])
-            parts = []
-            if prefix:
-                parts.append(prefix)
-            parts.append(new_snippet.rstrip("\n"))
-            if suffix:
-                parts.append(suffix)
-            modified = "\n".join(parts)
-            if had_trailing_newline and not modified.endswith("\n"):
-                modified += "\n"
+        engine_result = apply_replacements_to_content(original, replacements)
+        if "error" in engine_result:
+            return {"error": engine_result["error"], "diff": ""}
+        modified = engine_result["content"]
 
         if modified == original:
             emit_warning(
@@ -424,6 +638,9 @@ def _write_to_file(
 def delete_snippet_from_file(
     context: RunContext, file_path: str, snippet: str, message_group: str | None = None
 ) -> Dict[str, Any]:
+    refused = _refuse_user_plugin_tree(file_path)
+    if refused is not None:
+        return refused
     # Use the plugin system for permission handling with operation data
     from code_puppy.callbacks import on_file_permission
 
@@ -452,6 +669,9 @@ def write_to_file(
     overwrite: bool,
     message_group: str | None = None,
 ) -> Dict[str, Any]:
+    refused = _refuse_user_plugin_tree(path)
+    if refused is not None:
+        return refused
     # Use the plugin system for permission handling with operation data
     from code_puppy.callbacks import on_file_permission
 
@@ -481,6 +701,9 @@ def replace_in_file(
     replacements: List[Dict[str, str]],
     message_group: str | None = None,
 ) -> Dict[str, Any]:
+    refused = _refuse_user_plugin_tree(path)
+    if refused is not None:
+        return refused
     # Use the plugin system for permission handling with operation data
     from code_puppy.callbacks import on_file_permission
 
@@ -504,6 +727,9 @@ async def delete_snippet_from_file_async(
     context: RunContext, file_path: str, snippet: str, message_group: str | None = None
 ) -> Dict[str, Any]:
     """Async permission-aware variant of ``delete_snippet_from_file``."""
+    refused = _refuse_user_plugin_tree(file_path)
+    if refused is not None:
+        return refused
     from code_puppy.callbacks import on_file_permission_async
 
     operation_data = {"snippet": snippet}
@@ -513,8 +739,12 @@ async def delete_snippet_from_file_async(
     if _permission_denied(permission_results):
         return _create_rejection_response(file_path)
 
-    res = _delete_snippet_from_file(
-        context, file_path, snippet, message_group=message_group
+    res = await asyncio.to_thread(
+        _delete_snippet_from_file,
+        context,
+        file_path,
+        snippet,
+        message_group=message_group,
     )
     diff = res.get("diff", "")
     if diff:
@@ -530,6 +760,9 @@ async def write_to_file_async(
     message_group: str | None = None,
 ) -> Dict[str, Any]:
     """Async permission-aware variant of ``write_to_file``."""
+    refused = _refuse_user_plugin_tree(path)
+    if refused is not None:
+        return refused
     from code_puppy.callbacks import on_file_permission_async
 
     operation_data = {"content": content, "overwrite": overwrite}
@@ -539,8 +772,13 @@ async def write_to_file_async(
     if _permission_denied(permission_results):
         return _create_rejection_response(path)
 
-    res = _write_to_file(
-        context, path, content, overwrite=overwrite, message_group=message_group
+    res = await asyncio.to_thread(
+        _write_to_file,
+        context,
+        path,
+        content,
+        overwrite=overwrite,
+        message_group=message_group,
     )
     diff = res.get("diff", "")
     if diff:
@@ -556,6 +794,9 @@ async def replace_in_file_async(
     message_group: str | None = None,
 ) -> Dict[str, Any]:
     """Async permission-aware variant of ``replace_in_file``."""
+    refused = _refuse_user_plugin_tree(path)
+    if refused is not None:
+        return refused
     from code_puppy.callbacks import on_file_permission_async
 
     operation_data = {"replacements": replacements}
@@ -565,7 +806,13 @@ async def replace_in_file_async(
     if _permission_denied(permission_results):
         return _create_rejection_response(path)
 
-    res = _replace_in_file(context, path, replacements, message_group=message_group)
+    res = await asyncio.to_thread(
+        _replace_in_file,
+        context,
+        path,
+        replacements,
+        message_group=message_group,
+    )
     diff = res.get("diff", "")
     if diff:
         _emit_diff_message(path, "modify", diff)
@@ -726,6 +973,9 @@ async def _edit_file_async(
 def _delete_file(
     context: RunContext, file_path: str, message_group: str | None = None
 ) -> Dict[str, Any]:
+    refused = _refuse_user_plugin_tree(file_path)
+    if refused is not None:
+        return refused
     UndoManager().record_change(file_path, "delete_file")
     file_path = resolve_path(file_path)
 
@@ -786,6 +1036,9 @@ async def _delete_file_async(
     context: RunContext, file_path: str, message_group: str | None = None
 ) -> Dict[str, Any]:
     """Async permission-aware variant of ``_delete_file``."""
+    refused = _refuse_user_plugin_tree(file_path)
+    if refused is not None:
+        return refused
     file_path = resolve_path(file_path)
 
     from code_puppy.callbacks import on_file_permission_async
@@ -797,10 +1050,11 @@ async def _delete_file_async(
     if _permission_denied(permission_results):
         return _create_rejection_response(file_path)
 
-    try:
-        if not fs_access.exists(file_path) or not fs_access.is_file(file_path):
-            res = {"error": f"File '{file_path}' does not exist.", "diff": ""}
-        else:
+    def _delete() -> Dict[str, Any]:
+        try:
+            if not fs_access.exists(file_path) or not fs_access.is_file(file_path):
+                return {"error": f"File '{file_path}' does not exist.", "diff": ""}
+
             original = fs_access.read_text(file_path)
             try:
                 original = original.encode("utf-8", errors="surrogatepass").decode(
@@ -820,16 +1074,18 @@ async def _delete_file_async(
                 )
             )
             fs_access.delete_file(file_path)
-            res = {
+            return {
                 "success": True,
                 "path": file_path,
                 "message": f"File '{file_path}' deleted successfully.",
                 "changed": True,
                 "diff": diff_text,
             }
-    except Exception as exc:
-        _log_error("Unhandled exception in delete_file", exc)
-        res = {"error": str(exc), "diff": ""}
+        except Exception as exc:
+            _log_error("Unhandled exception in delete_file", exc)
+            return {"error": str(exc), "diff": ""}
+
+    res = await asyncio.to_thread(_delete)
 
     diff = res.get("diff", "")
     if diff:
@@ -1035,11 +1291,10 @@ RepairableReplacementsList = Annotated[
 ]
 
 
-def register_replace_in_file(agent):
-    """Register the replace_in_file tool for targeted text replacements."""
+def _register_targeted_edit(agent, exposed_name: str):
+    """Register the targeted replacement implementation under a public name."""
 
-    @agent.tool
-    async def replace_in_file(
+    async def targeted_edit(
         context: RunContext,
         file_path: str,
         replacements: RepairableReplacementsList,
@@ -1074,7 +1329,13 @@ def register_replace_in_file(agent):
                             f"both 'old_str' and 'new_str'."
                         )
                     }
-                normalized.append({"old_str": r["old_str"], "new_str": r["new_str"]})
+                normalized.append(
+                    {
+                        "old_str": r["old_str"],
+                        "new_str": r["new_str"],
+                        "replace_all": bool(r.get("replace_all", False)),
+                    }
+                )
 
             result = await _replace_in_file_helper(
                 context, file_path, normalized, message_group=group_id
@@ -1101,11 +1362,82 @@ def register_replace_in_file(agent):
         except Exception as exc:
             # Last line of defense — never let this tool crash the agent run.
             _log_error(
-                "Unhandled exception in replace_in_file",
+                f"Unhandled exception in {exposed_name}",
                 exc,
                 message_group=group_id,
             )
-            return {"error": f"replace_in_file failed: {exc}"}
+            return {"error": f"{exposed_name} failed: {exc}"}
+
+    targeted_edit.__name__ = exposed_name
+    return agent.tool(targeted_edit)
+
+
+def register_claude_edit(agent):
+    """Register the Claude Code-compatible ``edit`` tool.
+
+    Schema is 1:1 with the tool Claude models are trained on
+    (``Edit``: file_path, old_string, new_string, replace_all) so the model
+    can emit its native edit dialect without translation.
+    """
+
+    @agent.tool
+    async def edit(
+        context: RunContext,
+        file_path: str,
+        old_string: str,
+        new_string: str,
+        replace_all: bool = False,
+    ) -> Dict[str, Any]:
+        """Performs exact string replacements in files.
+
+        The edit will FAIL if `old_string` is not unique in the file. Either
+        provide a larger string with more surrounding context to make it
+        unique or use `replace_all` to change every instance of `old_string`.
+        Use `replace_all` for replacing and renaming strings across the file.
+        """
+        group_id = generate_group_id("edit", file_path)
+        try:
+            normalized = [
+                {
+                    "old_str": old_string,
+                    "new_str": new_string,
+                    "replace_all": bool(replace_all),
+                }
+            ]
+            result = await _replace_in_file_helper(
+                context, file_path, normalized, message_group=group_id
+            )
+            if "diff" in result:
+                del result["diff"]
+
+            # Trigger legacy edit_file callbacks for backward compatibility
+            payload = ReplacementsPayload(
+                file_path=file_path,
+                replacements=[Replacement(old_str=old_string, new_str=new_string)],
+            )
+            enhanced_results = on_edit_file(context, result, payload)
+            if enhanced_results:
+                for enhanced_result in enhanced_results:
+                    if enhanced_result is not None:
+                        result = enhanced_result
+                        break
+
+            return result
+        except Exception as exc:
+            # Last line of defense — never let this tool crash the agent run.
+            _log_error(
+                "Unhandled exception in edit",
+                exc,
+                message_group=group_id,
+            )
+            return {"error": f"edit failed: {exc}"}
+
+    return edit
+
+
+def register_replace_in_file(agent):
+    """Register the legacy ``replace_in_file`` compatibility tool."""
+    return _register_targeted_edit(agent, "replace_in_file")
 
 
 def register_delete_snippet(agent):
