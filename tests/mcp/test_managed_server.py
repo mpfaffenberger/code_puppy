@@ -414,6 +414,27 @@ class TestCreateServerSSE:
         assert mock_transport.call_args.kwargs["httpx_client_factory"] is None
 
 
+class TestToolErrorsAreNotFatal:
+    """A failing MCP tool must degrade the turn, never end the session.
+
+    Under the default ``"retry"``, exhausting the budget raises
+    ``UnexpectedModelBehavior`` — not an ``McpError``, so it reaches the
+    generic handler and aborts the run.
+    """
+
+    def test_sse_marks_tool_errors_failed(self):
+        _, mock_toolset, _ = _sse()
+        assert mock_toolset.call_args.kwargs["tool_error_behavior"] == "failed"
+
+    def test_http_marks_tool_errors_failed(self):
+        _, mock_toolset, _ = _http()
+        assert mock_toolset.call_args.kwargs["tool_error_behavior"] == "failed"
+
+    def test_stdio_marks_tool_errors_failed(self):
+        _, _, mock_cls = _stdio()
+        assert mock_cls.call_args.kwargs["tool_error_behavior"] == "failed"
+
+
 class TestCreateServerStdio:
     def test_requires_command(self):
         server = ManagedMCPServer(
