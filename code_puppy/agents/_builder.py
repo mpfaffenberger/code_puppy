@@ -700,14 +700,8 @@ def build_pydantic_agent(
         mcp_servers, existing_tool_names
     )
 
-    # Extension seam: let a BaseAgent subclass post-process the resolved MCP
-    # toolsets (e.g. wrap/filter/replace) before the final agent is built.
-    # Default implementation is a no-op identity transform. Fails open on a
-    # RAISING override: falls back to the original filtered list rather than
-    # crashing agent construction. NOTE: fail-open means this seam is not a
-    # safe place to enforce security-sensitive gating -- a raising gate
-    # override degrades to "no gate" rather than "deny all". See
-    # ``BaseAgent.transform_mcp_toolsets``.
+    # Extension seam; see BaseAgent.transform_mcp_toolsets for the contract
+    # (fails open on raise/bad return type -- not safe for security gating).
     final_mcp_servers = filtered_mcp_servers
     try:
         transformed = agent.transform_mcp_toolsets(filtered_mcp_servers)

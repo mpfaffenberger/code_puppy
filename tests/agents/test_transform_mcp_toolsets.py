@@ -95,16 +95,9 @@ def test_default_build_uses_unmodified_toolsets():
 
 
 def test_override_invoked_once_and_result_used_for_construction():
-    """An override's return value drives both the agent and lifecycle list.
-
-    The override must receive the *post-filter* toolset list (whatever
-    ``filter_conflicting_mcp_tools`` produced), not the raw pre-filter
-    ``mcp_servers`` the loader returned -- so this patches the filter step
-    to return a distinct sentinel object and asserts the seam saw exactly
-    that sentinel, by identity.
-    """
+    """Override receives the post-filter list, not the raw mcp_servers."""
     original = [FunctionToolset()]
-    filtered_sentinel = [FunctionToolset()]  # distinct object from `original`
+    filtered_sentinel = [FunctionToolset()]  # distinct object, asserted by identity
     replacement = [FunctionToolset(), FunctionToolset()]
     calls = []
 
