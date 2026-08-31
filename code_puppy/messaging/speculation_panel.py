@@ -6,7 +6,8 @@ would have used, and renders the speculation lifecycle from the run's typed
 ``code_mode.*`` capability events:
 
 * the decoded snippet appears as it streams -- closed statements are syntax
-  highlighted, the still-open tail stays dim grey;
+  highlighted (dimmed, so the markers carry the emphasis), the still-open
+  tail stays dim grey;
 * every speculative launch gets a gutter clock next to its statement's lines,
   ticking while the call runs ahead of the model's own writing;
 * when the launch settles the clock freezes (ready or failed, with latency);
@@ -363,6 +364,10 @@ class SpeculationPanel:
         if cache is not None and cache[0] == self._code:
             return cache[1]
         highlighted = Syntax("", "python", theme="ansi_dark").highlight(self._code)
+        # Dim layered over the token colors: the snippet should read as ambient
+        # activity next to the bright launch/outcome markers, not compete with
+        # them. Hue still distinguishes keywords and strings, just muted.
+        highlighted.stylize("dim")
         highlighted.rstrip()
         lines = highlighted.split("\n")
         self._highlight_cache = (self._code, lines)

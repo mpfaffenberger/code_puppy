@@ -444,3 +444,16 @@ class TestEagerCommitReveal:
         )
         panel.finalize()
         assert "eager ran 2 stmts during generation (0.0s hidden)" in console.export_text()
+
+
+class TestDimmedCode:
+    def test_highlighted_code_renders_dim(self):
+        """The snippet stays dim even when syntax highlighted; markers carry
+        the emphasis."""
+        panel = SpeculationPanel()
+        console = Console(record=True, width=120, force_terminal=True)
+        panel.handle_event(_update(CODE, 2), console)
+        panel.finalize()
+        ansi = console.export_text(styles=True)
+        code_lines = [line for line in ansi.split("\n") if "await" in line]
+        assert code_lines and all("\x1b[2" in line for line in code_lines)
