@@ -648,7 +648,7 @@ def _collect_exceptions(
 
 
 # Depth of in-flight ``run_with_mcp`` calls (main-loop-thread-only, so a
-# plain int is race-free). Depth > 0 = NESTED run (e.g. shell_safety): those
+# plain int is race-free). Depth > 0 = NESTED run (e.g. auto_continue): those
 # must NOT touch process-wide interactive state — PauseController (would
 # drain the user's queued steers!), SIGINT handler, shell cancel bridge, or
 # the key-listener cancel hotkey.

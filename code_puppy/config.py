@@ -1464,22 +1464,6 @@ def get_yolo_mode() -> bool:
     return get_truthy_bool_value("yolo_mode", True)
 
 
-def get_safety_permission_level():
-    """
-    Checks puppy.cfg for 'safety_permission_level' (case-insensitive in value only).
-    Defaults to 'high' if not set.
-    Allowed values: 'none', 'low', 'medium', 'high', 'critical' (all case-insensitive for value).
-    Returns the normalized lowercase string.
-    """
-    valid_levels = {"none", "low", "medium", "high", "critical"}
-    cfg_val = get_value("safety_permission_level")
-    if cfg_val is not None:
-        normalized = str(cfg_val).strip().lower()
-        if normalized in valid_levels:
-            return normalized
-    return "high"  # Default to high risk threshold
-
-
 def get_mcp_disabled():
     """
     Checks puppy.cfg for 'disable_mcp' (case-insensitive in value only).

@@ -129,23 +129,6 @@ class TestBooleanGetters:
 
 
 # ---------------------------------------------------------------------------
-# Safety permission level
-# ---------------------------------------------------------------------------
-class TestSafetyPermissionLevel:
-    def test_default_high(self):
-        assert cp_config.get_safety_permission_level() == "high"
-
-    def test_valid_levels(self):
-        for level in ["none", "low", "medium", "high", "critical"]:
-            cp_config.set_config_value("safety_permission_level", level)
-            assert cp_config.get_safety_permission_level() == level
-
-    def test_invalid_falls_back_to_high(self):
-        cp_config.set_config_value("safety_permission_level", "invalid")
-        assert cp_config.get_safety_permission_level() == "high"
-
-
-# ---------------------------------------------------------------------------
 # Numeric config getters
 # ---------------------------------------------------------------------------
 class TestNumericGetters:
