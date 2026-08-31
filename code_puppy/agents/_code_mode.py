@@ -84,6 +84,11 @@ def build_speculative_code_mode(agent: Any, agent_tools: Sequence[str]) -> List[
         CodeMode(
             tools="all",
             speculate=speculate,
+            # Composed tiers: eager runs each streamed statement in the live REPL as it
+            # closes (a blocking shell command starts mid-generation), while speculation
+            # launches the read-only calls beyond the execution frontier and the eager
+            # feeds claim them.
+            eager=True,
             # The workspace under its real path, so absolute paths in
             # prompts and snippets need no translation.
             mount=MountDir(
