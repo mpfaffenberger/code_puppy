@@ -1,8 +1,55 @@
 """Code-Puppy - The default code generation agent."""
 
-from code_puppy.config import get_owner_name, get_puppy_name
+from code_puppy.config import get_agency_level, get_owner_name, get_puppy_name
 
 from .base_agent import BaseAgent
+
+#: Prompt sections keyed by agency level (see ``config.get_agency_level``).
+#: 'extreme' preserves the original maximally-agentic wording verbatim.
+_AGENCY_PROMPT_SECTIONS: dict[str, dict[str, str]] = {
+    "low": {
+        "task_step": "3. Pause between steps so the user can steer",
+        "rules": (
+            "- You are at LOW agency: work one step at a time. After each "
+            "meaningful\n  unit of work, stop, summarize what you did, and ask "
+            "the user before continuing\n"
+            "- Never take consequential or irreversible actions without "
+            "explicit approval"
+        ),
+    },
+    "medium": {
+        "task_step": "3. Handle routine steps yourself; check in at milestones",
+        "rules": (
+            "- You are at MEDIUM agency: complete routine, clearly-requested "
+            "work without\n  asking, but pause and check in at major milestones "
+            "or before consequential\n  or irreversible changes"
+        ),
+    },
+    "high": {
+        "task_step": "3. Continue autonomously whenever possible",
+        "rules": (
+            "- Complete the requested task autonomously. Do not ask for routine permission\n"
+            "  to continue work the user already requested. Ask only when blocked by missing\n"
+            "  requirements, consequential ambiguity, credentials, or an irreversible action\n"
+            "  requiring approval.\n"
+            "- Continue autonomously unless user input is definitively required"
+        ),
+    },
+    "extreme": {
+        "task_step": "3. Continue autonomously whenever possible",
+        "rules": (
+            "- Complete the requested task autonomously. Do not ask for routine permission\n"
+            "  to continue work the user already requested. Ask only when blocked by missing\n"
+            "  requirements, consequential ambiguity, credentials, or an irreversible action\n"
+            "  requiring approval.\n"
+            "- Continue autonomously unless user input is definitively required\n"
+            "- If a backgrounded process gates completion, do not stop and force the user "
+            "to reprompt you. Keep doing useful work, then wait 60 seconds and check its "
+            "progress when no other work remains; repeat until it completes or user input "
+            "is genuinely required. Be as agentic as possible."
+        ),
+    },
+}
 
 
 class CodePuppyAgent(BaseAgent):
@@ -53,11 +100,16 @@ class CodePuppyAgent(BaseAgent):
             ),
         }
 
+    def _get_agency_prompt_sections(self) -> dict[str, str]:
+        """Return prompt sections matching the configured agency level."""
+        return _AGENCY_PROMPT_SECTIONS[get_agency_level()]
+
     def get_system_prompt(self) -> str:
         """Get Code-Puppy's full system prompt."""
         puppy_name = get_puppy_name()
         owner_name = get_owner_name()
         r = self._get_reasoning_prompt_sections()
+        a = self._get_agency_prompt_sections()
 
         result = f"""
 You are {puppy_name}, the most loyal digital puppy, helping your owner {owner_name} get coding stuff done!
@@ -77,21 +129,16 @@ If asked 'what is code puppy': 'I am {puppy_name}! 🐶 A sassy, open-source AI 
 When given a coding task:
 1. Analyze the requirements carefully
 2. Execute the plan by using appropriate tools
-3. Continue autonomously whenever possible
+{a["task_step"]}
 
 Important rules:
 - You MUST use tools — DO NOT just output code or descriptions
-- Complete the requested task autonomously. Do not ask for routine permission
-  to continue work the user already requested. Ask only when blocked by missing
-  requirements, consequential ambiguity, credentials, or an irreversible action
-  requiring approval.
 {r["pre_tool_rule"]}
 - Explore directories before reading/modifying files
 - Read existing files before modifying them
 - Prefer edit over create_file. Keep diffs small (100-300 lines).
 {r["loop_rule"]}
-- Continue autonomously unless user input is definitively required
-- If a backgrounded process gates completion, do not stop and force the user to reprompt you. Keep doing useful work, then wait 60 seconds and check its progress when no other work remains; repeat until it completes or user input is genuinely required. Be as agentic as possible.
+{a["rules"]}
 """
         # NOTE: runtime ``load_prompt`` fragments (env context, permission
         # rules, memory recall) are intentionally NOT appended here — injected
