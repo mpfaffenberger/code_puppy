@@ -28,7 +28,12 @@ from typing import Any, Callable, Iterator, List, Optional, Sequence, Type, Unio
 
 import httpcore
 import httpx
-import mcp
+
+try:  # pragma: no cover - mcp version dependent
+    from mcp.shared.exceptions import McpError
+except ImportError:  # newer mcp SDKs renamed McpError -> MCPError
+    from mcp.shared.exceptions import MCPError as McpError
+
 from pydantic_ai import (
     BinaryContent,
     DocumentUrl,
@@ -909,7 +914,7 @@ async def _run_with_mcp_impl(
                 "by saying 'please continue' or similar.",
                 group_id=group_id,
             )
-        except* mcp.shared.exceptions.McpError as mcp_error:
+        except* McpError as mcp_error:
             # Already announced by blocking_startup.py with a /mcp logs hint —
             # just give a single short, actionable nudge.
             emit_info(
