@@ -1487,7 +1487,8 @@ def get_agency_level() -> str:
     """
     Checks puppy.cfg for 'agency_level' (case-insensitive in value only).
     Allowed values: 'low', 'medium', 'high', 'extreme'.
-    Defaults to 'extreme' if not set or invalid.
+    Defaults to 'high' if not set or invalid: fully autonomous on requested
+    work, without the relentless background-process vigil of 'extreme'.
 
     Headless (``-p``) runs always report 'extreme' no matter what the config
     says — there is nobody at the keyboard to answer check-ins, so anything
@@ -1502,7 +1503,7 @@ def get_agency_level() -> str:
         normalized = str(cfg_val).strip().lower()
         if normalized in AGENCY_LEVELS:
             return normalized
-    return "extreme"
+    return "high"
 
 
 def get_mcp_disabled():

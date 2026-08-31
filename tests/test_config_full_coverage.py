@@ -137,8 +137,8 @@ class TestAgencyLevel:
         """Other tests may exercise the -p path, leaking the sticky flag."""
         monkeypatch.setattr(cp_config, "_headless_mode", False)
 
-    def test_default_extreme(self):
-        assert cp_config.get_agency_level() == "extreme"
+    def test_default_high(self):
+        assert cp_config.get_agency_level() == "high"
 
     def test_valid_levels(self):
         for level in cp_config.AGENCY_LEVELS:
@@ -149,9 +149,9 @@ class TestAgencyLevel:
         cp_config.set_config_value("agency_level", "  MeDiUm ")
         assert cp_config.get_agency_level() == "medium"
 
-    def test_invalid_falls_back_to_extreme(self):
+    def test_invalid_falls_back_to_high(self):
         cp_config.set_config_value("agency_level", "ludicrous")
-        assert cp_config.get_agency_level() == "extreme"
+        assert cp_config.get_agency_level() == "high"
 
     def test_headless_forces_extreme(self, monkeypatch):
         cp_config.set_config_value("agency_level", "low")
