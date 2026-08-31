@@ -1,11 +1,4 @@
-"""Tests for the append-only termflow speculation record.
-
-The panel's contract is chronological and write-once: code lines print when
-their statement closes and are never repainted, outcome lines append as their
-events arrive, and the session line closes each cycle. Assertions read the
-recorded console transcript, which doubles as proof there is no frame
-repainting for a Live region to flicker over.
-"""
+"""Tests for the live speculative CodeMode panel (`messaging.speculation_panel`)."""
 
 from __future__ import annotations
 
@@ -31,7 +24,7 @@ CODE = 'a = await grep(search_string="Speculation")\nb = await read_file(file_pa
 
 
 def _console() -> Console:
-    return Console(record=True, width=120, force_terminal=False)
+    return Console(record=True, width=100, force_terminal=False)
 
 
 def _update(code: str, closed: int) -> SpeculativeCodeUpdateEvent:
@@ -51,7 +44,6 @@ def _launch(
         arguments={"search_string": "Speculation"},
         line_start=line,
         line_end=line,
-        phase="streaming",
     )
 
 
@@ -87,69 +79,10 @@ class TestSpeculationPanelLifecycle:
         assert not panel.handle_event(object(), _console())
         assert not panel.active
 
-    def test_finalize_when_idle_is_a_no_op(self):
+    def test_launch_settle_claim_reveal(self):
         panel = SpeculationPanel()
         console = _console()
-        panel.finalize()
-        assert console.export_text() == ""
 
-    def test_stream_end_finalizes_a_streaming_cycle(self):
-        panel = SpeculationPanel()
-        console = _console()
-        panel.handle_event(_update(CODE, 1), console)
-        panel.on_stream_end()
-        assert not panel.active
-        assert "speculation this session" in console.export_text()
-
-    def test_stream_end_keeps_an_executing_cycle_alive(self):
-        """Outcome events flush in a later handler invocation; the gap must not
-        finalize the cycle out from under them."""
-        panel = SpeculationPanel()
-        console = _console()
-        panel.handle_event(_update(CODE, 1), console)
-        panel.on_part_end()
-        panel.on_stream_end()
-        assert panel.active
-        panel.finalize()
-
-
-class TestAppendOnlyCode:
-    def test_closed_lines_print_once_and_are_never_repainted(self):
-        """The flicker cure is structural: a printed line is never touched again."""
-        panel = SpeculationPanel()
-        console = _console()
-        panel.handle_event(_update(CODE, 1), console)
-        panel.handle_event(_update(CODE, 1), console)
-        panel.handle_event(_update(CODE, 2), console)
-        panel.finalize()
-        text = console.export_text()
-        assert text.count('a = await grep(search_string="Speculation")') == 1
-        assert text.count('b = await read_file(file_path="x.py")') == 1
-
-    def test_open_tail_stays_unprinted_until_part_end(self):
-        panel = SpeculationPanel()
-        console = _console()
-        panel.handle_event(_update(CODE, 2), console)
-        assert "print(a, b" not in console.export_text()
-
-        panel.on_part_end()
-        text = console.export_text()
-        assert "print(a, b" in text
-        assert "executing..." in text
-
-    def test_lines_carry_gutter_numbers(self):
-        panel = SpeculationPanel()
-        console = _console()
-        panel.handle_event(_update(CODE, 2), console)
-        text = console.export_text()
-        assert "1 │" in text
-        assert "2 │" in text
-
-
-class TestOutcomeLines:
-    def test_launch_settle_claim(self):
-        panel = SpeculationPanel()
-        console = _console()
         panel.handle_event(_update(CODE, 1), console)
         panel.handle_event(_launch(), console)
         panel.handle_event(
@@ -157,11 +90,12 @@ class TestOutcomeLines:
                 tool_call_id="p1",
                 launch_id="p1__spec_1",
                 outcome="ready",
-                elapsed_ms=113.0,
+                elapsed_ms=48.0,
             ),
             console,
         )
         panel.on_part_end()
+        assert panel.active
         panel.handle_event(
             SpeculativeCallClaimedEvent(
                 tool_call_id="p1",
@@ -169,40 +103,60 @@ class TestOutcomeLines:
                 nested_tool_call_id="p1__1",
                 wrapped_tool_name="grep",
                 ready_at_claim=True,
-                elapsed_ms=600.0,
+                elapsed_ms=48.0,
             ),
             console,
         )
         panel.finalize()
-        text = console.export_text()
-        assert '>> grep(search_string=\'Speculation\') launched at line 1' in text
-        assert ".. grep ready after 113ms" in text
-        assert "== hit grep (600ms hidden)" in text
 
-    def test_partial_hit_notes_the_mid_flight_claim(self):
+        output = console.export_text()
+        assert "run_code" in output
+        assert "hit" in output
+        assert "hits 1 (48ms hidden)" in output
+        assert "grep" in output
+        # Title carries the streamed-token estimate (2.5 chars/token heuristic).
+        assert f"~{int(len(CODE) / 2.5)} tokens" in output
+        # The panel box has no left border: content flows flush-left.
+        for line in output.splitlines():
+            assert not line.startswith("\u2502")
+            assert not line.startswith("\u256d")
+            assert not line.startswith("\u2570")
+
+    def test_miss_and_eviction_annotate_the_reveal(self):
         panel = SpeculationPanel()
         console = _console()
-        panel.handle_event(_update(CODE, 1), console)
+
+        panel.handle_event(_update(CODE, 2), console)
+        panel.handle_event(_launch("p1__spec_9", line=2), console)
         panel.on_part_end()
         panel.handle_event(
-            SpeculativeCallClaimedEvent(
+            SpeculativeCallMissedEvent(
                 tool_call_id="p1",
-                launch_id="p1__spec_1",
-                nested_tool_call_id="p1__1",
+                sandbox_function="read_file",
+                wrapped_tool_name="read_file",
+                nested_tool_call_id="p1__2",
+            ),
+            console,
+        )
+        panel.handle_event(
+            SpeculativeCallEvictedEvent(
+                tool_call_id="p1",
+                launch_id="p1__spec_9",
                 wrapped_tool_name="grep",
-                ready_at_claim=False,
-                elapsed_ms=250.0,
+                state="pending",
             ),
             console,
         )
         panel.finalize()
-        assert "claimed mid-flight" in console.export_text()
 
-    def test_miss_and_eviction(self):
+        output = console.export_text()
+        assert "misses 1" in output
+        assert "wasted 1" in output
+
+    def test_outcomes_with_no_cycle_print_one_liners(self):
         panel = SpeculationPanel()
         console = _console()
-        panel.handle_event(_update(CODE, 1), console)
-        panel.on_part_end()
+
         panel.handle_event(
             SpeculativeCallMissedEvent(
                 tool_call_id="p1",
@@ -213,43 +167,71 @@ class TestOutcomeLines:
             console,
         )
         panel.handle_event(
-            SpeculativeCallEvictedEvent(
+            SpeculativeCallClaimedEvent(
                 tool_call_id="p1",
-                launch_id="p1__spec_2",
-                wrapped_tool_name="read_file",
-                state="pending",
+                launch_id="unknown",
+                nested_tool_call_id="p1__1",
+                wrapped_tool_name="grep",
+                ready_at_claim=True,
+                elapsed_ms=10.0,
+            ),
+            console,
+        )
+
+        output = console.export_text()
+        assert "speculation miss: grep ran cold" in output
+        assert "speculation hit: grep ran 10ms" in output
+        assert not panel.active
+
+    def test_partial_hit_renders_distinctly(self):
+        panel = SpeculationPanel()
+        console = _console()
+
+        panel.handle_event(_update(CODE, 1), console)
+        panel.handle_event(_launch(), console)
+        panel.on_part_end()
+        panel.handle_event(
+            SpeculativeCallClaimedEvent(
+                tool_call_id="p1",
+                launch_id="p1__spec_1",
+                nested_tool_call_id="p1__1",
+                wrapped_tool_name="grep",
+                ready_at_claim=False,
+                elapsed_ms=200.0,
             ),
             console,
         )
         panel.finalize()
-        text = console.export_text()
-        assert "-- miss grep (ran cold, no matching launch)" in text
-        assert "xx wasted read_file (pending)" in text
 
-    def test_execution_prefetch_launch_is_labelled(self):
+        output = console.export_text()
+        assert "hit~" in output
+        assert "1 partial" in output
+
+    def test_miss_names_appear_in_the_reveal(self):
         panel = SpeculationPanel()
         console = _console()
+
         panel.handle_event(_update(CODE, 1), console)
-        event = SpeculativeCallLaunchedEvent(
-            tool_call_id="p1",
-            launch_id="p1__spec_9",
-            sandbox_function="grep",
-            wrapped_tool_name="grep",
-            arguments={"search_string": "Speculation"},
-            line_start=1,
-            line_end=1,
-            phase="execution",
+        panel.on_part_end()
+        panel.handle_event(
+            SpeculativeCallMissedEvent(
+                tool_call_id="p1",
+                sandbox_function="read_file",
+                wrapped_tool_name="read_file",
+                nested_tool_call_id="p1__2",
+            ),
+            console,
         )
-        panel.handle_event(event, console)
-        assert "prefetched at execution" in console.export_text()
+        panel.finalize()
 
+        assert "misses 1 (read_file)" in console.export_text()
 
-class TestSessionTotals:
-    def test_totals_accumulate_across_cycles(self):
+    def test_session_totals_accumulate_across_cycles(self):
         panel = SpeculationPanel()
 
         first = _console()
         panel.handle_event(_update(CODE, 1), first)
+        panel.handle_event(_launch(), first)
         panel.on_part_end()
         panel.handle_event(
             SpeculativeCallClaimedEvent(
@@ -278,13 +260,138 @@ class TestSessionTotals:
             second,
         )
         panel.finalize()
-        text = second.export_text()
-        assert "hits 1 (0.6s hidden)" in text
-        assert "misses 1" in text
+
+        output = second.export_text()
+        assert "speculation this session: hits 1 (0.6s hidden) - misses 1" in output
+
+    def test_executing_cycle_survives_the_stream_gap(self):
+        """Outcomes arriving in a later handler invocation still hit the live cycle.
+
+        This is the dogfooding bug: finalizing at stream end printed a zeroed
+        reveal, and the claims that arrived next invocation degraded to
+        one-liner fallbacks.
+        """
+        panel = SpeculationPanel()
+        console = _console()
+
+        panel.handle_event(_update(CODE, 1), console)
+        panel.handle_event(_launch(), console)
+        panel.on_part_end()
+        panel.on_stream_end()
+        assert panel.active
+
+        panel.handle_event(
+            SpeculativeCallClaimedEvent(
+                tool_call_id="p1",
+                launch_id="p1__spec_1",
+                nested_tool_call_id="p1__1",
+                wrapped_tool_name="grep",
+                ready_at_claim=True,
+                elapsed_ms=48.0,
+            ),
+            console,
+        )
+        panel.finalize()
+
+        output = console.export_text()
+        assert "hits 1 (48ms hidden)" in output
+
+    def test_stream_end_finalizes_a_cycle_cut_mid_part(self):
+        panel = SpeculationPanel()
+        console = _console()
+
+        panel.handle_event(_update(CODE, 1), console)
+        panel.on_stream_end()
+
+        assert not panel.active
+        assert "run_code" in console.export_text()
+
+    def test_live_frames_tail_clip_to_the_terminal(self):
+        """A streaming frame taller than the screen would make Live scroll on every refresh."""
+        panel = SpeculationPanel()
+        console = Console(record=True, width=100, height=12, force_terminal=False)
+
+        long_code = "\n".join(f"x{i} = {i}" for i in range(50))
+        panel.handle_event(_update(long_code, 49), console)
+        console.print(panel)
+
+        output = console.export_text()
+        assert "(+46 earlier lines)" in output
+        assert "x49 = 49" in output
+        assert "x0 = 0" not in output
+        panel.finalize()
+
+    def test_final_reveal_renders_all_lines(self):
+        panel = SpeculationPanel()
+        console = Console(record=True, width=100, height=12, force_terminal=False)
+
+        long_code = "\n".join(f"x{i} = {i}" for i in range(50))
+        panel.handle_event(_update(long_code, 49), console)
+        panel.finalize()
+
+        output = console.export_text()
+        assert "x0 = 0" in output
+        assert "x49 = 49" in output
+
+    def test_finalize_is_idempotent(self):
+        panel = SpeculationPanel()
+        panel.finalize()
+        panel.handle_event(_update(CODE, 1), _console())
+        panel.finalize()
+        panel.finalize()
+        assert not panel.active
 
 
-class TestEagerCommit:
-    def test_eager_commit_prints_and_accumulates(self):
+class TestSingleton:
+    def test_shared_instance(self):
+        assert get_speculation_panel() is get_speculation_panel()
+
+
+class TestHandlerRouting:
+    async def test_stream_handler_routes_events_to_the_panel(self, monkeypatch):
+        from types import SimpleNamespace
+
+        import code_puppy.agents.event_stream_handler as esh
+
+        handled = []
+
+        class _SpyPanel:
+            active = False
+
+            def handle_event(self, event, console):
+                if isinstance(event, SpeculativeCodeUpdateEvent):
+                    handled.append(("event", event.code))
+                    return True
+                return False
+
+            def on_part_end(self):
+                handled.append(("part_end", None))
+
+            def on_stream_end(self):
+                handled.append(("stream_end", None))
+
+            def finalize(self):
+                handled.append(("finalize", None))
+
+        monkeypatch.setattr(
+            "code_puppy.messaging.speculation_panel.get_speculation_panel",
+            lambda: _SpyPanel(),
+        )
+
+        async def events():
+            yield _update(CODE, 1)
+
+        await esh.event_stream_handler(SimpleNamespace(), events())
+
+        assert ("event", CODE) in handled
+        # Stream end must NOT finalize: outcome events arrive in a later
+        # handler invocation, so the handler defers to on_stream_end.
+        assert ("stream_end", None) in handled
+        assert ("finalize", None) not in handled
+
+
+class TestEagerCommitReveal:
+    def test_eager_commit_shows_in_reveal_and_session_totals(self):
         panel = SpeculationPanel()
 
         console = _console()
@@ -337,8 +444,3 @@ class TestEagerCommit:
         )
         panel.finalize()
         assert "eager ran 2 stmts during generation (0.0s hidden)" in console.export_text()
-
-
-class TestSingleton:
-    def test_get_speculation_panel_returns_one_instance(self):
-        assert get_speculation_panel() is get_speculation_panel()
