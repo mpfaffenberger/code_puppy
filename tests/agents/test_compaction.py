@@ -556,7 +556,7 @@ class TestHistoryCompaction:
             _user_msg("yes"),
         ]
         with patch.object(_compaction, "get_compaction_threshold", return_value=0.95):
-            result = await make_history_processor(agent)(_ctx(), incoming)
+            result = await _fire(agent, incoming)
 
         user_turns = [m for m in result if isinstance(m, ModelRequest)]
         assert len(user_turns) == 2, "the second 'yes' was dropped"
@@ -569,9 +569,7 @@ class TestHistoryCompaction:
         agent = _FakeAgent(model_max=1_000_000)
         agent._message_history = [_user_msg("yes"), _assistant_text("done")]
         with patch.object(_compaction, "get_compaction_threshold", return_value=0.95):
-            await make_history_processor(agent)(
-                _ctx(), [_user_msg("yes"), _assistant_text("done")]
-            )
+            await _fire(agent, [_user_msg("yes"), _assistant_text("done")])
         assert len(agent._message_history) == 1  # trailing response popped
 
     async def test_strips_trailing_model_responses(self):
