@@ -510,6 +510,38 @@ class GeminiModel(Model):
 
         return config
 
+    def _build_request_body(
+        self,
+        system_instruction,
+        contents,
+        model_settings,
+        model_request_parameters,
+        *,
+        streaming: bool,
+    ) -> dict[str, Any]:
+        body: dict[str, Any] = {"contents": contents}
+
+        gen_config = self._build_generation_config(model_settings)
+        if gen_config:
+            body["generationConfig"] = gen_config
+
+        if system_instruction:
+            body["systemInstruction"] = system_instruction
+
+        # Add tools.
+        if model_request_parameters.function_tools:
+            body["tools"] = self._build_tools(model_request_parameters.function_tools)
+
+            if streaming:
+                body["toolConfig"] = {
+                    "functionCallingConfig": {
+                        "mode": "AUTO",
+                        "streamFunctionCallArguments": True,
+                    }
+                }
+
+        return body
+
     async def request(
         self,
         messages: list[ModelMessage],
@@ -521,26 +553,20 @@ class GeminiModel(Model):
             messages, model_request_parameters
         )
 
-        # Build request body
-        body: dict[str, Any] = {"contents": contents}
+        body = self._build_request_body(
+            system_instruction=system_instruction,
+            contents=contents,
+            model_settings=model_settings,
+            model_request_parameters=model_request_parameters,
+            streaming=False,
+        )
 
-        gen_config = self._build_generation_config(model_settings)
-        if gen_config:
-            body["generationConfig"] = gen_config
-        if system_instruction:
-            body["systemInstruction"] = system_instruction
-
-        # Add tools
-        if model_request_parameters.function_tools:
-            body["tools"] = self._build_tools(model_request_parameters.function_tools)
-
-        # Make request
+        # Make request.
         client = await self._get_client()
         url = f"{self._base_url}/models/{self._model_name}:generateContent"
         headers = self._get_headers()
 
         response = await client.post(url, json=body, headers=headers)
-
         if response.status_code != 200:
             raise RuntimeError(
                 f"Gemini API error {response.status_code}: {response.text}"
@@ -567,15 +593,18 @@ class GeminiModel(Model):
 
         for part in parts:
             if part.get("thought") and part.get("text") is not None:
-                # Thinking part
+                # Thinking part.
                 signature = part.get("thoughtSignature")
                 response_parts.append(
                     ThinkingPart(content=part["text"], signature=signature)
                 )
+
             elif "text" in part:
                 response_parts.append(TextPart(content=part["text"]))
+
             elif "functionCall" in part:
                 fc = part["functionCall"]
+
                 response_parts.append(
                     ToolCallPart(
                         tool_name=fc["name"],
@@ -584,7 +613,7 @@ class GeminiModel(Model):
                     )
                 )
 
-        # Extract usage
+        # Extract usage.
         usage_meta = data.get("usageMetadata", {})
         usage = RequestUsage(
             input_tokens=usage_meta.get("promptTokenCount", 0),
@@ -612,26 +641,15 @@ class GeminiModel(Model):
             messages, model_request_parameters
         )
 
-        # Build request body
-        body: dict[str, Any] = {"contents": contents}
+        body = self._build_request_body(
+            system_instruction=system_instruction,
+            contents=contents,
+            model_settings=model_settings,
+            model_request_parameters=model_request_parameters,
+            streaming=True,
+        )
 
-        gen_config = self._build_generation_config(model_settings)
-        if gen_config:
-            body["generationConfig"] = gen_config
-        if system_instruction:
-            body["systemInstruction"] = system_instruction
-
-        # Add tools
-        if model_request_parameters.function_tools:
-            body["tools"] = self._build_tools(model_request_parameters.function_tools)
-            body["toolConfig"] = {
-                "functionCallingConfig": {
-                    "mode": "AUTO",
-                    "streamFunctionCallArguments": True,
-                }
-            }
-
-        # Make streaming request
+        # Make streaming request.
         client = await self._get_client()
         url = (
             f"{self._base_url}/models/{self._model_name}:streamGenerateContent?alt=sse"
@@ -652,11 +670,13 @@ class GeminiModel(Model):
                     line = line.strip()
                     if not line:
                         continue
+
                     if line.startswith("data: "):
                         json_str = line[6:]
                         if json_str:
                             try:
                                 yield json.loads(json_str)
+
                             except json.JSONDecodeError:
                                 continue
 
