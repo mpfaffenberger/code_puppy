@@ -4,12 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "code-puppy"
-version = "0.0.788"
+version = "0.0.805"
 description = "Code generation agent"
 readme = "README.md"
 requires-python = ">=3.11,<3.15"
 dependencies = [
-    "code-puppy-core-plugins>=0.0.27",
+    "code-puppy-core-plugins>=0.0.34",
     "logfire>=4.0",
     # TEMPORARY (integration branch only): pinned to the pydantic-ai
     # CapabilityEvent/CustomEvent SDK via [tool.uv.sources] below.

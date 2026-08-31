@@ -486,6 +486,7 @@ def get_config_keys():
         "protected_token_count",
         "compaction_threshold",
         "summarization_model",
+        "auto_continue_model",
         "message_limit",
         "allow_recursion",
         "subagent_recursion_limit",
@@ -533,6 +534,9 @@ def get_config_keys():
     # Add /goal iteration cap (owned by the wiggum plugin, surfaced here so
     # /set autocompletes it). See plugins/wiggum/register_callbacks.py.
     default_keys.append("goal_max_iterations")
+    # How relentlessly the agent proceeds without checking in; headless -p
+    # runs always behave as 'extreme' (see get_agency_level()).
+    default_keys.append("agency_level")
     # Add dangerous command guard disable (skips force push and destructive command guards)
     default_keys.append("disable_dangerous_command_guard")
     # Per-pattern allowlist bypassing the command guards (e.g. "git reset
@@ -932,6 +936,19 @@ def set_model_name(model: str):
 
     # Clear model cache when switching models to ensure fresh validation
     clear_model_cache()
+
+
+def get_auto_continue_model_name() -> str | None:
+    """Return the model used by the automatic continuation classifier.
+
+    ``auto_continue_model`` is an optional dedicated override. An unset or
+    blank value follows the session's global model so existing installations
+    need no configuration change.
+    """
+    value = get_value("auto_continue_model")
+    if value and value.strip():
+        return value.strip()
+    return get_global_model_name()
 
 
 def get_summarization_model_name() -> str:
@@ -1464,20 +1481,42 @@ def get_yolo_mode() -> bool:
     return get_truthy_bool_value("yolo_mode", True)
 
 
-def get_safety_permission_level():
+AGENCY_LEVELS = ("low", "medium", "high", "extreme")
+
+_headless_mode: bool = False
+
+
+def set_headless_mode(value: bool) -> None:
+    """Mark this process as headless (``-p`` prompt); process-local only."""
+    global _headless_mode
+    _headless_mode = value
+
+
+def get_headless_mode() -> bool:
+    """Return whether this process is running a headless ``-p`` prompt."""
+    return _headless_mode
+
+
+def get_agency_level() -> str:
     """
-    Checks puppy.cfg for 'safety_permission_level' (case-insensitive in value only).
-    Defaults to 'medium' if not set.
-    Allowed values: 'none', 'low', 'medium', 'high', 'critical' (all case-insensitive for value).
+    Checks puppy.cfg for 'agency_level' (case-insensitive in value only).
+    Allowed values: 'low', 'medium', 'high', 'extreme'.
+    Defaults to 'extreme' if not set or invalid.
+
+    Headless (``-p``) runs always report 'extreme' no matter what the config
+    says — there is nobody at the keyboard to answer check-ins, so anything
+    lower would just stall the run.
+
     Returns the normalized lowercase string.
     """
-    valid_levels = {"none", "low", "medium", "high", "critical"}
-    cfg_val = get_value("safety_permission_level")
+    if _headless_mode:
+        return "extreme"
+    cfg_val = get_value("agency_level")
     if cfg_val is not None:
         normalized = str(cfg_val).strip().lower()
-        if normalized in valid_levels:
+        if normalized in AGENCY_LEVELS:
             return normalized
-    return "medium"  # Default to medium risk threshold
+    return "extreme"
 
 
 def get_mcp_disabled():
@@ -2056,6 +2095,8 @@ DEFAULT_BANNER_COLORS = {
     "edit_file": "dark_goldenrod",  # Gold - modifications (legacy)
     "create_file": "dark_goldenrod",  # Gold - file creation
     "replace_in_file": "dark_goldenrod",  # Gold - file modifications
+    "edit": "dark_goldenrod",  # Claude/OpenCode targeted file edit
+    "apply_patch": "dark_goldenrod",  # Codex/OpenCode multi-file patch
     "delete_snippet": "dark_goldenrod",  # Gold - snippet removal
     "grep": "grey37",  # Silver - search results
     "directory_listing": "dodger_blue2",  # Sky - navigation
@@ -2288,9 +2329,9 @@ def set_current_autosave_from_session_name(session_name: str) -> str:
     return pin_current_session_name(session_name)
 
 
-def auto_save_session_if_enabled() -> bool:
-    """Automatically save the current session if auto_save_session is enabled."""
-    if not get_auto_save_session():
+def auto_save_session_if_enabled(*, force: bool = False) -> bool:
+    """Save the current session when enabled, or unconditionally when forced."""
+    if not force and not get_auto_save_session():
         return False
 
     try:

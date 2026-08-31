@@ -450,6 +450,37 @@ def test_render_subagent_invocation_continuing(mock_sub, renderer, console):
     assert "codex-gpt-5.2" in out
 
 
+@patch("code_puppy.messaging.rich_renderer.is_subagent", return_value=False)
+def test_render_subagent_invocation_fork(mock_sub, renderer, console):
+    msg = SubAgentInvocationMessage(
+        agent_name="code-puppy",
+        session_id="sess-fork-1",
+        prompt="hello",
+        is_new_session=True,
+        message_count=0,
+        is_fork=True,
+    )
+    renderer._render_subagent_invocation(msg)
+    out = output(console)
+    assert "FORK" in out
+    assert "INVOKE AGENT" not in out
+
+
+@patch("code_puppy.messaging.rich_renderer.is_subagent", return_value=False)
+def test_render_subagent_invocation_not_fork_by_default(mock_sub, renderer, console):
+    msg = SubAgentInvocationMessage(
+        agent_name="code-puppy",
+        session_id="sess-2",
+        prompt="hello",
+        is_new_session=True,
+        message_count=0,
+    )
+    renderer._render_subagent_invocation(msg)
+    out = output(console)
+    assert "INVOKE AGENT" in out
+    assert "FORK" not in out
+
+
 def test_render_subagent_response(renderer, console):
     msg = SubAgentResponseMessage(
         agent_name="qa",

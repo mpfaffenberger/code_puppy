@@ -35,7 +35,7 @@ It also handles request/response correlation for user interactions:
 import asyncio
 import queue
 import threading
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, TypeVar
 from uuid import uuid4
 
 from .commands import (
@@ -142,6 +142,7 @@ class MessageBus:
 
             if not self._has_active_renderer:
                 self._startup_buffer.append(message)
+
                 # Prevent unbounded buffer growth in headless mode
                 if len(self._startup_buffer) > self._maxsize:
                     self._startup_buffer = self._startup_buffer[-self._maxsize :]
@@ -150,11 +151,13 @@ class MessageBus:
             # Direct put into thread-safe queue - inside lock to prevent race
             try:
                 self._outgoing.put_nowait(message)
+
             except queue.Full:
                 # Drop oldest and retry
                 try:
                     self._outgoing.get_nowait()
                     self._outgoing.put_nowait(message)
+
                 except queue.Empty:
                     pass
 
@@ -275,6 +278,7 @@ class MessageBus:
             # Wait for response
             result = await future
             return result if result else (default or "")
+
         finally:
             # Clean up
             with self._lock:
@@ -319,6 +323,7 @@ class MessageBus:
 
         try:
             return await future
+
         finally:
             with self._lock:
                 self._pending_requests.pop(prompt_id, None)
@@ -360,6 +365,7 @@ class MessageBus:
 
         try:
             return await future
+
         finally:
             with self._lock:
                 self._pending_requests.pop(prompt_id, None)
@@ -380,36 +386,44 @@ class MessageBus:
         # Handle user interaction responses
         if isinstance(command, UserInputResponse):
             self._complete_request(command.prompt_id, command.value)
+
         elif isinstance(command, ConfirmationResponse):
             self._complete_request(
                 command.prompt_id, (command.confirmed, command.feedback)
             )
+
         elif isinstance(command, SelectionResponse):
             self._complete_request(
                 command.prompt_id, (command.selected_index, command.selected_value)
             )
+
         elif isinstance(command, PauseAgentCommand):
             from .pause_controller import get_pause_controller
 
             get_pause_controller().pause()
+
         elif isinstance(command, ResumeAgentCommand):
             from .pause_controller import get_pause_controller
 
             get_pause_controller().resume()
+
         elif isinstance(command, SteerAgentCommand):
             from .pause_controller import get_pause_controller
 
             get_pause_controller().request_steer(command.text, mode=command.mode)
+
         else:
             # For non-response commands (CancelAgentCommand, etc.),
             # put them in the incoming queue for the agent to process
             try:
                 self._incoming.put_nowait(command)
+
             except queue.Full:
                 # Drop oldest and retry
                 try:
                     self._incoming.get_nowait()
                     self._incoming.put_nowait(command)
+
                 except queue.Empty:
                     pass
 
@@ -425,9 +439,11 @@ class MessageBus:
                     self._event_loop.call_soon_threadsafe(
                         self._set_future_result, future, result
                     )
+
                 except RuntimeError:
                     # Event loop closed - try direct set
                     self._set_future_result(future, result)
+
             else:
                 # No event loop - try direct set
                 self._set_future_result(future, result)
@@ -441,6 +457,26 @@ class MessageBus:
     # Queue Access (for renderers/consumers)
     # =========================================================================
 
+    T = TypeVar("T")
+
+    @staticmethod
+    async def _get_nowait_with_backoff(q: "queue.Queue[T]") -> T:
+        """Poll a thread-safe queue with exponential backoff while idle.
+
+        Wraps a sync queue in an asyncio-friendly way. The poll interval
+        starts at 0.01s and doubles on each empty attempt up to a cap of
+        0.1s, resetting to 0.01s on the next call (i.e. once a value is returned).
+        """
+        delay = 0.01
+
+        while True:
+            try:
+                return q.get_nowait()
+
+            except queue.Empty:
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, 0.1)
+
     async def get_message(self) -> AnyMessage:
         """Get the next outgoing message (async).
 
@@ -450,12 +486,7 @@ class MessageBus:
         Returns:
             The next message to display.
         """
-        # For async usage, wrap sync queue in asyncio-friendly way
-        while True:
-            try:
-                return self._outgoing.get_nowait()
-            except queue.Empty:
-                await asyncio.sleep(0.01)
+        return await self._get_nowait_with_backoff(self._outgoing)
 
     def get_message_nowait(self) -> Optional[AnyMessage]:
         """Get the next outgoing message without blocking.
@@ -465,6 +496,7 @@ class MessageBus:
         """
         try:
             return self._outgoing.get_nowait()
+
         except queue.Empty:
             return None
 
@@ -477,12 +509,7 @@ class MessageBus:
         Returns:
             The next command to process.
         """
-        # For async usage, wrap sync queue in asyncio-friendly way
-        while True:
-            try:
-                return self._incoming.get_nowait()
-            except queue.Empty:
-                await asyncio.sleep(0.01)
+        return await self._get_nowait_with_backoff(self._incoming)
 
     # =========================================================================
     # Startup Buffering

@@ -599,6 +599,36 @@ def _checkpoint_cancelled_history(exc_group: BaseException, agent: Any) -> None:
         pass
 
 
+def _is_mcp_transport_failure(exc: BaseException) -> bool:
+    """True for an HTTP/SSE MCP connector that could not be reached.
+
+    A stdio server's readiness is probed at startup, but an HTTP/SSE
+    connector is only dialed when the run task enters the combined toolset.
+    A 401 (expired token, wrong host), a 5xx, or a refused/timed-out
+    connection therefore surfaces mid-run as a raw ``httpx`` error from
+    inside the transport, not as an ``McpError`` — the protocol never got
+    far enough to speak MCP.
+
+    Without this it reaches the generic arm, prints a traceback, and ends
+    the run. One unreachable connector must not do that: the model and
+    every healthy toolset are still usable, so we degrade like ``McpError``.
+
+    Matched by type rather than message so it holds across httpx versions.
+    Note this is deliberately broader than ``_RETRYABLE_EXCEPTIONS``, which
+    excludes ``HTTPStatusError`` because a 401 is not worth retrying — it is
+    still worth surviving.
+    """
+    return isinstance(
+        exc,
+        (
+            httpx.HTTPStatusError,
+            httpx.TransportError,  # ConnectError, ReadTimeout, PoolTimeout, ...
+            httpcore.ConnectError,
+            httpcore.ConnectTimeout,
+        ),
+    )
+
+
 def _collect_exceptions(
     group: BaseException, predicate: Callable[[BaseException], bool]
 ) -> List[BaseException]:
@@ -618,7 +648,7 @@ def _collect_exceptions(
 
 
 # Depth of in-flight ``run_with_mcp`` calls (main-loop-thread-only, so a
-# plain int is race-free). Depth > 0 = NESTED run (e.g. shell_safety): those
+# plain int is race-free). Depth > 0 = NESTED run (e.g. auto_continue): those
 # must NOT touch process-wide interactive state — PauseController (would
 # drain the user's queued steers!), SIGINT handler, shell cancel bridge, or
 # the key-listener cancel hotkey.
@@ -922,6 +952,26 @@ async def _run_with_mcp_impl(
                     not isinstance(e, (asyncio.CancelledError, UsageLimitExceeded))
                 ),
             )
+            # An HTTP/SSE connector that 401'd or was unreachable is
+            # degraded, not fatal — treat it like McpError: one short nudge,
+            # no traceback, don't re-raise. Pulled out BEFORE the diagnostics
+            # dump so one dead connector can't abort the turn.
+            mcp_transport = [e for e in unexpected if _is_mcp_transport_failure(e)]
+            unexpected = [e for e in unexpected if e not in mcp_transport]
+            if mcp_transport:
+                import logging as _logging
+
+                _logging.getLogger(__name__).debug(
+                    "MCP transport failure(s) during agent run: %s", mcp_transport
+                )
+                emit_warning(
+                    "An MCP server was unreachable this turn (auth or "
+                    "connection failure), so the turn stopped before the model "
+                    "ran — but your session is fine. Fix or disable that "
+                    "connector and resend: [cyan]/mcp status[/cyan] to see "
+                    "which one, [cyan]/mcp logs <name>[/cyan] for details.",
+                    group_id=group_id,
+                )
             for exc in unexpected:
                 emit_exception_diagnostics(exc, group_id=group_id)
             # Re-raise, else the bare except* would silently mask all errors

@@ -42,19 +42,20 @@ class QueueConsole:
         **kwargs,
     ):
         """Print values to the message queue."""
-        # Handle Rich objects properly
+        # Handle Rich objects properly.
         if len(values) == 1 and hasattr(values[0], "__rich_console__"):
-            # Single Rich object - pass it through directly
+            # Single Rich object - pass it through directly.
             content = values[0]
             message_type = self._infer_message_type_from_rich_object(content, style)
+
         else:
-            # Convert to string, but handle Rich objects properly
+            # Convert to string, but handle Rich objects properly.
             processed_values = []
+
             for v in values:
                 if hasattr(v, "__rich_console__"):
-                    # For Rich objects, try to extract their text content
+                    # For Rich objects, try to extract their text content.
                     from io import StringIO
-
                     from rich.console import Console
 
                     string_io = StringIO()
@@ -65,17 +66,18 @@ class QueueConsole:
                     )
                     temp_console.print(v)
                     processed_values.append(string_io.getvalue().rstrip("\n"))
+
                 else:
                     processed_values.append(str(v))
 
             content = sep.join(processed_values) + end
             message_type = self._infer_message_type(content, style)
 
-        # Create Rich Text object if style is provided and content is string
+        # Create Rich Text object if style is provided and content is string.
         if style and isinstance(content, str):
             content = Text(content, style=style)
 
-        # Emit to queue
+        # Emit to queue.
         self.queue.emit_simple(
             message_type, content, style=style, highlight=highlight, **kwargs
         )
@@ -93,10 +95,10 @@ class QueueConsole:
         max_frames: int = 100,
     ):
         """Print exception information to the queue."""
-        # Get the exception traceback
+        # Get the exception traceback.
         exc_text = traceback.format_exc()
 
-        # Emit as error message
+        # Emit as error message.
         self.queue.emit_simple(
             MessageType.ERROR,
             f"Exception:\n{exc_text}",
@@ -119,7 +121,7 @@ class QueueConsole:
         """Log a message (similar to print but with logging semantics)."""
         content = sep.join(str(v) for v in values) + end
 
-        # Log messages are typically informational
+        # Log messages are typically informational.
         message_type = MessageType.INFO
         if style:
             message_type = self._infer_message_type(content, style)
@@ -131,31 +133,49 @@ class QueueConsole:
             message_type, content, log=True, style=style, log_locals=log_locals
         )
 
+    @staticmethod
+    def _type_from_style(style: str | None) -> MessageType | None:
+        if style is None:
+            return None
+
+        style_lower = style.lower()
+
+        if "red" in style_lower or "error" in style_lower:
+            return MessageType.ERROR
+
+        elif "yellow" in style_lower or "warning" in style_lower:
+            return MessageType.WARNING
+
+        elif "green" in style_lower or "success" in style_lower:
+            return MessageType.SUCCESS
+
+        elif "blue" in style_lower:
+            return MessageType.INFO
+
+        elif "purple" in style_lower or "magenta" in style_lower:
+            return MessageType.AGENT_REASONING
+
+        elif "dim" in style_lower:
+            return MessageType.SYSTEM
+
+        return None
+
     def _infer_message_type_from_rich_object(
         self, content: Any, style: Optional[str] = None
     ) -> MessageType:
         """Infer message type from Rich object type and style."""
-        if style:
-            style_lower = style.lower()
-            if "red" in style_lower or "error" in style_lower:
-                return MessageType.ERROR
-            elif "yellow" in style_lower or "warning" in style_lower:
-                return MessageType.WARNING
-            elif "green" in style_lower or "success" in style_lower:
-                return MessageType.SUCCESS
-            elif "blue" in style_lower:
-                return MessageType.INFO
-            elif "purple" in style_lower or "magenta" in style_lower:
-                return MessageType.AGENT_REASONING
-            elif "dim" in style_lower:
-                return MessageType.SYSTEM
+        style_type = self._type_from_style(style)
+        if style_type is not None:
+            return style_type
 
-        # Infer from object type
+        # Infer from object type.
         if isinstance(content, Markdown):
             return MessageType.AGENT_REASONING
+
         elif isinstance(content, Table):
             return MessageType.TOOL_OUTPUT
-        elif hasattr(content, "lexer_name"):  # Syntax object
+
+        elif hasattr(content, "lexer_name"):  # Syntax object.
             return MessageType.TOOL_OUTPUT
 
         return MessageType.INFO
@@ -164,35 +184,27 @@ class QueueConsole:
         self, content: str, style: Optional[str] = None
     ) -> MessageType:
         """Infer message type from content and style."""
-        if style:
-            style_lower = style.lower()
-            if "red" in style_lower or "error" in style_lower:
-                return MessageType.ERROR
-            elif "yellow" in style_lower or "warning" in style_lower:
-                return MessageType.WARNING
-            elif "green" in style_lower or "success" in style_lower:
-                return MessageType.SUCCESS
-            elif "blue" in style_lower:
-                return MessageType.INFO
-            elif "purple" in style_lower or "magenta" in style_lower:
-                return MessageType.AGENT_REASONING
-            elif "dim" in style_lower:
-                return MessageType.SYSTEM
+        style_type = self._type_from_style(style)
+        if style_type is not None:
+            return style_type
 
-        # Infer from content patterns
-        content_lower = content.lower()
+        content_lower = content.lower()  # Infer from content patterns.
+
         if any(word in content_lower for word in ["error", "failed", "exception"]):
             return MessageType.ERROR
+
         elif any(word in content_lower for word in ["warning", "warn"]):
             return MessageType.WARNING
+
         elif any(word in content_lower for word in ["success", "completed", "done"]):
             return MessageType.SUCCESS
+
         elif any(word in content_lower for word in ["tool", "command", "running"]):
             return MessageType.TOOL_OUTPUT
 
         return MessageType.INFO
 
-    # Additional methods to maintain Rich Console compatibility
+    # Additional methods to maintain Rich Console compatibility.
     def rule(self, title: str = "", *, align: str = "center", style: str = "rule.line"):
         """Print a horizontal rule."""
         self.queue.emit_simple(
@@ -214,42 +226,44 @@ class QueueConsole:
         This method coordinates with the TUI to pause any running spinners
         and properly display the user input prompt.
         """
-        # Set the global flag that we're awaiting user input
+        # Set the global flag that we're awaiting user input.
         from code_puppy.tools.command_runner import set_awaiting_user_input
 
         set_awaiting_user_input(True)
 
-        # Emit the prompt as a system message so it shows in the TUI chat
+        # Emit the prompt as a system message so it shows in the TUI chat.
         if prompt:
             self.queue.emit_simple(MessageType.SYSTEM, prompt, requires_user_input=True)
 
-        # Create a new, isolated console instance specifically for input
-        # This bypasses any spinner or queue system interference
+        # Create a new, isolated console instance specifically for input.
+        # This bypasses any spinner or queue system interference.
         input_console = Console(file=__import__("sys").stderr, force_terminal=True)
 
-        # Clear any spinner artifacts and position cursor properly
+        # Clear any spinner artifacts and position cursor properly.
         if prompt:
             input_console.print(prompt, end="", style="bold cyan")
 
-        # Use regular input() which will read from stdin
-        # Since we printed the prompt to stderr, this should work cleanly
+        # Use regular input() which will read from stdin.
+        # Since we printed the prompt to stderr, this should work cleanly.
         try:
             user_response = input()
 
-            # Show the user's response in the chat as well
+            # Show the user's response in the chat as well.
             if user_response:
                 self.queue.emit_simple(
                     MessageType.INFO, f"User response: {user_response}"
                 )
 
             return user_response
+
         except (KeyboardInterrupt, EOFError):
-            # Handle interruption gracefully
+            # Handle interruption gracefully.
             input_console.print("\n[yellow]Input cancelled[/yellow]")
             self.queue.emit_simple(MessageType.WARNING, "User input cancelled")
             return ""
+
         finally:
-            # Clear the global flag for awaiting user input
+            # Clear the global flag for awaiting user input.
             from code_puppy.tools.command_runner import set_awaiting_user_input
 
             set_awaiting_user_input(False)
