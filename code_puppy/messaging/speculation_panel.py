@@ -42,6 +42,7 @@ from rich.syntax import Syntax
 from rich.text import Text
 
 from pydantic_ai_harness.code_mode import (
+    EagerPrefixCommittedEvent,
     SpeculativeCallClaimedEvent,
     SpeculativeCallEvictedEvent,
     SpeculativeCallLaunchedEvent,
@@ -116,6 +117,7 @@ class SpeculationPanel:
         self._highlight_cache: Optional[tuple[str, List[Text]]] = None
         self._launches: Dict[str, _Launch] = {}
         self._misses: List[str] = []
+        self._eager_commit: Optional[EagerPrefixCommittedEvent] = None
         self._phase: str = "idle"  # idle | streaming | executing
         # Session-cumulative speculation record, across every cycle this
         # process has rendered; shown in each final reveal's footer.
@@ -123,6 +125,7 @@ class SpeculationPanel:
         self._session_hidden_ms = 0.0
         self._session_misses = 0
         self._session_wasted = 0
+        self._session_eager_hidden_ms = 0.0
 
     # -- event intake ---------------------------------------------------
 
@@ -141,6 +144,10 @@ class SpeculationPanel:
                 self._on_missed(event, console)
             elif isinstance(event, SpeculativeCallEvictedEvent):
                 self._on_evicted(event, console)
+            elif isinstance(event, EagerPrefixCommittedEvent):
+                # Arrives with the outcome flush after the snippet ran; the
+                # reveal's footer reports it, so storing is enough here.
+                self._eager_commit = event
             else:
                 return False
             return True
@@ -193,6 +200,10 @@ class SpeculationPanel:
             self._session_wasted += sum(
                 1 for c in self._launches.values() if c.state == "wasted"
             )
+            if self._eager_commit is not None:
+                self._session_eager_hidden_ms += max(
+                    0.0, self._eager_commit.executed_ms - self._eager_commit.waited_ms
+                )
             live, console = self._live, self._console
             self._live = None
             if live is not None:
@@ -408,6 +419,13 @@ class SpeculationPanel:
             if failed:
                 parts.append(f"{failed} failed")
         else:
+            if self._eager_commit is not None:
+                commit = self._eager_commit
+                hidden_s = max(0.0, commit.executed_ms - commit.waited_ms) / 1000.0
+                parts.append(
+                    f"eager ran {commit.statements} stmts during generation "
+                    f"({hidden_s:.1f}s hidden)"
+                )
             if hits:
                 hidden = sum(c.elapsed_ms or 0.0 for c in hits)
                 partial = sum(1 for c in hits if c.ready_at_claim is False)
@@ -427,7 +445,8 @@ class SpeculationPanel:
         return Text(
             f"  speculation this session: hits {self._session_hits} "
             f"({self._session_hidden_ms / 1000.0:.1f}s hidden) - "
-            f"misses {self._session_misses} - wasted {self._session_wasted}",
+            f"misses {self._session_misses} - wasted {self._session_wasted} - "
+            f"eager {self._session_eager_hidden_ms / 1000.0:.1f}s hidden",
             style="dim",
         )
 
@@ -439,6 +458,7 @@ class SpeculationPanel:
         self._highlight_cache = None
         self._launches = {}
         self._misses = []
+        self._eager_commit = None
         self._phase = "idle"
 
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 from rich.console import Console
 
 from pydantic_ai_harness.code_mode import (
+    EagerPrefixCommittedEvent,
     SpeculativeCallClaimedEvent,
     SpeculativeCallEvictedEvent,
     SpeculativeCallLaunchedEvent,
@@ -387,3 +388,59 @@ class TestHandlerRouting:
         # handler invocation, so the handler defers to on_stream_end.
         assert ("stream_end", None) in handled
         assert ("finalize", None) not in handled
+
+
+class TestEagerCommitReveal:
+    def test_eager_commit_shows_in_reveal_and_session_totals(self):
+        panel = SpeculationPanel()
+
+        console = _console()
+        panel.handle_event(_update(CODE, 1), console)
+        panel.on_part_end()
+        handled = panel.handle_event(
+            EagerPrefixCommittedEvent(
+                tool_call_id="p1",
+                statements=4,
+                executed_ms=5200.0,
+                waited_ms=200.0,
+            ),
+            console,
+        )
+        assert handled
+        panel.finalize()
+        text = console.export_text()
+        assert "eager ran 4 stmts during generation (5.0s hidden)" in text
+        assert "eager 5.0s hidden" in text
+
+        second = _console()
+        panel.handle_event(_update(CODE, 1), second)
+        panel.on_part_end()
+        panel.handle_event(
+            EagerPrefixCommittedEvent(
+                tool_call_id="p2",
+                statements=1,
+                executed_ms=1300.0,
+                waited_ms=300.0,
+            ),
+            second,
+        )
+        panel.finalize()
+        assert "eager 6.0s hidden" in second.export_text()
+
+    def test_wait_dominated_commit_reports_zero_hidden(self):
+        """A prefix the dispatch fully waited for hid nothing; never show negative time."""
+        panel = SpeculationPanel()
+        console = _console()
+        panel.handle_event(_update(CODE, 1), console)
+        panel.on_part_end()
+        panel.handle_event(
+            EagerPrefixCommittedEvent(
+                tool_call_id="p3",
+                statements=2,
+                executed_ms=100.0,
+                waited_ms=900.0,
+            ),
+            console,
+        )
+        panel.finalize()
+        assert "eager ran 2 stmts during generation (0.0s hidden)" in console.export_text()
