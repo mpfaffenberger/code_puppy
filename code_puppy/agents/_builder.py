@@ -576,25 +576,18 @@ def _agent_exposes_tool(agent: Any, tool_name: str) -> bool:
 
 
 def _assemble_instructions(agent: Any, resolved_model_name: str) -> PreparedPrompt:
-    """Compose full system prompt + puppy rules + extended-thinking note.
+    """Compose full system prompt + puppy rules.
 
     Returns the model-prepared prompt: ``instructions`` for the agent plus any
     standing ``system_prompt`` a plugin wants emitted as its own
     ``SystemPromptPart`` ahead of them.
     """
     from code_puppy.model_utils import prepare_prompt_for_model
-    from code_puppy.tools import (
-        EXTENDED_THINKING_PROMPT_NOTE,
-        has_extended_thinking_active,
-    )
 
     instructions = agent.get_full_system_prompt()
     puppy_rules = load_puppy_rules()
     if puppy_rules:
         instructions += f"\n{puppy_rules}"
-
-    if has_extended_thinking_active(resolved_model_name):
-        instructions += EXTENDED_THINKING_PROMPT_NOTE
 
     if _is_gpt_5_6_family(resolved_model_name):
         if _agent_exposes_tool(agent, "invoke_agent"):
