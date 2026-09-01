@@ -26,8 +26,8 @@ class TestFormatPluginList:
         assert _format_plugin_list([], "builtin", set()) == "  (none)"
 
     def test_single_plugin(self):
-        result = _format_plugin_list(["shell_safety"], "builtin", set())
-        assert "shell_safety" in result
+        result = _format_plugin_list(["statusline"], "builtin", set())
+        assert "statusline" in result
 
     def test_multiple_sorted(self):
         result = _format_plugin_list(["zebra", "alpha", "mid"], "builtin", set())
@@ -43,7 +43,7 @@ class TestFormatPluginList:
 class TestBuildOutput:
     def test_all_tiers_populated(self):
         loaded = {
-            "builtin": ["shell_safety", "agent_skills"],
+            "builtin": ["statusline", "agent_skills"],
             "user": ["my_tool"],
             "project": ["repo_guard"],
         }
@@ -65,7 +65,7 @@ class TestBuildOutput:
             assert "Loaded Plugins" in output
             assert "Builtin (" in output
             assert "agent_skills" in output
-            assert "shell_safety" in output
+            assert "statusline" in output
             assert "User (~/.code_puppy/plugins/):" in output
             assert "my_tool" in output
             assert "Project (/tmp/proj/.code_puppy/plugins/):" in output

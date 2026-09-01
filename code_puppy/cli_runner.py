@@ -581,6 +581,11 @@ async def main():
         if args.prompt:
             initial_command = args.prompt
             prompt_only_mode = True
+            # Headless runs have nobody at the keyboard to answer check-ins,
+            # so agency is always EXTREME regardless of config.
+            from code_puppy.config import set_headless_mode
+
+            set_headless_mode(True)
         elif args.command:
             initial_command = " ".join(args.command)
             prompt_only_mode = False
@@ -786,6 +791,10 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     # brackets. A Text object bypasses that string branch entirely and
     # renders as one line, actually bold.
     emit_system_message(Text(t("cli.help.press_tab"), style="bold"))
+    # Tell the user how relentless the puppy is configured to be.
+    from code_puppy.config import get_agency_level
+
+    emit_info(t("cli.agency.status", level=get_agency_level().upper()))
     # Print truecolor warning LAST so it's the most visible thing on startup
     # Big ugly red box should be impossible to miss!
     print_truecolor_warning(display_console)

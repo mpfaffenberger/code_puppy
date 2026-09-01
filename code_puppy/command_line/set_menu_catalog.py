@@ -23,6 +23,8 @@ from code_puppy.command_line.set_menu_shims import (
     get_max_pause_seconds_effective,
 )
 from code_puppy.config import (
+    AGENCY_LEVELS,
+    get_agency_level,
     get_allow_recursion,
     get_auto_save_session,
     get_compaction_strategy,
@@ -55,7 +57,6 @@ from code_puppy.config import (
     get_retry_main_strategy,
     get_retry_subagent_max_attempts,
     get_retry_subagent_strategy,
-    get_safety_permission_level,
     get_smooth_response_stream,
     get_smooth_thinking_stream,
     get_subagent_recursion_limit,
@@ -134,6 +135,18 @@ _MODEL = SettingsCategory(
 _BEHAVIOR = SettingsCategory(
     name="Behavior",
     settings=(
+        Setting(
+            key="agency_level",
+            display_name="Agency Level",
+            description=(
+                "How relentlessly the agent proceeds without checking in. "
+                "'low' pauses after every step, 'extreme' never stops. "
+                "Headless -p runs always behave as 'extreme'."
+            ),
+            type_hint="choice",
+            valid_values=AGENCY_LEVELS,
+            effective_getter=get_agency_level,
+        ),
         Setting(
             key="yolo_mode",
             display_name="YOLO Mode",
@@ -502,18 +515,6 @@ _API_KEYS = SettingsCategory(
 _SAFETY = SettingsCategory(
     name="Safety",
     settings=(
-        Setting(
-            key="safety_permission_level",
-            display_name="Permission Level",
-            description=(
-                "Risk threshold for tool execution. Lower thresholds prompt "
-                "for more operations; 'critical' only prompts on the most "
-                "dangerous actions."
-            ),
-            type_hint="choice",
-            valid_values=("none", "low", "medium", "high", "critical"),
-            effective_getter=get_safety_permission_level,
-        ),
         Setting(
             key="disable_dangerous_command_guard",
             display_name="Disable Dangerous Command Guard",

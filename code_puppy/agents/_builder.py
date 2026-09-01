@@ -615,13 +615,15 @@ def build_pydantic_agent(
     - ``agent._last_model_name``      ← resolved model name
     - ``agent.pydantic_agent``        ← the final (possibly plugin-wrapped) agent
     - ``agent._code_generation_agent`` ← same as ``pydantic_agent``
-    - ``agent._mcp_servers``          ← MCP toolsets (post-filter)
+    - ``agent._mcp_servers``          ← MCP toolsets (post-filter,
+      post-``transform_mcp_toolsets``)
 
     The build happens in two passes: we construct once with ``toolsets=[]`` so
     we can introspect registered tool names, then rebuild with MCP servers
-    filtered against those names to prevent collisions. Plugins may wrap the
-    final pydantic agent via the ``wrap_pydantic_agent`` hook (e.g. to swap
-    in a durable-exec wrapper).
+    filtered against those names to prevent collisions and passed through
+    ``agent.transform_mcp_toolsets()`` (a subclass extension seam, no-op by
+    default). Plugins may wrap the final pydantic agent via the
+    ``wrap_pydantic_agent`` hook (e.g. to swap in a durable-exec wrapper).
     """
     from code_puppy.tools import register_tools_for_agent
 
@@ -698,9 +700,32 @@ def build_pydantic_agent(
         mcp_servers, existing_tool_names
     )
 
+    # Extension seam; see BaseAgent.transform_mcp_toolsets for the contract
+    # (fails open on raise/bad return type -- not safe for security gating).
+    final_mcp_servers = filtered_mcp_servers
+    try:
+        transformed = agent.transform_mcp_toolsets(filtered_mcp_servers)
+    except Exception as exc:
+        emit_warning(
+            f"transform_mcp_toolsets override for agent '{logical_agent_name}' "
+            f"raised {exc!r}; falling back to unmodified MCP toolsets.",
+            message_group=message_group,
+        )
+    else:
+        if isinstance(transformed, list):
+            final_mcp_servers = transformed
+        else:
+            emit_warning(
+                "transform_mcp_toolsets override for agent "
+                f"'{logical_agent_name}' returned "
+                f"{type(transformed).__name__}, not a list; falling back to "
+                "unmodified MCP toolsets.",
+                message_group=message_group,
+            )
+
     # Pass 2: real build. MCP servers always go in the constructor; plugins
     # (e.g. DBOS) may swap them at run time via ``agent_run_context``.
-    final_pydantic = _new_pydantic_agent(toolsets=filtered_mcp_servers)
+    final_pydantic = _new_pydantic_agent(toolsets=final_mcp_servers)
     register_tools_for_agent(
         final_pydantic,
         agent_tools,
@@ -710,7 +735,7 @@ def build_pydantic_agent(
 
     agent.cur_model = model
     agent._last_model_name = resolved_model_name
-    agent._mcp_servers = filtered_mcp_servers
+    agent._mcp_servers = final_mcp_servers
 
     wrapped = on_wrap_pydantic_agent(
         agent,

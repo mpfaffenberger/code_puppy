@@ -520,6 +520,9 @@ def get_config_keys():
     # Add /goal iteration cap (owned by the wiggum plugin, surfaced here so
     # /set autocompletes it). See plugins/wiggum/register_callbacks.py.
     default_keys.append("goal_max_iterations")
+    # How relentlessly the agent proceeds without checking in; headless -p
+    # runs always behave as 'extreme' (see get_agency_level()).
+    default_keys.append("agency_level")
     # Add dangerous command guard disable (skips force push and destructive command guards)
     default_keys.append("disable_dangerous_command_guard")
     # Per-pattern allowlist bypassing the command guards (e.g. "git reset
@@ -1464,20 +1467,43 @@ def get_yolo_mode() -> bool:
     return get_truthy_bool_value("yolo_mode", True)
 
 
-def get_safety_permission_level():
+AGENCY_LEVELS = ("low", "medium", "high", "extreme")
+
+_headless_mode: bool = False
+
+
+def set_headless_mode(value: bool) -> None:
+    """Mark this process as headless (``-p`` prompt); process-local only."""
+    global _headless_mode
+    _headless_mode = value
+
+
+def get_headless_mode() -> bool:
+    """Return whether this process is running a headless ``-p`` prompt."""
+    return _headless_mode
+
+
+def get_agency_level() -> str:
     """
-    Checks puppy.cfg for 'safety_permission_level' (case-insensitive in value only).
-    Defaults to 'medium' if not set.
-    Allowed values: 'none', 'low', 'medium', 'high', 'critical' (all case-insensitive for value).
+    Checks puppy.cfg for 'agency_level' (case-insensitive in value only).
+    Allowed values: 'low', 'medium', 'high', 'extreme'.
+    Defaults to 'high' if not set or invalid: fully autonomous on requested
+    work, without the relentless background-process vigil of 'extreme'.
+
+    Headless (``-p``) runs always report 'extreme' no matter what the config
+    says — there is nobody at the keyboard to answer check-ins, so anything
+    lower would just stall the run.
+
     Returns the normalized lowercase string.
     """
-    valid_levels = {"none", "low", "medium", "high", "critical"}
-    cfg_val = get_value("safety_permission_level")
+    if _headless_mode:
+        return "extreme"
+    cfg_val = get_value("agency_level")
     if cfg_val is not None:
         normalized = str(cfg_val).strip().lower()
-        if normalized in valid_levels:
+        if normalized in AGENCY_LEVELS:
             return normalized
-    return "medium"  # Default to medium risk threshold
+    return "high"
 
 
 def get_mcp_disabled():
