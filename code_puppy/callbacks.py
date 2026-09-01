@@ -1128,8 +1128,8 @@ def on_prepare_model_prompt(
 
     This is the hook fired from ``model_utils.prepare_prompt_for_model`` to let
     plugins take over prompt preparation for specific model families (e.g.
-    claude-code OAuth models which need a hard-coded instruction string and
-    have the system prompt prepended to the user message).
+    claude-code OAuth models, which need a fixed identity line as the
+    opening system block ahead of the real system prompt).
 
     Unlike ``get_model_system_prompt`` (which is used by augmenting plugins like
     agent_skills), this hook is for plugins that want to *fully handle* the
@@ -1148,6 +1148,8 @@ def on_prepare_model_prompt(
         - ``"handled"``: bool — True if this callback fully prepared the prompt.
         - ``"instructions"``: str — the system prompt/instructions to use.
         - ``"user_prompt"``: str — the (possibly modified) user prompt.
+        - ``"system_prompt"``: str — (optional) a standing system prompt emitted
+          as its own ``SystemPromptPart`` *before* ``instructions``.
         - ``"is_claude_code"``: bool — (optional) flag preserved on PreparedPrompt.
 
     Or return ``None`` to indicate "I don't handle this model".

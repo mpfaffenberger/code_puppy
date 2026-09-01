@@ -415,7 +415,8 @@ async def _invoke_agent_impl(
             # via BaseAgent — appending again would double-inject them.
             from code_puppy.model_utils import prepare_prompt_for_model
 
-            # Handle claude-code models: swap instructions, and prepend system prompt only on first message
+            # Model-family prep (e.g. claude-code): may split off a standing
+            # system_prompt part, or touch the user prompt on the first message.
             prepared = prepare_prompt_for_model(
                 effective_model_name,
                 instructions,
@@ -467,6 +468,7 @@ async def _invoke_agent_impl(
                 # span reads "invoke_agent temp_agent" instead of the logical
                 # agent name (e.g. "invoke_agent web-retriever").
                 name=agent_name,
+                system_prompt=prepared.system_prompt_parts,
                 instructions=instructions,
                 output_type=str,
                 retries=3,
