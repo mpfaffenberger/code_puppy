@@ -21,6 +21,7 @@ Usage:
 """
 
 import importlib.metadata
+import json
 import logging
 import warnings
 from typing import Any
@@ -33,6 +34,35 @@ from code_puppy._pydantic_tool_helpers import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _repair_tool_call_json(raw: str) -> str:
+    """Repair malformed object JSON without accepting a changed top-level shape."""
+    try:
+        json.loads(raw)
+        return raw
+    except json.JSONDecodeError:
+        pass
+
+    try:
+        import json_repair
+
+        repaired = json_repair.repair_json(raw)
+        if repaired == raw:
+            return raw
+        parsed = json.loads(repaired)
+        if not isinstance(parsed, dict):
+            logger.warning(
+                "json_repair changed tool-call JSON shape (dict -> %s); "
+                "rejecting repair and leaving original malformed JSON in place",
+                type(parsed).__name__,
+            )
+            return raw
+        logger.warning("json_repair modified malformed tool-call JSON arguments")
+        return repaired
+    except Exception:
+        return raw
+
 
 # Loud failures recorded during the current apply_all_patches() run, so the
 # summary line can distinguish real breakage from skipped optional deps.
@@ -151,10 +181,11 @@ def patch_tool_call_json_repair() -> bool:
     single validation entry point since pydantic-ai split validation from
     execution in the public ``pydantic_ai.tool_manager`` module) and runs
     json_repair on the raw arguments before validation, preventing
-    unnecessary retries.
+    unnecessary retries. Repairs are attempted only after strict parsing fails,
+    and are accepted only when they preserve the required object shape.
     """
     try:
-        import json_repair
+        import json_repair  # noqa: F401  (optional-dependency gate)
     except ImportError as exc:
         return _optional_lib_missing("patch_tool_call_json_repair", exc)
 
@@ -169,13 +200,7 @@ def patch_tool_call_json_repair() -> bool:
             """Repair malformed JSON args before pydantic-ai validates them."""
             # Only attempt repair if args is a string (JSON)
             if isinstance(call.args, str) and call.args:
-                try:
-                    repaired = json_repair.repair_json(call.args)
-                    if repaired != call.args:
-                        # Update the call args with repaired JSON
-                        call.args = repaired
-                except Exception:
-                    pass  # If repair fails, let original validation handle it
+                call.args = _repair_tool_call_json(call.args)
 
             return await _original_validate_tool_call(self, call, **kwargs)
 
