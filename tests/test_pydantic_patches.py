@@ -56,6 +56,17 @@ def test_non_object_tool_call_json_repair_is_rejected():
     )
 
 
+def test_deeply_nested_tool_call_json_returns_original(monkeypatch):
+    raw = '{"value": {"nested": true}}'
+
+    def recursion_error(_raw):
+        raise RecursionError("maximum recursion depth exceeded")
+
+    monkeypatch.setattr(pydantic_patches.json, "loads", recursion_error)
+
+    assert pydantic_patches._repair_tool_call_json(raw) == raw
+
+
 def test_recoverable_tool_call_json_is_repaired():
     malformed = '{"file_path": "demo.py", "content": "hi",}'
 
