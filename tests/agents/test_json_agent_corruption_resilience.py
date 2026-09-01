@@ -82,3 +82,41 @@ def test_discover_json_agents_skips_corrupt_files_without_raising(
 
     assert agents.get("test-agent") == str(good)
     assert len(agents) == 1
+
+
+def test_mcp_servers_null_is_accepted(agent_path):
+    """Explicit JSON ``null`` for ``mcp_servers`` must be treated as "no
+    bindings declared", not rejected. This is the shape the marketplace
+    backend emits for agents with no MCP servers bound (see
+    ``AgentPublish.mcp_servers: dict[str, dict] | None`` in puppy-frontend),
+    so a downloaded agent with no bindings must load cleanly rather than
+    raising during ``_validate_config()``.
+    """
+    agent_path.write_text(json.dumps({**VALID_CONFIG, "mcp_servers": None}))
+
+    agent = JSONAgent(str(agent_path))
+
+    assert agent._config["name"] == "test-agent"
+    assert agent.get_declared_mcp_bindings() == {}
+
+
+def test_mcp_servers_null_agent_is_discoverable(tmp_path, monkeypatch):
+    """Before the fix, ``mcp_servers: null`` raised a ``ValueError`` from
+    ``_validate_config()`` that ``discover_json_agents()`` silently
+    swallowed, so the agent vanished from the registry entirely
+    (presenting to the user as "agent not found"). Confirm the agent now
+    survives discovery.
+    """
+    from code_puppy.agents.json_agent import discover_json_agents
+
+    agent_file = tmp_path / "no-bindings.json"
+    agent_file.write_text(json.dumps({**VALID_CONFIG, "mcp_servers": None}))
+
+    monkeypatch.setattr(
+        "code_puppy.config.get_user_agents_directory", lambda: str(tmp_path)
+    )
+    monkeypatch.setattr("code_puppy.config.get_project_agents_directory", lambda: None)
+
+    agents = discover_json_agents()
+
+    assert agents.get("test-agent") == str(agent_file)

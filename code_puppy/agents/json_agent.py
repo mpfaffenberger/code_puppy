@@ -167,7 +167,15 @@ class JSONAgent(BaseAgent):
         # message.
         if "mcp_servers" in self._config:
             mcp_servers = self._config["mcp_servers"]
-            if isinstance(mcp_servers, list):
+            if mcp_servers is None:
+                # Explicit JSON null means "no bindings" — this is the shape
+                # the marketplace backend emits for agents with no MCP
+                # servers bound, and is functionally identical to the key
+                # being absent entirely. Mirrors the `is not None` guard
+                # already used by get_declared_mcp_bindings() and the
+                # upload/download marketplace plugins.
+                pass
+            elif isinstance(mcp_servers, list):
                 for entry in mcp_servers:
                     if not isinstance(entry, str):
                         raise ValueError(
