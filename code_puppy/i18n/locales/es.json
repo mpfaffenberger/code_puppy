@@ -57,6 +57,7 @@
   "oauth.claude.reauth.no_token": "La reautenticación de OAuth de Claude Code no generó un token utilizable.",
   "oauth.claude.cmd.auth.starting": "Iniciando la autenticación de OAuth de Claude Code…",
   "oauth.claude.cmd.auth.overwrite_warning": "Se encontraron tokens existentes de Claude Code. Continuar los sobrescribirá.",
+  "oauth.claude.cmd.auth.model_switch_skipped": "Se omitió el cambio a {model}: la autenticación no se completó o el modelo no fue descubierto.",
   "oauth.claude.cmd.status.authenticated": "OAuth de Claude Code: autenticado",
   "oauth.cmd.status.expires": "El token expira en ~{hours}h {minutes}min",
   "oauth.claude.cmd.status.models": "Modelos de Claude Code configurados: {models}",
