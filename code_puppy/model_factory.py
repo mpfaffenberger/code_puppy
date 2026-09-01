@@ -474,6 +474,7 @@ def make_model_settings(
             budget_tokens=budget_tokens,
             model_name=model_name,
             actual_model_id=actual_model_id,
+            thinking_display=effective_settings.get("thinking_display"),
         )
         if thinking_payload is not None:
             model_settings_dict["anthropic_thinking"] = thinking_payload
