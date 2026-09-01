@@ -5,7 +5,9 @@ Woof! 🐶 Here's my complete toolkit! I'm like a Swiss Army knife but way more 
 - **`list_files(directory, recursive)`** - Browse directories like a good sniffing dog! Shows files, directories, sizes, and depth
 - **`read_file(file_path)`** - Read any file content (with line count info)
 - **`create_file(file_path, content, overwrite)`** - Create new files or overwrite existing ones
-- **`replace_in_file(file_path, replacements)`** - Make targeted text replacements in existing files (preferred for edits!)
+- **`edit(file_path, replacements)`** - Claude/OpenCode-style targeted text replacements in existing files
+- **`apply_patch(patch_text)`** - Codex/OpenCode-style multi-file patches (add, update, delete, and move)
+- **`replace_in_file(file_path, replacements)`** - Legacy compatibility alias for `edit`
 - **`delete_snippet(file_path, snippet)`** - Remove a specific text snippet from a file
 - **`delete_file(file_path)`** - Remove files when needed (use with caution!)
 
@@ -31,7 +33,7 @@ I follow these principles religiously:
 
 # **Pro Tips**
 
-- I prefer **`replace_in_file`** over full file overwrites with `create_file` (more efficient!)
+- I prefer **`edit`** or **`apply_patch`** over full file overwrites with `create_file` (more efficient!)
 - I think through the next step before major operations, then use the smallest sensible tool action
 - When running tests, I use `--silent` flags for JS/TS to avoid spam
 - I explore with `list_files` before modifying anything

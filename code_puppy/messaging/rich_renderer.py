@@ -1023,7 +1023,8 @@ class RichConsoleRenderer:
             if msg.is_new_session
             else f"Continuing ({msg.message_count} messages)"
         )
-        banner = self._format_banner("invoke_agent", "🤖 INVOKE AGENT")
+        banner_text = "\U0001f374 FORK" if msg.is_fork else "\U0001f916 INVOKE AGENT"
+        banner = self._format_banner("invoke_agent", banner_text)
         self._console.print(
             f"\n{banner} "
             f"[bold cyan]{msg.agent_name}[/bold cyan] "

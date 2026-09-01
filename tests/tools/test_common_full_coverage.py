@@ -334,7 +334,7 @@ class TestFormatDiffWithColors:
 
 
 # ---------------------------------------------------------------------------
-# _find_best_window
+# _find_best_window (plugin preview API surface — engine no longer uses it)
 # ---------------------------------------------------------------------------
 
 

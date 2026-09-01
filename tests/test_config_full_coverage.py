@@ -129,20 +129,45 @@ class TestBooleanGetters:
 
 
 # ---------------------------------------------------------------------------
-# Safety permission level
+# Agency level
 # ---------------------------------------------------------------------------
-class TestSafetyPermissionLevel:
-    def test_default_medium(self):
-        assert cp_config.get_safety_permission_level() == "medium"
+class TestAgencyLevel:
+    @pytest.fixture(autouse=True)
+    def _reset_headless_mode(self, monkeypatch):
+        """Other tests may exercise the -p path, leaking the sticky flag."""
+        monkeypatch.setattr(cp_config, "_headless_mode", False)
+
+    def test_default_high(self):
+        assert cp_config.get_agency_level() == "high"
 
     def test_valid_levels(self):
-        for level in ["none", "low", "medium", "high", "critical"]:
-            cp_config.set_config_value("safety_permission_level", level)
-            assert cp_config.get_safety_permission_level() == level
+        for level in cp_config.AGENCY_LEVELS:
+            cp_config.set_config_value("agency_level", level)
+            assert cp_config.get_agency_level() == level
 
-    def test_invalid_falls_back_to_medium(self):
-        cp_config.set_config_value("safety_permission_level", "invalid")
-        assert cp_config.get_safety_permission_level() == "medium"
+    def test_value_is_normalized(self):
+        cp_config.set_config_value("agency_level", "  MeDiUm ")
+        assert cp_config.get_agency_level() == "medium"
+
+    def test_invalid_falls_back_to_high(self):
+        cp_config.set_config_value("agency_level", "ludicrous")
+        assert cp_config.get_agency_level() == "high"
+
+    def test_headless_forces_extreme(self, monkeypatch):
+        cp_config.set_config_value("agency_level", "low")
+        monkeypatch.setattr(cp_config, "_headless_mode", True)
+        assert cp_config.get_agency_level() == "extreme"
+
+    def test_set_headless_mode_round_trip(self, monkeypatch):
+        monkeypatch.setattr(cp_config, "_headless_mode", False)
+        assert cp_config.get_headless_mode() is False
+        cp_config.set_headless_mode(True)
+        assert cp_config.get_headless_mode() is True
+        cp_config.set_headless_mode(False)
+        assert cp_config.get_headless_mode() is False
+
+    def test_agency_level_in_config_keys(self):
+        assert "agency_level" in cp_config.get_config_keys()
 
 
 # ---------------------------------------------------------------------------
@@ -684,6 +709,20 @@ class TestConfigKeys:
         assert "enable_streaming" in keys
         assert "cancel_agent_key" in keys
         assert "resume_message_count" in keys
+        assert "auto_continue_model" in keys
+
+
+def test_auto_continue_model_uses_override(monkeypatch):
+    monkeypatch.setattr(cp_config, "get_value", lambda key: "  tiny-model  ")
+
+    assert cp_config.get_auto_continue_model_name() == "tiny-model"
+
+
+def test_auto_continue_model_falls_back_to_global(monkeypatch):
+    monkeypatch.setattr(cp_config, "get_value", lambda key: "")
+    monkeypatch.setattr(cp_config, "get_global_model_name", lambda: "global-model")
+
+    assert cp_config.get_auto_continue_model_name() == "global-model"
 
 
 # ---------------------------------------------------------------------------

@@ -5,7 +5,7 @@ import re
 import shutil
 import subprocess
 import tempfile
-from typing import List
+from typing import Callable, List, Tuple
 
 from pydantic import BaseModel, conint
 from pydantic_ai import RunContext
@@ -161,6 +161,32 @@ def would_match_directory(pattern: str, directory: str) -> bool:
     return False
 
 
+def _relative_ignore_predicates(root: str) -> Tuple[Callable[[str], bool], ...]:
+    """``(skip_dir, skip_file)`` predicates that match ignore patterns to *root*.
+
+    The ignore patterns exist to prune directories *inside* the searched tree
+    (``node_modules``, ``.git``, ``tmp``). Matched against an absolute path they also
+    hit the root's own ancestors, so a root under ``/tmp`` matched ``**/tmp/**`` and
+    every single entry was skipped -- silently, with no error. Both backend traversals
+    (``grep`` and recursive ``list_files``) need the same rule, so it is defined once.
+
+    Relative matching keeps the original intent: a ``tmp/`` *below* the root is still
+    pruned, only the ancestors stop counting as grounds for a total veto.
+    """
+    from code_puppy.tools.common import should_ignore_dir_path, should_ignore_path
+
+    def _relative_to_root(path: str) -> str:
+        try:
+            return os.path.relpath(path, root)
+        except ValueError:  # different drive on Windows
+            return path
+
+    return (
+        lambda p: should_ignore_dir_path(_relative_to_root(p)),
+        lambda p: should_ignore_path(_relative_to_root(p)),
+    )
+
+
 def _list_entries_via_backend(directory: str, recursive: bool) -> List["ListedFile"]:
     """Build ``ListedFile`` results from the installed filesystem backend.
 
@@ -169,8 +195,6 @@ def _list_entries_via_backend(directory: str, recursive: bool) -> List["ListedFi
     ``grep`` see), rather than the local ripgrep path used when no backend is
     installed. Honors the same ignore rules as the local path.
     """
-    from code_puppy.tools.common import should_ignore_dir_path, should_ignore_path
-
     results: List[ListedFile] = []
 
     def _rel(full: str) -> str:
@@ -179,10 +203,11 @@ def _list_entries_via_backend(directory: str, recursive: bool) -> List["ListedFi
         return full
 
     if recursive:
+        skip_dir, skip_file = _relative_ignore_predicates(directory)
         for full, entry in fs_access.walk(
             directory,
-            skip_dir=should_ignore_dir_path,
-            skip_file=should_ignore_path,
+            skip_dir=skip_dir,
+            skip_file=skip_file,
         ):
             rel = _rel(full)
             if not rel:
@@ -1104,6 +1129,17 @@ def _emit_grep_result(
     return GrepOutput(matches=matches, error=error_message)
 
 
+def _missing_directory_error(directory: str, *, exists: bool) -> str:
+    """Error text for a bad grep target, shared by both grep paths.
+
+    Both the local-ripgrep and backend paths need to say the same thing; neither may
+    fall back to "no matches", which is indistinguishable from an empty search.
+    """
+    if not exists:
+        return f"Error: Directory '{directory}' does not exist"
+    return f"Error: '{directory}' is not a directory"
+
+
 def _grep_via_backend(directory: str, search_string: str) -> "GrepOutput":
     """Search through the installed filesystem backend (no local ripgrep).
 
@@ -1117,15 +1153,11 @@ def _grep_via_backend(directory: str, search_string: str) -> "GrepOutput":
     cap and binary files (NUL in the first chunk) are skipped, matching
     ripgrep's defaults.
     """
-    from code_puppy.tools.common import should_ignore_dir_path, should_ignore_path
-
     # Missing/non-directory target = error (matches local ripgrep, not silent
     # zero matches); ``walk`` itself tolerates a bad root.
     if not fs_access.is_dir(directory):
-        error_msg = (
-            f"Error: Directory '{directory}' does not exist"
-            if not fs_access.exists(directory)
-            else f"Error: '{directory}' is not a directory"
+        error_msg = _missing_directory_error(
+            directory, exists=fs_access.exists(directory)
         )
         return _emit_grep_result(search_string, directory, [], error_msg)
 
@@ -1133,10 +1165,14 @@ def _grep_via_backend(directory: str, search_string: str) -> "GrepOutput":
     if error is not None:
         return _emit_grep_result(search_string, directory, [], error)
 
+    skip_dir, skip_file = _relative_ignore_predicates(directory)
+
     max_filesize = 5 * 1024 * 1024  # mirror ripgrep --max-filesize 5M
     matches: List[MatchInfo] = []
     for full, entry in fs_access.walk(
-        directory, skip_dir=should_ignore_dir_path, skip_file=should_ignore_path
+        directory,
+        skip_dir=skip_dir,
+        skip_file=skip_file,
     ):
         if entry.is_dir:
             continue
@@ -1198,6 +1234,15 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
     matches: List[MatchInfo] = []
     error_message: str | None = None
 
+    # ripgrep runs with cwd=directory below, so a bad target would surface as a
+    # FileNotFoundError from the spawn and get misreported as "ripgrep not found".
+    # Name the real problem, and agree with the backend path's wording.
+    if not os.path.isdir(directory):
+        return GrepOutput(
+            matches=[],
+            error=_missing_directory_error(directory, exists=os.path.exists(directory)),
+        )
+
     # Create a temporary ignore file with our ignore patterns
     ignore_file = None
     try:
@@ -1248,7 +1293,14 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
 
         cmd.extend(["--ignore-file", ignore_file])
         cmd.extend(rg_args)
-        cmd.append(directory)
+        # Search '.' with cwd=directory rather than passing the absolute path.
+        # ripgrep matches --ignore-file patterns against the paths it walks, so an
+        # absolute root lets one of the root's *ancestors* veto the whole search:
+        # rooted under /tmp, the '**/tmp/**' pattern ignored every file and grep
+        # returned zero matches with no error at all (every pytest tmp_path on
+        # Linux, and any project parked in /tmp, ~/.cache or node_modules).
+        # Relative to the root, 'tmp' only prunes a tmp directory *inside* it.
+        cmd.append(".")
         # Use encoding with error handling to handle files with invalid UTF-8
         result = subprocess.run(
             cmd,
@@ -1257,6 +1309,7 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
             timeout=30,
             encoding="utf-8",
             errors="replace",  # Replace invalid chars instead of crashing
+            cwd=directory,
         )
 
         if result.returncode not in (0, 1):
@@ -1286,6 +1339,9 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
                     file_path = (
                         path_data.get("text", "") if path_data.get("text") else ""
                     )
+                    if file_path:
+                        # rg searched '.' from cwd=directory; report absolute paths.
+                        file_path = os.path.normpath(os.path.join(directory, file_path))
                     line_number = data.get("line_number", None)
                     line_content = (
                         data.get("lines", {}).get("text", "")

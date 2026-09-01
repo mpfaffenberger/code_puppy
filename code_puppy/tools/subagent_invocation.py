@@ -235,6 +235,7 @@ async def _invoke_agent_impl(
     model_name: str | None = None,
     emit_response_message: bool = True,
     include_usage_metrics: bool = False,
+    is_fork: bool = False,
 ) -> AgentInvokeOutput:
     """Invoke a sub-agent, optionally suppressing its standard response message.
 
@@ -243,6 +244,13 @@ async def _invoke_agent_impl(
     ``AgentInvokeOutput``) and whether any timing/usage instrumentation runs
     at all, so ``invoke_agent`` callers see zero behavioral or performance
     change from before this instrumentation existed.
+
+    ``is_fork`` is set by the ``/fork`` plugin (a companion package,
+    ``code_puppy_core_plugins.fork.register_callbacks::_run_fork``, which
+    feature-detects this kwarg via ``inspect.signature`` before passing it --
+    this repo has no direct caller). It flags the emitted
+    ``SubAgentInvocationMessage`` so renderers can show a distinct banner
+    instead of the generic tool-call one.
     """
     from code_puppy.agents.agent_manager import load_agent
 
@@ -312,6 +320,7 @@ async def _invoke_agent_impl(
             is_new_session=is_new_session,
             message_count=len(message_history),
             model_name=model_name,
+            is_fork=is_fork,
         )
     )
 
@@ -406,7 +415,8 @@ async def _invoke_agent_impl(
             # via BaseAgent — appending again would double-inject them.
             from code_puppy.model_utils import prepare_prompt_for_model
 
-            # Handle claude-code models: swap instructions, and prepend system prompt only on first message
+            # Model-family prep (e.g. claude-code): may split off a standing
+            # system_prompt part, or touch the user prompt on the first message.
             prepared = prepare_prompt_for_model(
                 effective_model_name,
                 instructions,
@@ -458,6 +468,7 @@ async def _invoke_agent_impl(
                 # span reads "invoke_agent temp_agent" instead of the logical
                 # agent name (e.g. "invoke_agent web-retriever").
                 name=agent_name,
+                system_prompt=prepared.system_prompt_parts,
                 instructions=instructions,
                 output_type=str,
                 retries=3,
