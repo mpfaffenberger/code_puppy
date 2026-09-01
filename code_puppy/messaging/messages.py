@@ -282,6 +282,10 @@ class SubAgentInvocationMessage(BaseMessage):
         default=None,
         description="Optional per-invocation model override requested for this sub-agent run",
     )
+    is_fork: bool = Field(
+        default=False,
+        description="Whether this invocation was started via /fork (renders a distinct banner)",
+    )
 
 
 class SubAgentResponseMessage(BaseMessage):

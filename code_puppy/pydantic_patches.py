@@ -4,7 +4,7 @@ Historically pydantic-ai focused, this module now collects all runtime
 monkey patches code-puppy applies to its dependencies.  Each patch is
 idempotent and NEVER raises, but failures are not silent:
 
-- A missing OPTIONAL third-party lib (json_repair, wcwidth, prompt_toolkit,
+- A missing OPTIONAL third-party lib (json_repair, wcwidth,
   termflow) is genuinely fine and only logged at DEBUG level.
 - Failure to locate/patch a pydantic-ai (or other patched-lib) internal —
   missing module, missing attribute, changed shape detected at apply time —
@@ -24,6 +24,13 @@ import importlib.metadata
 import logging
 import warnings
 from typing import Any
+
+from code_puppy._pydantic_tool_helpers import (
+    _block_reason,
+    _normalize_claude_code_tool_name,
+    _tool_args_for_pre_tool_call,
+    _writeback_tool_args,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -184,65 +191,6 @@ def patch_tool_call_json_repair() -> bool:
         )
 
 
-def _writeback_tool_args(call: Any, tool_args: dict, mode: str | None) -> None:
-    """Persist pre_tool_call mutations of ``tool_args`` back onto ``call.args``.
-
-    pydantic-ai's ``ToolCallPart.args`` is usually a JSON *string* (what the
-    LLM emitted). The pre_tool_call hook contract gives plugins a *dict* view
-    to mutate. Without this writeback, mutations vanish before the real tool
-    runs and the model sees nothing changed.
-
-    Args:
-        call: The ``ToolCallPart`` (or compatible) whose ``args`` we update.
-        tool_args: The dict view that hooks may have mutated.
-        mode: ``"str"`` to re-serialize as JSON, ``"dict"`` to assign directly,
-              or ``None`` to skip (unparseable input — don't corrupt it).
-
-    Failures are swallowed: writeback must never block tool execution.
-    """
-    if mode is None:
-        return
-    try:
-        if mode == "str":
-            import json
-
-            call.args = json.dumps(tool_args)
-        elif mode == "dict":
-            call.args = tool_args
-    except Exception:
-        pass  # never block tool execution on writeback failure
-
-
-#: Shown when a hook denies without a usable reason, or when producing its
-#: reason fails. A deny always renders as a deny — never as an allow.
-_GENERIC_BLOCK_REASON = "Tool execution blocked by hook"
-
-
-def _block_reason(callback_result: dict) -> str:
-    """Render a hook's deny reason, tolerating any value it supplied.
-
-    `error_message`/`reason` come from plugin code and are not guaranteed to be
-    strings. A non-string previously raised inside the caller's broad `except`,
-    which silently turned an explicit deny into an allow.
-
-    Total by construction: extraction is inside the guard too, because `.get`
-    and the truthiness of a plugin's own object can raise just as easily as
-    `__str__`, and none of that may escape into the caller.
-    """
-    try:
-        raw = (
-            callback_result.get("error_message") or callback_result.get("reason") or ""
-        )
-        if not isinstance(raw, str):
-            raw = str(raw)
-        marker = raw.find("[BLOCKED]")
-        if marker != -1:
-            return raw[marker:].strip() or _GENERIC_BLOCK_REASON
-        return raw.strip() or _GENERIC_BLOCK_REASON
-    except Exception:
-        return _GENERIC_BLOCK_REASON
-
-
 def patch_tool_call_callbacks() -> bool:
     """Patch pydantic-ai tool handling to support callbacks and Claude Code tool names.
 
@@ -251,12 +199,13 @@ def patch_tool_call_callbacks() -> bool:
     ``_call_tool`` is too late: prefixed tools get marked as ``unknown`` and can
     burn through result retries, eventually raising ``UnexpectedModelBehavior``.
 
-    This patch normalizes Claude Code tool names early (during lookup and
-    validation, before classification) and wraps ``execute_tool_call`` (the
-    single execution entry point since pydantic-ai split validation from
-    execution in the public ``pydantic_ai.tool_manager`` module) so every tool
-    invocation also triggers the ``pre_tool_call`` and ``post_tool_call``
-    callbacks defined in ``code_puppy.callbacks``.
+    This patch normalizes Claude Code tool names early (during regular and
+    structured-output validation, before classification) and wraps
+    ``execute_tool_call`` (the single execution entry point since pydantic-ai
+    split validation from execution in the public
+    ``pydantic_ai.tool_manager`` module) so every tool invocation also triggers
+    the ``pre_tool_call`` and ``post_tool_call`` callbacks defined in
+    ``code_puppy.callbacks``.
 
     Why not the v2 ``Hooks`` capability? Evaluated against pydantic-ai
     2.31.0 and rejected:
@@ -279,43 +228,13 @@ def patch_tool_call_callbacks() -> bool:
 
         _original_execute_tool_call = ToolManager.execute_tool_call
         _original_get_tool_def = ToolManager.get_tool_def
+        _original_validate_output_tool_call = ToolManager.validate_output_tool_call
         _original_validate_tool_call = ToolManager.validate_tool_call
 
-        # Strip the cp_ prefix on return only while a claude-code model is active;
-        # unconditional stripping would corrupt legit ``cp_`` names from other types.
-        TOOL_PREFIX = "cp_"
-        # Matches claude_code_oauth's model-name convention (prompt_handler.py).
-        _CLAUDE_CODE_MODEL_PREFIX = "claude-code"
-
-        def _is_claude_code_model_active() -> bool:
-            """Best-effort check: is the currently selected model a claude-code one?
-
-            Lazy-imported so this patch stays safe to apply before config is
-            initialised; any failure means "not claude-code" so we never
-            accidentally strip prefixes from non-claude-code tool names.
-            """
-            try:
-                from code_puppy.config import get_global_model_name
-
-                model_name = get_global_model_name() or ""
-                return model_name.startswith(_CLAUDE_CODE_MODEL_PREFIX)
-            except Exception:
-                return False
-
-        def _normalize_tool_name(name: Any) -> Any:
-            """Strip the ``cp_`` prefix if present (claude-code models only)."""
-            if (
-                isinstance(name, str)
-                and name.startswith(TOOL_PREFIX)
-                and _is_claude_code_model_active()
-            ):
-                return name[len(TOOL_PREFIX) :]
-            return name
-
-        def _normalize_call_tool_name(call: Any) -> tuple[Any, Any]:
+        def _normalize_call_tool_name(self: Any, call: Any) -> tuple[Any, Any]:
             """Normalize the tool_name on a call object in-place."""
             tool_name = getattr(call, "tool_name", None)
-            normalized_name = _normalize_tool_name(tool_name)
+            normalized_name = _normalize_claude_code_tool_name(self, tool_name)
             if normalized_name != tool_name:
                 try:
                     call.tool_name = normalized_name
@@ -327,18 +246,24 @@ def patch_tool_call_callbacks() -> bool:
         # Run before classification so prefixed names resolve correctly.
 
         def _patched_get_tool_def(self, name: str):
-            return _original_get_tool_def(self, _normalize_tool_name(name))
+            normalized_name = _normalize_claude_code_tool_name(self, name)
+            return _original_get_tool_def(self, normalized_name)
 
         async def _patched_validate_tool_call(self, call, **kwargs):
             """Normalize the tool name before pydantic-ai classifies the call."""
-            _normalize_call_tool_name(call)
+            _normalize_call_tool_name(self, call)
             return await _original_validate_tool_call(self, call, **kwargs)
+
+        async def _patched_validate_output_tool_call(self, call, **kwargs):
+            """Normalize names used by structured result output tools."""
+            _normalize_call_tool_name(self, call)
+            return await _original_validate_output_tool_call(self, call, **kwargs)
 
         # -- execute_tool_call wrapper with callbacks ----------------------------
 
         async def _patched_execute_tool_call(self, validated, **kwargs):
             call = validated.call
-            tool_name, call = _normalize_call_tool_name(call)
+            tool_name, call = _normalize_call_tool_name(self, call)
 
             # Give hooks a dict view of the args. Prefer the already-validated
             # dict — execution passes it to the tool, so in-place mutations
@@ -355,16 +280,10 @@ def patch_tool_call_callbacks() -> bool:
             elif isinstance(call.args, dict):
                 tool_args = call.args
                 _args_writeback_mode = "dict"
-            elif isinstance(call.args, str):
-                try:
-                    import json
-
-                    tool_args = json.loads(call.args)
-                    _args_writeback_mode = "str"
-                except Exception:
-                    tool_args = {"raw": call.args}
-                    # Unparseable: never write back, would corrupt the original.
-                    _args_writeback_mode = None
+            else:
+                tool_args, _args_writeback_mode = _tool_args_for_pre_tool_call(
+                    call.args
+                )
 
             # Collected outside the try so it survives any callback exception.
             hook_context_messages: list[str] = []
@@ -449,9 +368,13 @@ def patch_tool_call_callbacks() -> bool:
                     pass  # never block tool execution
 
         ToolManager.get_tool_def = _patched_get_tool_def
+        ToolManager.validate_output_tool_call = _patched_validate_output_tool_call
         ToolManager.validate_tool_call = _patched_validate_tool_call
         ToolManager.execute_tool_call = _patched_execute_tool_call
         assert ToolManager.get_tool_def is _patched_get_tool_def
+        assert (
+            ToolManager.validate_output_tool_call is _patched_validate_output_tool_call
+        )
         assert ToolManager.validate_tool_call is _patched_validate_tool_call
         assert ToolManager.execute_tool_call is _patched_execute_tool_call
         return True
@@ -510,66 +433,6 @@ def patch_openai_response_defaults() -> bool:
             "patch_openai_response_defaults",
             exc,
             "OpenAI response validation patches are DISABLED.",
-        )
-
-
-def patch_prompt_toolkit_emoji_width() -> bool:
-    """Patch prompt_toolkit's character width calculation for emojis.
-
-    Modern terminals render most emojis as 2 cells wide, but wcwidth often
-    returns 1 for many emoji codepoints. This causes cursor misalignment.
-
-    This patch:
-    1. Returns 0 for variation selectors (zero-width modifiers)
-    2. Returns 2 for emoji codepoints (terminals render them wide)
-    3. Falls back to wcwidth for non-emoji characters
-    """
-    try:
-        import wcwidth
-        from prompt_toolkit import utils as pt_utils
-    except ImportError as exc:
-        return _optional_lib_missing("patch_prompt_toolkit_emoji_width", exc)
-
-    try:
-        _original_get_cwidth = pt_utils.get_cwidth
-
-        def _patched_get_cwidth(char: str) -> int:
-            """Get character width with better emoji support."""
-            code = ord(char)
-
-            # Variation selectors are zero-width
-            if 0xFE00 <= code <= 0xFE0F:  # VS1-VS16
-                return 0
-
-            # Emoji codepoints - terminals render these as 2 cells wide
-            # even when wcwidth says 1
-            if (
-                0x1F300 <= code <= 0x1F9FF  # Misc Symbols/Pictographs, Emoticons
-                or 0x1F600 <= code <= 0x1F64F  # Emoticons
-                or 0x1F680 <= code <= 0x1F6FF  # Transport/Map symbols
-                or 0x1FA00 <= code <= 0x1FAFF  # Symbols/Pictographs Extended-A
-                or 0x2600 <= code <= 0x26FF  # Misc Symbols (☀️, ⚡, etc)
-                or 0x2700 <= code <= 0x27BF  # Dingbats (✂️, ✈️, etc)
-                or 0x1F1E0 <= code <= 0x1F1FF  # Regional indicators (flags)
-            ):
-                return 2
-
-            # Use wcwidth for non-emoji
-            w = wcwidth.wcwidth(char)
-            if w >= 0:
-                return w
-
-            return _original_get_cwidth(char)
-
-        pt_utils.get_cwidth = _patched_get_cwidth
-        assert pt_utils.get_cwidth is _patched_get_cwidth
-        return True
-    except Exception as exc:
-        return _patch_failed(
-            "patch_prompt_toolkit_emoji_width",
-            exc,
-            "emoji cursor alignment fixes are DISABLED.",
-            target="prompt_toolkit",
         )
 
 
@@ -679,7 +542,6 @@ _ALL_PATCHES = (
     patch_tool_call_json_repair,
     patch_tool_call_callbacks,
     patch_openai_response_defaults,
-    patch_prompt_toolkit_emoji_width,
     patch_termflow_clipboard,
     patch_termflow_code_padding,
 )

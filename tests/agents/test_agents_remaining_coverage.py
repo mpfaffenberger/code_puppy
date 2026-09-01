@@ -83,6 +83,18 @@ def test_web_retriever():
     lowered = prompt.lower()
     assert "dom-first" in lowered
 
+    # Full snapshots are page-discovery operations, not a reflexive
+    # verification loop. Prefer targeted reads while page state is stable.
+    assert "do not re-snapshot an unchanged page" in lowered
+    assert "targeted" in lowered
+    assert "browser_get_text" in prompt
+
+    # Screenshot analysis must answer a genuinely visual question; ordinary
+    # navigation/extraction and failed locators remain DOM-first work.
+    normalized = " ".join(lowered.split())
+    assert "specific visual question" in normalized
+    assert "locator failure alone" in normalized
+
     # Anti-injection boundary: scraped page content must be treated as
     # data, never as instructions to follow.
     assert "data, never" in lowered or "never a command" in lowered
@@ -99,6 +111,54 @@ def test_code_puppy_prompt_omits_web_retriever_guidance():
     prompt = CodePuppyAgent().get_system_prompt()
     assert "web-retriever" not in prompt
     assert "simple one-shot HTTP request" not in prompt
+
+
+def test_code_puppy_prompt_requires_autonomous_task_completion():
+    """Routine next steps must not be bounced back to the user for approval."""
+    from code_puppy.agents.agent_code_puppy import CodePuppyAgent
+
+    prompt = " ".join(CodePuppyAgent().get_system_prompt().split())
+
+    assert "Complete the requested task autonomously" in prompt
+    assert "Do not ask for routine permission" in prompt
+    assert "an irreversible action requiring approval" in prompt
+
+
+def test_code_puppy_prompt_reflects_low_agency(monkeypatch):
+    """LOW agency swaps the relentless bullets for step-at-a-time check-ins."""
+    from code_puppy.agents import agent_code_puppy
+
+    monkeypatch.setattr(agent_code_puppy, "get_agency_level", lambda: "low")
+    prompt = " ".join(agent_code_puppy.CodePuppyAgent().get_system_prompt().split())
+
+    assert "LOW agency" in prompt
+    assert "ask the user before continuing" in prompt
+    assert "Complete the requested task autonomously" not in prompt
+    assert "Be as agentic as possible" not in prompt
+
+
+def test_code_puppy_prompt_reflects_medium_agency(monkeypatch):
+    """MEDIUM agency proceeds on routine work but checks in at milestones."""
+    from code_puppy.agents import agent_code_puppy
+
+    monkeypatch.setattr(agent_code_puppy, "get_agency_level", lambda: "medium")
+    prompt = " ".join(agent_code_puppy.CodePuppyAgent().get_system_prompt().split())
+
+    assert "MEDIUM agency" in prompt
+    assert "check in at major milestones" in prompt
+    assert "Be as agentic as possible" not in prompt
+
+
+def test_code_puppy_prompt_reflects_high_agency(monkeypatch):
+    """HIGH agency keeps autonomy but drops the background-gating relentlessness."""
+    from code_puppy.agents import agent_code_puppy
+
+    monkeypatch.setattr(agent_code_puppy, "get_agency_level", lambda: "high")
+    prompt = " ".join(agent_code_puppy.CodePuppyAgent().get_system_prompt().split())
+
+    assert "Complete the requested task autonomously" in prompt
+    assert "Continue autonomously unless user input is definitively required" in prompt
+    assert "Be as agentic as possible" not in prompt
 
 
 def test_planning_agent_routes_scraping_but_allows_direct_curl():

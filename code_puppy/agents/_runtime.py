@@ -28,7 +28,12 @@ from typing import Any, Callable, Iterator, List, Optional, Sequence, Type, Unio
 
 import httpcore
 import httpx
-import mcp
+
+try:  # pragma: no cover - mcp version dependent
+    from mcp.shared.exceptions import McpError
+except ImportError:  # newer mcp SDKs renamed McpError -> MCPError
+    from mcp.shared.exceptions import MCPError as McpError
+
 from pydantic_ai import (
     BinaryContent,
     DocumentUrl,
@@ -599,6 +604,36 @@ def _checkpoint_cancelled_history(exc_group: BaseException, agent: Any) -> None:
         pass
 
 
+def _is_mcp_transport_failure(exc: BaseException) -> bool:
+    """True for an HTTP/SSE MCP connector that could not be reached.
+
+    A stdio server's readiness is probed at startup, but an HTTP/SSE
+    connector is only dialed when the run task enters the combined toolset.
+    A 401 (expired token, wrong host), a 5xx, or a refused/timed-out
+    connection therefore surfaces mid-run as a raw ``httpx`` error from
+    inside the transport, not as an ``McpError`` — the protocol never got
+    far enough to speak MCP.
+
+    Without this it reaches the generic arm, prints a traceback, and ends
+    the run. One unreachable connector must not do that: the model and
+    every healthy toolset are still usable, so we degrade like ``McpError``.
+
+    Matched by type rather than message so it holds across httpx versions.
+    Note this is deliberately broader than ``_RETRYABLE_EXCEPTIONS``, which
+    excludes ``HTTPStatusError`` because a 401 is not worth retrying — it is
+    still worth surviving.
+    """
+    return isinstance(
+        exc,
+        (
+            httpx.HTTPStatusError,
+            httpx.TransportError,  # ConnectError, ReadTimeout, PoolTimeout, ...
+            httpcore.ConnectError,
+            httpcore.ConnectTimeout,
+        ),
+    )
+
+
 def _collect_exceptions(
     group: BaseException, predicate: Callable[[BaseException], bool]
 ) -> List[BaseException]:
@@ -618,7 +653,7 @@ def _collect_exceptions(
 
 
 # Depth of in-flight ``run_with_mcp`` calls (main-loop-thread-only, so a
-# plain int is race-free). Depth > 0 = NESTED run (e.g. shell_safety): those
+# plain int is race-free). Depth > 0 = NESTED run (e.g. auto_continue): those
 # must NOT touch process-wide interactive state — PauseController (would
 # drain the user's queued steers!), SIGINT handler, shell cancel bridge, or
 # the key-listener cancel hotkey.
@@ -693,6 +728,20 @@ async def _run_with_mcp_impl(
         # Hook failures must never block the run.
         pass
 
+    # Let a ``model_select`` hook route THIS turn to a different model (e.g.
+    # small-vs-large by complexity) before the pydantic agent is built. This
+    # resets any prior turn's auto choice, respects an explicit runtime
+    # override, and invalidates the cached agent when the model changes so the
+    # build below picks it up. No-op (and near-zero cost) if no plugin
+    # registered the hook.
+    try:
+        from code_puppy.model_switching import resolve_run_model_selection
+
+        resolve_run_model_selection(agent, prompt, agent._message_history, group_id)
+    except Exception:
+        # Selection must never block a run.
+        pass
+
     if agent._code_generation_agent is None:
         build_pydantic_agent(agent)
     pydantic_agent = agent._code_generation_agent
@@ -711,8 +760,17 @@ async def _run_with_mcp_impl(
         # on → wrap handler in a detector, fall back to one-shot render only
         # if no text actually streamed.
         use_streaming = get_enable_streaming()
+
+        async def _observed_event_stream_handler(ctx: Any, events: Any) -> Any:
+            from code_puppy.observability import capture_agent_context
+
+            capture_agent_context(group_id)
+            return await event_stream_handler(ctx, events)
+
         detector: Optional[StreamingTextDetector] = (
-            StreamingTextDetector(event_stream_handler) if use_streaming else None
+            StreamingTextDetector(_observed_event_stream_handler)
+            if use_streaming
+            else None
         )
         stream_handler = detector if detector is not None else None
         # Plugins (e.g. DBOS) can render their own output and skip the fallback.
@@ -856,7 +914,7 @@ async def _run_with_mcp_impl(
                 "by saying 'please continue' or similar.",
                 group_id=group_id,
             )
-        except* mcp.shared.exceptions.McpError as mcp_error:
+        except* McpError as mcp_error:
             # Already announced by blocking_startup.py with a /mcp logs hint —
             # just give a single short, actionable nudge.
             emit_info(
@@ -899,6 +957,26 @@ async def _run_with_mcp_impl(
                     not isinstance(e, (asyncio.CancelledError, UsageLimitExceeded))
                 ),
             )
+            # An HTTP/SSE connector that 401'd or was unreachable is
+            # degraded, not fatal — treat it like McpError: one short nudge,
+            # no traceback, don't re-raise. Pulled out BEFORE the diagnostics
+            # dump so one dead connector can't abort the turn.
+            mcp_transport = [e for e in unexpected if _is_mcp_transport_failure(e)]
+            unexpected = [e for e in unexpected if e not in mcp_transport]
+            if mcp_transport:
+                import logging as _logging
+
+                _logging.getLogger(__name__).debug(
+                    "MCP transport failure(s) during agent run: %s", mcp_transport
+                )
+                emit_warning(
+                    "An MCP server was unreachable this turn (auth or "
+                    "connection failure), so the turn stopped before the model "
+                    "ran — but your session is fine. Fix or disable that "
+                    "connector and resend: [cyan]/mcp status[/cyan] to see "
+                    "which one, [cyan]/mcp logs <name>[/cyan] for details.",
+                    group_id=group_id,
+                )
             for exc in unexpected:
                 emit_exception_diagnostics(exc, group_id=group_id)
             # Re-raise, else the bare except* would silently mask all errors
@@ -906,6 +984,9 @@ async def _run_with_mcp_impl(
             if unexpected:
                 raise unexpected[0] from other
         finally:
+            from code_puppy.observability import clear_agent_context
+
+            clear_agent_context(group_id)
             agent._message_history = _history.prune_interrupted_tool_calls(
                 agent._message_history
             )

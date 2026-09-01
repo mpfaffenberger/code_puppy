@@ -50,6 +50,10 @@ def test_store_multiline_entry_round_trip(store):
 def test_store_format_matches_prompt_toolkit(store, tmp_path):
     """The on-disk format must be readable by prompt_toolkit itself."""
     store.append("shared entry")
+    pytest.importorskip(
+        "prompt_toolkit",
+        reason="format-compat check against the original implementation",
+    )
     from prompt_toolkit.history import FileHistory
 
     pt = FileHistory(str(tmp_path / "history.txt"))
@@ -57,6 +61,10 @@ def test_store_format_matches_prompt_toolkit(store, tmp_path):
 
 
 def test_store_reads_prompt_toolkit_writes(store, tmp_path):
+    pytest.importorskip(
+        "prompt_toolkit",
+        reason="format-compat check against the original implementation",
+    )
     from prompt_toolkit.history import FileHistory
 
     pt = FileHistory(str(tmp_path / "history.txt"))

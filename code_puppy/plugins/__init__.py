@@ -135,20 +135,12 @@ def _load_installed_plugins() -> list[str]:
     project plugins, but remain physically independent from the core package.
     Entry points are sorted for deterministic startup and test behavior.
     """
-    from code_puppy.config import get_safety_permission_level
-
     loaded: list[str] = []
     discovered = sorted(
         entry_points(group=PLUGIN_ENTRY_POINT_GROUP), key=lambda item: item.name
     )
     for entry_point in discovered:
         plugin_name = entry_point.name
-        if plugin_name == "shell_safety" and get_safety_permission_level() not in (
-            "none",
-            "low",
-        ):
-            logger.debug("Skipping shell_safety plugin due to safety permission level")
-            continue
         try:
             set_loading_context(plugin_name)
             entry_point.load()
@@ -176,9 +168,6 @@ def _load_builtin_plugins(
     the same plugin is both installed through an entry point and still present
     in an older core checkout.
     """
-    # Import safety permission check for shell_safety plugin
-    from code_puppy.config import get_safety_permission_level
-
     loaded = []
     skip_names = set(skip_names or ())
 
@@ -191,15 +180,6 @@ def _load_builtin_plugins(
                 continue
 
             if callbacks_file.exists():
-                # Skip shell_safety plugin unless safety_permission_level is "low" or "none"
-                if plugin_name == "shell_safety":
-                    safety_level = get_safety_permission_level()
-                    if safety_level not in ("none", "low"):
-                        logger.debug(
-                            f"Skipping shell_safety plugin - safety_permission_level is '{safety_level}' (needs 'low' or 'none')"
-                        )
-                        continue
-
                 try:
                     module_name = f"code_puppy.plugins.{plugin_name}.register_callbacks"
                     set_loading_context(plugin_name)

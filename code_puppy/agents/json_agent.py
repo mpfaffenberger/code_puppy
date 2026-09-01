@@ -5,10 +5,97 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from code_puppy import atomic_json
+from code_puppy.i18n import t
 
 from .base_agent import BaseAgent
 
 logger = logging.getLogger(__name__)
+
+
+def model_settings_validation_errors(model_settings: Dict[str, Any]) -> List[str]:
+    """Return validation error messages for a ``model_settings`` mapping.
+
+    Checks keys against the known setting registry and values against each
+    setting's declared type/range/choices, so a typo'd key or a malformed
+    value (e.g. ``"temperature": "hot"``) is caught before it can either
+    silently vanish (unknown keys are filtered out downstream by
+    ``model_supports_setting``) or ride unfiltered into a provider request.
+
+    Shared by :class:`JSONAgent` (raises on load) and
+    ``AgentCreatorAgent.validate_agent_json`` (collects errors for the
+    create/edit flow) so the two validation paths can't drift apart.
+    """
+    from code_puppy.command_line.model_settings_defs import SETTING_DEFINITIONS
+
+    errors: List[str] = []
+    for key, value in model_settings.items():
+        definition = SETTING_DEFINITIONS.get(key)
+        if definition is None:
+            valid_keys = ", ".join(sorted(SETTING_DEFINITIONS))
+            errors.append(
+                t(
+                    "agent.model_settings.unknown_key",
+                    key=key,
+                    valid_keys=valid_keys,
+                )
+            )
+            continue
+
+        setting_type = definition.get("type")
+        if setting_type == "numeric":
+            if not isinstance(value, (int, float)) or isinstance(value, bool):
+                errors.append(
+                    t(
+                        "agent.model_settings.number_type",
+                        key=key,
+                        value=value,
+                    )
+                )
+                continue
+            min_value = definition.get("min")
+            max_value = definition.get("max")
+            if min_value is not None and value < min_value:
+                errors.append(
+                    t(
+                        "agent.model_settings.minimum",
+                        key=key,
+                        minimum=min_value,
+                        value=value,
+                    )
+                )
+            if max_value is not None and value > max_value:
+                errors.append(
+                    t(
+                        "agent.model_settings.maximum",
+                        key=key,
+                        maximum=max_value,
+                        value=value,
+                    )
+                )
+        elif setting_type == "choice":
+            choices = definition.get("choices", [])
+            if value not in choices:
+                errors.append(
+                    t(
+                        "agent.model_settings.choice",
+                        key=key,
+                        choices=choices,
+                        value=value,
+                    )
+                )
+        elif setting_type == "boolean":
+            if not isinstance(value, bool):
+                errors.append(
+                    t(
+                        "agent.model_settings.boolean_type",
+                        key=key,
+                        value=value,
+                    )
+                )
+        # "custom" settings are a free-form dict of provider extra_body
+        # params; no further shape is enforced here.
+
+    return errors
 
 
 class JSONAgent(BaseAgent):
@@ -67,6 +154,14 @@ class JSONAgent(BaseAgent):
                 f"'system_prompt' must be a string or list in JSON agent config: {self.json_path}"
             )
 
+        if "model_settings" in self._config:
+            model_settings = self._config["model_settings"]
+            if not isinstance(model_settings, dict):
+                raise ValueError(
+                    f"'model_settings' must be an object in JSON agent config: {self.json_path}"
+                )
+            self._validate_model_settings(model_settings)
+
         # mcp_servers: list[str] (shorthand, auto_start=True) or dict[str, dict]
         # (per-server options). Anything else is a config error with a clear
         # message.
@@ -97,6 +192,15 @@ class JSONAgent(BaseAgent):
                     f"'mcp_servers' must be a list of names or a dict of "
                     f"{{name: options}} in JSON agent config: {self.json_path}"
                 )
+
+    def _validate_model_settings(self, model_settings: Dict[str, Any]) -> None:
+        """Validate model_settings keys and values against known definitions."""
+        errors = model_settings_validation_errors(model_settings)
+        if errors:
+            raise ValueError(
+                f"Invalid 'model_settings' in JSON agent config: {self.json_path}: "
+                + "; ".join(errors)
+            )
 
     @property
     def name(self) -> str:
@@ -171,6 +275,10 @@ class JSONAgent(BaseAgent):
         """Get tool configuration from JSON config."""
         return self._config.get("tools_config")
 
+    def get_model_settings_overrides(self) -> Dict[str, Any]:
+        """Get model request-setting overrides from JSON config."""
+        return dict(self._config.get("model_settings", {}))
+
     def get_declared_mcp_bindings(self) -> Dict[str, Dict[str, Any]]:
         """Return MCP bindings declared in the JSON config, normalized.
 
@@ -219,6 +327,13 @@ class JSONAgent(BaseAgent):
         override = self.get_runtime_model_name_override()
         if override:
             return override
+
+        # A ``model_select`` hook choice outranks the JSON ``model`` field so
+        # per-turn routing works for JSON agents too (see get_model_name in
+        # BaseAgent for the full precedence ladder).
+        auto = self.get_auto_model_override()
+        if auto:
+            return auto
 
         result = self._config.get("model")
         if result is None or (isinstance(result, str) and not result.strip()):

@@ -227,12 +227,20 @@ def test_interpolation_contracts(cases):
             assert needle in rendered, f"{key}: {needle!r} not in {rendered!r}"
 
 
-def test_colors_usage_renders_as_literal_placeholder():
-    """{{color_type}} must render as the literal text {color_type}, never substituted."""
-    rendered = translate.t("cfg.colors.usage")
+def test_escaped_braces_render_as_literal_placeholder():
+    """{{name}} must render as the literal text {name}, never substituted.
+
+    Tests the grammar directly: the last catalog key using this escape
+    (cfg.colors.usage) left with the /colors TUI, but the contract must
+    hold for future translators regardless.
+    """
+    rendered = translate._interpolate("Usage: /x {{color_type}} <name>", {})
     assert "{color_type}" in rendered, (
         f"Expected literal {{color_type}} in output, got: {rendered!r}"
     )
+    # Escaping survives even when the same name is passed as a param.
+    rendered = translate._interpolate("{{keep}} {swap}", {"swap": "x", "keep": "y"})
+    assert "{keep}" in rendered and "x" in rendered
 
 
 def test_type_keys_all_static():

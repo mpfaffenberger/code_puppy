@@ -2,7 +2,7 @@
 
 from unittest.mock import AsyncMock, Mock, patch
 
-import httpx
+import httpx2
 import pytest
 
 from code_puppy.claude_cache_client import ClaudeCacheAsyncClient
@@ -23,13 +23,13 @@ CLOUDFLARE_400_HTML = b"""
 
 @pytest.mark.asyncio
 async def test_cloudflare_400_refresh_failure_runs_oauth_callback_and_retries():
-    failed_response = Mock(spec=httpx.Response)
+    failed_response = Mock(spec=httpx2.Response)
     failed_response.status_code = 400
     failed_response.headers = {"content-type": "text/html; charset=utf-8"}
     failed_response._content = CLOUDFLARE_400_HTML
     failed_response.aclose = AsyncMock()
 
-    success_response = Mock(spec=httpx.Response)
+    success_response = Mock(spec=httpx2.Response)
     success_response.status_code = 200
     success_response.headers = {"content-type": "application/json"}
 
@@ -37,7 +37,7 @@ async def test_cloudflare_400_refresh_failure_runs_oauth_callback_and_retries():
 
     with (
         patch.object(
-            httpx.AsyncClient,
+            httpx2.AsyncClient,
             "send",
             new_callable=AsyncMock,
             side_effect=[failed_response, success_response],
@@ -51,7 +51,7 @@ async def test_cloudflare_400_refresh_failure_runs_oauth_callback_and_retries():
         client = ClaudeCacheAsyncClient(
             oauth_reauthentication_callback=reauth_callback,
         )
-        request = httpx.Request(
+        request = httpx2.Request(
             "POST",
             "https://api.anthropic.com/v1/messages",
             content=b'{"model":"claude-opus-4-7"}',
@@ -69,12 +69,12 @@ async def test_cloudflare_400_refresh_failure_runs_oauth_callback_and_retries():
 
 @pytest.mark.asyncio
 async def test_auth_retry_does_not_run_oauth_callback_when_refresh_succeeds():
-    failed_response = Mock(spec=httpx.Response)
+    failed_response = Mock(spec=httpx2.Response)
     failed_response.status_code = 401
     failed_response.headers = {"content-type": "application/json"}
     failed_response.aclose = AsyncMock()
 
-    success_response = Mock(spec=httpx.Response)
+    success_response = Mock(spec=httpx2.Response)
     success_response.status_code = 200
     success_response.headers = {"content-type": "application/json"}
 
@@ -82,7 +82,7 @@ async def test_auth_retry_does_not_run_oauth_callback_when_refresh_succeeds():
 
     with (
         patch.object(
-            httpx.AsyncClient,
+            httpx2.AsyncClient,
             "send",
             new_callable=AsyncMock,
             side_effect=[failed_response, success_response],
@@ -96,7 +96,7 @@ async def test_auth_retry_does_not_run_oauth_callback_when_refresh_succeeds():
         client = ClaudeCacheAsyncClient(
             oauth_reauthentication_callback=reauth_callback,
         )
-        request = httpx.Request(
+        request = httpx2.Request(
             "POST",
             "https://api.anthropic.com/v1/messages",
             content=b'{"model":"claude-opus-4-7"}',
