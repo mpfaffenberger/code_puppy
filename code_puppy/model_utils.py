@@ -184,6 +184,18 @@ _SUMMARY_TAGS: tuple[str, ...] = (
     "5-fable",
 )
 
+# Models that accept ``display: "updates"`` (progress updates surfaced as
+# text while reasoning stays hidden). Requires the
+# ``thinking-display-updates-2026-08-18`` beta header on the request;
+# ClaudeCacheAsyncClient adds it whenever the body asks for updates.
+# Both dashed and dotted spellings appear in the wild (aliases vs API IDs).
+_UPDATES_TAGS: tuple[str, ...] = (
+    "fable-5-1",
+    "5-1-fable",
+    "fable-5.1",
+    "5.1-fable",
+)
+
 
 def anthropic_disallows_sampling_settings(
     model_name: str, actual_model_id: str | None = None
@@ -271,12 +283,52 @@ def should_use_anthropic_thinking_summary(
     return _model_matches_any_tag(model_name, actual_model_id, _SUMMARY_TAGS)
 
 
+def should_use_anthropic_thinking_updates(
+    model_name: str, actual_model_id: str | None = None
+) -> bool:
+    """Return whether adaptive thinking should request progress-update display.
+
+    Fable 5.1 writes short progress updates between tool calls, each arriving
+    as its own ``thinking`` block immediately before the tool call. Under the
+    default ``thinking.display`` of ``"omitted"`` those blocks come back
+    empty, so a long agentic turn looks silent. ``display: "updates"`` (gated
+    behind the ``thinking-display-updates-2026-08-18`` beta header) returns
+    the updates as text while reasoning stays hidden — any thinking block
+    with non-empty text is then a status line to show the user.
+    """
+    return _model_matches_any_tag(model_name, actual_model_id, _UPDATES_TAGS)
+
+
+# ``display`` values a user may pick on updates-capable models. ``"updates"``
+# = progress status lines only; ``"summarized"`` = those same updates mixed
+# into a condensed reasoning trace. ``"omitted"`` is deliberately absent: it
+# is what makes long agentic turns look silent, and the transport layer
+# coerces it back to summarized anyway.
+THINKING_DISPLAY_CHOICES: tuple[str, ...] = ("updates", "summarized")
+
+
+def get_anthropic_thinking_display_choices(
+    model_name: str, actual_model_id: str | None = None
+) -> tuple[str, ...]:
+    """Return the user-selectable ``thinking.display`` values for a model.
+
+    Only updates-capable models (Fable 5.1) offer a choice; everyone else
+    gets an empty tuple and keeps their hardcoded display. Both the
+    ``/model_settings`` menu and the request builder consult this so the UI
+    never advertises a value the wire path would ignore.
+    """
+    if should_use_anthropic_thinking_updates(model_name, actual_model_id):
+        return THINKING_DISPLAY_CHOICES
+    return ()
+
+
 def resolve_anthropic_thinking_payload(
     extended_thinking: str,
     *,
     budget_tokens: int,
     model_name: str,
     actual_model_id: str | None,
+    thinking_display: str | None = None,
 ) -> dict | None:
     """Map Code Puppy's internal thinking mode to the shape THIS model accepts.
 
@@ -289,7 +341,9 @@ def resolve_anthropic_thinking_payload(
     * **Adaptive** (Opus 4.6/4.7/4.8, Sonnet 4.6, Sonnet 5, Opus 5, Fable 5): the
       opposite — rejects ``type: "enabled"`` with
       ``"thinking.type.enabled" is not supported for this model. Use adaptive."``.
-      These models want ``type: "adaptive"`` and optionally ``display: "summarized"``.
+      These models want ``type: "adaptive"`` and optionally ``display: "summarized"``
+      (or ``display: "updates"`` on Fable 5.1, which surfaces its inter-tool
+      progress updates as status lines while reasoning stays hidden).
 
     This helper picks the right shape based on ``supports_adaptive_thinking``
     so a user's choice of ``"enabled"`` / ``"adaptive"`` (from the settings
@@ -307,6 +361,10 @@ def resolve_anthropic_thinking_payload(
         actual_model_id: The real model ID from config (also checked so
             Bedrock-style aliases like ``us.anthropic.claude-opus-4-7`` still
             route correctly).
+        thinking_display: The user's ``thinking_display`` setting, if any.
+            Honored only when it is one of
+            ``get_anthropic_thinking_display_choices`` for this model;
+            anything else falls back to the model's default display.
 
     Returns:
         Dict suitable for ``AnthropicModelSettings.anthropic_thinking``,
@@ -316,7 +374,20 @@ def resolve_anthropic_thinking_payload(
         return None
     if supports_adaptive_thinking(model_name, actual_model_id):
         payload: dict = {"type": "adaptive"}
-        if should_use_anthropic_thinking_summary(model_name, actual_model_id):
+        display_choices = get_anthropic_thinking_display_choices(
+            model_name, actual_model_id
+        )
+        if display_choices:
+            # Fable 5.1: default to progress updates as text, reasoning
+            # hidden; the user may opt into summarized instead. The updates
+            # beta header rides along at the transport layer
+            # (ClaudeCacheAsyncClient) whenever the body asks for it.
+            payload["display"] = (
+                thinking_display
+                if thinking_display in display_choices
+                else display_choices[0]
+            )
+        elif should_use_anthropic_thinking_summary(model_name, actual_model_id):
             payload["display"] = "summarized"
         return payload
     return {"type": "enabled", "budget_tokens": budget_tokens}
