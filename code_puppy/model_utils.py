@@ -25,11 +25,39 @@ class PreparedPrompt:
         user_prompt: The user prompt (possibly modified)
         is_claude_code: Whether this is a claude-code model (set by the
             claude_code_oauth plugin via the ``prepare_model_prompt`` hook).
+        system_prompt: A standing system prompt emitted as its own
+            ``SystemPromptPart`` *ahead of* ``instructions`` (pydantic-ai's
+            ``Agent(system_prompt=...)``). Empty means none, the default.
+            Used by model families that fingerprint the opening system block
+            (claude-code OAuth) so the real prompt stays a separate block.
     """
 
     instructions: str
     user_prompt: str
     is_claude_code: bool
+    system_prompt: str = ""
+
+    @property
+    def system_prompt_parts(self) -> tuple[str, ...]:
+        """Value for ``Agent(system_prompt=...)``: one standing part, or none."""
+        return (self.system_prompt,) if self.system_prompt else ()
+
+    @property
+    def system_text(self) -> str:
+        """Everything that lands in the model's system slot (for token estimates)."""
+        return "\n\n".join(p for p in (self.system_prompt, self.instructions) if p)
+
+
+def _prepared_from_hook_result(
+    result: dict, system_prompt: str, user_prompt: str
+) -> PreparedPrompt:
+    """Build a ``PreparedPrompt`` from a taker-over hook's ``handled=True`` dict."""
+    return PreparedPrompt(
+        instructions=result.get("instructions", system_prompt),
+        user_prompt=result.get("user_prompt", user_prompt),
+        is_claude_code=bool(result.get("is_claude_code", False)),
+        system_prompt=result.get("system_prompt", ""),
+    )
 
 
 def prepare_prompt_for_model(
@@ -69,11 +97,7 @@ def prepare_prompt_for_model(
         model_name, system_prompt, user_prompt, prepend_system_to_user
     ):
         if result and isinstance(result, dict) and result.get("handled"):
-            return PreparedPrompt(
-                instructions=result.get("instructions", system_prompt),
-                user_prompt=result.get("user_prompt", user_prompt),
-                is_claude_code=bool(result.get("is_claude_code", False)),
-            )
+            return _prepared_from_hook_result(result, system_prompt, user_prompt)
 
     # 2) Legacy per-model hook: "taker-over" plugins return handled=True (first
     #    wins); "augmenters" (e.g. agent_skills) mutate prompts — thread those through.
@@ -85,11 +109,7 @@ def prepare_prompt_for_model(
         if not (result and isinstance(result, dict)):
             continue
         if result.get("handled"):
-            return PreparedPrompt(
-                instructions=result.get("instructions", system_prompt),
-                user_prompt=result.get("user_prompt", user_prompt),
-                is_claude_code=bool(result.get("is_claude_code", False)),
-            )
+            return _prepared_from_hook_result(result, system_prompt, user_prompt)
         # Augmenter: carry its mutations forward. Last augmenter wins on
         # collisions (YAGNI: there's exactly one augmenter today).
         if "instructions" in result:
