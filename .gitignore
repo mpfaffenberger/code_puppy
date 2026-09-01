@@ -49,6 +49,9 @@ code_puppy/bundled_skills/
 
 .state/
 
+# Local agent context
+.context/
+
 # Local git worktrees
 .worktrees/
 

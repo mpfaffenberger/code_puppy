@@ -1,5 +1,13 @@
 # Contributing to Code Puppy
 
+## Agent context contract
+
+- `~/.code_puppy/AGENTS.md` and its indexed global context apply alongside this project router; these project rules supplement rather than replace them.
+- Search `~/.code_puppy/.context/INDEX.md` narrowly for cross-project expectations, tooling, credentials, access, Walmart workflows, and known global topics.
+- Use `.context/INDEX.md` separately for durable project-local facts and decisions.
+- Context is a discovery aid, never a substitute for checking current code, tests, configuration, or live systems.
+- Never store secrets, tokens, private content, or unnecessary PII in either context tree.
+
 > **Golden rule:** nearly all new functionality should be a **plugin** in the
 > `code_puppy_core_plugins` repository that hooks into core via
 > `code_puppy/callbacks.py`. Don't edit `code_puppy/command_line/`.
