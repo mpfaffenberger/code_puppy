@@ -43,7 +43,7 @@ def _repair_tool_call_json(raw: str) -> str:
         return raw
     except json.JSONDecodeError:
         pass
-    except RecursionError:
+    except Exception:
         return raw
 
     try:

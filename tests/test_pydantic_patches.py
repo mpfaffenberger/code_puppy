@@ -56,13 +56,20 @@ def test_non_object_tool_call_json_repair_is_rejected():
     )
 
 
-def test_deeply_nested_tool_call_json_returns_original(monkeypatch):
+@pytest.mark.parametrize(
+    "error",
+    [
+        RecursionError("maximum recursion depth exceeded"),
+        ValueError("strict parser rejected input"),
+    ],
+)
+def test_strict_parse_failure_returns_original(monkeypatch, error):
     raw = '{"value": {"nested": true}}'
 
-    def recursion_error(_raw):
-        raise RecursionError("maximum recursion depth exceeded")
+    def parse_failure(_raw):
+        raise error
 
-    monkeypatch.setattr(pydantic_patches.json, "loads", recursion_error)
+    monkeypatch.setattr(pydantic_patches.json, "loads", parse_failure)
 
     assert pydantic_patches._repair_tool_call_json(raw) == raw
 
