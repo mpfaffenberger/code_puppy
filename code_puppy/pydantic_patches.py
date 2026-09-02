@@ -60,7 +60,7 @@ def _repair_tool_call_json(raw: str) -> str:
                 type(parsed).__name__,
             )
             return raw
-        logger.warning("json_repair modified malformed tool-call JSON arguments")
+        logger.debug("json_repair modified malformed tool-call JSON arguments")
         return repaired
     except Exception:
         return raw
