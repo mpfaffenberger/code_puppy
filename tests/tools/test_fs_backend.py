@@ -290,34 +290,6 @@ def test_grep_tool_prunes_ignored_dirs_inside_backend_root(backend):
     assert "/ws/pkg/b.py" in hits
 
 
-def test_backend_grep_reports_truncation_and_continues(backend):
-    from code_puppy.tools.file_operations import _grep
-
-    backend.write_text_file("/ws/many.txt", "MATCH\n" * 51)
-
-    first = _grep(None, "MATCH", "/ws")
-    second = _grep(None, "MATCH", "/ws", offset=first.next_offset)
-
-    assert len(first.matches) == 50
-    assert first.truncated is True
-    assert first.next_offset == 50
-    assert len(second.matches) == 1
-    assert second.matches[0].line_number == 51
-    assert second.truncated is False
-    assert second.next_offset is None
-
-
-def test_backend_grep_exact_limit_is_complete(backend):
-    from code_puppy.tools.file_operations import _grep
-
-    backend.write_text_file("/ws/exact.txt", "MATCH\n" * 50)
-
-    out = _grep(None, "MATCH", "/ws")
-
-    assert len(out.matches) == 50
-    assert out.truncated is False
-
-
 def test_created_file_is_listable_and_greppable(backend):
     """End-to-end anti-split-brain: write via backend, then the *tools* agree."""
     from code_puppy.tools.file_operations import _grep, _list_files
@@ -375,6 +347,38 @@ def test_grep_unsupported_flag_errors_loudly(backend):
     out = _grep(None, "-z foo", "/ws")
     assert out.matches == []
     assert out.error is not None and "-z" in out.error
+
+
+def test_grep_backend_flags_truncation_only_beyond_budget(backend):
+    """Backend path mirrors ripgrep: over budget -> truncated, at budget -> not."""
+    from code_puppy.tools.file_operations import _MAX_GREP_MATCHES, _grep
+
+    backend.write_text_file("/ws/many.py", "HIT\n" * (_MAX_GREP_MATCHES + 1))
+    over = _grep(None, "HIT", "/ws")
+    assert len(over.matches) == _MAX_GREP_MATCHES
+    assert over.truncated is True
+
+    backend.write_text_file("/ws/many.py", "HIT\n" * _MAX_GREP_MATCHES)
+    exact = _grep(None, "HIT", "/ws")
+    assert len(exact.matches) == _MAX_GREP_MATCHES
+    assert exact.truncated is False
+
+
+def test_backend_grep_continues_after_truncated_page(backend):
+    from code_puppy.tools.file_operations import _grep
+
+    backend.write_text_file("/ws/many.txt", "MATCH\n" * 51)
+
+    first = _grep(None, "MATCH", "/ws")
+    second = _grep(None, "MATCH", "/ws", offset=first.next_offset)
+
+    assert len(first.matches) == 50
+    assert first.truncated is True
+    assert first.next_offset == 50
+    assert len(second.matches) == 1
+    assert second.matches[0].line_number == 51
+    assert second.truncated is False
+    assert second.next_offset is None
 
 
 def test_grep_unknown_type_errors(backend):

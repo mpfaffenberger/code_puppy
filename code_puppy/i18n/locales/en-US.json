@@ -13,7 +13,6 @@
     "other": "Wrote {count} files."
   },
   "error.generic": "Something went wrong: {detail}",
-  "grep.results_truncated": "Showing 50 matches; more matches exist. Continue with the returned next_offset before making completeness claims.",
   "subagent.recursion_limit_reached": "Sub-agent recursion limit ({limit}) reached; cannot invoke '{agent}'.",
   "subagent.gpt_5_6_recursion_blocked": "Cannot invoke '{agent}' at sub-agent depth {depth}: GPT-5.6 callers are limited to depth {limit}.",
   "version.current": "Current version: {version}",

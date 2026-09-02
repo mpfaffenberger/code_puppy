@@ -152,13 +152,13 @@ class GrepResultMessage(BaseMessage):
     )
     total_matches: int = Field(ge=0, description="Total number of matches")
     files_searched: int = Field(ge=0, description="Number of files searched")
-    truncated: bool = Field(
-        default=False,
-        description="Whether additional matches exist beyond those returned",
-    )
     verbose: bool = Field(
         default=False,
         description="Whether to show verbose output with line content",
+    )
+    truncated: bool = Field(
+        default=False,
+        description="Whether the match budget was hit with more matches unseen",
     )
 
 

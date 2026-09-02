@@ -25,7 +25,6 @@ from code_puppy.config import (
     get_suppress_informational_messages,
     get_suppress_thinking_messages,
 )
-from code_puppy.i18n import t
 from code_puppy.tools.common import stream_diff_ansi_lines
 from code_puppy.tools.subagent_context import is_subagent
 
@@ -765,10 +764,6 @@ class RichConsoleRenderer:
                 f"{msg.total_matches} matches[/dim]"
             )
 
-        if msg.truncated:
-            warning = escape_rich_markup(t("grep.results_truncated"))
-            self._console.print(f"[bold yellow]  {warning}[/bold yellow]")
-
         if not msg.matches:
             self._console.print(
                 f"[dim]No matches found for '{msg.search_term}' "
@@ -835,6 +830,11 @@ class RichConsoleRenderer:
             f"[dim]Found {msg.total_matches} {match_word} "
             f"across {num_files} {file_word}[/dim]"
         )
+        if msg.truncated:
+            self._console.print(
+                "[yellow]  Truncated: more matches exist beyond the "
+                f"{msg.total_matches} shown[/yellow]"
+            )
 
         # Trailing newline for spinner separation
         self._console.print()

@@ -8,6 +8,7 @@ silently re-scoping the search.
 from code_puppy.tools import file_operations
 from code_puppy.tools.file_operations import (
     _MAX_GREP_CONTEXT_ROWS,
+    _MAX_GREP_MATCHES,
     MatchInfo,
     _emit_grep_result,
     _grep,
@@ -110,7 +111,6 @@ def test_grep_context_lines_do_not_evict_real_matches(tmp_path):
     # 50; real matches must now fill the whole budget.
     assert len(real) == 50
     assert all(m.line_content == "target" for m in real)
-    assert out.truncated is True
     # Context lines are still surfaced, just never counted as matches.
     assert context
 
@@ -158,16 +158,72 @@ def test_emit_grep_result_excludes_context_from_counts(monkeypatch):
     # ...but only the two real hits (in a.py and b.py) feed the counts.
     assert captured["msg"].total_matches == 2
     assert captured["msg"].files_searched == 2
-    assert captured["msg"].truncated is False
 
 
-def test_grep_exactly_at_limit_is_not_truncated(tmp_path):
-    (tmp_path / "exact.py").write_text("target\n" * 50)
+def _write_hits(path, count):
+    path.write_text("".join(f"hit {i}\n" for i in range(count)))
 
-    out = _grep(None, "target", str(tmp_path))
 
-    assert len(out.matches) == 50
+def test_grep_beyond_budget_is_flagged_truncated(tmp_path):
+    """More matches than the budget -> truncated=True, budget-sized result (#903)."""
+    for name in ("a.py", "b.py", "c.py"):
+        _write_hits(tmp_path / name, 30)
+
+    out = _grep(None, "hit", str(tmp_path))
+
+    assert out.error is None
+    assert len(out.matches) == _MAX_GREP_MATCHES
+    assert out.truncated is True
+
+
+def test_grep_exactly_at_budget_is_not_truncated(tmp_path):
+    """Exactly the budget is complete, not truncated -- never lie either way."""
+    _write_hits(tmp_path / "a.py", 20)
+    _write_hits(tmp_path / "b.py", _MAX_GREP_MATCHES - 20)
+
+    out = _grep(None, "hit", str(tmp_path))
+
+    assert out.error is None
+    assert len(out.matches) == _MAX_GREP_MATCHES
     assert out.truncated is False
+
+
+def test_grep_single_file_beyond_budget_is_flagged_truncated(tmp_path):
+    """ripgrep's per-file --max-count must not mask truncation in one fat file."""
+    _write_hits(tmp_path / "fat.py", _MAX_GREP_MATCHES + 1)
+
+    out = _grep(None, "hit", str(tmp_path))
+
+    assert out.error is None
+    assert len(out.matches) == _MAX_GREP_MATCHES
+    assert out.truncated is True
+
+
+def test_grep_truncation_survives_context_lines(tmp_path):
+    """Context rows neither consume the budget nor hide that it overflowed."""
+    lines = ["target", "filler"] * (_MAX_GREP_MATCHES + 5)
+    (tmp_path / "ctx.py").write_text("\n".join(lines) + "\n")
+
+    out = _grep(None, "-A 1 target", str(tmp_path))
+
+    real = [m for m in out.matches if not m.is_context]
+    assert len(real) == _MAX_GREP_MATCHES
+    assert out.truncated is True
+
+
+def test_emit_grep_result_forwards_truncated_to_ui(monkeypatch):
+    captured = {}
+
+    class _Bus:
+        def emit(self, message):
+            captured["msg"] = message
+
+    monkeypatch.setattr(file_operations, "get_message_bus", lambda: _Bus())
+
+    out = _emit_grep_result("t", ".", [], None, truncated=True)
+
+    assert out.truncated is True
+    assert captured["msg"].truncated is True
 
 
 def test_grep_exhausts_all_pages_without_duplicates_or_omissions(tmp_path):
