@@ -50,7 +50,7 @@ class MatchInfo(BaseModel):
     line_number: int | None
     line_content: str | None
     # True for -A/-B/-C context lines, which are displayed but excluded from
-    # the 50-match budget and the reported match/file counts.
+    # the configured match budget and the reported match/file counts.
     is_context: bool = False
 
 
@@ -64,13 +64,9 @@ class GrepOutput(BaseModel):
     next_offset: int | None = None
 
 
-# Total real-match budget for a single grep call, shared by the ripgrep and
-# backend paths. Context rows have their own budget below.
-_MAX_GREP_MATCHES = 50
-
 # Upper bound on -A/-B/-C context rows returned alongside the (up to
-# _MAX_GREP_MATCHES) matches, so a wide context value can't grow the result
-# without limit.
+# get_grep_max_matches()) matches, so a wide context value can't grow the
+# result without limit.
 # Context never evicts a real match: once this budget is full we keep scanning
 # for matches and simply stop collecting further context.
 _MAX_GREP_CONTEXT_ROWS = 200
@@ -1189,6 +1185,9 @@ def _grep_via_backend(
 
     skip_dir, skip_file = _relative_ignore_predicates(directory)
 
+    from code_puppy.config import get_grep_max_matches
+
+    max_matches = get_grep_max_matches()
     max_filesize = 5 * 1024 * 1024  # mirror ripgrep --max-filesize 5M
     matches: List[MatchInfo] = []
     seen_matches = 0
@@ -1218,7 +1217,7 @@ def _grep_via_backend(
                 continue
             # Same total budget as the ripgrep path. Only a match *beyond* the
             # budget proves there was more, so exactly-at-cap is not truncated.
-            if len(matches) >= _MAX_GREP_MATCHES:
+            if len(matches) >= max_matches:
                 return _emit_grep_result(
                     search_string,
                     directory,
@@ -1274,6 +1273,9 @@ def _grep(
     if get_filesystem_backend() is not None:
         return _grep_via_backend(directory, search_string, offset)
 
+    from code_puppy.config import get_grep_max_matches
+
+    max_matches = get_grep_max_matches()
     matches: List[MatchInfo] = []
     error_message: str | None = None
     truncated = False
@@ -1327,7 +1329,7 @@ def _grep(
             "--sort",
             "path",
             "--max-count",
-            str(offset + _MAX_GREP_MATCHES + 1),
+            str(offset + max_matches + 1),
             "--max-filesize",
             "5M",
         ]
@@ -1424,7 +1426,7 @@ def _grep(
                         if is_context:
                             if (
                                 seen_match_count < offset
-                                or page_match_count >= _MAX_GREP_MATCHES
+                                or page_match_count >= max_matches
                                 or context_row_count >= _MAX_GREP_CONTEXT_ROWS
                             ):
                                 continue
@@ -1434,7 +1436,7 @@ def _grep(
                         if seen_match_count < offset:
                             seen_match_count += 1
                             continue
-                        if page_match_count >= _MAX_GREP_MATCHES:
+                        if page_match_count >= max_matches:
                             # A real match past the page is the proof there was
                             # more; exactly-at-cap stays un-truncated.
                             truncated = True
@@ -1569,8 +1571,9 @@ def register_grep(agent):
         supported and return an error. To search for a pattern that itself
         starts with '-', use: -e '-pattern'
 
-        Returns at most 50 matches per page. When ``next_offset`` is not null,
-        call grep again with the same search and directory plus that offset.
-        Results are complete only after a page returns ``next_offset=null``.
+        Results are capped per page by ``grep_max_matches`` (50 by default).
+        When ``next_offset`` is not null, call grep again with the same search
+        and directory plus that offset. Results are complete only after a page
+        returns ``next_offset=null``.
         """
         return _grep(context, search_string, directory, offset)

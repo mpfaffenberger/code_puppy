@@ -1538,6 +1538,27 @@ def get_grep_output_verbose():
     return get_truthy_bool_value("grep_output_verbose", False)
 
 
+GREP_MAX_MATCHES_DEFAULT = 50
+
+
+def get_grep_max_matches() -> int:
+    """Return the per-call grep match budget.
+
+    Read from the ``grep_max_matches`` config key (``/set grep_max_matches=<int>``).
+    Defaults to ``GREP_MAX_MATCHES_DEFAULT`` when unset or non-numeric, and is
+    floored at 1: a budget of zero would make every search return nothing,
+    which is a foot-gun rather than a legitimate opt-out. Results past the
+    budget are dropped and reported via ``GrepOutput.truncated``.
+    """
+    val = get_value("grep_max_matches")
+    if val is None or not str(val).strip():
+        return GREP_MAX_MATCHES_DEFAULT
+    try:
+        return max(1, int(val))
+    except (ValueError, TypeError):
+        return GREP_MAX_MATCHES_DEFAULT
+
+
 def get_disable_dangerous_command_guard() -> bool:
     """
     Checks puppy.cfg for 'disable_dangerous_command_guard' (case-insensitive in value only).
