@@ -465,6 +465,10 @@ _OPENAI_REASONING_EFFORT_CHOICES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("gpt-5-codex", ("low", "medium", "high")),
     # Fixed-effort model: no configurable choice.
     ("gpt-5-pro", ()),
+    # Pro variants omit none/low from their documented effort scale.
+    ("gpt-5.2-pro", ("medium", "high", "xhigh")),
+    ("gpt-5.4-pro", ("medium", "high", "xhigh")),
+    ("gpt-5.5-pro", ("medium", "high", "xhigh")),
     # GPT-5.2/5.4/5.5: none/low/medium/high/xhigh (documented explicitly).
     ("gpt-5.2", ("none", "low", "medium", "high", "xhigh")),
     ("gpt-5.4", ("none", "low", "medium", "high", "xhigh")),

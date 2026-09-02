@@ -249,7 +249,11 @@ class TestMakeModelSettingsOpenAIReasoningEffort:
 
     @pytest.mark.parametrize(
         ("model_name", "effort"),
-        [("gpt-5-pro", "high"), ("gpt-5.2", "banana")],
+        [
+            ("gpt-5-pro", "high"),
+            ("gpt-5.2", "banana"),
+            ("gpt-5.2-pro", "low"),
+        ],
     )
     def test_gpt5_drops_fixed_or_unsupported_effort(self, model_name, effort):
         from code_puppy.model_factory import make_model_settings

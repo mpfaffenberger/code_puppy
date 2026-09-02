@@ -1,11 +1,6 @@
-"""Tests for the pure setting-choice logic in model_settings_defs.py.
+"""Tests for model-specific setting choices."""
 
-_get_setting_choices() used to live inline in model_settings_menu.py; the
-termflow refactor moved it here as a standalone pure function. These tests
-cover the OpenAI reasoning_effort dynamic-choice detection specifically --
-see model_utils.get_openai_reasoning_effort_choices for the source of truth
-on which choices each OpenAI model family actually supports.
-"""
+import pytest
 
 from code_puppy.command_line.model_settings_defs import _get_setting_choices
 
@@ -16,6 +11,14 @@ class TestGetSettingChoicesReasoningEffort:
         choices = _get_setting_choices("reasoning_effort", "my-5.6", catalog)
         assert "max" in choices
         assert "xhigh" in choices
+
+    @pytest.mark.parametrize(
+        "model_name", ["gpt-5.2-pro", "gpt-5.4-pro", "gpt-5.5-pro"]
+    )
+    def test_pro_variants_offer_documented_reduced_scale(self, model_name):
+        catalog = {model_name: {"name": model_name}}
+        choices = _get_setting_choices("reasoning_effort", model_name, catalog)
+        assert choices == ["medium", "high", "xhigh"]
 
     def test_plain_gpt_5_excludes_xhigh_and_max(self):
         catalog = {"my-5": {"name": "gpt-5"}}
