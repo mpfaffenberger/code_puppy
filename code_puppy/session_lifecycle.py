@@ -19,11 +19,19 @@ from __future__ import annotations
 
 import concurrent.futures
 import re
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
-from code_puppy.session_storage import SessionMetadata, compute_scope_key, save_session
+from code_puppy.session_storage import (
+    SessionHistory,
+    SessionMetadata,
+    compute_scope_key,
+    load_session,
+    load_session_agent_id,
+    save_session,
+)
 
 if TYPE_CHECKING:
     from code_puppy.agents.base_agent import BaseAgent
@@ -43,6 +51,18 @@ _RESERVED_PREFIX = "auto_session_"
 # Matches the headroom used by ``config.auto_save_session_if_enabled`` so
 # plugin authors only have to honour one budget.
 _POST_AUTOSAVE_TIMEOUT_S = 4.0
+
+
+@dataclass(frozen=True)
+class RestoredSession:
+    """What a resume produced, for the caller's own reporting.
+
+    ``total_tokens`` rides along because every caller announced it and would
+    otherwise recompute the same sum over the same history.
+    """
+
+    history: SessionHistory
+    total_tokens: int
 
 
 def is_valid_session_name(name: str, *, allow_reserved_prefix: bool = False) -> bool:
@@ -111,6 +131,15 @@ def persist_named_session(
         token_estimator=agent.estimate_tokens_for_message,
         auto_saved=auto_saved,
         scope_key=compute_scope_key(Path.cwd()),
+        # Identity belongs to the conversation, not to the process serving it.
+        # Written here so ``restore_named_session`` has something to put back.
+        #
+        # Type-checked rather than passed through: the metadata sidecar is
+        # JSON, so a non-string ``id`` would raise inside ``json.dump`` AFTER
+        # the history was already written -- turning a save into a half-write
+        # and losing the user's work to a cosmetic field. An id we cannot
+        # serialise is simply not recorded.
+        agent_id=agent.id if isinstance(getattr(agent, "id", None), str) else None,
     )
     if success_message_key is not None:
         # t() interpolates via hardened {identifier} grammar: a missing
@@ -132,6 +161,39 @@ def persist_named_session(
     # NOTE: deliberately skips ``fire_post_autosave_callback`` — that hook is
     # reserved for the periodic auto-save path only (pre-unification semantics).
     return metadata
+
+
+def restore_named_session(
+    agent: "BaseAgent",
+    session_name: str,
+    *,
+    base_dir: Path,
+) -> RestoredSession:
+    """Load ``session_name`` onto ``agent``. Mirror of :func:`persist_named_session`.
+
+    Every resume does the same three things — read the envelope, put the
+    history on the agent, total the tokens for the line it prints — so they
+    live here once rather than in each caller. What the callers do *around*
+    that differs (pin vs rotate the autosave singleton, which success message
+    to emit, whether to preview) and stays with them: that is policy, this is
+    mechanism.
+
+    Raises whatever :func:`load_session` raises — ``FileNotFoundError`` for a
+    missing session, ``ValueError`` for one that cannot be decoded. Callers
+    already handle both and word the failure for their own surface.
+    """
+    history = load_session(session_name, base_dir)
+    # Identity comes from the sidecar; the prompt comes from the history and
+    # is adopted by ``set_message_history`` itself. Resume behaviour lives
+    # there rather than here because every front door goes through it --
+    # an embedding runner can call it directly and never reach this function.
+    # Sessions written before identity was recorded return None and the
+    # agent keeps its own; see ``load_session_agent_id``.
+    agent.set_message_history(
+        history, agent_id=load_session_agent_id(session_name, base_dir)
+    )
+    total_tokens = sum(agent.estimate_tokens_for_message(m) for m in history)
+    return RestoredSession(history=history, total_tokens=total_tokens)
 
 
 class ResumeTargetError(Exception):

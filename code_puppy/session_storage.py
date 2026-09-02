@@ -57,6 +57,12 @@ class SessionMetadata:
     json_path: Path
     auto_saved: bool = False
     scope_key: str | None = None
+    # The agent identity this session belongs to. Travels with the session
+    # because it is the CONVERSATION's identity, not the process's: a resumed
+    # session that reintroduces itself under a new name breaks both agent
+    # coordination and the provider's prompt cache. Optional so sessions
+    # written before this existed still load.
+    agent_id: str | None = None
 
     def as_serialisable(self) -> dict[str, Any]:
         data = {
@@ -69,6 +75,8 @@ class SessionMetadata:
         }
         if self.scope_key is not None:
             data["scope_key"] = self.scope_key
+        if self.agent_id is not None:
+            data["agent_id"] = self.agent_id
         return data
 
 
@@ -216,6 +224,7 @@ def save_session(
     token_estimator: TokenEstimator,
     auto_saved: bool = False,
     scope_key: str | None = None,
+    agent_id: str | None = None,
 ) -> SessionMetadata:
     ensure_directory(base_dir)
     paths = build_session_paths(base_dir, session_name)
@@ -235,6 +244,7 @@ def save_session(
         json_path=paths.json_path,
         auto_saved=auto_saved,
         scope_key=scope_key,
+        agent_id=agent_id,
     )
 
     tmp_metadata = paths.metadata_path.with_suffix(".tmp")
@@ -243,6 +253,24 @@ def save_session(
     tmp_metadata.replace(paths.metadata_path)
 
     return metadata
+
+
+def load_session_agent_id(session_name: str, base_dir: Path) -> str | None:
+    """The agent identity stored beside ``session_name``, if any.
+
+    Fail-soft by design: a missing, unreadable or pre-``agent_id`` metadata
+    file returns ``None`` and the caller keeps the identity it already has.
+    A resume must not be blocked by an unreadable sidecar -- the history is
+    the thing the user asked for, and losing identity is a degradation, not
+    a reason to refuse.
+    """
+    paths = build_session_paths(base_dir, session_name)
+    try:
+        raw = json.loads(paths.metadata_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    agent_id = raw.get("agent_id")
+    return agent_id if isinstance(agent_id, str) and agent_id else None
 
 
 def load_session(session_name: str, base_dir: Path) -> SessionHistory:

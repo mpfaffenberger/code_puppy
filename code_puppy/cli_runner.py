@@ -22,6 +22,7 @@ from rich.console import Console
 
 from code_puppy import __version__, callbacks, get_core_plugins_version, plugins
 from code_puppy.agents import get_current_agent
+from code_puppy.agents.base_agent import HEADLESS_AUTONOMY_PROMPT
 from code_puppy.i18n import t, use_detected_locale
 from code_puppy.command_line.attachments import (
     parse_prompt_attachments,
@@ -54,12 +55,11 @@ from code_puppy.version_checker import default_version_mismatch_behavior
 
 plugins.load_plugin_callbacks()
 
-_HEADLESS_AUTONOMY_PROMPT = """\
-This is an unattended, non-interactive run. Never ask for confirmation, approval,
-clarification, or manual verification, including through tools or MCP servers. Use
-reasonable defaults, proceed autonomously, and validate with the tools available to
-you. State any assumptions or optional manual checks only in the final response.\
-"""
+# Re-exported from base_agent, which owns the text because the prompt
+# assembler has to recognise it to heal sessions written by builds that
+# stored it inside the durable prompt. Kept under the old private name so
+# existing callers and tests are unaffected.
+_HEADLESS_AUTONOMY_PROMPT = HEADLESS_AUTONOMY_PROMPT
 
 
 def _render_turn_exception(exc: Exception) -> None:
