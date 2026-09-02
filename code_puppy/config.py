@@ -827,9 +827,11 @@ def model_supports_setting(
 
             model_type = model_config.get("type")
             if model_type is None or model_type in _OPENAI_COMPATIBLE_MODEL_TYPES:
-                choices = get_openai_reasoning_effort_choices(model_name)
+                choices = get_openai_reasoning_effort_choices(model_name, model_config)
                 if choices is None:
-                    choices = get_openai_reasoning_effort_choices(underlying_name)
+                    choices = get_openai_reasoning_effort_choices(
+                        underlying_name, model_config
+                    )
                 if choices:
                     return True
         if setting == "thinking_display":

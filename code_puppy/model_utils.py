@@ -452,6 +452,7 @@ def supports_glm_reasoning_effort(model_name: str) -> bool:
 
 # OpenAI effort choices, ordered most-specific first.
 # None means unrecognized; an empty tuple means fixed effort.
+_OPENAI_REASONING_EFFORT_ORDER = ("none", "low", "medium", "high", "xhigh", "max")
 _OPENAI_REASONING_EFFORT_CHOICES: tuple[tuple[str, tuple[str, ...]], ...] = (
     # GPT-5.6 family: adds "max" on top of the full scale.
     ("gpt-5.6", ("none", "low", "medium", "high", "xhigh", "max")),
@@ -483,13 +484,34 @@ _OPENAI_REASONING_EFFORT_CHOICES: tuple[tuple[str, tuple[str, ...]], ...] = (
 )
 
 
-def get_openai_reasoning_effort_choices(model_name: str) -> list[str] | None:
-    """Return documented effort choices, None if unknown, or [] if fixed."""
+def get_openai_reasoning_effort_choices(
+    model_name: str, model_config: dict | None = None
+) -> list[str] | None:
+    """Return effective effort choices, None if unknown, or [] if fixed."""
+    if model_config:
+        advertised = model_config.get("setting_choices", {}).get("reasoning_effort")
+        if isinstance(advertised, list):
+            recognized = [
+                choice
+                for choice in _OPENAI_REASONING_EFFORT_ORDER
+                if choice in advertised
+            ]
+            if recognized:
+                return recognized
+
     # Boundary matching prevents short tags such as "o1" matching aliases.
     name = model_name.lower()
     for prefix, choices in _OPENAI_REASONING_EFFORT_CHOICES:
         if _matches_model_tag(name, prefix):
-            return list(choices)
+            allowed = set(choices)
+            if model_config:
+                if model_config.get("supports_xhigh_reasoning"):
+                    allowed.add("xhigh")
+                if model_config.get("supports_max_reasoning"):
+                    allowed.add("max")
+            return [
+                choice for choice in _OPENAI_REASONING_EFFORT_ORDER if choice in allowed
+            ]
     return None
 
 

@@ -247,9 +247,57 @@ class TestMakeModelSettingsOpenAIReasoningEffort:
 
         assert "openai_reasoning_effort" not in settings
 
+    @pytest.mark.parametrize(
+        ("model_name", "effort"),
+        [("gpt-5-pro", "high"), ("gpt-5.2", "banana")],
+    )
+    def test_gpt5_drops_fixed_or_unsupported_effort(self, model_name, effort):
+        from code_puppy.model_factory import make_model_settings
+
+        models_config = {model_name: {"type": "openai", "name": model_name}}
+        with (
+            patch(
+                "code_puppy.model_factory.ModelFactory.load_config",
+                return_value=models_config,
+            ),
+            patch(
+                "code_puppy.config.get_effective_model_settings",
+                return_value={"reasoning_effort": effort},
+            ),
+            patch("code_puppy.config.get_custom_model_settings", return_value={}),
+        ):
+            settings = make_model_settings(model_name, max_tokens=4096)
+
+        assert "openai_reasoning_effort" not in settings
+
+    @pytest.mark.parametrize(
+        "capability",
+        [
+            {"setting_choices": {"reasoning_effort": ["max"]}},
+            {"supports_max_reasoning": True},
+        ],
+    )
+    def test_gpt5_forwards_catalog_expanded_effort(self, capability):
+        from code_puppy.model_factory import make_model_settings
+
+        model_config = {"type": "openai", "name": "gpt-5.2", **capability}
+        models_config = {"custom-gpt": model_config}
+        with (
+            patch(
+                "code_puppy.model_factory.ModelFactory.load_config",
+                return_value=models_config,
+            ),
+            patch(
+                "code_puppy.config.get_effective_model_settings",
+                return_value={"reasoning_effort": "max"},
+            ),
+            patch("code_puppy.config.get_custom_model_settings", return_value={}),
+        ):
+            settings = make_model_settings("custom-gpt", max_tokens=4096)
+
+        assert settings["openai_reasoning_effort"] == "max"
+
     def test_fixed_effort_model_is_left_untouched(self):
-        """o1-mini/o1-preview/gpt-5-pro have no configurable effort at all;
-        branch must not fire for them."""
         from code_puppy.model_factory import make_model_settings
 
         models_config = {"o1-mini": {"type": "openai", "name": "o1-mini"}}

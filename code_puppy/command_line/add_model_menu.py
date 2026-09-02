@@ -199,16 +199,6 @@ def build_model_config(model: ModelInfo, provider: ProviderInfo) -> dict:
             "extended_thinking",
             "budget_tokens",
         ]
-    elif model_type == "openai" and "gpt-5" in model.model_id:
-        if "codex" in model.model_id:
-            config["supported_settings"] = ["temperature", "top_p", "reasoning_effort"]
-        else:
-            config["supported_settings"] = [
-                "temperature",
-                "top_p",
-                "reasoning_effort",
-                "verbosity",
-            ]
     elif model_type == "openai":
         # Share OpenAI effort capabilities with config and settings menus.
         # Empty means fixed effort; None means an unrecognized model.
@@ -228,7 +218,6 @@ def build_model_config(model: ModelInfo, provider: ProviderInfo) -> dict:
         else:
             config["supported_settings"] = ["temperature", "seed", "top_p"]
     else:
-        # Default settings for most models
         config["supported_settings"] = ["temperature", "seed", "top_p"]
 
     return config

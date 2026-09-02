@@ -357,10 +357,12 @@ def make_model_settings(
     model_type = model_config.get("type")
     is_copilot = model_type == "copilot"
     copilot_underlying = model_config.get("name", "").lower() if is_copilot else ""
-    reasoning_effort_choices = get_openai_reasoning_effort_choices(model_name)
+    reasoning_effort_choices = get_openai_reasoning_effort_choices(
+        model_name, model_config
+    )
     if reasoning_effort_choices is None:
         reasoning_effort_choices = get_openai_reasoning_effort_choices(
-            str(model_config.get("name", ""))
+            str(model_config.get("name", "")), model_config
         )
 
     if is_copilot and copilot_underlying.startswith("claude-"):
@@ -406,7 +408,8 @@ def make_model_settings(
         _EFFORT_ALIAS = {"minimal": "none", "ultra": "max"}
         effort = effective_settings.get("reasoning_effort", "medium")
         effort = _EFFORT_ALIAS.get(effort, effort)
-        model_settings_dict["openai_reasoning_effort"] = effort
+        if reasoning_effort_choices and effort in reasoning_effort_choices:
+            model_settings_dict["openai_reasoning_effort"] = effort
 
         uses_responses_api = (
             model_type == "chatgpt_oauth"
