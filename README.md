@@ -506,6 +506,11 @@ Create JSON files in your agents directory following this schema:
   "system_prompt": "Instructions...",    // REQUIRED: Agent instructions
   "tools": ["tool1", "tool2"],        // REQUIRED: Array of tool names
   "user_prompt": "How can I help?",     // OPTIONAL: Custom greeting
+  "model": "gpt-5",                    // OPTIONAL: Pinned model alias
+  "model_settings": {                   // OPTIONAL: Per-agent request settings
+    "reasoning_effort": "high",
+    "verbosity": "low"
+  },
   "tools_config": {                    // OPTIONAL: Tool configuration
     "timeout": 60
   }
@@ -519,9 +524,18 @@ Create JSON files in your agents directory following this schema:
 - **`tools`**: Array of available tool names
 
 #### Optional Fields
-- **`display_name`**: Pretty display name (defaults to title-cased name + 🤖)
+- **`display_name`**: Pretty display name (defaults to title-cased name with an icon)
 - **`user_prompt`**: Custom user greeting
+- **`model`**: Model alias pinned to this agent; omit it to use the global model
+- **`model_settings`**: Request settings scoped to this agent, such as
+  `reasoning_effort`, `verbosity`, or `temperature`
 - **`tools_config`**: Tool configuration object
+
+Per-agent model settings override standard global and per-model values. Settings
+the selected model does not support are ignored, and provider-specific
+conversions are still applied before the request is sent. Low-level Custom
+params configured through `/model_settings` remain the final wire-level
+override.
 
 ## Available Tools
 
@@ -531,7 +545,9 @@ Agents can access these tools based on their configuration:
 - **`read_file`**: File content reading
 - **`grep`**: Text search across files
 - **`create_file`**: Create new files or overwrite existing ones
+- **`edit`**: Claude/OpenCode-style targeted text replacements in existing files
 - **`replace_in_file`**: Targeted text replacements in existing files
+- **`apply_patch`**: Codex/OpenCode-style multi-file patches (`patchText`) supporting add, update, delete, and move
 - **`delete_snippet`**: Remove a text snippet from a file
 - **`delete_file`**: File deletion
 - **`agent_run_shell_command`**: Shell command execution
@@ -539,7 +555,7 @@ Agents can access these tools based on their configuration:
 
 ### Tool Access Examples
 - **Read-only agent**: `["list_files", "read_file", "grep"]`
-- **File editor agent**: `["list_files", "read_file", "create_file", "replace_in_file"]`
+- **File editor agent**: `["list_files", "read_file", "create_file", "edit"]`
 - **Full access agent**: All tools (like Code-Puppy)
 
 ## System Prompt Formats
@@ -647,7 +663,8 @@ Agents can access these tools based on their configuration:
 ### Tool Selection
 - Only include tools the agent actually needs
 - Most agents need `agent_share_your_reasoning`
-- File manipulation agents need `read_file`, `create_file`, `replace_in_file`
+- File manipulation agents need `read_file`, `create_file`, `edit`
+- Codex/OpenAI Responses models receive `apply_patch` instead of the granular file mutation tools
 - Note: `"edit_file"` still works in tool lists (auto-expands to the three individual tools)
 - Research agents need `grep`, `list_files`
 
@@ -679,6 +696,7 @@ Both Python and JSON agents implement this interface:
 - `description`: Brief description of purpose
 - `get_system_prompt()`: Returns agent-specific system prompt
 - `get_available_tools()`: Returns list of tool names
+- `get_model_settings_overrides()`: Optionally returns per-agent request settings
 
 ### Agent Manager Integration
 The `agent_manager.py` provides:
@@ -735,6 +753,9 @@ class MyCustomAgent(BaseAgent):
             "agent_run_shell_command",
             "agent_share_your_reasoning"
         ]
+
+    def get_model_settings_overrides(self) -> dict[str, object]:
+        return {"reasoning_effort": "high"}
 ```
 
 ## Troubleshooting

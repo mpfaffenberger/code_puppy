@@ -157,6 +157,14 @@ class TestAtomicWriteBytes:
         assert leftovers == []
 
 
+class _FakeMsvcrt:
+    LK_NBLCK = 1
+    LK_UNLCK = 2
+
+    def locking(self, _fd, _mode, _nbytes):
+        return None
+
+
 class TestPathLock:
     def test_lock_is_reentrant_safe_after_release(self, target_path):
         with atomic_io.path_lock(str(target_path)):
@@ -174,6 +182,101 @@ class TestPathLock:
     def test_lock_file_created_alongside_target(self, target_path):
         with atomic_io.path_lock(str(target_path)):
             assert os.path.exists(f"{target_path}.lock")
+
+    def test_windows_lock_sidecar_stays_one_byte_even_if_fd_starts_at_end(
+        self, target_path, monkeypatch
+    ):
+        """Guard against sidecar ballooning on Windows-style lock paths."""
+        lock_file = f"{target_path}.lock"
+        real_open = os.open
+
+        def _open_at_end(path, flags, mode=0o777):
+            fd = real_open(path, flags, mode)
+            os.lseek(fd, 0, os.SEEK_END)
+            return fd
+
+        monkeypatch.setattr(atomic_io, "fcntl", None)
+        monkeypatch.setattr(atomic_io, "msvcrt", _FakeMsvcrt())
+        monkeypatch.setattr(atomic_io.os, "open", _open_at_end)
+
+        for _ in range(5):
+            with atomic_io.path_lock(str(target_path)):
+                pass
+
+        assert os.path.getsize(lock_file) == 1
+
+    def test_windows_lock_sidecar_stays_one_byte_without_os_ftruncate(
+        self, target_path, monkeypatch
+    ):
+        lock_file = f"{target_path}.lock"
+        real_open = os.open
+
+        def _open_at_end(path, flags, mode=0o777):
+            fd = real_open(path, flags, mode)
+            os.lseek(fd, 0, os.SEEK_END)
+            return fd
+
+        monkeypatch.setattr(atomic_io, "fcntl", None)
+        monkeypatch.setattr(atomic_io, "msvcrt", _FakeMsvcrt())
+        monkeypatch.setattr(atomic_io.os, "open", _open_at_end)
+        monkeypatch.setattr(atomic_io.os, "ftruncate", None, raising=False)
+
+        for _ in range(5):
+            with atomic_io.path_lock(str(target_path)):
+                pass
+
+        assert os.path.getsize(lock_file) == 1
+
+    def test_windows_contention_does_not_mutate_sidecar_until_lock_acquired(
+        self, target_path, monkeypatch
+    ):
+        lock_file = f"{target_path}.lock"
+        with open(lock_file, "wb") as lock:
+            lock.write(b"oversized-lock")
+
+        attempts = {"n": 0}
+
+        def _contended_then_acquired(_fd):
+            attempts["n"] += 1
+            if attempts["n"] == 1:
+                # Simulate another process owning the byte lock: first attempt
+                # must observe the untouched oversized sidecar.
+                assert os.path.getsize(lock_file) == len(b"oversized-lock")
+                return False
+            return True
+
+        monkeypatch.setattr(atomic_io, "fcntl", None)
+        monkeypatch.setattr(atomic_io, "msvcrt", _FakeMsvcrt())
+        monkeypatch.setattr(atomic_io, "_try_lock", _contended_then_acquired)
+
+        with atomic_io.path_lock(str(target_path), timeout=0.5):
+            assert os.path.getsize(lock_file) == 1
+
+        assert attempts["n"] >= 2
+
+    def test_windows_prime_swallows_write_error_on_empty_sidecar(
+        self, target_path, monkeypatch
+    ):
+        lock_file = f"{target_path}.lock"
+        open(lock_file, "wb").close()
+
+        real_write = os.write
+        write_calls = {"n": 0}
+
+        def _flaky_write(fd, data):
+            write_calls["n"] += 1
+            if write_calls["n"] == 1:
+                raise OSError("simulated share violation")
+            return real_write(fd, data)
+
+        monkeypatch.setattr(atomic_io, "fcntl", None)
+        monkeypatch.setattr(atomic_io, "msvcrt", _FakeMsvcrt())
+        monkeypatch.setattr(atomic_io.os, "write", _flaky_write)
+
+        with atomic_io.path_lock(str(target_path), timeout=0.5):
+            pass
+
+        assert write_calls["n"] >= 1
 
 
 class TestConcurrentWritersDoNotLoseUpdates:

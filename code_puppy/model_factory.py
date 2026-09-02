@@ -2,9 +2,9 @@ import json
 import logging
 import os
 import pathlib
-from typing import Any, Dict
+from collections.abc import Mapping
+from typing import Any, Dict, Optional
 
-import httpx
 from anthropic import AsyncAnthropic
 from openai import AsyncAzureOpenAI
 from pydantic_ai.models.anthropic import AnthropicModel, AnthropicModelSettings
@@ -26,6 +26,7 @@ from . import callbacks
 from .claude_cache_client import ClaudeCacheAsyncClient
 from .config import EXTRA_MODELS_FILE, get_value, get_yolo_mode
 from .http_utils import create_async_client, get_cert_bundle_path, get_http2
+from .httpx2_utils import create_async_client as create_provider_async_client
 from .provider_identity import (
     make_anthropic_provider,
     make_openai_provider,
@@ -229,7 +230,9 @@ def _merge_dotted_key(target: dict, dotted_key: str, value: Any) -> None:
 
 
 def make_model_settings(
-    model_name: str, max_tokens: int | None = None
+    model_name: str,
+    max_tokens: int | None = None,
+    overrides: Mapping[str, Any] | None = None,
 ) -> ModelSettings:
     """Create appropriate ModelSettings for a given model.
 
@@ -242,6 +245,8 @@ def make_model_settings(
         model_name: The name of the model to create settings for.
         max_tokens: Optional max tokens limit. If None, automatically calculated
             as: max(2048, min(15% of context_length, 65536))
+        overrides: Optional agent-scoped settings. Supported values override
+            global and per-model settings before provider-specific translation.
 
     Returns:
         Appropriate ModelSettings subclass instance for the model.
@@ -254,6 +259,7 @@ def make_model_settings(
     model_settings_dict: dict = {}
 
     # Calculate max_tokens if not explicitly provided
+    models_config: Optional[dict[str, Any]] = None
     model_config: dict[str, Any] = {}
     if max_tokens is None:
         # Load model config to get context length
@@ -262,18 +268,40 @@ def make_model_settings(
             model_config = models_config.get(model_name, {})
             context_length = model_config.get("context_length", 128000)
         except Exception:
-            # Fallback if config loading fails (e.g., in CI environments)
+            # Preserve the failed-load sentinel so support checks can apply
+            # their backwards-compatible fallback instead of treating a
+            # failed load as a valid empty catalog.
+            models_config = None
             context_length = 128000
         # min 2048, 15% of context, max 65536
         max_tokens = max(2048, min(int(0.15 * context_length), 65536))
     elif not model_config:
         try:
-            model_config = ModelFactory.load_config().get(model_name, {})
+            models_config = ModelFactory.load_config()
+            model_config = models_config.get(model_name, {})
         except Exception:
+            models_config = None
             model_config = {}
 
     model_settings_dict["max_tokens"] = max_tokens
     effective_settings = get_effective_model_settings(model_name)
+    if overrides:
+        supported_overrides = {
+            setting: value
+            for setting, value in overrides.items()
+            if value is not None
+            and model_supports_setting(
+                model_name,
+                setting,
+                # NOT `models_config or None`: an empty dict here can mean the
+                # catalog legitimately has no entries, not a failed load.
+                # model_supports_setting only reloads when this is None, so
+                # passing the empty dict through avoids a needless reload per
+                # setting while still reloading on an actual missing load.
+                models_config=models_config,
+            )
+        }
+        effective_settings.update(supported_overrides)
     model_settings_dict.update(effective_settings)
 
     # Disable parallel tool calls when yolo_mode is off (sequential so user can review each call)
@@ -317,6 +345,11 @@ def make_model_settings(
         for key in ("thinking_type", "clear_thinking", "glm_reasoning_effort"):
             model_settings_dict.pop(key, None)
 
+    if "reasoning_effort" in model_settings_dict and not model_supports_setting(
+        model_name, "reasoning_effort", models_config=models_config
+    ):
+        model_settings_dict.pop("reasoning_effort")
+
     model_settings: ModelSettings = ModelSettings(**model_settings_dict)
 
     # Copilot models speak OpenAI format even for Claude backends: Claude
@@ -324,6 +357,11 @@ def make_model_settings(
     model_type = model_config.get("type")
     is_copilot = model_type == "copilot"
     copilot_underlying = model_config.get("name", "").lower() if is_copilot else ""
+    reasoning_effort_choices = get_openai_reasoning_effort_choices(model_name)
+    if reasoning_effort_choices is None:
+        reasoning_effort_choices = get_openai_reasoning_effort_choices(
+            str(model_config.get("name", ""))
+        )
 
     if is_copilot and copilot_underlying.startswith("claude-"):
         # Copilot wraps Claude behind OpenAI-compatible API; translate
@@ -410,16 +448,13 @@ def make_model_settings(
                     "verbosity": effective_settings.get("verbosity", "medium")
                 }
             model_settings = OpenAIChatModelSettings(**model_settings_dict)
-    elif model_type in _OPENAI_COMPATIBLE_MODEL_TYPES and (
-        get_openai_reasoning_effort_choices(model_name)
-        or get_openai_reasoning_effort_choices(model_config.get("name", ""))
-    ):
-        # Forward effort for OpenAI Chat Completions reasoning models.
-        # The type allowlist and underlying name safely support catalog aliases.
+    elif model_type in _OPENAI_COMPATIBLE_MODEL_TYPES and reasoning_effort_choices:
+        # Forward only documented effort values for OpenAI-compatible models.
         _EFFORT_ALIAS = {"minimal": "none", "ultra": "max"}
         effort = effective_settings.get("reasoning_effort", "medium")
         effort = _EFFORT_ALIAS.get(effort, effort)
-        model_settings_dict["openai_reasoning_effort"] = effort
+        if effort in reasoning_effort_choices:
+            model_settings_dict["openai_reasoning_effort"] = effort
         model_settings = OpenAIChatModelSettings(**model_settings_dict)
     elif _is_anthropic_model(model_name, model_config):
         from code_puppy.model_utils import (
@@ -463,6 +498,7 @@ def make_model_settings(
             budget_tokens=budget_tokens,
             model_name=model_name,
             actual_model_id=actual_model_id,
+            thinking_display=effective_settings.get("thinking_display"),
         )
         if thinking_payload is not None:
             model_settings_dict["anthropic_thinking"] = thinking_payload
@@ -932,14 +968,13 @@ class ModelFactory:
 
         elif model_type in _CUSTOM_OPENAI_MODEL_TYPES:
             url, headers, verify, api_key, timeout = get_custom_config(model_config)
-            client = create_async_client(
+            # httpx2: pydantic-ai's providers deprecate caller-owned legacy httpx clients.
+            client = create_provider_async_client(
                 headers=headers,
                 verify=verify,
                 timeout=timeout if timeout is not None else 180,
             )
-            provider_args = {"base_url": url}
-            if isinstance(client, httpx.AsyncClient):
-                provider_args["http_client"] = client
+            provider_args = {"base_url": url, "http_client": client}
             if api_key:
                 provider_args["api_key"] = api_key
             provider = make_openai_provider(provider_identity, **provider_args)
@@ -1029,7 +1064,8 @@ class ModelFactory:
             headers["X-Cerebras-3rd-Party-Integration"] = "code-puppy"
             # "cerebras" tells RetryingAsyncClient to ignore Cerebras's aggressive
             # Retry-After headers (they send 60s!). [name] is internal, not provider.
-            client = create_async_client(
+            # httpx2: pydantic-ai's providers deprecate caller-owned legacy httpx clients.
+            client = create_provider_async_client(
                 headers=headers,
                 verify=verify,
                 model_name="cerebras",

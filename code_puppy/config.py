@@ -472,6 +472,7 @@ def get_config_keys():
         "protected_token_count",
         "compaction_threshold",
         "summarization_model",
+        "auto_continue_model",
         "message_limit",
         "allow_recursion",
         "subagent_recursion_limit",
@@ -519,6 +520,9 @@ def get_config_keys():
     # Add /goal iteration cap (owned by the wiggum plugin, surfaced here so
     # /set autocompletes it). See plugins/wiggum/register_callbacks.py.
     default_keys.append("goal_max_iterations")
+    # How relentlessly the agent proceeds without checking in; headless -p
+    # runs always behave as 'extreme' (see get_agency_level()).
+    default_keys.append("agency_level")
     # Add dangerous command guard disable (skips force push and destructive command guards)
     default_keys.append("disable_dangerous_command_guard")
     # Per-pattern allowlist bypassing the command guards (e.g. "git reset
@@ -780,6 +784,8 @@ def model_supports_setting(
         True if the model supports the setting, False otherwise.
         Defaults to True for backwards compatibility if model config doesn't specify.
     """
+    from code_puppy.model_utils import get_anthropic_thinking_display_choices
+
     # GLM-4.5+ models support deep-thinking controls (thinking_type,
     # clear_thinking); GLM-5.2+ additionally support reasoning_effort.
     if setting in ("thinking_type", "clear_thinking"):
@@ -792,17 +798,15 @@ def model_supports_setting(
 
         if supports_glm_reasoning_effort(model_name):
             return True
-    if setting == "reasoning_effort":
-        # Detect OpenAI effort support when catalog metadata is absent.
-        # Empty choices denote recognized models with fixed effort.
-        from code_puppy.model_utils import get_openai_reasoning_effort_choices
-
-        if get_openai_reasoning_effort_choices(model_name):
-            return True
     if setting in ("reasoning_context", "reasoning_mode"):
         # GPT-5.6 Responses API controls; detect here so injected/custom 5.6
         # definitions needn't duplicate supported_settings metadata.
         if "gpt-5.6" in model_name.lower():
+            return True
+    if setting == "thinking_display":
+        # Fable 5.1 progress-update display; same identity-based detection so
+        # OAuth-generated and bundled entries needn't list it explicitly.
+        if get_anthropic_thinking_display_choices(model_name):
             return True
 
     try:
@@ -811,16 +815,25 @@ def model_supports_setting(
         if models_config is None:
             models_config = ModelFactory.load_config()
         model_config = models_config.get(model_name, {})
+        underlying_name = str(model_config.get("name", "")).lower()
         if setting in ("reasoning_context", "reasoning_mode"):
-            underlying_name = str(model_config.get("name", "")).lower()
             if "gpt-5.6" in underlying_name:
                 return True
         if setting == "reasoning_effort":
-            # Resolve friendly catalog aliases through the underlying model name.
+            # Resolve OpenAI model IDs and aliases without letting another
+            # provider opt in merely because its key contains an OpenAI tag.
+            from code_puppy.model_factory import _OPENAI_COMPATIBLE_MODEL_TYPES
             from code_puppy.model_utils import get_openai_reasoning_effort_choices
 
-            underlying_name = str(model_config.get("name", ""))
-            if get_openai_reasoning_effort_choices(underlying_name):
+            model_type = model_config.get("type")
+            if model_type is None or model_type in _OPENAI_COMPATIBLE_MODEL_TYPES:
+                choices = get_openai_reasoning_effort_choices(model_name)
+                if choices is None:
+                    choices = get_openai_reasoning_effort_choices(underlying_name)
+                if choices:
+                    return True
+        if setting == "thinking_display":
+            if get_anthropic_thinking_display_choices(model_name, underlying_name):
                 return True
 
         # Get supported_settings list, default to supporting common settings
@@ -932,6 +945,19 @@ def set_model_name(model: str):
 
     # Clear model cache when switching models to ensure fresh validation
     clear_model_cache()
+
+
+def get_auto_continue_model_name() -> str | None:
+    """Return the model used by the automatic continuation classifier.
+
+    ``auto_continue_model`` is an optional dedicated override. An unset or
+    blank value follows the session's global model so existing installations
+    need no configuration change.
+    """
+    value = get_value("auto_continue_model")
+    if value and value.strip():
+        return value.strip()
+    return get_global_model_name()
 
 
 def get_summarization_model_name() -> str:
@@ -1464,20 +1490,43 @@ def get_yolo_mode() -> bool:
     return get_truthy_bool_value("yolo_mode", True)
 
 
-def get_safety_permission_level():
+AGENCY_LEVELS = ("low", "medium", "high", "extreme")
+
+_headless_mode: bool = False
+
+
+def set_headless_mode(value: bool) -> None:
+    """Mark this process as headless (``-p`` prompt); process-local only."""
+    global _headless_mode
+    _headless_mode = value
+
+
+def get_headless_mode() -> bool:
+    """Return whether this process is running a headless ``-p`` prompt."""
+    return _headless_mode
+
+
+def get_agency_level() -> str:
     """
-    Checks puppy.cfg for 'safety_permission_level' (case-insensitive in value only).
-    Defaults to 'medium' if not set.
-    Allowed values: 'none', 'low', 'medium', 'high', 'critical' (all case-insensitive for value).
+    Checks puppy.cfg for 'agency_level' (case-insensitive in value only).
+    Allowed values: 'low', 'medium', 'high', 'extreme'.
+    Defaults to 'high' if not set or invalid: fully autonomous on requested
+    work, without the relentless background-process vigil of 'extreme'.
+
+    Headless (``-p``) runs always report 'extreme' no matter what the config
+    says — there is nobody at the keyboard to answer check-ins, so anything
+    lower would just stall the run.
+
     Returns the normalized lowercase string.
     """
-    valid_levels = {"none", "low", "medium", "high", "critical"}
-    cfg_val = get_value("safety_permission_level")
+    if _headless_mode:
+        return "extreme"
+    cfg_val = get_value("agency_level")
     if cfg_val is not None:
         normalized = str(cfg_val).strip().lower()
-        if normalized in valid_levels:
+        if normalized in AGENCY_LEVELS:
             return normalized
-    return "medium"  # Default to medium risk threshold
+    return "high"
 
 
 def get_mcp_disabled():
@@ -2056,6 +2105,8 @@ DEFAULT_BANNER_COLORS = {
     "edit_file": "dark_goldenrod",  # Gold - modifications (legacy)
     "create_file": "dark_goldenrod",  # Gold - file creation
     "replace_in_file": "dark_goldenrod",  # Gold - file modifications
+    "edit": "dark_goldenrod",  # Claude/OpenCode targeted file edit
+    "apply_patch": "dark_goldenrod",  # Codex/OpenCode multi-file patch
     "delete_snippet": "dark_goldenrod",  # Gold - snippet removal
     "grep": "grey37",  # Silver - search results
     "directory_listing": "dodger_blue2",  # Sky - navigation
@@ -2288,9 +2339,9 @@ def set_current_autosave_from_session_name(session_name: str) -> str:
     return pin_current_session_name(session_name)
 
 
-def auto_save_session_if_enabled() -> bool:
-    """Automatically save the current session if auto_save_session is enabled."""
-    if not get_auto_save_session():
+def auto_save_session_if_enabled(*, force: bool = False) -> bool:
+    """Save the current session when enabled, or unconditionally when forced."""
+    if not force and not get_auto_save_session():
         return False
 
     try:

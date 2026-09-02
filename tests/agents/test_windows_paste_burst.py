@@ -95,6 +95,15 @@ class TestCoalesce:
         items = [("char", "a"), ("seq", "\x1b[A"), ("char", "b"), ("char", "c")]
         assert _coalesce_paste_burst(items) is None
 
+    @pytest.mark.parametrize("backspace", ["\x08", "\x7f"])
+    def test_backspace_repeat_burst_is_typing(self, backspace):
+        items = [("char", backspace)] * 6
+        assert _coalesce_paste_burst(items) is None
+
+    def test_other_control_key_repeat_burst_is_typing(self):
+        items = [("char", "\x17")] * 3  # Ctrl+W
+        assert _coalesce_paste_burst(items) is None
+
     def test_min_chars_boundary(self):
         items = [("char", c) for c in "abc"]
         assert len(items) == _WIN_PASTE_MIN_CHARS
@@ -226,6 +235,12 @@ class TestRouteBurst:
     def test_small_typing_burst_dispatches_per_key(self, editor):
         _route(_chars("a"))
         assert editor._buffer == "a"
+
+    @pytest.mark.parametrize("backspace", ["\x08", "\x7f"])
+    def test_backspace_repeat_burst_deletes_every_character(self, editor, backspace):
+        _route(_chars("puppies"))
+        _route(_chars(backspace * 7))
+        assert editor._buffer == ""
 
     def test_vt_arrow_burst_moves_cursor_instead_of_pasting(self, editor):
         # VT-input arrows arrive as a char burst; they must reach the

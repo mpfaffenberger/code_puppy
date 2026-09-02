@@ -129,20 +129,45 @@ class TestBooleanGetters:
 
 
 # ---------------------------------------------------------------------------
-# Safety permission level
+# Agency level
 # ---------------------------------------------------------------------------
-class TestSafetyPermissionLevel:
-    def test_default_medium(self):
-        assert cp_config.get_safety_permission_level() == "medium"
+class TestAgencyLevel:
+    @pytest.fixture(autouse=True)
+    def _reset_headless_mode(self, monkeypatch):
+        """Other tests may exercise the -p path, leaking the sticky flag."""
+        monkeypatch.setattr(cp_config, "_headless_mode", False)
+
+    def test_default_high(self):
+        assert cp_config.get_agency_level() == "high"
 
     def test_valid_levels(self):
-        for level in ["none", "low", "medium", "high", "critical"]:
-            cp_config.set_config_value("safety_permission_level", level)
-            assert cp_config.get_safety_permission_level() == level
+        for level in cp_config.AGENCY_LEVELS:
+            cp_config.set_config_value("agency_level", level)
+            assert cp_config.get_agency_level() == level
 
-    def test_invalid_falls_back_to_medium(self):
-        cp_config.set_config_value("safety_permission_level", "invalid")
-        assert cp_config.get_safety_permission_level() == "medium"
+    def test_value_is_normalized(self):
+        cp_config.set_config_value("agency_level", "  MeDiUm ")
+        assert cp_config.get_agency_level() == "medium"
+
+    def test_invalid_falls_back_to_high(self):
+        cp_config.set_config_value("agency_level", "ludicrous")
+        assert cp_config.get_agency_level() == "high"
+
+    def test_headless_forces_extreme(self, monkeypatch):
+        cp_config.set_config_value("agency_level", "low")
+        monkeypatch.setattr(cp_config, "_headless_mode", True)
+        assert cp_config.get_agency_level() == "extreme"
+
+    def test_set_headless_mode_round_trip(self, monkeypatch):
+        monkeypatch.setattr(cp_config, "_headless_mode", False)
+        assert cp_config.get_headless_mode() is False
+        cp_config.set_headless_mode(True)
+        assert cp_config.get_headless_mode() is True
+        cp_config.set_headless_mode(False)
+        assert cp_config.get_headless_mode() is False
+
+    def test_agency_level_in_config_keys(self):
+        assert "agency_level" in cp_config.get_config_keys()
 
 
 # ---------------------------------------------------------------------------
@@ -421,6 +446,22 @@ class TestModelSupportsSetting:
     def test_openai_reasoning_effort_ignored_for_non_openai_models(self):
         assert not cp_config.model_supports_setting(
             "claude-opus-4-6", "reasoning_effort", models_config={}
+        )
+
+    @pytest.mark.parametrize(
+        ("model_name", "model_config"),
+        [
+            ("team-o1-eval", {"type": "gemini", "name": "gemini-2.5-pro"}),
+            ("claude-router", {"type": "custom_anthropic", "name": "o3"}),
+        ],
+    )
+    def test_openai_reasoning_effort_ignored_for_non_openai_catalog_entries(
+        self, model_name, model_config
+    ):
+        assert not cp_config.model_supports_setting(
+            model_name,
+            "reasoning_effort",
+            models_config={model_name: model_config},
         )
 
     def test_openai_reasoning_effort_falls_back_to_catalog_name_alias(self):
@@ -725,6 +766,20 @@ class TestConfigKeys:
         assert "enable_streaming" in keys
         assert "cancel_agent_key" in keys
         assert "resume_message_count" in keys
+        assert "auto_continue_model" in keys
+
+
+def test_auto_continue_model_uses_override(monkeypatch):
+    monkeypatch.setattr(cp_config, "get_value", lambda key: "  tiny-model  ")
+
+    assert cp_config.get_auto_continue_model_name() == "tiny-model"
+
+
+def test_auto_continue_model_falls_back_to_global(monkeypatch):
+    monkeypatch.setattr(cp_config, "get_value", lambda key: "")
+    monkeypatch.setattr(cp_config, "get_global_model_name", lambda: "global-model")
+
+    assert cp_config.get_auto_continue_model_name() == "global-model"
 
 
 # ---------------------------------------------------------------------------
@@ -919,6 +974,25 @@ class TestAutosaveSession:
     def test_auto_save_session_if_enabled_disabled(self):
         cp_config.set_auto_save_session(False)
         assert cp_config.auto_save_session_if_enabled() is False
+
+    def test_auto_save_session_force_overrides_disabled_setting(self):
+        cp_config.set_auto_save_session(False)
+        mock_agent = MagicMock()
+        mock_agent.get_message_history.return_value = [
+            {"role": "user", "content": "compacted"}
+        ]
+        mock_metadata = MagicMock(message_count=1, total_tokens=10)
+        with (
+            patch(
+                "code_puppy.agents.agent_manager.get_current_agent",
+                return_value=mock_agent,
+            ),
+            patch("code_puppy.config.save_session", return_value=mock_metadata),
+            patch("code_puppy.config.record_quick_resume_sessions"),
+            patch("code_puppy.messaging.emit_info"),
+            patch("code_puppy.session_lifecycle.fire_post_autosave_callback"),
+        ):
+            assert cp_config.auto_save_session_if_enabled(force=True) is True
 
     def test_auto_save_session_if_enabled_no_history(self):
         cp_config.set_auto_save_session(True)

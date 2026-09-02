@@ -8,7 +8,7 @@ Codex API.
 import json
 from unittest.mock import AsyncMock, Mock, patch
 
-import httpx
+import httpx2 as httpx
 import pytest
 
 from code_puppy.chatgpt_codex_client import (

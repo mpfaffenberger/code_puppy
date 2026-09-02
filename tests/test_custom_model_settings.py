@@ -222,7 +222,11 @@ class TestMakeModelSettingsOpenAIReasoningEffort:
 
         assert settings["openai_reasoning_effort"] == "medium"
 
-    def test_o_series_normalizes_legacy_effort_aliases(self):
+    @pytest.mark.parametrize(
+        "unsupported_effort",
+        ["none", "xhigh", "max", "minimal", "ultra", "banana"],
+    )
+    def test_o_series_drops_unsupported_effort(self, unsupported_effort):
         from code_puppy.model_factory import make_model_settings
 
         models_config = {
@@ -235,13 +239,13 @@ class TestMakeModelSettingsOpenAIReasoningEffort:
             ),
             patch(
                 "code_puppy.config.get_effective_model_settings",
-                return_value={"reasoning_effort": "minimal"},
+                return_value={"reasoning_effort": unsupported_effort},
             ),
             patch("code_puppy.config.get_custom_model_settings", return_value={}),
         ):
             settings = make_model_settings("codex-mini-latest", max_tokens=4096)
 
-        assert settings["openai_reasoning_effort"] == "none"
+        assert "openai_reasoning_effort" not in settings
 
     def test_fixed_effort_model_is_left_untouched(self):
         """o1-mini/o1-preview/gpt-5-pro have no configurable effort at all;
@@ -331,6 +335,28 @@ class TestMakeModelSettingsOpenAIReasoningEffort:
         ):
             settings = make_model_settings("team-o1-eval", max_tokens=4096)
 
+        assert "openai_reasoning_effort" not in settings
+        assert "reasoning_effort" not in settings
+
+    def test_null_catalog_name_does_not_crash(self):
+        from code_puppy.model_factory import make_model_settings
+
+        models_config = {"custom-reasoner": {"type": "openai", "name": None}}
+        with (
+            patch(
+                "code_puppy.model_factory.ModelFactory.load_config",
+                return_value=models_config,
+            ),
+            patch(
+                "code_puppy.config.get_effective_model_settings",
+                return_value={"reasoning_effort": "high"},
+            ),
+            patch("code_puppy.config.get_custom_model_settings", return_value={}),
+        ):
+            settings = make_model_settings("custom-reasoner", max_tokens=4096)
+
+        assert settings["max_tokens"] == 4096
+        assert "reasoning_effort" not in settings
         assert "openai_reasoning_effort" not in settings
 
     def test_gpt5_branch_also_falls_back_to_catalog_name_alias(self):

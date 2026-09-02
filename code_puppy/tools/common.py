@@ -1035,9 +1035,10 @@ async def _get_user_approval_async_impl(
 
     backend = get_approval_backend()
     if backend is not None:
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            None, backend, title, _approval_message_text(content), preview
+        # Use asyncio.to_thread to run the synchronous part of the
+        # backend in a thread, allowing ContextVars to be preserved.
+        return await asyncio.to_thread(
+            backend, title, _approval_message_text(content), preview
         )
 
     if not _stdin_supports_interactive_approval():
@@ -1285,6 +1286,11 @@ def _find_best_window(
     Return (start, end) indices of the window with the highest
     Jaro-Winkler similarity to `needle`, along with that score.
     If nothing clears JW_THRESHOLD, return (None, score).
+
+    Note: the edit engine no longer fuzzy-matches (Claude Code parity —
+    see ``file_modifications.apply_replacements_to_content``). This helper
+    remains part of the plugin API surface (``code-puppy-core-plugins``
+    permission previews on released versions import it).
     """
     needle = needle.rstrip("\n")
     needle_lines = needle.splitlines()

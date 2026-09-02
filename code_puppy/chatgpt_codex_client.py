@@ -20,7 +20,7 @@ import json
 import logging
 from typing import Any
 
-import httpx
+import httpx2
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +83,7 @@ def _is_reasoning_model(model_name: str) -> bool:
     return any(model_lower.startswith(prefix) for prefix in reasoning_models)
 
 
-class ChatGPTCodexAsyncClient(httpx.AsyncClient):
+class ChatGPTCodexAsyncClient(httpx2.AsyncClient):
     """Async HTTP client that handles ChatGPT Codex API requirements.
 
     This client:
@@ -93,8 +93,8 @@ class ChatGPTCodexAsyncClient(httpx.AsyncClient):
     """
 
     async def send(
-        self, request: httpx.Request, *args: Any, **kwargs: Any
-    ) -> httpx.Response:
+        self, request: httpx2.Request, *args: Any, **kwargs: Any
+    ) -> httpx2.Response:
         """Intercept requests and inject required Codex fields."""
         force_stream_conversion = False
 
@@ -151,7 +151,7 @@ class ChatGPTCodexAsyncClient(httpx.AsyncClient):
         return response
 
     @staticmethod
-    def _extract_body_bytes(request: httpx.Request) -> bytes | None:
+    def _extract_body_bytes(request: httpx2.Request) -> bytes | None:
         """Extract the request body as bytes."""
         try:
             content = request.content
@@ -273,8 +273,8 @@ class ChatGPTCodexAsyncClient(httpx.AsyncClient):
         return json.dumps(data).encode("utf-8"), forced_stream
 
     async def _convert_stream_to_response(
-        self, response: httpx.Response
-    ) -> httpx.Response:
+        self, response: httpx2.Response
+    ) -> httpx2.Response:
         """Convert an SSE streaming response to a complete response.
 
         Consumes the SSE stream and reconstructs the final response object.
@@ -414,7 +414,7 @@ class ChatGPTCodexAsyncClient(httpx.AsyncClient):
         body_bytes = json.dumps(response_body).encode("utf-8")
         logger.debug(f"Reconstructed response body: {len(body_bytes)} bytes")
 
-        new_response = httpx.Response(
+        new_response = httpx2.Response(
             status_code=response.status_code,
             headers=response.headers,
             content=body_bytes,
@@ -432,6 +432,6 @@ def create_codex_async_client(
     return ChatGPTCodexAsyncClient(
         headers=headers,
         verify=verify,
-        timeout=httpx.Timeout(300.0, connect=30.0),
+        timeout=httpx2.Timeout(300.0, connect=30.0),
         **kwargs,
     )

@@ -165,7 +165,7 @@ quickstart). Rules for new user-facing output (PUP-473):
 - **Model-facing system prompts are OUT of scope** — translating them changes
   LLM behavior. Don't run them through the i18n seam.
 - Add extraction behind the pseudolocale/coverage CI gate
-  (`tests/i18n/test_i18n_coverage.py`): every translated key must exist in the
+  (`tests/i18n/test_i18n_audit.py`): every translated key must exist in the
   `en-US` source, and a pseudolocale run must emit only bracketed text.
 
 ## Rules

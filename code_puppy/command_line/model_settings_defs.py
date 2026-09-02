@@ -18,6 +18,7 @@ from code_puppy.config import (
     set_value,
 )
 from code_puppy.model_factory import ModelFactory
+from code_puppy.model_utils import THINKING_DISPLAY_CHOICES
 
 # Pagination config
 MODELS_PER_PAGE = 15
@@ -152,6 +153,19 @@ SETTING_DEFINITIONS: Dict[str, Dict] = {
         "type": "choice",
         "choices": ["low", "medium", "high", "xhigh", "max"],
         "default": "high",
+    },
+    "thinking_display": {
+        "name": "Thinking Display",
+        "description": (
+            "How Fable 5.1 surfaces its thinking between tool calls. "
+            "'updates' = short progress status lines only, reasoning stays hidden "
+            "(adds the thinking-display-updates beta header). "
+            "'summarized' = the same progress updates mixed into a condensed "
+            "reasoning trace."
+        ),
+        "type": "choice",
+        "choices": list(THINKING_DISPLAY_CHOICES),
+        "default": THINKING_DISPLAY_CHOICES[0],
     },
     "retry_main_strategy": {
         "name": "Retry Strategy (main agent)",

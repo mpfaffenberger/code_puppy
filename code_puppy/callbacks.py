@@ -16,6 +16,7 @@ PhaseType = Literal[
     "replace_in_file",
     "delete_snippet",
     "delete_file",
+    "apply_patch",
     "run_shell_command",
     "run_shell_command_output",
     "load_model_config",
@@ -106,6 +107,7 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "replace_in_file": [],
     "delete_snippet": [],
     "delete_file": [],
+    "apply_patch": [],
     "run_shell_command": [],
     "run_shell_command_output": [],
     "load_model_config": [],
@@ -570,6 +572,11 @@ def on_delete_snippet(*args, **kwargs) -> Any:
 
 def on_delete_file(*args, **kwargs) -> Any:
     return _trigger_callbacks_sync("delete_file", *args, **kwargs)
+
+
+def on_apply_patch(*args, **kwargs) -> Any:
+    """Notify plugins about the provider-native multi-file edit operation."""
+    return _trigger_callbacks_sync("apply_patch", *args, **kwargs)
 
 
 async def on_run_shell_command(*args, **kwargs) -> Any:
@@ -1121,8 +1128,8 @@ def on_prepare_model_prompt(
 
     This is the hook fired from ``model_utils.prepare_prompt_for_model`` to let
     plugins take over prompt preparation for specific model families (e.g.
-    claude-code OAuth models which need a hard-coded instruction string and
-    have the system prompt prepended to the user message).
+    claude-code OAuth models, which need a fixed identity line as the
+    opening system block ahead of the real system prompt).
 
     Unlike ``get_model_system_prompt`` (which is used by augmenting plugins like
     agent_skills), this hook is for plugins that want to *fully handle* the
@@ -1141,6 +1148,8 @@ def on_prepare_model_prompt(
         - ``"handled"``: bool — True if this callback fully prepared the prompt.
         - ``"instructions"``: str — the system prompt/instructions to use.
         - ``"user_prompt"``: str — the (possibly modified) user prompt.
+        - ``"system_prompt"``: str — (optional) a standing system prompt emitted
+          as its own ``SystemPromptPart`` *before* ``instructions``.
         - ``"is_claude_code"``: bool — (optional) flag preserved on PreparedPrompt.
 
     Or return ``None`` to indicate "I don't handle this model".
