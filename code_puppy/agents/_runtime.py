@@ -21,6 +21,7 @@ import asyncio
 import json
 import re
 import signal
+import sys
 import threading
 import uuid
 from contextlib import AsyncExitStack
@@ -49,17 +50,6 @@ try:  # pragma: no cover - pydantic-ai version dependent
 except ImportError:
     ModelHTTPError = None  # type: ignore[misc,assignment]
 
-try:  # pragma: no cover - optional dependency
-    from openai import APIError as OpenAIAPIError
-except ImportError:
-    OpenAIAPIError = None  # type: ignore[assignment]
-
-try:  # pragma: no cover - optional dependency
-    from anthropic import APIConnectionError as AnthropicAPIConnectionError
-    from anthropic import APIStatusError as AnthropicAPIStatusError
-except ImportError:
-    AnthropicAPIConnectionError = None  # type: ignore[assignment]
-    AnthropicAPIStatusError = None  # type: ignore[assignment]
 
 try:  # pragma: no cover - pydantic-ai version dependent
     from pydantic_ai.exceptions import ModelAPIError
@@ -172,6 +162,18 @@ def _matches_retryable_snippet(msg: str) -> bool:
 _EMBEDDED_HTTP_STATUS_RE = re.compile(r"\[HTTP\s+(\d{3})\]", re.IGNORECASE)
 
 
+def _sdk_exception(module: str, name: str) -> type | None:
+    """Resolve a provider-SDK exception class only if that SDK is loaded.
+
+    An exception raised by a vendor SDK can only exist if the SDK is already
+    in ``sys.modules``, so peeking there (rather than importing) keeps
+    ``openai``/``anthropic`` (~200ms cold apiece) off the startup path for
+    providers this run never touches. ``None`` doubles as "not installed".
+    """
+    loaded = sys.modules.get(module)
+    return getattr(loaded, name, None) if loaded is not None else None
+
+
 def _is_transient_status(status_code: object) -> bool:
     """True for HTTP statuses worth a silent retry: 429 or any 5xx."""
     return status_code == 429 or (isinstance(status_code, int) and status_code >= 500)
@@ -238,7 +240,8 @@ def _is_retryable_one(exc: BaseException) -> bool:
     if isinstance(exc, UnexpectedModelBehavior):
         return _matches_retryable_snippet(msg)
 
-    if OpenAIAPIError is not None and isinstance(exc, OpenAIAPIError):
+    openai_api_error = _sdk_exception("openai", "APIError")
+    if openai_api_error is not None and isinstance(exc, openai_api_error):
         # 5xx and 429 are transient regardless of wording; the SDK exposes the
         # HTTP status on APIStatusError subclasses (connection/timeout errors
         # have none and are covered by the transport branch above). Mirrors the
@@ -260,14 +263,16 @@ def _is_retryable_one(exc: BaseException) -> bool:
                 return _matches_retryable_snippet(body_msg)
 
     # Anthropic SDK: a bare APIConnectionError is, by definition, transient.
-    if AnthropicAPIConnectionError is not None and isinstance(
-        exc, AnthropicAPIConnectionError
+    anthropic_connection_error = _sdk_exception("anthropic", "APIConnectionError")
+    if anthropic_connection_error is not None and isinstance(
+        exc, anthropic_connection_error
     ):
         return True
 
     # Anthropic SDK: status errors are retryable on 5xx (or unset) OR when the
     # message/body matches a gateway-transient snippet (e.g. upstream_idle_timeout).
-    if AnthropicAPIStatusError is not None and isinstance(exc, AnthropicAPIStatusError):
+    anthropic_status_error = _sdk_exception("anthropic", "APIStatusError")
+    if anthropic_status_error is not None and isinstance(exc, anthropic_status_error):
         status_code = getattr(exc, "status_code", None)
         if status_code is None or (isinstance(status_code, int) and status_code >= 500):
             return True
