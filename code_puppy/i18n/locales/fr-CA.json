@@ -57,6 +57,7 @@
   "oauth.claude.reauth.no_token": "La réauthentification OAuth Claude Code n'a pas produit de jeton utilisable.",
   "oauth.claude.cmd.auth.starting": "Démarrage de l'authentification OAuth Claude Code…",
   "oauth.claude.cmd.auth.overwrite_warning": "Des jetons Claude Code existants ont été trouvés. Poursuivre les écrasera.",
+  "oauth.claude.cmd.auth.model_switch_skipped": "Changement vers {model} ignoré — l'authentification ne s'est pas terminée ou le modèle n'a pas été découvert.",
   "oauth.claude.cmd.status.authenticated": "OAuth Claude Code : authentifié",
   "oauth.cmd.status.expires": "Le jeton expire dans ~{hours} h {minutes} min",
   "oauth.claude.cmd.status.models": "Modèles Claude Code configurés : {models}",

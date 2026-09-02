@@ -784,6 +784,8 @@ def model_supports_setting(
         True if the model supports the setting, False otherwise.
         Defaults to True for backwards compatibility if model config doesn't specify.
     """
+    from code_puppy.model_utils import get_anthropic_thinking_display_choices
+
     # GLM-4.5+ models support deep-thinking controls (thinking_type,
     # clear_thinking); GLM-5.2+ additionally support reasoning_effort.
     if setting in ("thinking_type", "clear_thinking"):
@@ -801,6 +803,11 @@ def model_supports_setting(
         # definitions needn't duplicate supported_settings metadata.
         if "gpt-5.6" in model_name.lower():
             return True
+    if setting == "thinking_display":
+        # Fable 5.1 progress-update display; same identity-based detection so
+        # OAuth-generated and bundled entries needn't list it explicitly.
+        if get_anthropic_thinking_display_choices(model_name):
+            return True
 
     try:
         from code_puppy.model_factory import ModelFactory
@@ -808,9 +815,12 @@ def model_supports_setting(
         if models_config is None:
             models_config = ModelFactory.load_config()
         model_config = models_config.get(model_name, {})
+        underlying_name = str(model_config.get("name", "")).lower()
         if setting in ("reasoning_context", "reasoning_mode"):
-            underlying_name = str(model_config.get("name", "")).lower()
             if "gpt-5.6" in underlying_name:
+                return True
+        if setting == "thinking_display":
+            if get_anthropic_thinking_display_choices(model_name, underlying_name):
                 return True
 
         # Get supported_settings list, default to supporting common settings

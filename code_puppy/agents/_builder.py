@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple
 
 from pydantic_ai import Agent as PydanticAgent
 from pydantic_ai.capabilities import ProcessHistory
@@ -42,6 +42,9 @@ from code_puppy.config import (
 from code_puppy.mcp_ import get_mcp_manager
 from code_puppy.messaging import emit_error, emit_info, emit_warning
 from code_puppy.model_factory import ModelFactory, make_model_settings
+
+if TYPE_CHECKING:
+    from code_puppy.model_utils import PreparedPrompt
 
 _AGENT_RULE_FILES = ("AGENTS.md", "AGENT.md", "agents.md", "agent.md")
 _CODE_PUPPY_DIR = ".code_puppy"
@@ -572,21 +575,19 @@ def _agent_exposes_tool(agent: Any, tool_name: str) -> bool:
         return False
 
 
-def _assemble_instructions(agent: Any, resolved_model_name: str) -> str:
-    """Compose full system prompt + puppy rules + extended-thinking note."""
+def _assemble_instructions(agent: Any, resolved_model_name: str) -> PreparedPrompt:
+    """Compose full system prompt + puppy rules.
+
+    Returns the model-prepared prompt: ``instructions`` for the agent plus any
+    standing ``system_prompt`` a plugin wants emitted as its own
+    ``SystemPromptPart`` ahead of them.
+    """
     from code_puppy.model_utils import prepare_prompt_for_model
-    from code_puppy.tools import (
-        EXTENDED_THINKING_PROMPT_NOTE,
-        has_extended_thinking_active,
-    )
 
     instructions = agent.get_full_system_prompt()
     puppy_rules = load_puppy_rules()
     if puppy_rules:
         instructions += f"\n{puppy_rules}"
-
-    if has_extended_thinking_active(resolved_model_name):
-        instructions += EXTENDED_THINKING_PROMPT_NOTE
 
     if _is_gpt_5_6_family(resolved_model_name):
         if _agent_exposes_tool(agent, "invoke_agent"):
@@ -594,10 +595,9 @@ def _assemble_instructions(agent: Any, resolved_model_name: str) -> str:
         if _agent_exposes_tool(agent, "agent_run_shell_command"):
             instructions += _GPT_5_6_RUN_SHELL_COMMAND_GUARD_TEXT
 
-    prepared = prepare_prompt_for_model(
+    return prepare_prompt_for_model(
         agent.get_model_name(), instructions, "", prepend_system_to_user=False
     )
-    return prepared.instructions
 
 
 def build_pydantic_agent(
@@ -637,7 +637,7 @@ def build_pydantic_agent(
         message_group,
         agent_name=getattr(agent, "name", None),
     )
-    instructions = _assemble_instructions(agent, resolved_model_name)
+    prepared = _assemble_instructions(agent, resolved_model_name)
     mcp_servers = load_mcp_servers(agent_name=getattr(agent, "name", None))
     model_settings = make_model_settings(
         resolved_model_name,
@@ -657,7 +657,10 @@ def build_pydantic_agent(
             # caller's frame variables, so observability spans read
             # "invoke_agent pydantic_agent" instead of the logical agent name.
             name=logical_agent_name,
-            instructions=instructions,
+            # A standing system_prompt (if any) becomes its own SystemPromptPart
+            # in the first request, rendered ahead of the instructions block.
+            system_prompt=prepared.system_prompt_parts,
+            instructions=prepared.instructions,
             output_type=output_type,
             retries=3,
             toolsets=toolsets,

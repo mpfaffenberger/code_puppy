@@ -36,12 +36,16 @@ MAX_RETRIES = 5
 # Claude Code requires this namespace for outgoing tool names.
 TOOL_PREFIX = "cp_"
 
-CLAUDE_CLI_USER_AGENT = "claude-cli/2.1.2 (external, cli)"
+CLAUDE_CLI_USER_AGENT = "claude-cli/2.1.251 (external, cli)"
 
 # The Claude Code OAuth endpoint fingerprints this exact string as the FIRST
 # system block; requests that lead with anything else get rejected. Mirrors
 # CLAUDE_CODE_INSTRUCTIONS in the claude_code_oauth plugin's prompt_handler.
 CLAUDE_CODE_SYSTEM_PROMPT = "You are Claude Code, Anthropic's official CLI for Claude."
+
+# Beta flag required for ``thinking.display: "updates"`` (Fable 5.1 progress
+# updates surfaced as text while reasoning stays hidden).
+THINKING_DISPLAY_UPDATES_BETA = "thinking-display-updates-2026-08-18"
 
 
 def _model_requires_thinking_summary(model_name):
@@ -52,6 +56,14 @@ def _model_requires_thinking_summary(model_name):
     return should_use_anthropic_thinking_summary(model_name)
 
 
+def _model_supports_thinking_updates(model_name):
+    if not model_name:
+        return False
+    from code_puppy.model_utils import should_use_anthropic_thinking_updates
+
+    return should_use_anthropic_thinking_updates(model_name)
+
+
 def _enforce_thinking_display_summary(payload):
     if not isinstance(payload, dict):
         return False
@@ -60,7 +72,12 @@ def _enforce_thinking_display_summary(payload):
     thinking = payload.get("thinking")
     if not isinstance(thinking, dict):
         return False
-    if thinking.get("display") == "summarized":
+    display = thinking.get("display")
+    if display == "summarized":
+        return False
+    if display == "updates" and _model_supports_thinking_updates(payload.get("model")):
+        # Fable 5.1 legitimately asked for progress updates; don't clobber
+        # it back to summarized (which would drown status lines in reasoning).
         return False
     thinking["display"] = "summarized"
     return True
@@ -325,6 +342,38 @@ class ClaudeCacheAsyncClient(httpx2.AsyncClient):
                 del headers[key]
 
     @staticmethod
+    def _ensure_thinking_updates_beta(
+        headers: MutableMapping[str, str], body_bytes: bytes | None
+    ) -> bool:
+        """Add the updates-display beta flag when the body requests it.
+
+        ``thinking.display: "updates"`` (Fable 5.1 progress updates) is
+        rejected without the ``thinking-display-updates-2026-08-18`` beta
+        header. Deciding here — off the final request body — keeps header and
+        body consistent across every transport that rides this client
+        (anthropic, custom_anthropic, claude_code OAuth).
+
+        Returns True when the header was modified.
+        """
+        if not body_bytes:
+            return False
+        try:
+            payload = json.loads(body_bytes.decode("utf-8"))
+        except Exception:
+            return False
+        thinking = payload.get("thinking") if isinstance(payload, dict) else None
+        if not (isinstance(thinking, dict) and thinking.get("display") == "updates"):
+            return False
+        existing = [
+            b.strip() for b in headers.get("anthropic-beta", "").split(",") if b.strip()
+        ]
+        if THINKING_DISPLAY_UPDATES_BETA in existing:
+            return False
+        existing.append(THINKING_DISPLAY_UPDATES_BETA)
+        headers["anthropic-beta"] = ",".join(existing)
+        return True
+
+    @staticmethod
     def _add_beta_query_param(url: httpx2.URL) -> httpx2.URL:
         """Add ?beta=true query parameter to the URL if not already present."""
         parsed = urlparse(str(url))
@@ -386,6 +435,10 @@ class ClaudeCacheAsyncClient(httpx2.AsyncClient):
                     if summarized_body is not None:
                         body_bytes = summarized_body
                         body_modified = True
+                # After body transforms settle: updates-display requests
+                # (Fable 5.1) must carry the matching beta header.
+                if self._ensure_thinking_updates_beta(headers, body_bytes):
+                    headers_modified = True
                 if body_modified or headers_modified or url != request.url:
                     try:
                         rebuilt = self.build_request(

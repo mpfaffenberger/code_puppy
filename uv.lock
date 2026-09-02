@@ -402,7 +402,7 @@ wheels = [
 
 [[package]]
 name = "code-puppy"
-version = "0.0.808"
+version = "0.0.814"
 source = { editable = "." }
 dependencies = [
     { name = "agent-client-protocol" },
@@ -465,7 +465,7 @@ requires-dist = [
     { name = "azure-identity", specifier = ">=1.15.0" },
     { name = "boto3", specifier = ">=1.43.9" },
     { name = "boto3", marker = "extra == 'bedrock'", specifier = ">=1.35.0" },
-    { name = "code-puppy-core-plugins", specifier = ">=0.0.34" },
+    { name = "code-puppy-core-plugins", specifier = ">=0.0.38" },
     { name = "dbos", marker = "extra == 'durable'", specifier = ">=2.11.0" },
     { name = "httpx", extras = ["http2"], specifier = ">=0.24.1" },
     { name = "httpx2", specifier = ">=2.7" },
@@ -506,15 +506,15 @@ dev = [
 
 [[package]]
 name = "code-puppy-core-plugins"
-version = "0.0.34"
+version = "0.0.38"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
     { name = "pydantic-ai-slim", extra = ["anthropic", "mcp", "openai"] },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/27/73/7ec40d96781c6372e1b01b92a2986fbb866b3dd173d7c5553215f70a5d58/code_puppy_core_plugins-0.0.34.tar.gz", hash = "sha256:53d490d55c8e0c8a840323df10f99b781ac97d3203fe550c593d67df8e7ae2a3", size = 542036, upload-time = "2026-08-29T15:27:21.998Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/2e/55/f2970e7ba0ca6a13ff4c45b1a7f7c5f08ed751568fc49271a09f3d544d62/code_puppy_core_plugins-0.0.38.tar.gz", hash = "sha256:754839eaac39bab53c21d496345dd16ddc1308b2ec10ae664282c88dc9303fa5", size = 537530, upload-time = "2026-09-01T19:41:04.001Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/fd/60/81964e2c9bc864ed6d23aa98ed58d383a02d844183a49b78c8ad389834b2/code_puppy_core_plugins-0.0.34-py3-none-any.whl", hash = "sha256:1d16cea7c0c430480e72df4a49606891bf0fc3d80d267102ebd0b47e85796591", size = 732889, upload-time = "2026-08-29T15:27:20.864Z" },
+    { url = "https://files.pythonhosted.org/packages/16/1f/bf64d76d90f815d397b7f9b60342fdc19e5cc723bf8bcc6eac7f3c3768cd/code_puppy_core_plugins-0.0.38-py3-none-any.whl", hash = "sha256:5bcd7bae89ad990f45c1720283f2dd884af6cd9084936ac297b7040bcb793558", size = 726705, upload-time = "2026-09-01T19:41:02.643Z" },
 ]
 
 [[package]]
