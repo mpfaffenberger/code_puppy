@@ -57,10 +57,19 @@ class MatchInfo(BaseModel):
 class GrepOutput(BaseModel):
     matches: List[MatchInfo]
     error: str | None = None
+    # True when the search hit the match budget and more matches exist. A
+    # capped result that can't say so is indistinguishable from a complete
+    # one, and callers build completeness claims on top of grep.
+    truncated: bool = False
 
 
-# Upper bound on -A/-B/-C context rows returned alongside the (up to 50)
-# matches, so a wide context value can't grow the result without limit.
+# Total real-match budget for a single grep call, shared by the ripgrep and
+# backend paths. Context rows have their own budget below.
+_MAX_GREP_MATCHES = 50
+
+# Upper bound on -A/-B/-C context rows returned alongside the (up to
+# _MAX_GREP_MATCHES) matches, so a wide context value can't grow the result
+# without limit.
 # Context never evicts a real match: once this budget is full we keep scanning
 # for matches and simply stop collecting further context.
 _MAX_GREP_CONTEXT_ROWS = 200
@@ -1098,11 +1107,14 @@ def _emit_grep_result(
     directory: str,
     matches: List["MatchInfo"],
     error_message: str | None,
+    *,
+    truncated: bool = False,
 ) -> "GrepOutput":
     """Emit the structured grep result to the UI and return the tool output.
 
     Shared by the local (ripgrep) and backend (composed) grep paths so the UI
     behavior is identical regardless of where the search actually ran.
+    ``truncated`` flags that the match budget was hit with more left unseen.
     """
     from code_puppy.config import get_grep_output_verbose
 
@@ -1124,9 +1136,10 @@ def _emit_grep_result(
         total_matches=len(real_matches),
         files_searched=unique_files,
         verbose=get_grep_output_verbose(),
+        truncated=truncated,
     )
     get_message_bus().emit(grep_result_msg)
-    return GrepOutput(matches=matches, error=error_message)
+    return GrepOutput(matches=matches, error=error_message, truncated=truncated)
 
 
 def _missing_directory_error(directory: str, *, exists: bool) -> str:
@@ -1188,17 +1201,21 @@ def _grep_via_backend(directory: str, search_string: str) -> "GrepOutput":
         if "\x00" in text[:8192]:  # cheap binary sniff, like ripgrep
             continue
         for line_number, line in enumerate(text.splitlines(), start=1):
-            if pattern.search(line):
-                matches.append(
-                    MatchInfo(
-                        file_path=full,
-                        line_number=line_number,
-                        line_content=_sanitize_string(line.strip()),
-                    )
+            if not pattern.search(line):
+                continue
+            # Same total budget as the ripgrep path. Only a match *beyond* the
+            # budget proves there was more, so exactly-at-cap is not truncated.
+            if len(matches) >= _MAX_GREP_MATCHES:
+                return _emit_grep_result(
+                    search_string, directory, matches, None, truncated=True
                 )
-                # Cap total matches to mirror the local path's 50-match limit.
-                if len(matches) >= 50:
-                    return _emit_grep_result(search_string, directory, matches, None)
+            matches.append(
+                MatchInfo(
+                    file_path=full,
+                    line_number=line_number,
+                    line_content=_sanitize_string(line.strip()),
+                )
+            )
     return _emit_grep_result(search_string, directory, matches, None)
 
 
@@ -1233,6 +1250,7 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
 
     matches: List[MatchInfo] = []
     error_message: str | None = None
+    truncated = False
 
     # ripgrep runs with cwd=directory below, so a bad target would surface as a
     # FileNotFoundError from the spawn and get misreported as "ripgrep not found".
@@ -1274,7 +1292,18 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
         if args_error is not None:
             return GrepOutput(matches=[], error=args_error)
 
-        cmd = [rg_path, "--json", "--max-count", "50", "--max-filesize", "5M"]
+        # --max-count is ripgrep's *per-file* cap; the total cap lives in the
+        # JSON consumer below. Ask for one past the budget so a single file
+        # holding more than the budget still yields the extra match that
+        # proves truncation, instead of looking like exactly-at-cap.
+        cmd = [
+            rg_path,
+            "--json",
+            "--max-count",
+            str(_MAX_GREP_MATCHES + 1),
+            "--max-filesize",
+            "5M",
+        ]
         # rg's type filters are additive, so the default all-types selection
         # must not dilute an explicit -t/--type from the search string.
         if not _carries_type_filter(rg_args):
@@ -1359,7 +1388,7 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
                             line_content=_sanitize_string(line_content.strip()),
                             is_context=is_context,
                         )
-                        # Context rides along without consuming the 50-match
+                        # Context rides along without consuming the match
                         # budget, but is itself capped so a wide -A/-B/-C can't
                         # grow the result without bound. Real matches are never
                         # evicted: once the context budget is full we keep
@@ -1368,11 +1397,14 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
                             if context_row_count >= _MAX_GREP_CONTEXT_ROWS:
                                 continue
                             context_row_count += 1
-                        matches.append(match_info)
-                        if not is_context:
+                        elif real_match_count >= _MAX_GREP_MATCHES:
+                            # A real match past the budget is the proof there
+                            # was more; exactly-at-cap stays un-truncated.
+                            truncated = True
+                            break
+                        else:
                             real_match_count += 1
-                            if real_match_count >= 50:
-                                break
+                        matches.append(match_info)
             except json.JSONDecodeError:
                 # Skip lines that aren't valid JSON
                 continue
@@ -1391,7 +1423,9 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
             os.unlink(ignore_file)
 
     # Build structured GrepMatch objects for the UI
-    return _emit_grep_result(search_string, directory, matches, error_message)
+    return _emit_grep_result(
+        search_string, directory, matches, error_message, truncated=truncated
+    )
 
 
 def register_list_files(agent):
@@ -1489,5 +1523,10 @@ def register_grep(agent):
         Output-format flags (-l, -c, --files, --count, --json, -q) are not
         supported and return an error. To search for a pattern that itself
         starts with '-', use: -e '-pattern'
+
+        Returns at most 50 matches. When the result has truncated=True there
+        were MORE matches than shown: do not treat the list as complete --
+        narrow the search (a tighter pattern, -t/--type, or -g globs) and
+        search again until truncated is False.
         """
         return _grep(context, search_string, directory)

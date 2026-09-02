@@ -830,6 +830,11 @@ class RichConsoleRenderer:
             f"[dim]Found {msg.total_matches} {match_word} "
             f"across {num_files} {file_word}[/dim]"
         )
+        if msg.truncated:
+            self._console.print(
+                "[yellow]  Truncated: more matches exist beyond the "
+                f"{msg.total_matches} shown[/yellow]"
+            )
 
         # Trailing newline for spinner separation
         self._console.print()
