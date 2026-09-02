@@ -92,6 +92,21 @@ class TestBooleanGetters:
         cp_config.set_config_value("grep_output_verbose", "1")
         assert cp_config.get_grep_output_verbose() is True
 
+    def test_get_grep_max_matches_default(self):
+        assert cp_config.get_grep_max_matches() == cp_config.GREP_MAX_MATCHES_DEFAULT
+
+    def test_get_grep_max_matches_configured(self):
+        cp_config.set_config_value("grep_max_matches", "200")
+        assert cp_config.get_grep_max_matches() == 200
+
+    def test_get_grep_max_matches_floors_at_one(self):
+        cp_config.set_config_value("grep_max_matches", "0")
+        assert cp_config.get_grep_max_matches() == 1
+
+    def test_get_grep_max_matches_garbage_falls_back(self):
+        cp_config.set_config_value("grep_max_matches", "lots")
+        assert cp_config.get_grep_max_matches() == cp_config.GREP_MAX_MATCHES_DEFAULT
+
     def test_get_http2_values(self):
         cp_config.set_http2(True)
         assert cp_config.get_http2() is True

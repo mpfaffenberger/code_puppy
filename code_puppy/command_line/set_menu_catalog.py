@@ -39,6 +39,7 @@ from code_puppy.config import (
     get_frontend_emitter_max_recent_events,
     get_frontend_emitter_queue_size,
     get_global_model_name,
+    get_grep_max_matches,
     get_grep_output_verbose,
     get_http2,
     get_max_hook_retries,
@@ -240,6 +241,17 @@ _BEHAVIOR = SettingsCategory(
             ),
             type_hint="bool",
             effective_getter=get_grep_output_verbose,
+        ),
+        Setting(
+            key="grep_max_matches",
+            display_name="Grep Match Budget",
+            description=(
+                "Maximum matches a single grep call returns. Results past "
+                "the budget are dropped and the tool reports truncated=True. "
+                "Default 50; minimum 1."
+            ),
+            type_hint="int",
+            effective_getter=get_grep_max_matches,
         ),
     ),
 )

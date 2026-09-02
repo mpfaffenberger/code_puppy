@@ -5,10 +5,10 @@ returned, -t restricts types, and a trailing value flag errors instead of
 silently re-scoping the search.
 """
 
+from code_puppy.config import GREP_MAX_MATCHES_DEFAULT
 from code_puppy.tools import file_operations
 from code_puppy.tools.file_operations import (
     _MAX_GREP_CONTEXT_ROWS,
-    _MAX_GREP_MATCHES,
     MatchInfo,
     _emit_grep_result,
     _grep,
@@ -172,43 +172,61 @@ def test_grep_beyond_budget_is_flagged_truncated(tmp_path):
     out = _grep(None, "hit", str(tmp_path))
 
     assert out.error is None
-    assert len(out.matches) == _MAX_GREP_MATCHES
+    assert len(out.matches) == GREP_MAX_MATCHES_DEFAULT
     assert out.truncated is True
 
 
 def test_grep_exactly_at_budget_is_not_truncated(tmp_path):
     """Exactly the budget is complete, not truncated -- never lie either way."""
     _write_hits(tmp_path / "a.py", 20)
-    _write_hits(tmp_path / "b.py", _MAX_GREP_MATCHES - 20)
+    _write_hits(tmp_path / "b.py", GREP_MAX_MATCHES_DEFAULT - 20)
 
     out = _grep(None, "hit", str(tmp_path))
 
     assert out.error is None
-    assert len(out.matches) == _MAX_GREP_MATCHES
+    assert len(out.matches) == GREP_MAX_MATCHES_DEFAULT
     assert out.truncated is False
 
 
 def test_grep_single_file_beyond_budget_is_flagged_truncated(tmp_path):
     """ripgrep's per-file --max-count must not mask truncation in one fat file."""
-    _write_hits(tmp_path / "fat.py", _MAX_GREP_MATCHES + 1)
+    _write_hits(tmp_path / "fat.py", GREP_MAX_MATCHES_DEFAULT + 1)
 
     out = _grep(None, "hit", str(tmp_path))
 
     assert out.error is None
-    assert len(out.matches) == _MAX_GREP_MATCHES
+    assert len(out.matches) == GREP_MAX_MATCHES_DEFAULT
     assert out.truncated is True
 
 
 def test_grep_truncation_survives_context_lines(tmp_path):
     """Context rows neither consume the budget nor hide that it overflowed."""
-    lines = ["target", "filler"] * (_MAX_GREP_MATCHES + 5)
+    lines = ["target", "filler"] * (GREP_MAX_MATCHES_DEFAULT + 5)
     (tmp_path / "ctx.py").write_text("\n".join(lines) + "\n")
 
     out = _grep(None, "-A 1 target", str(tmp_path))
 
     real = [m for m in out.matches if not m.is_context]
-    assert len(real) == _MAX_GREP_MATCHES
+    assert len(real) == GREP_MAX_MATCHES_DEFAULT
     assert out.truncated is True
+
+
+def test_grep_match_budget_is_configurable(tmp_path, monkeypatch):
+    """`grep_max_matches` moves the cap; truncation semantics follow it."""
+    import code_puppy.config as cp_config
+
+    monkeypatch.setattr(cp_config, "get_grep_max_matches", lambda: 5)
+    _write_hits(tmp_path / "a.py", 6)
+
+    out = _grep(None, "hit", str(tmp_path))
+    assert len(out.matches) == 5
+    assert out.truncated is True
+
+    (tmp_path / "a.py").unlink()
+    _write_hits(tmp_path / "b.py", 5)
+    out = _grep(None, "hit", str(tmp_path))
+    assert len(out.matches) == 5
+    assert out.truncated is False
 
 
 def test_emit_grep_result_forwards_truncated_to_ui(monkeypatch):

@@ -63,13 +63,9 @@ class GrepOutput(BaseModel):
     truncated: bool = False
 
 
-# Total real-match budget for a single grep call, shared by the ripgrep and
-# backend paths. Context rows have their own budget below.
-_MAX_GREP_MATCHES = 50
-
 # Upper bound on -A/-B/-C context rows returned alongside the (up to
-# _MAX_GREP_MATCHES) matches, so a wide context value can't grow the result
-# without limit.
+# get_grep_max_matches()) matches, so a wide context value can't grow the
+# result without limit.
 # Context never evicts a real match: once this budget is full we keep scanning
 # for matches and simply stop collecting further context.
 _MAX_GREP_CONTEXT_ROWS = 200
@@ -1180,6 +1176,9 @@ def _grep_via_backend(directory: str, search_string: str) -> "GrepOutput":
 
     skip_dir, skip_file = _relative_ignore_predicates(directory)
 
+    from code_puppy.config import get_grep_max_matches
+
+    max_matches = get_grep_max_matches()
     max_filesize = 5 * 1024 * 1024  # mirror ripgrep --max-filesize 5M
     matches: List[MatchInfo] = []
     for full, entry in fs_access.walk(
@@ -1205,7 +1204,7 @@ def _grep_via_backend(directory: str, search_string: str) -> "GrepOutput":
                 continue
             # Same total budget as the ripgrep path. Only a match *beyond* the
             # budget proves there was more, so exactly-at-cap is not truncated.
-            if len(matches) >= _MAX_GREP_MATCHES:
+            if len(matches) >= max_matches:
                 return _emit_grep_result(
                     search_string, directory, matches, None, truncated=True
                 )
@@ -1248,6 +1247,9 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
     if get_filesystem_backend() is not None:
         return _grep_via_backend(directory, search_string)
 
+    from code_puppy.config import get_grep_max_matches
+
+    max_matches = get_grep_max_matches()
     matches: List[MatchInfo] = []
     error_message: str | None = None
     truncated = False
@@ -1300,7 +1302,7 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
             rg_path,
             "--json",
             "--max-count",
-            str(_MAX_GREP_MATCHES + 1),
+            str(max_matches + 1),
             "--max-filesize",
             "5M",
         ]
@@ -1397,7 +1399,7 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
                             if context_row_count >= _MAX_GREP_CONTEXT_ROWS:
                                 continue
                             context_row_count += 1
-                        elif real_match_count >= _MAX_GREP_MATCHES:
+                        elif real_match_count >= max_matches:
                             # A real match past the budget is the proof there
                             # was more; exactly-at-cap stays un-truncated.
                             truncated = True
@@ -1524,9 +1526,9 @@ def register_grep(agent):
         supported and return an error. To search for a pattern that itself
         starts with '-', use: -e '-pattern'
 
-        Returns at most 50 matches. When the result has truncated=True there
-        were MORE matches than shown: do not treat the list as complete --
-        narrow the search (a tighter pattern, -t/--type, or -g globs) and
-        search again until truncated is False.
+        Results are capped at a fixed match budget (50 by default). When the
+        result has truncated=True there were MORE matches than shown: do not
+        treat the list as complete -- narrow the search (a tighter pattern,
+        -t/--type, or -g globs) and search again until truncated is False.
         """
         return _grep(context, search_string, directory)
