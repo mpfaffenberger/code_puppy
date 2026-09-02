@@ -5,7 +5,7 @@ import json
 import time
 from unittest.mock import AsyncMock, Mock, patch
 
-import httpx
+import httpx2
 import pytest
 
 from code_puppy.claude_cache_client import ClaudeCacheAsyncClient
@@ -38,12 +38,12 @@ class TestProactiveTokenRefresh:
         iat = time.time() - 7200
         old_token = _create_jwt(iat=iat)
 
-        success_response = Mock(spec=httpx.Response)
+        success_response = Mock(spec=httpx2.Response)
         success_response.status_code = 200
         success_response.headers = {"content-type": "application/json"}
 
         with patch.object(
-            httpx.AsyncClient,
+            httpx2.AsyncClient,
             "send",
             new_callable=AsyncMock,
             return_value=success_response,
@@ -57,7 +57,7 @@ class TestProactiveTokenRefresh:
                     headers={"Authorization": f"Bearer {old_token}"}
                 )
 
-                request = httpx.Request(
+                request = httpx2.Request(
                     "POST",
                     "https://api.anthropic.com/v1/messages",
                     headers={"Authorization": f"Bearer {old_token}"},
@@ -82,12 +82,12 @@ class TestProactiveTokenRefresh:
         iat = time.time() - 1800
         fresh_token = _create_jwt(iat=iat)
 
-        success_response = Mock(spec=httpx.Response)
+        success_response = Mock(spec=httpx2.Response)
         success_response.status_code = 200
         success_response.headers = {"content-type": "application/json"}
 
         with patch.object(
-            httpx.AsyncClient,
+            httpx2.AsyncClient,
             "send",
             new_callable=AsyncMock,
             return_value=success_response,
@@ -100,7 +100,7 @@ class TestProactiveTokenRefresh:
                     headers={"Authorization": f"Bearer {fresh_token}"}
                 )
 
-                request = httpx.Request(
+                request = httpx2.Request(
                     "POST",
                     "https://api.anthropic.com/v1/messages",
                     headers={"Authorization": f"Bearer {fresh_token}"},
@@ -130,7 +130,7 @@ class TestCloudflareErrorDetection:
             "</html>"
         )
 
-        response = Mock(spec=httpx.Response)
+        response = Mock(spec=httpx2.Response)
         response.headers = {"content-type": "text/html; charset=utf-8"}
         response._content = cloudflare_html.encode("utf-8")
         response.text = cloudflare_html
@@ -143,7 +143,7 @@ class TestCloudflareErrorDetection:
     @pytest.mark.asyncio
     async def test_is_cloudflare_html_error_false_json(self):
         """Test that JSON responses are not detected as Cloudflare errors."""
-        response = Mock(spec=httpx.Response)
+        response = Mock(spec=httpx2.Response)
         response.headers = {"content-type": "application/json"}
         response._content = b'{"error": "some error"}'
 
@@ -155,7 +155,7 @@ class TestCloudflareErrorDetection:
     @pytest.mark.asyncio
     async def test_is_cloudflare_html_error_false_different_html(self):
         """Test that non-Cloudflare HTML is not detected as Cloudflare error."""
-        response = Mock(spec=httpx.Response)
+        response = Mock(spec=httpx2.Response)
         response.headers = {"content-type": "text/html"}
         response._content = b"<html><body>Some other error</body></html>"
         response.text = "<html><body>Some other error</body></html>"
@@ -169,7 +169,7 @@ class TestCloudflareErrorDetection:
     async def test_is_cloudflare_html_error_false_missing_markers(self):
         """Test that HTML without both markers is not detected."""
         # Has cloudflare but not "400 bad request"
-        response = Mock(spec=httpx.Response)
+        response = Mock(spec=httpx2.Response)
         response.headers = {"content-type": "text/html"}
         response._content = b"<html><body>cloudflare</body></html>"
         response.text = "<html><body>cloudflare</body></html>"
@@ -197,7 +197,7 @@ class TestTokenRefreshOnCloudflareError:
         )
 
         # Create a mock response for the initial failed request
-        failed_response = Mock(spec=httpx.Response)
+        failed_response = Mock(spec=httpx2.Response)
         failed_response.status_code = 400
         failed_response.headers = {"content-type": "text/html; charset=utf-8"}
         failed_response._content = cloudflare_html.encode("utf-8")
@@ -205,14 +205,14 @@ class TestTokenRefreshOnCloudflareError:
         failed_response.aclose = AsyncMock()
 
         # Create a mock response for the successful retry
-        success_response = Mock(spec=httpx.Response)
+        success_response = Mock(spec=httpx2.Response)
         success_response.status_code = 200
         success_response.headers = {"content-type": "application/json"}
         success_response._content = b'{"result": "success"}'
 
         # Mock the parent send method to return failed then success
         with patch.object(
-            httpx.AsyncClient, "send", new_callable=AsyncMock
+            httpx2.AsyncClient, "send", new_callable=AsyncMock
         ) as mock_send:
             mock_send.side_effect = [failed_response, success_response]
 
@@ -234,7 +234,7 @@ class TestTokenRefreshOnCloudflareError:
                     )
 
                     # Create a mock request
-                    request = httpx.Request(
+                    request = httpx2.Request(
                         "POST",
                         "https://api.anthropic.com/v1/messages",
                         headers={"Authorization": "Bearer old_token"},
@@ -257,13 +257,13 @@ class TestTokenRefreshOnCloudflareError:
     async def test_no_refresh_on_json_400(self):
         """Test that a JSON 400 error does not trigger token refresh."""
         # Create a mock response for a non-Cloudflare 400 error
-        response = Mock(spec=httpx.Response)
+        response = Mock(spec=httpx2.Response)
         response.status_code = 400
         response.headers = {"content-type": "application/json"}
         response._content = b'{"error": {"type": "invalid_request_error"}}'
 
         with patch.object(
-            httpx.AsyncClient, "send", new_callable=AsyncMock, return_value=response
+            httpx2.AsyncClient, "send", new_callable=AsyncMock, return_value=response
         ):
             with patch.object(
                 ClaudeCacheAsyncClient, "_refresh_claude_oauth_token"
@@ -278,7 +278,7 @@ class TestTokenRefreshOnCloudflareError:
                         headers={"Authorization": "Bearer token"}
                     )
 
-                    request = httpx.Request(
+                    request = httpx2.Request(
                         "POST",
                         "https://api.anthropic.com/v1/messages",
                         headers={"Authorization": "Bearer token"},
@@ -295,20 +295,20 @@ class TestTokenRefreshOnCloudflareError:
     async def test_refresh_on_401(self):
         """Test that a 401 error triggers token refresh."""
         # Create a mock response for 401
-        failed_response = Mock(spec=httpx.Response)
+        failed_response = Mock(spec=httpx2.Response)
         failed_response.status_code = 401
         failed_response.headers = {"content-type": "application/json"}
         failed_response._content = b'{"error": {"type": "authentication_error"}}'
         failed_response.aclose = AsyncMock()
 
         # Create a mock response for the successful retry
-        success_response = Mock(spec=httpx.Response)
+        success_response = Mock(spec=httpx2.Response)
         success_response.status_code = 200
         success_response.headers = {"content-type": "application/json"}
         success_response._content = b'{"result": "success"}'
 
         with patch.object(
-            httpx.AsyncClient, "send", new_callable=AsyncMock
+            httpx2.AsyncClient, "send", new_callable=AsyncMock
         ) as mock_send:
             mock_send.side_effect = [failed_response, success_response]
 
@@ -328,7 +328,7 @@ class TestTokenRefreshOnCloudflareError:
                         headers={"Authorization": "Bearer old_token"}
                     )
 
-                    request = httpx.Request(
+                    request = httpx2.Request(
                         "POST",
                         "https://api.anthropic.com/v1/messages",
                         headers={"Authorization": "Bearer old_token"},
@@ -350,14 +350,14 @@ class TestTokenRefreshOnCloudflareError:
     async def test_no_infinite_retry_loop(self):
         """Test that we don't retry infinitely on auth errors."""
         # Create a mock response that always returns 401
-        failed_response = Mock(spec=httpx.Response)
+        failed_response = Mock(spec=httpx2.Response)
         failed_response.status_code = 401
         failed_response.headers = {"content-type": "application/json"}
         failed_response._content = b'{"error": {"type": "authentication_error"}}'
         failed_response.aclose = AsyncMock()
 
         with patch.object(
-            httpx.AsyncClient,
+            httpx2.AsyncClient,
             "send",
             new_callable=AsyncMock,
             return_value=failed_response,
@@ -371,7 +371,7 @@ class TestTokenRefreshOnCloudflareError:
                     headers={"Authorization": "Bearer token"}
                 )
 
-                request = httpx.Request(
+                request = httpx2.Request(
                     "POST",
                     "https://api.anthropic.com/v1/messages",
                     headers={"Authorization": "Bearer token"},

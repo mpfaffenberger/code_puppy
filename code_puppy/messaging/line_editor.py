@@ -112,6 +112,7 @@ class RunningLineEditor:
         # Optional overrides installed by run_ui.
         self._router: Optional[SubmitRouter] = None
         self._eof_handler: Optional[Callable[[], None]] = None
+        self._ctrl_c_handler: Optional[Callable[[], None]] = None
         self._clipboard_handler: Optional[Callable[[], None]] = None
         self._ctrl_x_pending = False  # Ctrl+X chord prefix armed (see chords)
         # Phase B feature state.
@@ -121,6 +122,7 @@ class RunningLineEditor:
         )
         self._paste = PasteBuffer()
         self._completion = None  # CompletionEngine, attached by run_ui
+        self._help_overlay_handler: Optional[Callable[[], None]] = None
         self._multiline = False
 
     # =========================================================================
@@ -158,9 +160,22 @@ class RunningLineEditor:
         with self._lock:  # Ctrl+D-on-empty-buffer handler (run_ui)
             self._eof_handler = handler
 
+    def set_ctrl_c_handler(self, handler: Optional[Callable[[], None]]) -> None:
+        with self._lock:  # raw-\x03 handler (run_ui double-tap policy)
+            self._ctrl_c_handler = handler
+
     def set_clipboard_handler(self, handler: Optional[Callable[[], None]]) -> None:
         with self._lock:  # async Ctrl+V clipboard handler (run_ui)
             self._clipboard_handler = handler
+
+    def set_help_overlay_handler(self, handler: Optional[Callable[[], None]]) -> None:
+        """Install (or clear) the Tab-on-empty-buffer help overlay handler.
+
+        Kept as an injected callback (mirrors ``set_clipboard_handler``) so
+        ``messaging/`` never has to import CLI/overlay code directly.
+        """
+        with self._lock:  # invoked from the key-listener thread (run_ui)
+            self._help_overlay_handler = handler
 
     @property
     def paste_active(self) -> bool:
@@ -352,7 +367,12 @@ class RunningLineEditor:
             # Raw ^C reaches the editor only when the console can't turn it into
             # SIGINT (Windows clamp); mirror the SIGINT path — discard input,
             # never submit/kill (cancel stays with the hotkey/signal layers).
-            self.clear_buffer()
+            # run_ui installs a handler that adds the idle double-tap-to-quit
+            # policy; without one, fall back to the plain buffer wipe.
+            if self._ctrl_c_handler is not None:
+                self._call_handler(self._ctrl_c_handler, "ctrl-c")
+            else:
+                self.clear_buffer()
             return None
 
         if self._rsearch.active:
@@ -380,6 +400,9 @@ class RunningLineEditor:
             self._insert_text("\n")  # Ctrl+J: always a newline
             return None
         if ch == _TAB:
+            if not self._buffer and self._help_overlay_handler is not None:
+                self._call_handler(self._help_overlay_handler, "help_overlay")
+                return None
             if self._completion is not None:
                 self._completion.on_tab(self._buffer, self._cursor)
             return None

@@ -156,6 +156,10 @@ class GrepResultMessage(BaseMessage):
         default=False,
         description="Whether to show verbose output with line content",
     )
+    truncated: bool = Field(
+        default=False,
+        description="Whether the match budget was hit with more matches unseen",
+    )
 
 
 # =============================================================================
@@ -281,6 +285,10 @@ class SubAgentInvocationMessage(BaseMessage):
     model_name: Optional[str] = Field(
         default=None,
         description="Optional per-invocation model override requested for this sub-agent run",
+    )
+    is_fork: bool = Field(
+        default=False,
+        description="Whether this invocation was started via /fork (renders a distinct banner)",
     )
 
 

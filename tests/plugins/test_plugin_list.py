@@ -23,31 +23,27 @@ _PLUGINS_CONFIG_MOD = "code_puppy.plugins.config"
 
 class TestFormatPluginList:
     def test_empty_list(self):
-        assert _format_plugin_list([], set()) == "  (none)"
+        assert _format_plugin_list([], "builtin", set()) == "  (none)"
 
     def test_single_plugin(self):
-        result = _format_plugin_list(["shell_safety"], set())
-        assert "shell_safety" in result
+        result = _format_plugin_list(["statusline"], "builtin", set())
+        assert "statusline" in result
 
     def test_multiple_sorted(self):
-        result = _format_plugin_list(["zebra", "alpha", "mid"], set())
-        lines = result.split("\n")
-        assert len(lines) == 3
-        assert "alpha" in lines[0]
-        assert "mid" in lines[1]
-        assert "zebra" in lines[2]
+        result = _format_plugin_list(["zebra", "alpha", "mid"], "builtin", set())
+        assert result.index("  alpha") < result.index("  mid")
+        assert result.index("  mid") < result.index("  zebra")
 
     def test_disabled_shown(self):
-        result = _format_plugin_list(["alpha", "beta"], {"beta"})
-        lines = result.split("\n")
-        assert "(disabled)" not in lines[0]  # alpha
-        assert "(disabled)" in lines[1]  # beta
+        result = _format_plugin_list(["alpha", "beta"], "builtin", {"beta"})
+        assert "  alpha  (disabled)" not in result
+        assert "  beta  (disabled)" in result
 
 
 class TestBuildOutput:
     def test_all_tiers_populated(self):
         loaded = {
-            "builtin": ["shell_safety", "agent_skills"],
+            "builtin": ["statusline", "agent_skills"],
             "user": ["my_tool"],
             "project": ["repo_guard"],
         }
@@ -69,7 +65,7 @@ class TestBuildOutput:
             assert "Loaded Plugins" in output
             assert "Builtin (" in output
             assert "agent_skills" in output
-            assert "shell_safety" in output
+            assert "statusline" in output
             assert "User (~/.code_puppy/plugins/):" in output
             assert "my_tool" in output
             assert "Project (/tmp/proj/.code_puppy/plugins/):" in output

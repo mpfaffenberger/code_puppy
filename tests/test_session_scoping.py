@@ -9,7 +9,6 @@ filter) plus a smoke test per opt-in UI surface that layers on top of them:
   on ``/load_context``
 * ``command_line/autosave_menu.py`` -- Ctrl+T toggle in the interactive
   autosave picker
-* ``session_storage.py``'s ``restore_autosave_interactively`` -- ``cwd``
   keyword typed at the selection prompt
 
 Mocking/fixture patterns deliberately mirror the existing suites for each
@@ -477,218 +476,49 @@ def _fire(kb, keys):
                     pass
 
 
-class TestAutosaveMenuCtrlTToggle:
-    """Smoke-tests the Ctrl+T "this folder only" toggle in the interactive
-    autosave picker, matching the KeyBindings-capture pattern used by
-    ``tests/command_line/test_tui_keybindings.py``.
+class TestSessionBrowserProjectScoping:
+    """The two-pane browser's project pane supersedes the old Ctrl+T
+    "this folder only" toggle: sessions are grouped by ``scope_key``
+    and legacy scope-less sessions land in one "(unscoped)" bucket
+    pinned last -- never misattributed to a project.
     """
 
-    async def test_ctrl_t_filters_out_non_matching_scope_key(self):
+    def test_projects_group_by_scope_key_with_unscoped_last(self):
+        from io import StringIO
+
+        from code_puppy.command_line.session_browser import build_session_browser
+        from code_puppy.command_line.session_browser_data import SessionEntry
+
         entries = [
-            ("local", {"scope_key": "the-current-folder"}),
-            ("other", {"scope_key": "some-other-folder"}),
-            ("legacy", {}),  # no scope_key at all -- must never false-match
+            SessionEntry.from_pair(
+                "local",
+                {
+                    "scope_key": "/tmp/current-folder",
+                    "timestamp": "2026-01-02T10:00:00",
+                },
+            ),
+            SessionEntry.from_pair(
+                "other",
+                {
+                    "scope_key": "/tmp/other-folder",
+                    "timestamp": "2026-01-01T10:00:00",
+                },
+            ),
+            SessionEntry.from_pair("legacy", {}),
         ]
-
-        with (
-            patch(
-                "code_puppy.command_line.autosave_menu._get_session_entries",
-                return_value=entries,
-            ),
-            patch(
-                "code_puppy.command_line.autosave_menu.compute_scope_key",
-                return_value="the-current-folder",
-            ),
-            patch("code_puppy.command_line.autosave_menu.Application") as mock_app_cls,
-            patch("code_puppy.command_line.autosave_menu.set_awaiting_user_input"),
-            patch("sys.stdout"),
-        ):
-            mock_app = AsyncMock()
-            mock_app_cls.return_value = mock_app
-
-            captured_visible = {}
-
-            async def run_and_capture():
-                kb = _extract_kb(mock_app_cls)
-                assert kb is not None
-                # Toggle scope filter on.
-                _fire(kb, {"c-t"})
-                # Read back the closure's visible_entries via the menu
-                # control's rendered text (indirect, but avoids reaching
-                # into the function's internals).
-                layout = mock_app_cls.call_args.kwargs.get("layout")
-                captured_visible["layout"] = layout
-                # Cancel out of the picker loop.
-                event = _make_event()
-                for b in kb.bindings:
-                    for k in b.keys:
-                        kv = k.value if hasattr(k, "value") else str(k)
-                        if kv == "c-c":
-                            b.handler(event)
-
-            mock_app.run_async = run_and_capture
-
-            from code_puppy.command_line.autosave_menu import (
-                interactive_autosave_picker,
-            )
-
-            await interactive_autosave_picker()
-
-            # The mere fact that Ctrl+T fired without raising, and that the
-            # Application was constructed with a real KeyBindings object
-            # containing a c-t handler, confirms the toggle wiring exists
-            # and is reachable. (Exercising the private _apply_scope
-            # closure end-to-end -- filtering "local" in and "other"/
-            # "legacy" out -- is covered indirectly since a raise here
-            # would fail this test via the try/except-free assertion
-            # above.)
-            assert mock_app_cls.called
-
-
-# ---------------------------------------------------------------------------
-# 5(d). restore_autosave_interactively "cwd" prompt-time toggle
-# ---------------------------------------------------------------------------
-
-
-def _mock_interactive_imports(
-    mock_input_return=None,
-    mock_input_side_effect=None,
-    mock_agent=None,
-    capture_system=None,
-    list_sessions_mock=None,
-):
-    """Trimmed version of the context manager in
-    ``test_session_storage_coverage.py`` -- only wires what this smoke test
-    needs, but patches the exact same import targets.
-    """
-    import contextlib
-
-    @contextlib.asynccontextmanager
-    async def _manager():
-        mock_input = AsyncMock()
-        if mock_input_side_effect:
-            mock_input.side_effect = mock_input_side_effect
-        elif mock_input_return is not None:
-            mock_input.return_value = mock_input_return
-        else:
-            mock_input.return_value = ""
-
-        agent = mock_agent or MagicMock()
-        if mock_agent is None:
-            agent.estimate_tokens_for_message.return_value = 10
-
-        system_msgs = [] if capture_system is None else capture_system
-
-        patches = [
-            patch(
-                "code_puppy.command_line.prompt_toolkit_completion.get_input_with_combined_completion",
-                mock_input,
-            ),
-            patch(
-                "code_puppy.messaging.emit_system_message",
-                side_effect=lambda msg: system_msgs.append(msg),
-            ),
-            patch("code_puppy.messaging.emit_warning"),
-            patch("code_puppy.messaging.emit_success"),
-            patch(
-                "code_puppy.agents.agent_manager.get_current_agent",
-                return_value=agent,
-            ),
-            patch("code_puppy.config.pin_current_session_name", MagicMock()),
-        ]
-        if list_sessions_mock is not None:
-            patches.append(
-                patch(
-                    "code_puppy.session_storage.list_sessions",
-                    list_sessions_mock,
-                )
-            )
-
-        for p in patches:
-            p.start()
-        try:
-            yield {"system_msgs": system_msgs}
-        finally:
-            for p in patches:
-                p.stop()
-
-    return _manager()
-
-
-class TestRestoreAutosaveInteractivelyHereToggle:
-    """Smoke-tests the "cwd" keyword typed at the autosave-restore prompt.
-
-    Mirrors the mocking style of
-    ``tests/test_session_storage_coverage.py``.
-    """
-
-    async def test_cwd_keyword_triggers_scoped_relist(self, tmp_path):
-        from code_puppy.session_storage import restore_autosave_interactively
-
-        (tmp_path / "session.pkl").write_bytes(b"dummy")
-        (tmp_path / "session_meta.json").write_text(
-            json.dumps({"timestamp": "2024-01-01T00:00:00", "message_count": 1}),
-            encoding="utf-8",
+        script = iter(["enter", "escape", "escape"])
+        browser = build_session_browser(
+            entries=entries,
+            base_dir=Path("/fake"),
+            key_source=lambda: next(script),
+            output=StringIO(),
+            size=lambda: (120, 30),
+            use_alt_screen=False,
         )
+        result = browser.run()
 
-        call_count = 0
-
-        def input_sequence(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                return "cwd"  # toggle the this-folder filter on
-            return ""  # then skip loading
-
-        mock_list_sessions = MagicMock(side_effect=[["session"], ["session"], []])
-
-        async with _mock_interactive_imports(
-            mock_input_side_effect=input_sequence,
-            list_sessions_mock=mock_list_sessions,
-        ):
-            result = await restore_autosave_interactively(tmp_path)
-
-        assert result is None
-        # First call is the initial unfiltered listing (no scope_key kwarg
-        # value asserted here since it's positional/default None); the
-        # second call -- triggered by typing "cwd" -- must carry a
-        # concrete scope_key.
-        assert mock_list_sessions.call_count >= 2
-        second_call_kwargs = mock_list_sessions.call_args_list[1].kwargs
-        assert second_call_kwargs.get("scope_key") is not None
-
-    async def test_double_cwd_toggles_back_to_unfiltered(self, tmp_path):
-        """Typing "cwd" twice toggles the filter back off (scope_key=None)."""
-        from code_puppy.session_storage import restore_autosave_interactively
-
-        (tmp_path / "session.pkl").write_bytes(b"dummy")
-        (tmp_path / "session_meta.json").write_text(
-            json.dumps({"timestamp": "2024-01-01T00:00:00", "message_count": 1}),
-            encoding="utf-8",
-        )
-
-        call_count = 0
-
-        def input_sequence(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            if call_count in (1, 2):
-                return "cwd"
-            return ""
-
-        mock_list_sessions = MagicMock(
-            side_effect=[["session"], ["session"], ["session"]]
-        )
-
-        async with _mock_interactive_imports(
-            mock_input_side_effect=input_sequence,
-            list_sessions_mock=mock_list_sessions,
-        ):
-            result = await restore_autosave_interactively(tmp_path)
-
-        assert result is None
-        assert mock_list_sessions.call_count == 3
-        # Call 0: initial unfiltered. Call 1: "cwd" -> scoped. Call 2:
-        # "cwd" again -> back to unfiltered (scope_key=None).
-        third_call_kwargs = mock_list_sessions.call_args_list[2].kwargs
-        assert third_call_kwargs.get("scope_key") is None
+        assert result.cancelled
+        labels = [project.label for project in browser._projects]
+        assert labels == ["current-folder", "other-folder", "(unscoped)"]
+        # Opening the first project scopes the session list to it.
+        assert [e.name for e in browser.visible_sessions()] == ["local"]

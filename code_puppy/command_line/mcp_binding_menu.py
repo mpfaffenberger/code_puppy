@@ -3,27 +3,28 @@
 Launched from :mod:`code_puppy.command_line.agent_menu` (and reused by the
 post-install flow in :mod:`code_puppy.command_line.mcp.install_command`).
 
-UI:
+Built on termflow's MenuBuilder:
 
-* Left panel — every MCP server known to the manager. Each row shows
-  ``[x]`` / ``[ ]`` for bound/unbound and ``⚡`` if auto-start is on.
-* Right panel — server details (id, type, current state).
-* Keys: ``↑↓`` navigate, ``space`` toggle binding, ``a`` toggle auto-start,
-  ``enter``/``q`` close, ``Ctrl+C`` cancel.
+* Rows show ``[x]`` / ``[ ]`` for bound/unbound plus an auto-start marker.
+* Right panel shows server details for the highlighted row.
+* Keys: up/down navigate, ``space`` toggle binding, ``a`` toggle
+  auto-start, ``enter``/``q`` close, ``esc``/``ctrl-c`` cancel.
+
+Toggles mutate the bindings file immediately (no save/cancel split), so
+"close" and "cancel" are equivalent exits.
 """
 
 from __future__ import annotations
 
 import asyncio
-import sys
 from typing import List, Tuple
 
-from prompt_toolkit.application import Application
-from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.layout import Dimension, Layout, VSplit, Window
-from prompt_toolkit.layout.controls import FormattedTextControl
-from prompt_toolkit.widgets import Frame
+from termflow.ansi.codes import BOLD_ON, DIM_ON, RESET
+from termflow.tui import MenuBuilder, MenuItem
+from termflow.tui.menu import MenuResult
 
+from code_puppy.command_line.menu_session import menu_session
+from code_puppy.command_line.tui_style import themed
 from code_puppy.mcp_ import get_mcp_manager
 from code_puppy.mcp_.agent_bindings import (
     get_bound_servers,
@@ -34,7 +35,8 @@ from code_puppy.mcp_.agent_bindings import (
 )
 from code_puppy.messaging import emit_info, emit_warning
 from code_puppy.tools.command_runner import set_awaiting_user_input
-from code_puppy.callbacks import on_prompt_toolkit_style
+
+_AUTO_MARKER = " \u26a1auto"
 
 
 def _list_servers() -> List[Tuple[str, str, str]]:
@@ -52,349 +54,196 @@ def _list_servers() -> List[Tuple[str, str, str]]:
     return rows
 
 
-def _render_menu(
-    agent_name: str,
-    servers: List[Tuple[str, str, str]],
-    selected_idx: int,
-) -> List:
-    """Format the left binding panel."""
+def _binding_label(agent_name: str, server_name: str) -> str:
+    """Checkbox + auto marker + server name for one row."""
     bindings = get_bound_servers(agent_name)
-    lines: List = []
-    lines.append(("class:tui.label", "MCP bindings for agent: "))
-    lines.append(("class:tui.title", agent_name))
-    lines.append(("", "\n\n"))
-
-    if not servers:
-        lines.append(("class:tui.warning", "  No MCP servers installed yet.\n"))
-        lines.append(("class:tui.help", "  Run /mcp install to add some.\n"))
-    else:
-        for i, (name, _type, _state) in enumerate(servers):
-            bound = name in bindings
-            auto = bool(bindings.get(name, {}).get("auto_start"))
-            checkbox = "[x]" if bound else "[ ]"
-            auto_marker = " ⚡auto" if auto else ""
-            prefix = "▶ " if i == selected_idx else "  "
-            style_prefix = "class:tui.selected" if i == selected_idx else ""
-            style_box = "class:tui.success" if bound else "class:tui.muted"
-            lines.append((style_prefix, prefix))
-            lines.append((style_box, f"{checkbox} "))
-            lines.append((style_prefix or "", name))
-            if auto_marker:
-                lines.append(("class:tui.warning", auto_marker))
-            lines.append(("", "\n"))
-
-    lines.append(("", "\n"))
-    lines.append(("class:tui.help-key", "  ↑↓ "))
-    lines.append(("", "Navigate\n"))
-    lines.append(("class:tui.help-key", "  Space "))
-    lines.append(("", "Toggle bind\n"))
-    lines.append(("class:tui.help-key", "  A "))
-    lines.append(("", "Toggle auto-start\n"))
-    lines.append(("class:tui.help-key", "  Enter / Q "))
-    lines.append(("", "Done\n"))
-    lines.append(("class:tui.help-key", "  Ctrl+C "))
-    lines.append(("", "Cancel"))
-    return lines
+    bound = server_name in bindings
+    auto = bool(bindings.get(server_name, {}).get("auto_start"))
+    checkbox = "[x]" if bound else "[ ]"
+    return f"{checkbox} {server_name}{_AUTO_MARKER if auto else ''}"
 
 
-def _render_preview(
-    agent_name: str,
-    servers: List[Tuple[str, str, str]],
-    selected_idx: int,
-) -> List:
-    """Format the right detail panel."""
-    lines: List = []
-    lines.append(("class:tui.title", " SERVER DETAILS"))
-    lines.append(("", "\n\n"))
-    if not servers or not (0 <= selected_idx < len(servers)):
-        lines.append(("class:tui.muted", "  Nothing to preview.\n"))
-        return lines
+def _server_items(
+    agent_name: str, servers: List[Tuple[str, str, str]]
+) -> list[MenuItem]:
+    return [
+        MenuItem(_binding_label(agent_name, name), value=name)
+        for name, _type, _state in servers
+    ]
 
-    name, type_, state = servers[selected_idx]
+
+def _render_details(
+    agent_name: str, servers: List[Tuple[str, str, str]], server_name: str
+) -> str:
+    """ANSI detail pane for the highlighted server."""
+    row = next((r for r in servers if r[0] == server_name), None)
+    if row is None:
+        return f"{DIM_ON}Nothing to preview.{RESET}"
+    name, type_, state = row
     bindings = get_bound_servers(agent_name)
     bound = name in bindings
     auto = bool(bindings.get(name, {}).get("auto_start"))
+    yn = lambda flag: "yes" if flag else "no"  # noqa: E731 - tiny local formatter
+    return "\n".join(
+        [
+            f"{BOLD_ON}SERVER DETAILS{RESET}",
+            "",
+            f"{DIM_ON}Name:{RESET}       {name}",
+            f"{DIM_ON}Type:{RESET}       {type_}",
+            f"{DIM_ON}State:{RESET}      {state}",
+            f"{DIM_ON}Bound:{RESET}      {yn(bound)}",
+            f"{DIM_ON}Auto-start:{RESET} {yn(auto)}",
+        ]
+    )
 
-    lines.append(("class:tui.label", "Name: "))
-    lines.append(("class:tui.body", name))
-    lines.append(("", "\n\n"))
-    lines.append(("class:tui.label", "Type: "))
-    lines.append(("", type_))
-    lines.append(("", "\n\n"))
-    lines.append(("class:tui.label", "State: "))
-    lines.append(
-        ("class:tui.success" if state == "running" else "class:tui.muted", state)
+
+def build_binding_menu(
+    agent_name: str, servers: List[Tuple[str, str, str]], **overrides
+):
+    """Build the termflow menu for per-agent MCP bindings (testable headless)."""
+
+    def _toggle(menu, item: MenuItem) -> MenuResult | None:
+        toggle_binding(agent_name, item.value)
+        menu.replace_items(_server_items(agent_name, servers))
+        return None
+
+    def _toggle_auto(menu, item: MenuItem) -> MenuResult | None:
+        if toggle_auto_start(agent_name, item.value) is None:
+            # Not bound yet -- bind first, then turn auto_start on.
+            set_binding(agent_name, item.value, auto_start=True)
+        menu.replace_items(_server_items(agent_name, servers))
+        return None
+
+    def _done(_menu, item: MenuItem) -> MenuResult:
+        return MenuResult(item=item)
+
+    builder = themed(
+        MenuBuilder(f"MCP bindings for agent: {agent_name}")
+        .items(_server_items(agent_name, servers))
+        .preview(lambda item: _render_details(agent_name, servers, item.value))
+        .on_key(" ", _toggle)
+        .on_key("a", _toggle_auto)
+        .on_key("q", _done)
+        .footer_hint(
+            "Up/Down navigate - Space toggle bind - A auto-start - Enter/Q done - Esc cancel"
+        )
     )
-    lines.append(("", "\n\n"))
-    lines.append(("class:tui.label", "Bound: "))
-    lines.append(
-        ("class:tui.success" if bound else "class:tui.muted", "yes" if bound else "no"),
-    )
-    lines.append(("", "\n\n"))
-    lines.append(("class:tui.label", "Auto-start: "))
-    lines.append(
-        ("class:tui.warning" if auto else "class:tui.muted", "yes" if auto else "no"),
-    )
-    lines.append(("", "\n"))
-    return lines
+    for name, value in overrides.items():
+        getattr(builder, name)(value)
+    return builder.build()
 
 
 async def interactive_mcp_binding_menu(agent_name: str) -> None:
     """Open the MCP-binding sub-menu for ``agent_name``.
 
-    Returns when the user hits Enter / Q / Ctrl+C. Mutates the bindings file
-    immediately on each toggle (no save/cancel split).
+    Returns when the user hits Enter / Q / Esc / Ctrl+C. Mutates the
+    bindings file immediately on each toggle (no save/cancel split).
     """
     servers = _list_servers()
     if not servers:
-        emit_info(
-            "No MCP servers installed. Use /mcp install to add some, "
-            "then bind them to this agent."
-        )
+        # Show the hint inside the TUI: an emit here would paint behind
+        # the alternate screen and leave the user mashing B in confusion.
+        empty_menu = themed(
+            MenuBuilder(f"MCP bindings for agent: {agent_name}")
+            .items(
+                [
+                    MenuItem(
+                        "No MCP servers installed. Use /mcp install to add "
+                        "some, then bind them to this agent.",
+                        disabled=True,
+                    )
+                ]
+            )
+            .footer_hint("Esc to go back")
+            .alt_screen(False)
+        ).build()
+        set_awaiting_user_input(True)
+        try:
+            with menu_session():
+                await asyncio.to_thread(empty_menu.run)
+        finally:
+            set_awaiting_user_input(False)
         return
 
-    selected_idx = [0]
-    menu_control = FormattedTextControl(text="")
-    preview_control = FormattedTextControl(text="")
-
-    def refresh() -> None:
-        menu_control.text = _render_menu(agent_name, servers, selected_idx[0])
-        preview_control.text = _render_preview(agent_name, servers, selected_idx[0])
-
-    refresh()
-
-    menu_window = Window(content=menu_control, wrap_lines=False)
-    preview_window = Window(content=preview_control, wrap_lines=False)
-    menu_frame = Frame(menu_window, width=Dimension(weight=55), title="MCP Servers")
-    preview_frame = Frame(preview_window, width=Dimension(weight=45), title="Details")
-    root = VSplit([menu_frame, preview_frame])
-
-    kb = KeyBindings()
-
-    @kb.add("up")
-    def _(event):
-        if selected_idx[0] > 0:
-            selected_idx[0] -= 1
-            refresh()
-
-    @kb.add("down")
-    def _(event):
-        if selected_idx[0] < len(servers) - 1:
-            selected_idx[0] += 1
-            refresh()
-
-    @kb.add("space")
-    def _(event):
-        name = servers[selected_idx[0]][0]
-        toggle_binding(agent_name, name)
-        refresh()
-
-    @kb.add("a")
-    def _(event):
-        name = servers[selected_idx[0]][0]
-        result = toggle_auto_start(agent_name, name)
-        if result is None:
-            # Not bound yet — bind first, then turn auto_start on.
-            set_binding(agent_name, name, auto_start=True)
-        refresh()
-
-    @kb.add("enter")
-    @kb.add("q")
-    def _(event):
-        event.app.exit()
-
-    @kb.add("c-c")
-    def _(event):
-        event.app.exit()
-
-    app = Application(
-        layout=Layout(root),
-        key_bindings=kb,
-        full_screen=False,
-        mouse_support=False,
-        style=on_prompt_toolkit_style(),
-    )
-
     set_awaiting_user_input(True)
-    sys.stdout.write("\033[?1049h\033[2J\033[H")
-    sys.stdout.flush()
-    await asyncio.sleep(0.05)
     try:
-        await app.run_async()
+        with menu_session():
+            await asyncio.to_thread(
+                build_binding_menu(agent_name, servers, alt_screen=False).run
+            )
     finally:
-        sys.stdout.write("\033[?1049l")
-        sys.stdout.flush()
         set_awaiting_user_input(False)
 
     bindings = get_bound_servers(agent_name)
     emit_info(
-        f"✓ Saved MCP bindings for '{agent_name}': {len(bindings)} server(s) bound."
+        f"Saved MCP bindings for '{agent_name}': {len(bindings)} server(s) bound."
     )
 
 
 # ---------- post-install bind helper -----------------------------------------
 
 
+def _agent_label(agent: str, server_name: str) -> str:
+    from code_puppy.mcp_.agent_bindings import get_auto_start
+
+    bound = is_bound(agent, server_name)
+    auto = get_auto_start(agent, server_name) if bound else False
+    checkbox = "[x]" if bound else "[ ]"
+    return f"{checkbox} {agent}{_AUTO_MARKER if auto else ''}"
+
+
+def build_post_install_menu(server_name: str, agents: List[str], **overrides):
+    """Build the inverted menu (one server, many agents) after an install."""
+
+    def _items() -> list[MenuItem]:
+        return [MenuItem(_agent_label(a, server_name), value=a) for a in agents]
+
+    def _toggle(menu, item: MenuItem) -> MenuResult | None:
+        toggle_binding(item.value, server_name)
+        menu.replace_items(_items())
+        return None
+
+    def _toggle_auto(menu, item: MenuItem) -> MenuResult | None:
+        if toggle_auto_start(item.value, server_name) is None:
+            set_binding(item.value, server_name, auto_start=True)
+        menu.replace_items(_items())
+        return None
+
+    def _done(_menu, item: MenuItem) -> MenuResult:
+        return MenuResult(item=item)
+
+    builder = themed(
+        MenuBuilder(f"Bind '{server_name}' to which agents?")
+        .items(_items())
+        .on_key(" ", _toggle)
+        .on_key("a", _toggle_auto)
+        .on_key("q", _done)
+        .footer_hint("Space toggle bind - A auto-start - Enter/Q done - Esc skip")
+    )
+    for name, value in overrides.items():
+        getattr(builder, name)(value)
+    return builder.build()
+
+
 async def prompt_bind_after_install(server_name: str) -> None:
     """After a fresh install, ask the user which agents to bind the server to.
 
-    Walks every registered agent and lets the user toggle binding + auto-start
-    for the *new* server. Reuses the same TUI shape as the per-agent menu but
-    inverted (one server, many agents).
+    Walks every registered agent and lets the user toggle binding +
+    auto-start for the *new* server. Same TUI shape as the per-agent menu
+    but inverted (one server, many agents).
     """
     from code_puppy.agents import get_available_agents
-    from code_puppy.mcp_.agent_bindings import (
-        get_auto_start,
-        toggle_binding,
-    )
 
     available = get_available_agents()
     if not available:
         return
     agents = sorted(available.keys(), key=str.lower)
 
-    selected_idx = [0]
-    menu_control = FormattedTextControl(text="")
-
-    def render() -> List:
-        lines: List = []
-        lines.append(("class:tui.label", "Bind '"))
-        lines.append(("class:tui.title", server_name))
-        lines.append(("class:tui.label", "' to which agents?"))
-        lines.append(("", "\n\n"))
-        for i, agent in enumerate(agents):
-            bound = is_bound(agent, server_name)
-            auto = get_auto_start(agent, server_name) if bound else False
-            checkbox = "[x]" if bound else "[ ]"
-            prefix = "▶ " if i == selected_idx[0] else "  "
-            style_prefix = "class:tui.selected" if i == selected_idx[0] else ""
-            style_box = "class:tui.success" if bound else "class:tui.muted"
-            lines.append((style_prefix, prefix))
-            lines.append((style_box, f"{checkbox} "))
-            lines.append((style_prefix or "", agent))
-            if auto:
-                lines.append(("class:tui.warning", " \u26a1auto"))
-            lines.append(("", "\n"))
-        lines.append(("", "\n"))
-        lines.append(("class:tui.help-key", "  Space "))
-        lines.append(("", "Toggle bind   "))
-        lines.append(("class:tui.help-key", "A "))
-        lines.append(("", "Toggle auto-start\n"))
-        lines.append(("class:tui.help-key", "  Enter / Q "))
-        lines.append(("", "Done   "))
-        lines.append(("class:tui.help-key", "Ctrl+C "))
-        lines.append(("", "Skip"))
-        return lines
-
-    def refresh() -> None:
-        menu_control.text = render()
-
-    refresh()
-
-    kb = KeyBindings()
-
-    @kb.add("up")
-    def _(event):
-        if selected_idx[0] > 0:
-            selected_idx[0] -= 1
-            refresh()
-
-    @kb.add("down")
-    def _(event):
-        if selected_idx[0] < len(agents) - 1:
-            selected_idx[0] += 1
-            refresh()
-
-    @kb.add("space")
-    def _(event):
-        toggle_binding(agents[selected_idx[0]], server_name)
-        refresh()
-
-    @kb.add("a")
-    def _(event):
-        agent = agents[selected_idx[0]]
-        result = toggle_auto_start(agent, server_name)
-        if result is None:
-            set_binding(agent, server_name, auto_start=True)
-        refresh()
-
-    @kb.add("enter")
-    @kb.add("q")
-    @kb.add("c-c")
-    def _(event):
-        event.app.exit()
-
-    window = Window(content=menu_control, wrap_lines=False)
-    frame = Frame(window, title=f"Bind {server_name}")
-    app = Application(
-        layout=Layout(frame),
-        key_bindings=kb,
-        full_screen=False,
-        mouse_support=False,
-        style=on_prompt_toolkit_style(),
-    )
-
     set_awaiting_user_input(True)
-    sys.stdout.write("\033[?1049h\033[2J\033[H")
-    sys.stdout.flush()
-    await asyncio.sleep(0.05)
     try:
-        await app.run_async()
-    finally:
-        sys.stdout.write("\033[?1049l")
-        sys.stdout.flush()
-        set_awaiting_user_input(False)
-
-    bound_agents = [a for a in agents if is_bound(a, server_name)]
-    if bound_agents:
-        emit_info(f"✓ '{server_name}' is now bound to: {', '.join(bound_agents)}")
-    else:
-        emit_info(
-            f"'{server_name}' was installed but isn't bound to any agent yet. "
-            "Use /agents → B to bind it later."
-        )
-
-
-def prompt_bind_after_install_sync(server_name: str) -> None:
-    """Sync entrypoint for the post-install bind flow.
-
-    Asks the user (via a normal text prompt) whether to launch the binding
-    TUI right now. If they decline, prints a hint about ``/agents → B`` and
-    returns without opening any full-screen menu.
-
-    Mirrors the threading pattern used by ``/agents`` in ``core_commands.py``
-    so we don't fight the outer CLI event loop.
-    """
-    import concurrent.futures
-
-    emit_info(
-        "\nMCP servers are bound per-agent (strict opt-in). "
-        f"Right now, '{server_name}' is installed but not visible to any agent."
-    )
-    emit_info(
-        "You can bind it now via a quick menu, or skip and bind later from /agents → B."
-    )
-
-    # safe_input (not emit_prompt) so the answer appears inline after the
-    # question, matching the wizard's [y/N]: style (emit_prompt adds a ">>> "
-    # line).
-    from code_puppy.command_line.utils import safe_input
-
-    try:
-        answer = safe_input("Configure bindings for this server now? [Y/n]: ")
-    except (KeyboardInterrupt, EOFError):
-        emit_info("Skipped binding. Use /agents → B to bind later.")
-        return
-
-    if answer.strip().lower().startswith("n"):
-        emit_info("Skipped binding. Use /agents → B to bind later.")
-        return
-
-    try:
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            future = executor.submit(
-                lambda: asyncio.run(prompt_bind_after_install(server_name))
+        with menu_session():
+            await asyncio.to_thread(
+                build_post_install_menu(server_name, agents, alt_screen=False).run
             )
-            future.result(timeout=300)
-    except Exception as exc:
-        emit_warning(f"Could not show bind prompt: {exc}")
+    finally:
+        set_awaiting_user_input(False)

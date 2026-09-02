@@ -2,9 +2,9 @@ import json
 import logging
 import os
 import pathlib
-from typing import Any, Dict
+from collections.abc import Mapping
+from typing import Any, Dict, Optional
 
-import httpx
 from anthropic import AsyncAnthropic
 from openai import AsyncAzureOpenAI
 from pydantic_ai.models.anthropic import AnthropicModel, AnthropicModelSettings
@@ -26,6 +26,7 @@ from . import callbacks
 from .claude_cache_client import ClaudeCacheAsyncClient
 from .config import EXTRA_MODELS_FILE, get_value, get_yolo_mode
 from .http_utils import create_async_client, get_cert_bundle_path, get_http2
+from .httpx2_utils import create_async_client as create_provider_async_client
 from .provider_identity import (
     make_anthropic_provider,
     make_openai_provider,
@@ -146,9 +147,59 @@ def _thinking_tags_profile(
     from code_puppy.model_utils import get_thinking_tags
 
     tags = get_thinking_tags(model_name, model_config)
-    if tags is None:
-        return None
-    return OpenAIModelProfile(thinking_tags=tags)
+    profile_kwargs: dict[str, Any] = {}
+    if tags is not None:
+        profile_kwargs["thinking_tags"] = tags
+
+    underlying_name = str(model_config.get("name", model_name)).lower()
+    if "gpt-5.6" in underlying_name:
+        profile_kwargs.update(
+            openai_responses_supports_reasoning_mode=True,
+            openai_responses_supports_reasoning_context=True,
+            openai_supports_encrypted_reasoning_content=True,
+        )
+
+    return OpenAIModelProfile(**profile_kwargs) if profile_kwargs else None
+
+
+def _strict_openai_profile(
+    model_name: str,
+    model_config: dict[str, Any],
+    *,
+    extra: OpenAIModelProfile | None = None,
+) -> OpenAIModelProfile:
+    """Build a profile for custom OpenAI-compatible endpoints (SGLang, vLLM, etc.).
+
+    Strict backends reject more than one leading system message with
+    ``System message must be at the beginning.`` After compaction the wire
+    format has two: the compaction summary ``SystemPromptPart`` and the
+    agent's per-turn ``instruction_parts``.  Setting
+    ``openai_chat_supports_multiple_system_messages=False`` makes
+    pydantic-ai's ``_merge_leading_system_messages`` concatenate them into
+    one, which every backend accepts.
+
+    Merging is harmless for endpoints that *do* support multiple system
+    messages (the content is identical, just joined with ``\n\n``), so the
+    safe default is ``False``.  Users who know their endpoint handles
+    multiple system messages can opt out with
+    ``"supports_multiple_system_messages": true`` in the model config.
+    """
+    base = _thinking_tags_profile(model_name, model_config) or {}
+    merged = OpenAIModelProfile(base)
+    if extra:
+        merged.update(extra)
+    # Config override trumps the safe default.  Fail fast on non-bool
+    # values: a JSON string "false" would silently invert the user's intent
+    # (it is truthy in Python, and we cannot ``bool()``-coerce because
+    # ``bool("false")`` is ``True``).
+    supports = model_config.get("supports_multiple_system_messages", False)
+    if not isinstance(supports, bool):
+        raise TypeError(
+            "supports_multiple_system_messages must be a JSON boolean "
+            f"(true/false), got {type(supports).__name__}: {supports!r}"
+        )
+    merged["openai_chat_supports_multiple_system_messages"] = supports
+    return merged
 
 
 def _merge_dotted_key(target: dict, dotted_key: str, value: Any) -> None:
@@ -173,7 +224,9 @@ def _merge_dotted_key(target: dict, dotted_key: str, value: Any) -> None:
 
 
 def make_model_settings(
-    model_name: str, max_tokens: int | None = None
+    model_name: str,
+    max_tokens: int | None = None,
+    overrides: Mapping[str, Any] | None = None,
 ) -> ModelSettings:
     """Create appropriate ModelSettings for a given model.
 
@@ -186,6 +239,8 @@ def make_model_settings(
         model_name: The name of the model to create settings for.
         max_tokens: Optional max tokens limit. If None, automatically calculated
             as: max(2048, min(15% of context_length, 65536))
+        overrides: Optional agent-scoped settings. Supported values override
+            global and per-model settings before provider-specific translation.
 
     Returns:
         Appropriate ModelSettings subclass instance for the model.
@@ -198,6 +253,7 @@ def make_model_settings(
     model_settings_dict: dict = {}
 
     # Calculate max_tokens if not explicitly provided
+    models_config: Optional[dict[str, Any]] = None
     model_config: dict[str, Any] = {}
     if max_tokens is None:
         # Load model config to get context length
@@ -206,18 +262,40 @@ def make_model_settings(
             model_config = models_config.get(model_name, {})
             context_length = model_config.get("context_length", 128000)
         except Exception:
-            # Fallback if config loading fails (e.g., in CI environments)
+            # Preserve the failed-load sentinel so support checks can apply
+            # their backwards-compatible fallback instead of treating a
+            # failed load as a valid empty catalog.
+            models_config = None
             context_length = 128000
         # min 2048, 15% of context, max 65536
         max_tokens = max(2048, min(int(0.15 * context_length), 65536))
     elif not model_config:
         try:
-            model_config = ModelFactory.load_config().get(model_name, {})
+            models_config = ModelFactory.load_config()
+            model_config = models_config.get(model_name, {})
         except Exception:
+            models_config = None
             model_config = {}
 
     model_settings_dict["max_tokens"] = max_tokens
     effective_settings = get_effective_model_settings(model_name)
+    if overrides:
+        supported_overrides = {
+            setting: value
+            for setting, value in overrides.items()
+            if value is not None
+            and model_supports_setting(
+                model_name,
+                setting,
+                # NOT `models_config or None`: an empty dict here can mean the
+                # catalog legitimately has no entries, not a failed load.
+                # model_supports_setting only reloads when this is None, so
+                # passing the empty dict through avoids a needless reload per
+                # setting while still reloading on an actual missing load.
+                models_config=models_config,
+            )
+        }
+        effective_settings.update(supported_overrides)
     model_settings_dict.update(effective_settings)
 
     # Disable parallel tool calls when yolo_mode is off (sequential so user can review each call)
@@ -303,7 +381,11 @@ def make_model_settings(
         # Plain OpenAIChatModelSettings without reasoning params.
         model_settings = OpenAIChatModelSettings(**model_settings_dict)
 
-    elif "gpt-5" in model_name:
+    elif "gpt-5" in model_name or "gpt-5" in str(model_config.get("name", "")).lower():
+        # Match on the underlying model name as well as the config key:
+        # custom endpoint entries are often keyed by an alias (e.g.
+        # "luna-responses" -> name "gpt-5.6-luna") and would otherwise
+        # silently skip all reasoning configuration.
         # Normalize legacy effort values (minimal->none, ultra->max)
         _EFFORT_ALIAS = {"minimal": "none", "ultra": "max"}
         effort = effective_settings.get("reasoning_effort", "medium")
@@ -313,7 +395,13 @@ def make_model_settings(
         uses_responses_api = (
             model_type == "chatgpt_oauth"
             or model_type == "azure_foundry_openai"
-            or (model_type == "openai" and "codex" in model_name)
+            or (
+                model_type == "openai"
+                and (
+                    "codex" in model_name
+                    or "gpt-5.6" in str(model_config.get("name", "")).lower()
+                )
+            )
             or (
                 model_type in _CUSTOM_OPENAI_MODEL_TYPES
                 and _custom_openai_uses_responses_api(model_name, model_config)
@@ -329,28 +417,12 @@ def make_model_settings(
                     "verbosity", "medium"
                 )
 
-            underlying_name = str(model_config.get("name", "")).lower()
-            is_gpt_5_6 = "gpt-5.6" in model_name.lower() or "gpt-5.6" in underlying_name
-            if is_gpt_5_6:
-                # pydantic-ai 2.31.0 HAS openai_reasoning_mode/context settings,
-                # but they're gated on profile flags
-                # (openai_responses_supports_reasoning_{mode,context}) that
-                # custom-endpoint GPT-5.6 routes don't reliably carry — the
-                # fields would be silently dropped. extra_body delivers the
-                # full reasoning object unconditionally, so keep it (and pop
-                # effort/summary so pydantic-ai's partial doesn't clobber it).
-                reasoning = {
-                    "effort": model_settings_dict.pop("openai_reasoning_effort"),
-                    "summary": model_settings_dict.pop("openai_reasoning_summary"),
-                    "context": effective_settings.get("reasoning_context", "all_turns"),
-                    "mode": effective_settings.get("reasoning_mode", "standard"),
-                }
-                extra_body = dict(model_settings_dict.get("extra_body") or {})
-                extra_body["reasoning"] = reasoning
-                model_settings_dict["extra_body"] = extra_body
-                model_settings_dict.pop("reasoning_context", None)
-                model_settings_dict.pop("reasoning_mode", None)
-
+            model_settings_dict["openai_reasoning_context"] = effective_settings.get(
+                "reasoning_context", "all_turns"
+            )
+            model_settings_dict["openai_reasoning_mode"] = effective_settings.get(
+                "reasoning_mode", "standard"
+            )
             model_settings = OpenAIResponsesModelSettings(**model_settings_dict)
         else:
             # Chat Completions models don't support configurable reasoning summaries.
@@ -402,6 +474,7 @@ def make_model_settings(
             budget_tokens=budget_tokens,
             model_name=model_name,
             actual_model_id=actual_model_id,
+            thinking_display=effective_settings.get("thinking_display"),
         )
         if thinking_payload is not None:
             model_settings_dict["anthropic_thinking"] = thinking_payload
@@ -710,9 +783,14 @@ class ModelFactory:
                 provider=provider,
                 profile=_thinking_tags_profile(model_name, model_config),
             )
-            if "codex" in model_name:
+            if (
+                "codex" in model_name
+                or "gpt-5.6" in str(model_config.get("name", "")).lower()
+            ):
                 model = OpenAIResponsesModel(
-                    model_name=model_config["name"], provider=provider
+                    model_name=model_config["name"],
+                    provider=provider,
+                    profile=_thinking_tags_profile(model_name, model_config),
                 )
             return model
 
@@ -866,14 +944,13 @@ class ModelFactory:
 
         elif model_type in _CUSTOM_OPENAI_MODEL_TYPES:
             url, headers, verify, api_key, timeout = get_custom_config(model_config)
-            client = create_async_client(
+            # httpx2: pydantic-ai's providers deprecate caller-owned legacy httpx clients.
+            client = create_provider_async_client(
                 headers=headers,
                 verify=verify,
                 timeout=timeout if timeout is not None else 180,
             )
-            provider_args = {"base_url": url}
-            if isinstance(client, httpx.AsyncClient):
-                provider_args["http_client"] = client
+            provider_args = {"base_url": url, "http_client": client}
             if api_key:
                 provider_args["api_key"] = api_key
             provider = make_openai_provider(provider_identity, **provider_args)
@@ -884,7 +961,7 @@ class ModelFactory:
             return OpenAIChatModel(
                 model_name=model_config["name"],
                 provider=provider,
-                profile=_thinking_tags_profile(model_name, model_config),
+                profile=_strict_openai_profile(model_name, model_config),
             )
         elif model_type == "zai_coding":
             api_key = get_api_key("ZAI_API_KEY")
@@ -901,6 +978,7 @@ class ModelFactory:
             return ZaiChatModel(
                 model_name=model_config["name"],
                 provider=provider,
+                profile=_strict_openai_profile(model_name, model_config),
             )
         elif model_type == "zai_api":
             api_key = get_api_key("ZAI_API_KEY")
@@ -917,6 +995,7 @@ class ModelFactory:
             return ZaiChatModel(
                 model_name=model_config["name"],
                 provider=provider,
+                profile=_strict_openai_profile(model_name, model_config),
             )
 
         elif model_type == "custom_gemini":
@@ -961,7 +1040,8 @@ class ModelFactory:
             headers["X-Cerebras-3rd-Party-Integration"] = "code-puppy"
             # "cerebras" tells RetryingAsyncClient to ignore Cerebras's aggressive
             # Retry-After headers (they send 60s!). [name] is internal, not provider.
-            client = create_async_client(
+            # httpx2: pydantic-ai's providers deprecate caller-owned legacy httpx clients.
+            client = create_provider_async_client(
                 headers=headers,
                 verify=verify,
                 model_name="cerebras",
@@ -974,8 +1054,14 @@ class ModelFactory:
 
             # Cerebras rejects mixed 'strict' tool values; disable strict defs so
             # pydantic-ai never sends that field (avoids wrong_api_format errors).
-            profile = OpenAIModelProfile(
-                openai_supports_strict_tool_definition=False,
+            # Route through _strict_openai_profile to apply the same safe
+            # system-message merge default and any configured thinking_tags
+            # (the latter was previously missed for Cerebras because the old
+            # bare profile skipped _thinking_tags_profile).
+            profile = _strict_openai_profile(
+                model_name,
+                model_config,
+                extra=OpenAIModelProfile(openai_supports_strict_tool_definition=False),
             )
 
             return OpenAIChatModel(
@@ -1016,7 +1102,7 @@ class ModelFactory:
             return OpenAIChatModel(
                 model_name=model_config["name"],
                 provider=provider,
-                profile=_thinking_tags_profile(model_name, model_config),
+                profile=_strict_openai_profile(model_name, model_config),
             )
 
         # NOTE: 'chatgpt_oauth' model type is now handled by the chatgpt_oauth plugin

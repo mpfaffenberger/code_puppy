@@ -2,9 +2,8 @@
 
 This file covers:
 * ``apply_setting`` validation + restart warnings + agent reload toggle
-* ``_prompt_for_value`` control flow: Cancel returns None without
-  falling into the free-text prompt, real choices return cleaned strings,
-  ``is_password`` is wired through for sensitive settings
+* edit flow: choice menus (Cancel keeps current, custom falls through
+  to the text editor), typed TextInputs with masking for sensitive keys
 * type coercion
 * entry building / search
 * reset bookkeeping (must record into ``changed_settings``)
@@ -14,8 +13,7 @@ This file covers:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -23,18 +21,18 @@ from code_puppy.command_line.config_apply import ApplyResult, apply_setting
 from code_puppy.command_line.set_menu import (
     PickerResult,
     _apply_and_record,
+    _build_entries,
     _coerce_typed_input,
     _detect_dynamic_type,
-    _entry_matches,
-    _Entry,
-    _prompt_for_value,
-    _build_entries,
+    _edit_setting,
     _record_reset,
+    build_choice_menu,
+    build_settings_menu,
+    run_text_editor,
 )
 from code_puppy.command_line.set_menu_settings import (
     SETTINGS_CATEGORIES,
     Setting,
-    SettingsCategory,
 )
 
 
@@ -159,106 +157,140 @@ class TestApplySetting:
 
 
 # ---------------------------------------------------------------------------
-# _prompt_for_value control flow
+# Edit flow (headless widget drives)
 # ---------------------------------------------------------------------------
 
 
-class TestPromptForValue:
-    @pytest.mark.asyncio
-    async def test_choice_cancel_returns_none_no_prompt(self):
-        setting = find_setting("compaction_strategy")
-        prompt_session = MagicMock()
-        prompt_session.prompt_async = AsyncMock(return_value="never-called")
-        with (
-            patch(
-                "code_puppy.tools.common.arrow_select_async",
-                new=AsyncMock(return_value="Cancel (keep current)"),
-            ),
-            patch(
-                "prompt_toolkit.PromptSession",
-                return_value=prompt_session,
-            ) as ps_class,
-        ):
-            result = await _prompt_for_value(setting, current_val="summarization")
-        assert result is None
-        prompt_session.prompt_async.assert_not_awaited()
-        ps_class.assert_not_called()
+def _keys(*keys):
+    from io import StringIO
 
-    @pytest.mark.asyncio
-    async def test_choice_real_value_returns_cleaned_string(self):
-        setting = find_setting("compaction_strategy")
+    script = iter(keys)
+    return {
+        "key_source": lambda: next(script),
+        "output": StringIO(),
+        "size": lambda: (100, 24),
+    }
+
+
+def choice_setting() -> Setting:
+    return Setting(
+        key="message_history_strategy",
+        display_name="History Strategy",
+        description="How history is compacted.",
+        type_hint="choice",
+        valid_values=["summarization", "truncation"],
+    )
+
+
+class TestEditFlow:
+    def test_choice_cancel_keeps_current(self):
+        result = PickerResult()
+        _edit_setting(
+            result,
+            choice_setting(),
+            choice_menu_factory=lambda s, c, **kw: build_choice_menu(
+                s,
+                c,
+                **_keys("end", "enter"),  # last item = Cancel
+            ),
+            text_editor=lambda *a, **kw: (_ for _ in ()).throw(AssertionError()),
+        )
+        assert result.changed_settings == {}
+
+    def test_choice_real_value_applies(self):
+        result = PickerResult()
         with patch(
-            "code_puppy.tools.common.arrow_select_async",
-            new=AsyncMock(return_value="  summarization (current)"),
-        ):
-            result = await _prompt_for_value(setting, current_val="summarization")
-        assert result == "summarization"
+            "code_puppy.command_line.set_menu.apply_setting",
+            return_value=ApplyResult(ok=True, value_after="truncation"),
+        ) as mock_apply:
+            _edit_setting(
+                result,
+                choice_setting(),
+                choice_menu_factory=lambda s, c, **kw: build_choice_menu(
+                    s, c, **_keys("down", "enter")
+                ),
+            )
+        mock_apply.assert_called_once_with(
+            "message_history_strategy", "truncation", reload_agent=False
+        )
+        assert result.changed_settings["message_history_strategy"] == "truncation"
 
-    @pytest.mark.asyncio
-    async def test_choice_type_custom_falls_through_to_prompt(self):
-        setting = find_setting("compaction_strategy")
-        prompt_session = MagicMock()
-        prompt_session.prompt_async = AsyncMock(return_value="my-custom-value")
-        with (
-            patch(
-                "code_puppy.tools.common.arrow_select_async",
-                new=AsyncMock(return_value="Type custom value..."),
-            ),
-            patch(
-                "prompt_toolkit.PromptSession",
-                return_value=prompt_session,
-            ),
+    def test_choice_custom_falls_through_to_text_editor(self):
+        result = PickerResult()
+        with patch(
+            "code_puppy.command_line.set_menu.apply_setting",
+            return_value=ApplyResult(ok=True, value_after="wild"),
         ):
-            result = await _prompt_for_value(setting, current_val="summarization")
-        # 'choice' falls through to string passthrough -> returned unchanged.
-        assert result == "my-custom-value"
+            _edit_setting(
+                result,
+                choice_setting(),
+                choice_menu_factory=lambda s, c, **kw: build_choice_menu(
+                    # Options: 2 values, custom, cancel -- End then Up = custom.
+                    s,
+                    c,
+                    **_keys("end", "up", "enter"),
+                ),
+                text_editor=lambda s, c, **kw: (True, "wild"),
+            )
+        assert result.changed_settings["message_history_strategy"] == "wild"
 
-    @pytest.mark.asyncio
-    async def test_prompt_passes_is_password_for_sensitive(self):
-        sensitive_setting = Setting(
-            key="puppy_token",
-            display_name="Puppy Token",
+    def test_text_empty_value_resets(self):
+        result = PickerResult()
+        setting = Setting(
+            key="some_key",
+            display_name="Some Key",
+            description="",
+            type_hint="string",
+        )
+        with patch("code_puppy.command_line.set_menu.reset_value") as mock_reset:
+            _edit_setting(
+                result,
+                setting,
+                text_editor=lambda s, c, **kw: (True, ""),
+            )
+        mock_reset.assert_called_once_with("some_key")
+        assert result.changed_settings["some_key"] is None
+
+
+class TestRunTextEditor:
+    def test_typed_value_committed(self):
+        setting = Setting(key="k", display_name="K", description="", type_hint="int")
+        edited, value = run_text_editor(setting, None, **_keys("4", "2", "enter"))
+        assert (edited, value) == (True, "42")
+
+    def test_invalid_typed_value_blocked_until_fixed(self):
+        setting = Setting(key="k", display_name="K", description="", type_hint="int")
+        edited, value = run_text_editor(
+            setting, None, **_keys("x", "enter", "ctrl-u", "7", "enter")
+        )
+        assert (edited, value) == (True, "7")
+
+    def test_escape_cancels(self):
+        setting = Setting(key="k", display_name="K", description="", type_hint="string")
+        edited, value = run_text_editor(setting, None, **_keys("escape"))
+        assert edited is False
+
+    def test_sensitive_setting_masks_output(self):
+        from io import StringIO
+
+        setting = Setting(
+            key="token",
+            display_name="Token",
             description="",
             type_hint="string",
             sensitive=True,
         )
-        captured = {}
-
-        class _FakeSession:
-            def __init__(self, message, **kwargs):
-                captured["is_password"] = kwargs.get("is_password")
-                captured["style"] = kwargs.get("style")
-
-            async def prompt_async(self):
-                return "secret"
-
-        with patch("prompt_toolkit.PromptSession", _FakeSession):
-            result = await _prompt_for_value(sensitive_setting, current_val=None)
-        assert result == "secret"
-        assert captured["is_password"] is True
-        assert "style" in captured
-
-    @pytest.mark.asyncio
-    async def test_prompt_no_password_for_non_sensitive(self):
-        normal_setting = Setting(
-            key="owner_name",
-            display_name="Owner",
-            description="",
-            type_hint="string",
+        out = StringIO()
+        script = iter(["s", "3", "k", "r", "i", "t", "enter"])
+        edited, value = run_text_editor(
+            setting,
+            None,
+            key_source=lambda: next(script),
+            output=out,
+            size=lambda: (100, 24),
         )
-        captured = {}
-
-        class _FakeSession:
-            def __init__(self, message, **kwargs):
-                captured["is_password"] = kwargs.get("is_password")
-
-            async def prompt_async(self):
-                return "Andrew"
-
-        with patch("prompt_toolkit.PromptSession", _FakeSession):
-            result = await _prompt_for_value(normal_setting, current_val=None)
-        assert result == "Andrew"
-        assert captured["is_password"] is False
+        assert value == "s3krit"
+        assert "s3krit" not in out.getvalue()
 
 
 # ---------------------------------------------------------------------------
@@ -354,19 +386,23 @@ class TestEntryBuilding:
         assert len(yolo_entries) == 1
         assert yolo_entries[0].category.name == "Behavior"
 
-    def test_entry_matches_searches_all_fields(self):
-        category = SettingsCategory(name="Behavior")
-        setting = Setting(
-            key="yolo_mode",
-            display_name="YOLO",
-            description="Skip prompts.",
-            type_hint="bool",
+    def test_settings_menu_search_filters_by_key(self):
+        from io import StringIO
+
+        with patch(
+            "code_puppy.command_line.set_menu.get_config_keys",
+            return_value=[],
+        ):
+            entries = _build_entries()
+        keys = iter(list("yolo") + ["enter"])
+        menu = build_settings_menu(
+            entries,
+            key_source=lambda: next(keys),
+            output=StringIO(),
+            size=lambda: (110, 30),
         )
-        entry = _Entry(category=category, setting=setting)
-        assert _entry_matches(entry, "yolo")
-        assert _entry_matches(entry, "skip")
-        assert _entry_matches(entry, "behavior")
-        assert not _entry_matches(entry, "nope")
+        result = menu.run()
+        assert result.item.value.setting.key == "yolo_mode"
 
     def test_detect_dynamic_type_bool_by_suffix(self):
         with patch("code_puppy.command_line.set_menu.get_value", return_value=None):
@@ -389,45 +425,38 @@ class TestEntryBuilding:
 # ---------------------------------------------------------------------------
 
 
-@dataclass
-class _StubState:
-    """Just enough of ``_PickerState`` to drive the helpers under test."""
-
-    result: PickerResult
-
-
 class TestRecordResetAndApply:
     def test_record_reset_records_in_changed_settings(self):
         """Reset must enter ``changed_settings`` so the dispatcher's
         coalesced agent reload actually fires."""
-        state = _StubState(result=PickerResult())
+        result = PickerResult()
         with patch("code_puppy.command_line.set_menu.reset_value") as mock_reset:
-            _record_reset(state, "yolo_mode")
+            _record_reset(result, "yolo_mode")
         mock_reset.assert_called_once_with("yolo_mode")
-        assert "yolo_mode" in state.result.changed_settings
-        assert state.result.changed_settings["yolo_mode"] is None
+        assert "yolo_mode" in result.changed_settings
+        assert result.changed_settings["yolo_mode"] is None
         assert (
             "success",
             "Reset 'yolo_mode' to default",
-        ) in state.result.pending_messages
+        ) in result.pending_messages
 
     def test_record_reset_invalidates_post_write_caches(self):
         """Regression: resetting the model key must clear ``_SESSION_MODEL``,
         otherwise the menu shows the stale pre-reset value until process exit.
         ``_record_reset`` must call ``invalidate_post_write_caches`` for every
         key (the helper itself decides which keys actually need clearing)."""
-        state = _StubState(result=PickerResult())
+        result = PickerResult()
         with (
             patch("code_puppy.command_line.set_menu.reset_value"),
             patch(
                 "code_puppy.command_line.config_apply.invalidate_post_write_caches"
             ) as mock_invalidate,
         ):
-            _record_reset(state, "model")
+            _record_reset(result, "model")
         mock_invalidate.assert_called_once_with("model")
 
     def test_apply_and_record_masks_sensitive_value_in_message(self):
-        state = _StubState(result=PickerResult())
+        result = PickerResult()
         token_setting = Setting(
             key="puppy_token",
             display_name="Puppy Token",
@@ -439,26 +468,26 @@ class TestRecordResetAndApply:
             "code_puppy.command_line.set_menu.apply_setting",
             return_value=ApplyResult(ok=True, value_after="abcd1234efgh"),
         ):
-            _apply_and_record(state, token_setting, "abcd1234efgh")
+            _apply_and_record(result, token_setting, "abcd1234efgh")
         # The recorded *value* stays raw (for downstream reload bookkeeping)
         # but the user-facing message is masked.
-        assert state.result.changed_settings["puppy_token"] == "abcd1234efgh"
+        assert result.changed_settings["puppy_token"] == "abcd1234efgh"
         success_msgs = [
-            text for level, text in state.result.pending_messages if level == "success"
+            text for level, text in result.pending_messages if level == "success"
         ]
         assert any("abcd...efgh" in m for m in success_msgs)
         assert not any("abcd1234efgh" in m for m in success_msgs)
 
     def test_apply_and_record_non_sensitive_leaves_value_visible(self):
-        state = _StubState(result=PickerResult())
+        result = PickerResult()
         yolo = find_setting("yolo_mode")
         with patch(
             "code_puppy.command_line.set_menu.apply_setting",
             return_value=ApplyResult(ok=True, value_after="true"),
         ):
-            _apply_and_record(state, yolo, "true")
+            _apply_and_record(result, yolo, "true")
         success_msgs = [
-            text for level, text in state.result.pending_messages if level == "success"
+            text for level, text in result.pending_messages if level == "success"
         ]
         assert any('"true"' in m for m in success_msgs)
 

@@ -72,6 +72,11 @@ class BaseAgent(ABC):
         self._last_model_name: Optional[str] = None
         self._runtime_model_name_override: Optional[str] = None
         self._runtime_system_prompt_additions: List[str] = []
+        # Model chosen by a ``model_select`` hook for the current run. Slots
+        # below an explicit runtime override but above pinned/JSON/global, and
+        # is reset at the start of every run (see resolve_run_model_selection),
+        # so it never leaks across turns.
+        self._auto_model_override: Optional[str] = None
         self._puppy_rules: Optional[str] = None
         self._mcp_servers: List[Any] = []
         self.cur_model: Optional[pydantic_ai.models.Model] = None
@@ -112,6 +117,15 @@ class BaseAgent(ABC):
     def get_user_prompt(self) -> Optional[str]:
         return None
 
+    def get_model_settings_overrides(self) -> Dict[str, Any]:
+        """Return request-setting overrides scoped to this agent.
+
+        Values use the same setting names as ``/model_settings`` and take
+        precedence over global and per-model standard settings. Unsupported
+        settings are filtered for the effective model before requests run.
+        """
+        return {}
+
     def get_runtime_model_name_override(self) -> Optional[str]:
         """Return a temporary per-run model override, if one is active."""
         return self._runtime_model_name_override
@@ -124,6 +138,14 @@ class BaseAgent(ABC):
         pinned, or JSON agent model configuration.
         """
         self._runtime_model_name_override = model_name
+
+    def get_auto_model_override(self) -> Optional[str]:
+        """Return the model chosen by a ``model_select`` hook for this run."""
+        return self._auto_model_override
+
+    def set_auto_model_override(self, model_name: Optional[str]) -> None:
+        """Set the ``model_select``-chosen model for this run (not persisted)."""
+        self._auto_model_override = model_name
 
     @contextmanager
     def temporary_model_name_override(
@@ -154,6 +176,9 @@ class BaseAgent(ABC):
         override = self.get_runtime_model_name_override()
         if override:
             return override
+        auto = self.get_auto_model_override()
+        if auto:
+            return auto
         pinned = get_agent_pinned_model(self.name)
         return pinned if pinned else get_global_model_name()
 
@@ -232,7 +257,7 @@ class BaseAgent(ABC):
                 user_prompt="",
                 prepend_system_to_user=False,
             )
-            resolved = prepared.instructions or system_prompt
+            resolved = prepared.system_text or system_prompt
         except Exception:
             resolved = system_prompt
 
@@ -274,6 +299,24 @@ class BaseAgent(ABC):
         return await run_with_mcp(self, prompt, **kwargs)
 
     # ---- MCP integration shims --------------------------------------------
+    def transform_mcp_toolsets(self, toolsets: List[Any]) -> List[Any]:
+        """Extension seam: post-process resolved MCP toolsets before build.
+
+        Called exactly once by ``_builder.build_pydantic_agent`` after MCP
+        toolsets have been resolved and filtered for tool-name collisions,
+        but before the final ``pydantic_ai.Agent`` is constructed. The
+        default implementation is a no-op identity transform. Subclasses may
+        override this to wrap, filter, or replace toolsets -- for example to
+        compact oversized tool results, or gate certain servers behind
+        runtime conditions.
+
+        Must return a list of toolsets; the builder fails open on a raise
+        or a non-list return (falls back to the pre-override list), so
+        gating logic that must never be bypassed should fail closed itself
+        (e.g. return an empty list) rather than rely on that fallback.
+        """
+        return toolsets
+
     def update_mcp_tool_cache_sync(self) -> None:
         """Best-effort warm of each MCP toolset's tool-definition cache.
 

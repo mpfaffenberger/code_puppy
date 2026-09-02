@@ -91,7 +91,9 @@ def handle_session_command(command: str) -> bool:
 
 @register_command(
     name="clear",
-    description="Clear conversation history (rotates autosave; agent forgets prior turns)",
+    description=(
+        "Clear conversation history (rotates autosave). Bare word `clear` also works."
+    ),
     usage="/clear",
     aliases=["cls", "new"],
     category="session",
@@ -143,7 +145,10 @@ def handle_clear_command(command: str) -> bool:
 def handle_compact_command(command: str) -> bool:
     """Compact message history using configured strategy."""
     from code_puppy.agents.agent_manager import get_current_agent
-    from code_puppy.config import get_compaction_strategy
+    from code_puppy.config import (
+        auto_save_session_if_enabled,
+        get_compaction_strategy,
+    )
     from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 
     try:
@@ -192,6 +197,12 @@ def handle_compact_command(command: str) -> bool:
             return True
 
         agent.set_message_history(list(compacted))
+
+        # Slash commands run outside the normal turn-finalization path, which
+        # is where updated history is ordinarily auto-saved. Persist now so a
+        # subsequent /quit + --quick-resume restores the compacted history.
+        if not auto_save_session_if_enabled(force=True):
+            return True
 
         after_tokens = sum(agent.estimate_tokens_for_message(m) for m in compacted)
         reduction_pct = (

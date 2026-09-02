@@ -5,6 +5,11 @@ Prompt caching is configured through pydantic-ai's native
 markers; it only owns transport concerns that cannot be expressed there:
 OAuth refresh/retry, Claude Code tool-name prefixing, request headers, URL
 parameters, and the Opus summarized-thinking compatibility transform.
+
+Built on ``httpx2`` (not ``httpx``): every consumer of this client hands it
+to ``anthropic.AsyncAnthropic``, and the Anthropic SDK moved to httpx2 in
+its 1.0 release (pydantic-ai >= 2.35 followed). The rest of Code Puppy
+(OpenAI providers, http_utils) still rides classic httpx.
 """
 
 from __future__ import annotations
@@ -17,7 +22,7 @@ import time
 from typing import Any, Callable, MutableMapping
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
-import httpx
+import httpx2
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +36,16 @@ MAX_RETRIES = 5
 # Claude Code requires this namespace for outgoing tool names.
 TOOL_PREFIX = "cp_"
 
-CLAUDE_CLI_USER_AGENT = "claude-cli/2.1.2 (external, cli)"
+CLAUDE_CLI_USER_AGENT = "claude-cli/2.1.251 (external, cli)"
+
+# The Claude Code OAuth endpoint fingerprints this exact string as the FIRST
+# system block; requests that lead with anything else get rejected. Mirrors
+# CLAUDE_CODE_INSTRUCTIONS in the claude_code_oauth plugin's prompt_handler.
+CLAUDE_CODE_SYSTEM_PROMPT = "You are Claude Code, Anthropic's official CLI for Claude."
+
+# Beta flag required for ``thinking.display: "updates"`` (Fable 5.1 progress
+# updates surfaced as text while reasoning stays hidden).
+THINKING_DISPLAY_UPDATES_BETA = "thinking-display-updates-2026-08-18"
 
 
 def _model_requires_thinking_summary(model_name):
@@ -42,6 +56,14 @@ def _model_requires_thinking_summary(model_name):
     return should_use_anthropic_thinking_summary(model_name)
 
 
+def _model_supports_thinking_updates(model_name):
+    if not model_name:
+        return False
+    from code_puppy.model_utils import should_use_anthropic_thinking_updates
+
+    return should_use_anthropic_thinking_updates(model_name)
+
+
 def _enforce_thinking_display_summary(payload):
     if not isinstance(payload, dict):
         return False
@@ -50,13 +72,18 @@ def _enforce_thinking_display_summary(payload):
     thinking = payload.get("thinking")
     if not isinstance(thinking, dict):
         return False
-    if thinking.get("display") == "summarized":
+    display = thinking.get("display")
+    if display == "summarized":
+        return False
+    if display == "updates" and _model_supports_thinking_updates(payload.get("model")):
+        # Fable 5.1 legitimately asked for progress updates; don't clobber
+        # it back to summarized (which would drown status lines in reasoning).
         return False
     thinking["display"] = "summarized"
     return True
 
 
-class ClaudeCacheAsyncClient(httpx.AsyncClient):
+class ClaudeCacheAsyncClient(httpx2.AsyncClient):
     """Async HTTP client with Claude Code OAuth transformations.
 
     Handles:
@@ -123,7 +150,7 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
             logger.debug("Failed to decode JWT age: %s", exc)
             return None
 
-    def _extract_bearer_token(self, request: httpx.Request) -> str | None:
+    def _extract_bearer_token(self, request: httpx2.Request) -> str | None:
         """Extract the bearer token from request headers."""
         auth_header = request.headers.get("Authorization") or request.headers.get(
             "authorization"
@@ -132,7 +159,7 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
             return auth_header[7:]  # Strip "Bearer " prefix
         return None
 
-    def _jwt_refresh_decision(self, request: httpx.Request) -> bool | None:
+    def _jwt_refresh_decision(self, request: httpx2.Request) -> bool | None:
         """Return a JWT-based refresh decision, or ``None`` for stored fallback."""
         token = self._extract_bearer_token(request)
         if not token:
@@ -158,14 +185,14 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
             )
         return should_refresh
 
-    def _should_refresh_token(self, request: httpx.Request) -> bool:
+    def _should_refresh_token(self, request: httpx2.Request) -> bool:
         """Synchronously check JWT age, then the stored-token callback."""
         decision = self._jwt_refresh_decision(request)
         if decision is not None:
             return decision
         return self._log_stored_token_refresh(self._check_stored_token_expiry())
 
-    async def _should_refresh_token_async(self, request: httpx.Request) -> bool:
+    async def _should_refresh_token_async(self, request: httpx2.Request) -> bool:
         """Check token expiry while awaiting async providers in ``send()``."""
         decision = self._jwt_refresh_decision(request)
         if decision is not None:
@@ -232,6 +259,48 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
         return json.dumps(data).encode("utf-8")
 
     @staticmethod
+    def _ensure_claude_code_system_prompt(body: bytes) -> bytes | None:
+        """Guarantee the first system block is the Claude Code instruction.
+
+        The main agent path already leads with it (the claude_code_oauth
+        plugin's ``prepare_model_prompt`` hook), but internally-built agents
+        — e.g. pydantic-ai-harness's ``SummarizingCompaction`` summarizer —
+        ship their own instructions and never pass through that hook. The
+        OAuth endpoint fingerprints the first system block, so enforce the
+        invariant here, the one choke point every claude-code request
+        crosses. A pre-existing system prompt is demoted to the second
+        block, never dropped. Returns None when the body is already fine.
+        """
+        try:
+            data = json.loads(body.decode("utf-8"))
+        except Exception:
+            return None
+        if not isinstance(data, dict):
+            return None
+        system = data.get("system")
+        if isinstance(system, str):
+            if system.startswith(CLAUDE_CODE_SYSTEM_PROMPT):
+                return None
+            blocks: list[Any] = [{"type": "text", "text": CLAUDE_CODE_SYSTEM_PROMPT}]
+            if system:
+                blocks.append({"type": "text", "text": system})
+            data["system"] = blocks
+        elif isinstance(system, list):
+            first = system[0] if system else None
+            text = first.get("text") if isinstance(first, dict) else None
+            if isinstance(text, str) and text.startswith(CLAUDE_CODE_SYSTEM_PROMPT):
+                return None
+            data["system"] = [
+                {"type": "text", "text": CLAUDE_CODE_SYSTEM_PROMPT},
+                *system,
+            ]
+        elif system is None:
+            data["system"] = CLAUDE_CODE_SYSTEM_PROMPT
+        else:
+            return None
+        return json.dumps(data).encode("utf-8")
+
+    @staticmethod
     def _enforce_thinking_display_summary_body(body: bytes) -> bytes | None:
         """Return a rewritten body when summarized thinking is required."""
         try:
@@ -273,7 +342,39 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
                 del headers[key]
 
     @staticmethod
-    def _add_beta_query_param(url: httpx.URL) -> httpx.URL:
+    def _ensure_thinking_updates_beta(
+        headers: MutableMapping[str, str], body_bytes: bytes | None
+    ) -> bool:
+        """Add the updates-display beta flag when the body requests it.
+
+        ``thinking.display: "updates"`` (Fable 5.1 progress updates) is
+        rejected without the ``thinking-display-updates-2026-08-18`` beta
+        header. Deciding here — off the final request body — keeps header and
+        body consistent across every transport that rides this client
+        (anthropic, custom_anthropic, claude_code OAuth).
+
+        Returns True when the header was modified.
+        """
+        if not body_bytes:
+            return False
+        try:
+            payload = json.loads(body_bytes.decode("utf-8"))
+        except Exception:
+            return False
+        thinking = payload.get("thinking") if isinstance(payload, dict) else None
+        if not (isinstance(thinking, dict) and thinking.get("display") == "updates"):
+            return False
+        existing = [
+            b.strip() for b in headers.get("anthropic-beta", "").split(",") if b.strip()
+        ]
+        if THINKING_DISPLAY_UPDATES_BETA in existing:
+            return False
+        existing.append(THINKING_DISPLAY_UPDATES_BETA)
+        headers["anthropic-beta"] = ",".join(existing)
+        return True
+
+    @staticmethod
+    def _add_beta_query_param(url: httpx2.URL) -> httpx2.URL:
         """Add ?beta=true query parameter to the URL if not already present."""
         parsed = urlparse(str(url))
         query_params = parse_qs(parsed.query)
@@ -281,12 +382,12 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
             query_params["beta"] = ["true"]
             new_query = urlencode(query_params, doseq=True)
             new_parsed = parsed._replace(query=new_query)
-            return httpx.URL(urlunparse(new_parsed))
+            return httpx2.URL(urlunparse(new_parsed))
         return url
 
     async def send(
-        self, request: httpx.Request, *args: Any, **kwargs: Any
-    ) -> httpx.Response:  # type: ignore[override]
+        self, request: httpx2.Request, *args: Any, **kwargs: Any
+    ) -> httpx2.Response:  # type: ignore[override]
         is_messages_endpoint = request.url.path.endswith("/v1/messages")
         if not request.extensions.get("claude_oauth_proactive_refresh_attempted"):
             try:
@@ -323,6 +424,10 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
                     if prefixed_body is not None:
                         body_bytes = prefixed_body
                         body_modified = True
+                    system_body = self._ensure_claude_code_system_prompt(body_bytes)
+                    if system_body is not None:
+                        body_bytes = system_body
+                        body_modified = True
                 if body_bytes:
                     summarized_body = self._enforce_thinking_display_summary_body(
                         body_bytes
@@ -330,6 +435,10 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
                     if summarized_body is not None:
                         body_bytes = summarized_body
                         body_modified = True
+                # After body transforms settle: updates-display requests
+                # (Fable 5.1) must carry the matching beta header.
+                if self._ensure_thinking_updates_beta(headers, body_bytes):
+                    headers_modified = True
                 if body_modified or headers_modified or url != request.url:
                     try:
                         rebuilt = self.build_request(
@@ -399,10 +508,10 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
         return response
 
     async def _send_with_retries(
-        self, request: httpx.Request, *args: Any, **kwargs: Any
-    ) -> httpx.Response:
+        self, request: httpx2.Request, *args: Any, **kwargs: Any
+    ) -> httpx2.Response:
         """Retry rate limits, server failures, and transient connections."""
-        last_response: httpx.Response | None = None
+        last_response: httpx2.Response | None = None
         last_exception: Exception | None = None
         for attempt in range(MAX_RETRIES + 1):
             status_code: int | None = None
@@ -416,7 +525,7 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
                     return response
                 status_code = response.status_code
                 await response.aclose()
-            except (httpx.ConnectError, httpx.ReadTimeout, httpx.PoolTimeout) as exc:
+            except (httpx2.ConnectError, httpx2.ReadTimeout, httpx2.PoolTimeout) as exc:
                 last_exception = exc
                 if attempt >= MAX_RETRIES:
                     raise
@@ -464,7 +573,7 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
         raise RuntimeError("Retry loop completed without response or exception")
 
     @staticmethod
-    def _extract_body_bytes(request: httpx.Request) -> bytes | None:
+    def _extract_body_bytes(request: httpx2.Request) -> bytes | None:
         try:
             content = request.content
             if content:
@@ -496,7 +605,7 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
             headers["Authorization"] = bearer_value
 
     @staticmethod
-    async def _is_cloudflare_html_error(response: httpx.Response) -> bool:
+    async def _is_cloudflare_html_error(response: httpx2.Response) -> bool:
         """Return whether a 400 HTML response is a Cloudflare auth failure."""
         if "text/html" not in response.headers.get("content-type", "").lower():
             return False

@@ -25,7 +25,7 @@ from code_puppy.config import (
     get_suppress_informational_messages,
     get_suppress_thinking_messages,
 )
-from code_puppy.tools.common import format_diff_with_colors
+from code_puppy.tools.common import stream_diff_ansi_lines
 from code_puppy.tools.subagent_context import is_subagent
 
 from .bus import MessageBus
@@ -837,6 +837,11 @@ class RichConsoleRenderer:
             f"[dim]Found {msg.total_matches} {match_word} "
             f"across {num_files} {file_word}[/dim]"
         )
+        if msg.truncated:
+            self._console.print(
+                "[yellow]  Truncated: more matches exist beyond the "
+                f"{msg.total_matches} shown[/yellow]"
+            )
 
         # Trailing newline for spinner separation
         self._console.print()
@@ -877,7 +882,7 @@ class RichConsoleRenderer:
         if not msg.diff_lines:
             return
 
-        # Reconstruct unified diff text from diff_lines for format_diff_with_colors
+        # Reconstruct unified diff text from diff_lines for termflow's renderer
         diff_text_lines = []
         for line in msg.diff_lines:
             if line.type == "add":
@@ -894,9 +899,13 @@ class RichConsoleRenderer:
 
         diff_text = "\n".join(diff_text_lines)
 
-        # Use the beautiful syntax-highlighted diff formatter
-        formatted_diff = format_diff_with_colors(diff_text)
-        self._console.print(formatted_diff)
+        # Stream through termflow's diff renderer: each line paints as soon
+        # as it renders, so big diffs appear progressively instead of
+        # blocking on one monolithic block.
+        from rich.text import Text
+
+        for ansi_line in stream_diff_ansi_lines(diff_text):
+            self._console.print(Text.from_ansi(ansi_line))
 
     # =========================================================================
     # Shell Output
@@ -1026,7 +1035,8 @@ class RichConsoleRenderer:
             if msg.is_new_session
             else f"Continuing ({msg.message_count} messages)"
         )
-        banner = self._format_banner("invoke_agent", "🤖 INVOKE AGENT")
+        banner_text = "\U0001f374 FORK" if msg.is_fork else "\U0001f916 INVOKE AGENT"
+        banner = self._format_banner("invoke_agent", banner_text)
         self._console.print(
             f"\n{banner} "
             f"[bold cyan]{msg.agent_name}[/bold cyan] "
@@ -1247,10 +1257,7 @@ class RichConsoleRenderer:
             cur = msg.current_version
             latest = msg.latest_version
             self._console.print(f"[dim]⬆ Update available: {cur} → {latest}[/dim]")
-        else:
-            self._console.print(
-                f"[dim]✓ You're on the latest version ({msg.current_version})[/dim]"
-            )
+        # Up to date? Say nothing. No news is good news.
 
     # =========================================================================
     # Helpers

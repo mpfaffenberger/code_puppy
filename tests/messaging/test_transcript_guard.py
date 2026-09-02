@@ -241,11 +241,14 @@ class TestGrowScroll:
         assert "\x1b[1;21r" in out  # new region top
         assert bar._sim_row == 21  # cursor followed its line up
 
-    def test_default_grow_keeps_csi_s(self):
+    def test_default_grow_uses_lf_push(self):
+        """POSIX grow: LFs from the writer's row (scrolls only as needed)
+        with a CUU walk-back — no blind CSI S, no bottom-row jump."""
         bar, tty = start_bar()
         bar.set_status("tokens")
         out = drain(tty)
-        assert "\x1b[1S" in out
+        assert "\x1b[1S" not in out
+        assert "\n\x1b[1A" in out
         assert "\x1b[24;1H\n" not in out
 
 

@@ -18,6 +18,8 @@ import os
 from code_puppy.config import get_enable_logfire
 
 _TRUTHY = ("1", "true", "yes", "on")
+_logfire_active = False
+_agent_contexts: dict[str, dict[str, str]] = {}
 
 
 def logfire_opted_in() -> bool:
@@ -40,6 +42,9 @@ def configure_logfire() -> bool:
     misconfiguration must never break the CLI, so every failure path
     emits a warning and returns False instead of raising.
     """
+    global _logfire_active
+    _logfire_active = False
+
     if not logfire_opted_in():
         return False
 
@@ -63,5 +68,45 @@ def configure_logfire() -> bool:
         emit_warning(t("logfire.configure_failed", error=str(exc)))
         return False
 
+    _logfire_active = True
     emit_system_message(t("logfire.enabled"))
     return True
+
+
+def capture_agent_context(group_id: str) -> None:
+    """Capture the active agentic span context for later cancellation logging."""
+    if not _logfire_active:
+        return
+
+    try:
+        import logfire
+
+        _agent_contexts[group_id] = logfire.get_context()
+    except Exception:
+        # Observability must never interfere with an agent run.
+        return
+
+
+def clear_agent_context(group_id: str) -> None:
+    """Discard trace context retained for a completed agent run."""
+    _agent_contexts.pop(group_id, None)
+
+
+def emit_cancellation(group_id: str) -> None:
+    """Emit a cancellation as a child of its instrumented agentic call."""
+    if not _logfire_active:
+        return
+
+    context = _agent_contexts.pop(group_id, None)
+    try:
+        import logfire
+
+        if context is None:
+            logfire.warning("Agent run cancelled", group_id=group_id)
+            return
+
+        with logfire.attach_context(context):
+            logfire.warning("Agent run cancelled", group_id=group_id)
+    except Exception:
+        # Observability must never interfere with cancelling an agent run.
+        return

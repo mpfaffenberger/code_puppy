@@ -260,6 +260,23 @@ def test_render_grep_result_concise(mock_sub, renderer, console):
     renderer._render_grep_result(msg)
     out = output(console)
     assert "2 matches" in out
+    assert "Truncated" not in out
+
+
+@patch("code_puppy.messaging.rich_renderer.is_subagent", return_value=False)
+def test_render_grep_result_flags_truncation(mock_sub, renderer, console):
+    msg = GrepResultMessage(
+        directory="/tmp",
+        search_term="foo",
+        matches=[GrepMatch(file_path="a.py", line_number=1, line_content="foo")],
+        total_matches=1,
+        files_searched=10,
+        verbose=False,
+        truncated=True,
+    )
+    renderer._render_grep_result(msg)
+    out = output(console)
+    assert "Truncated" in out
 
 
 @patch("code_puppy.messaging.rich_renderer.is_subagent", return_value=False)
@@ -460,6 +477,37 @@ def test_render_subagent_invocation_continuing(mock_sub, renderer, console):
     assert "Continuing" in out
     assert "Requested model override:" in out
     assert "codex-gpt-5.2" in out
+
+
+@patch("code_puppy.messaging.rich_renderer.is_subagent", return_value=False)
+def test_render_subagent_invocation_fork(mock_sub, renderer, console):
+    msg = SubAgentInvocationMessage(
+        agent_name="code-puppy",
+        session_id="sess-fork-1",
+        prompt="hello",
+        is_new_session=True,
+        message_count=0,
+        is_fork=True,
+    )
+    renderer._render_subagent_invocation(msg)
+    out = output(console)
+    assert "FORK" in out
+    assert "INVOKE AGENT" not in out
+
+
+@patch("code_puppy.messaging.rich_renderer.is_subagent", return_value=False)
+def test_render_subagent_invocation_not_fork_by_default(mock_sub, renderer, console):
+    msg = SubAgentInvocationMessage(
+        agent_name="code-puppy",
+        session_id="sess-2",
+        prompt="hello",
+        is_new_session=True,
+        message_count=0,
+    )
+    renderer._render_subagent_invocation(msg)
+    out = output(console)
+    assert "INVOKE AGENT" in out
+    assert "FORK" not in out
 
 
 def test_render_subagent_response(renderer, console):
@@ -682,7 +730,7 @@ def test_render_version_check_current(renderer, console):
     )
     renderer._render_version_check(msg)
     out = output(console)
-    assert "latest" in out
+    assert out == ""
 
 
 # =========================================================================

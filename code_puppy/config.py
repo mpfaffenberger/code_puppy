@@ -392,6 +392,10 @@ def ensure_config_exists():
     # Set default values for important config keys if they don't exist
     if not config[DEFAULT_SECTION].get("auto_save_session"):
         config[DEFAULT_SECTION]["auto_save_session"] = "true"
+    # port_base: seed so users discover the knob in their generated puppy.cfg
+    # (starting port for the HTTP-server port probe; searches port_base..+920).
+    if not config[DEFAULT_SECTION].get("port_base"):
+        config[DEFAULT_SECTION]["port_base"] = str(DEFAULT_PORT_BASE)
 
     # Write the config if we made any changes. Re-reads under the config lock
     # and re-applies the prompted values on top of that fresh snapshot, so a
@@ -406,6 +410,8 @@ def ensure_config_exists():
                 cfg[DEFAULT_SECTION][key] = val
             if not cfg[DEFAULT_SECTION].get("auto_save_session"):
                 cfg[DEFAULT_SECTION]["auto_save_session"] = "true"
+            if not cfg[DEFAULT_SECTION].get("port_base"):
+                cfg[DEFAULT_SECTION]["port_base"] = str(DEFAULT_PORT_BASE)
 
         config = _mutate_config(_apply)
     return config
@@ -506,6 +512,7 @@ def get_config_keys():
         "protected_token_count",
         "compaction_threshold",
         "summarization_model",
+        "auto_continue_model",
         "message_limit",
         "allow_recursion",
         "subagent_recursion_limit",
@@ -553,6 +560,9 @@ def get_config_keys():
     # Add /goal iteration cap (owned by the wiggum plugin, surfaced here so
     # /set autocompletes it). See plugins/wiggum/register_callbacks.py.
     default_keys.append("goal_max_iterations")
+    # How relentlessly the agent proceeds without checking in; headless -p
+    # runs always behave as 'extreme' (see get_agency_level()).
+    default_keys.append("agency_level")
     # Add dangerous command guard disable (skips force push and destructive command guards)
     default_keys.append("disable_dangerous_command_guard")
     # Per-pattern allowlist bypassing the command guards (e.g. "git reset
@@ -629,7 +639,7 @@ def _parse_mcp_servers_mapping(raw_text: str) -> dict:
     return servers
 
 
-def load_mcp_server_configs():
+def load_mcp_server_configs(*, raise_on_error: bool = False):
     """Load MCP server configs, merging user-level and trusted project-level.
 
     Sources, in ascending order of precedence:
@@ -644,6 +654,11 @@ def load_mcp_server_configs():
     Project entries win on name collision, matching how project agents, skills,
     and plugins override their user-level counterparts. Returns an empty dict
     when nothing is configured.
+
+    When *raise_on_error* is true, a parse/IO failure of an existing user-level
+    file (or a failure of the project loader) is re-raised after the error is
+    emitted, so callers that unregister missing names can skip that drop
+    instead of treating ``{}`` as "configure nothing".
     """
     from code_puppy.messaging.message_queue import emit_error
 
@@ -656,6 +671,8 @@ def load_mcp_server_configs():
                 configs.update(_parse_mcp_servers_mapping(f.read()))
     except Exception as e:
         emit_error(f"Failed to load MCP servers - {str(e)}")
+        if raise_on_error:
+            raise
 
     # 2. Project-level config (opt-in, trust-gated). A broken or untrusted
     #    project file must never break user-level loading.
@@ -667,6 +684,8 @@ def load_mcp_server_configs():
             configs.update(project_configs)
     except Exception as e:
         emit_error(f"Failed to load project MCP servers - {str(e)}")
+        if raise_on_error:
+            raise
 
     return configs
 
@@ -805,6 +824,8 @@ def model_supports_setting(
         True if the model supports the setting, False otherwise.
         Defaults to True for backwards compatibility if model config doesn't specify.
     """
+    from code_puppy.model_utils import get_anthropic_thinking_display_choices
+
     # GLM-4.5+ models support deep-thinking controls (thinking_type,
     # clear_thinking); GLM-5.2+ additionally support reasoning_effort.
     if setting in ("thinking_type", "clear_thinking"):
@@ -822,6 +843,11 @@ def model_supports_setting(
         # definitions needn't duplicate supported_settings metadata.
         if "gpt-5.6" in model_name.lower():
             return True
+    if setting == "thinking_display":
+        # Fable 5.1 progress-update display; same identity-based detection so
+        # OAuth-generated and bundled entries needn't list it explicitly.
+        if get_anthropic_thinking_display_choices(model_name):
+            return True
 
     try:
         from code_puppy.model_factory import ModelFactory
@@ -829,9 +855,12 @@ def model_supports_setting(
         if models_config is None:
             models_config = ModelFactory.load_config()
         model_config = models_config.get(model_name, {})
+        underlying_name = str(model_config.get("name", "")).lower()
         if setting in ("reasoning_context", "reasoning_mode"):
-            underlying_name = str(model_config.get("name", "")).lower()
             if "gpt-5.6" in underlying_name:
+                return True
+        if setting == "thinking_display":
+            if get_anthropic_thinking_display_choices(model_name, underlying_name):
                 return True
 
         # Get supported_settings list, default to supporting common settings
@@ -943,6 +972,19 @@ def set_model_name(model: str):
 
     # Clear model cache when switching models to ensure fresh validation
     clear_model_cache()
+
+
+def get_auto_continue_model_name() -> str | None:
+    """Return the model used by the automatic continuation classifier.
+
+    ``auto_continue_model`` is an optional dedicated override. An unset or
+    blank value follows the session's global model so existing installations
+    need no configuration change.
+    """
+    value = get_value("auto_continue_model")
+    if value and value.strip():
+        return value.strip()
+    return get_global_model_name()
 
 
 def get_summarization_model_name() -> str:
@@ -1475,20 +1517,43 @@ def get_yolo_mode() -> bool:
     return get_truthy_bool_value("yolo_mode", True)
 
 
-def get_safety_permission_level():
+AGENCY_LEVELS = ("low", "medium", "high", "extreme")
+
+_headless_mode: bool = False
+
+
+def set_headless_mode(value: bool) -> None:
+    """Mark this process as headless (``-p`` prompt); process-local only."""
+    global _headless_mode
+    _headless_mode = value
+
+
+def get_headless_mode() -> bool:
+    """Return whether this process is running a headless ``-p`` prompt."""
+    return _headless_mode
+
+
+def get_agency_level() -> str:
     """
-    Checks puppy.cfg for 'safety_permission_level' (case-insensitive in value only).
-    Defaults to 'medium' if not set.
-    Allowed values: 'none', 'low', 'medium', 'high', 'critical' (all case-insensitive for value).
+    Checks puppy.cfg for 'agency_level' (case-insensitive in value only).
+    Allowed values: 'low', 'medium', 'high', 'extreme'.
+    Defaults to 'high' if not set or invalid: fully autonomous on requested
+    work, without the relentless background-process vigil of 'extreme'.
+
+    Headless (``-p``) runs always report 'extreme' no matter what the config
+    says — there is nobody at the keyboard to answer check-ins, so anything
+    lower would just stall the run.
+
     Returns the normalized lowercase string.
     """
-    valid_levels = {"none", "low", "medium", "high", "critical"}
-    cfg_val = get_value("safety_permission_level")
+    if _headless_mode:
+        return "extreme"
+    cfg_val = get_value("agency_level")
     if cfg_val is not None:
         normalized = str(cfg_val).strip().lower()
-        if normalized in valid_levels:
+        if normalized in AGENCY_LEVELS:
             return normalized
-    return "medium"  # Default to medium risk threshold
+    return "high"
 
 
 def get_mcp_disabled():
@@ -1511,6 +1576,27 @@ def get_grep_output_verbose():
     When True: Shows full output with line numbers and content
     """
     return get_truthy_bool_value("grep_output_verbose", False)
+
+
+GREP_MAX_MATCHES_DEFAULT = 50
+
+
+def get_grep_max_matches() -> int:
+    """Return the per-call grep match budget.
+
+    Read from the ``grep_max_matches`` config key (``/set grep_max_matches=<int>``).
+    Defaults to ``GREP_MAX_MATCHES_DEFAULT`` when unset or non-numeric, and is
+    floored at 1: a budget of zero would make every search return nothing,
+    which is a foot-gun rather than a legitimate opt-out. Results past the
+    budget are dropped and reported via ``GrepOutput.truncated``.
+    """
+    val = get_value("grep_max_matches")
+    if val is None or not str(val).strip():
+        return GREP_MAX_MATCHES_DEFAULT
+    try:
+        return max(1, int(val))
+    except (ValueError, TypeError):
+        return GREP_MAX_MATCHES_DEFAULT
 
 
 def get_disable_dangerous_command_guard() -> bool:
@@ -2067,6 +2153,8 @@ DEFAULT_BANNER_COLORS = {
     "edit_file": "dark_goldenrod",  # Gold - modifications (legacy)
     "create_file": "dark_goldenrod",  # Gold - file creation
     "replace_in_file": "dark_goldenrod",  # Gold - file modifications
+    "edit": "dark_goldenrod",  # Claude/OpenCode targeted file edit
+    "apply_patch": "dark_goldenrod",  # Codex/OpenCode multi-file patch
     "delete_snippet": "dark_goldenrod",  # Gold - snippet removal
     "grep": "grey37",  # Silver - search results
     "directory_listing": "dodger_blue2",  # Sky - navigation
@@ -2299,9 +2387,9 @@ def set_current_autosave_from_session_name(session_name: str) -> str:
     return pin_current_session_name(session_name)
 
 
-def auto_save_session_if_enabled() -> bool:
-    """Automatically save the current session if auto_save_session is enabled."""
-    if not get_auto_save_session():
+def auto_save_session_if_enabled(*, force: bool = False) -> bool:
+    """Save the current session when enabled, or unconditionally when forced."""
+    if not force and not get_auto_save_session():
         return False
 
     try:
@@ -3012,3 +3100,69 @@ def get_frontend_emitter_queue_size() -> int:
         return int(val)
     except ValueError:
         return 100
+
+
+# Port-probe bounds:
+#   MIN_PORT_BASE=1024 avoids privileged ports the user process can't bind anyway.
+#   PORT_PROBE_WIDTH is how many consecutive ports find_available_port() scans.
+#   MAX_PORT_BASE keeps port_base + width within the 16-bit port space.
+MIN_PORT_BASE = 1024
+PORT_PROBE_WIDTH = 920
+MAX_PORT_BASE = 65535 - PORT_PROBE_WIDTH
+DEFAULT_PORT_BASE = 8090
+
+
+def _coerce_port_base(raw, source: str) -> int | None:
+    """Parse + range-check a candidate port_base. Returns None (with warning)
+    on invalid input so callers can fall through to the next source.
+    """
+    if raw is None or (isinstance(raw, str) and not raw.strip()):
+        return None
+    try:
+        val = int(str(raw).strip())
+    except (TypeError, ValueError):
+        _warn_port_base(f"Ignoring invalid {source} port_base={raw!r}: not an integer")
+        return None
+    if not (MIN_PORT_BASE <= val <= MAX_PORT_BASE):
+        _warn_port_base(
+            f"Ignoring {source} port_base={val}: must be in "
+            f"[{MIN_PORT_BASE}, {MAX_PORT_BASE}] so port+{PORT_PROBE_WIDTH} stays valid"
+        )
+        return None
+    return val
+
+
+def _warn_port_base(msg: str) -> None:
+    """Lazy-import emit_warning to avoid config <-> messaging import cycles."""
+    try:
+        from code_puppy.messaging import emit_warning
+
+        emit_warning(msg)
+    except Exception:
+        # Messaging bus not up yet (early startup); silent skip is fine --
+        # the fallback value still applies.
+        pass
+
+
+def resolve_port_base(cli_value=None) -> int:
+    """
+    Full precedence chain for the port probe's starting port:
+    CLI --port-base > CODE_PUPPY_PORT_BASE env > puppy.cfg[port_base] > default.
+
+    Invalid values at any layer are warned about and skipped, not crashed on.
+    """
+    candidates = (
+        (cli_value, "--port-base"),
+        (os.environ.get("CODE_PUPPY_PORT_BASE"), "CODE_PUPPY_PORT_BASE"),
+        (get_value("port_base"), "puppy.cfg[port_base]"),
+    )
+    for raw, source in candidates:
+        val = _coerce_port_base(raw, source)
+        if val is not None:
+            return val
+    return DEFAULT_PORT_BASE
+
+
+def get_port_base() -> int:
+    """Back-compat wrapper: resolve without a CLI-supplied value."""
+    return resolve_port_base(cli_value=None)

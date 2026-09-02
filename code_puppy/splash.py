@@ -7,10 +7,11 @@ and stop it the moment they finish. Do not import anything from
 ``code_puppy`` here -- that would defeat the entire point.
 
 The animation is pure art (no text), so it stays outside the i18n seam.
-Every frame repaints its full region with line-clears, which also absorbs
-any stray import-time output (e.g. plugin warnings emitted while
-``cli_runner`` loads). Everything fails soft: a broken terminal gets a
-no-op splash, never a crashed CLI.
+It runs full-screen on the alternate screen buffer, centered both axes;
+leaving the alt screen on stop() restores the user's terminal exactly as
+it was. Stray import-time output (e.g. plugin warnings emitted while
+``cli_runner`` loads) is buffered and replayed afterwards. Everything
+fails soft: a broken terminal gets a no-op splash, never a crashed CLI.
 """
 
 from __future__ import annotations
@@ -20,7 +21,6 @@ import os
 import shutil
 import sys
 import threading
-import time
 
 # Pyramid raster, 20 rows x <=44 cols. Digits are glow tiers:
 # 0 = empty, 1 = outer halo, 2 = inner glow, 3 = neon core.
@@ -49,33 +49,40 @@ _PYRAMID = (
 _CHARS = (" ", "\u2591", "\u2592", "\u2588")
 _PYRAMID_WIDTH = 44
 
-# "Powered by" / "Pydantic" pre-rendered in pyfiglet's ansi_shadow (the same
-# font as the main CODE PUPPY banner). Baked as constants: pyfiglet is not
-# stdlib and this module must stay import-light. Solid blocks render as the
-# neon core tier; the box-drawing shadow trim renders as the mid glow tier.
-_TAGLINE_TOP = (
-    "\u2588\u2588\u2588\u2588\u2588\u2588\u2557  \u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2557    \u2588\u2588\u2557\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557\u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557\u2588\u2588\u2588\u2588\u2588\u2588\u2557     \u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2557   \u2588\u2588\u2557",
-    "\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557\u2588\u2588\u2554\u2550\u2550\u2550\u2588\u2588\u2557\u2588\u2588\u2551    \u2588\u2588\u2551\u2588\u2588\u2554\u2550\u2550\u2550\u2550\u255d\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557\u2588\u2588\u2554\u2550\u2550\u2550\u2550\u255d\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557    \u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557\u255a\u2588\u2588\u2557 \u2588\u2588\u2554\u255d",
-    "\u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255d\u2588\u2588\u2551   \u2588\u2588\u2551\u2588\u2588\u2551 \u2588\u2557 \u2588\u2588\u2551\u2588\u2588\u2588\u2588\u2588\u2557  \u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255d\u2588\u2588\u2588\u2588\u2588\u2557  \u2588\u2588\u2551  \u2588\u2588\u2551    \u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255d \u255a\u2588\u2588\u2588\u2588\u2554\u255d",
-    "\u2588\u2588\u2554\u2550\u2550\u2550\u255d \u2588\u2588\u2551   \u2588\u2588\u2551\u2588\u2588\u2551\u2588\u2588\u2588\u2557\u2588\u2588\u2551\u2588\u2588\u2554\u2550\u2550\u255d  \u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557\u2588\u2588\u2554\u2550\u2550\u255d  \u2588\u2588\u2551  \u2588\u2588\u2551    \u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557  \u255a\u2588\u2588\u2554\u255d",
-    "\u2588\u2588\u2551     \u255a\u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255d\u255a\u2588\u2588\u2588\u2554\u2588\u2588\u2588\u2554\u255d\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557\u2588\u2588\u2551  \u2588\u2588\u2551\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557\u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255d    \u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255d   \u2588\u2588\u2551",
-    "\u255a\u2550\u255d      \u255a\u2550\u2550\u2550\u2550\u2550\u255d  \u255a\u2550\u2550\u255d\u255a\u2550\u2550\u255d \u255a\u2550\u2550\u2550\u2550\u2550\u2550\u255d\u255a\u2550\u255d  \u255a\u2550\u255d\u255a\u2550\u2550\u2550\u2550\u2550\u2550\u255d\u255a\u2550\u2550\u2550\u2550\u2550\u255d     \u255a\u2550\u2550\u2550\u2550\u2550\u255d    \u255a\u2550\u255d",
+# "CODE PUPPY" / "PUP" pre-rendered in pyfiglet's ansi_shadow (the same
+# font as the scrollback banner). Baked as constants: pyfiglet is not
+# stdlib and this module must stay import-light. Solid blocks render as
+# the neon core tier; the box-drawing shadow trim renders as the mid
+# glow tier.
+_BANNER_FULL = (
+    " \u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557    \u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2557   \u2588\u2588\u2557\u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2557   \u2588\u2588\u2557",
+    "\u2588\u2588\u2554\u2550\u2550\u2550\u2550\u255d\u2588\u2588\u2554\u2550\u2550\u2550\u2588\u2588\u2557\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557\u2588\u2588\u2554\u2550\u2550\u2550\u2550\u255d    \u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557\u2588\u2588\u2551   \u2588\u2588\u2551\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557\u255a\u2588\u2588\u2557 \u2588\u2588\u2554\u255d",
+    "\u2588\u2588\u2551     \u2588\u2588\u2551   \u2588\u2588\u2551\u2588\u2588\u2551  \u2588\u2588\u2551\u2588\u2588\u2588\u2588\u2588\u2557      \u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255d\u2588\u2588\u2551   \u2588\u2588\u2551\u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255d\u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255d \u255a\u2588\u2588\u2588\u2588\u2554\u255d",
+    "\u2588\u2588\u2551     \u2588\u2588\u2551   \u2588\u2588\u2551\u2588\u2588\u2551  \u2588\u2588\u2551\u2588\u2588\u2554\u2550\u2550\u255d      \u2588\u2588\u2554\u2550\u2550\u2550\u255d \u2588\u2588\u2551   \u2588\u2588\u2551\u2588\u2588\u2554\u2550\u2550\u2550\u255d \u2588\u2588\u2554\u2550\u2550\u2550\u255d   \u255a\u2588\u2588\u2554\u255d",
+    "\u255a\u2588\u2588\u2588\u2588\u2588\u2588\u2557\u255a\u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255d\u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255d\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557    \u2588\u2588\u2551     \u255a\u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255d\u2588\u2588\u2551     \u2588\u2588\u2551        \u2588\u2588\u2551",
+    " \u255a\u2550\u2550\u2550\u2550\u2550\u255d \u255a\u2550\u2550\u2550\u2550\u2550\u255d \u255a\u2550\u2550\u2550\u2550\u2550\u255d \u255a\u2550\u2550\u2550\u2550\u2550\u2550\u255d    \u255a\u2550\u255d      \u255a\u2550\u2550\u2550\u2550\u2550\u255d \u255a\u2550\u255d     \u255a\u2550\u255d        \u255a\u2550\u255d",
 )
-_TAGLINE_TOP_WIDTH = 80
-_TAGLINE_BOTTOM = (
-    "\u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2557   \u2588\u2588\u2557\u2588\u2588\u2588\u2588\u2588\u2588\u2557  \u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2557   \u2588\u2588\u2557\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2557",
-    "\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557\u255a\u2588\u2588\u2557 \u2588\u2588\u2554\u255d\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557\u2588\u2588\u2588\u2588\u2557  \u2588\u2588\u2551\u255a\u2550\u2550\u2588\u2588\u2554\u2550\u2550\u255d\u2588\u2588\u2551\u2588\u2588\u2554\u2550\u2550\u2550\u2550\u255d",
-    "\u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255d \u255a\u2588\u2588\u2588\u2588\u2554\u255d \u2588\u2588\u2551  \u2588\u2588\u2551\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2551\u2588\u2588\u2554\u2588\u2588\u2557 \u2588\u2588\u2551   \u2588\u2588\u2551   \u2588\u2588\u2551\u2588\u2588\u2551",
-    "\u2588\u2588\u2554\u2550\u2550\u2550\u255d   \u255a\u2588\u2588\u2554\u255d  \u2588\u2588\u2551  \u2588\u2588\u2551\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2551\u2588\u2588\u2551\u255a\u2588\u2588\u2557\u2588\u2588\u2551   \u2588\u2588\u2551   \u2588\u2588\u2551\u2588\u2588\u2551",
-    "\u2588\u2588\u2551        \u2588\u2588\u2551   \u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255d\u2588\u2588\u2551  \u2588\u2588\u2551\u2588\u2588\u2551 \u255a\u2588\u2588\u2588\u2588\u2551   \u2588\u2588\u2551   \u2588\u2588\u2551\u255a\u2588\u2588\u2588\u2588\u2588\u2588\u2557",
-    "\u255a\u2550\u255d        \u255a\u2550\u255d   \u255a\u2550\u2550\u2550\u2550\u2550\u255d \u255a\u2550\u255d  \u255a\u2550\u255d\u255a\u2550\u255d  \u255a\u2550\u2550\u2550\u255d   \u255a\u2550\u255d   \u255a\u2550\u255d \u255a\u2550\u2550\u2550\u2550\u2550\u255d",
+_BANNER_FULL_WIDTH = 79
+_BANNER_COMPACT = (
+    "\u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2557   \u2588\u2588\u2557\u2588\u2588\u2588\u2588\u2588\u2588\u2557",
+    "\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557\u2588\u2588\u2551   \u2588\u2588\u2551\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557",
+    "\u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255d\u2588\u2588\u2551   \u2588\u2588\u2551\u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255d",
+    "\u2588\u2588\u2554\u2550\u2550\u2550\u255d \u2588\u2588\u2551   \u2588\u2588\u2551\u2588\u2588\u2554\u2550\u2550\u2550\u255d",
+    "\u2588\u2588\u2551     \u255a\u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255d\u2588\u2588\u2551",
+    "\u255a\u2550\u255d      \u255a\u2550\u2550\u2550\u2550\u2550\u255d \u255a\u2550\u255d",
 )
-_TAGLINE_BOTTOM_WIDTH = 63
+_BANNER_COMPACT_WIDTH = 25
 _SHADOW_TRIM = frozenset("\u2550\u2551\u2554\u2557\u255a\u255d")
 
 _RESET = "\x1b[0m"
 _HIDE_CURSOR = "\x1b[?25l"
 _SHOW_CURSOR = "\x1b[?25h"
+# Alternate screen buffer (like vim/less): the splash owns a blank
+# full-screen canvas, and leaving it restores the user's scrollback
+# untouched -- no erase bookkeeping needed on the way out.
+_ALT_SCREEN_ON = "\x1b[?1049h"
+_ALT_SCREEN_OFF = "\x1b[?1049l"
+_CLEAR_SCREEN = "\x1b[2J"
 # Synchronized output (DEC 2026): terminals that support it (iTerm2, kitty,
 # WezTerm, Ghostty, Alacritty, ...) render the whole frame atomically --
 # zero flicker. Terminals that don't simply ignore the markers.
@@ -102,9 +109,6 @@ _FALLBACK_HOT = ("", "\x1b[95m", "\x1b[1;95m", "\x1b[1;97m")
 _SHEEN_PERIOD = 70
 _SHEEN_WIDTH = 7
 _FRAME_SECONDS = 0.033
-# Keep the shimmer on screen at least this long, even if imports finish
-# early -- a sub-second flash reads as a glitch, not a splash.
-_MIN_SHOW_SECONDS = 3.0
 
 # argv values that still mean "interactive boot" (splash-worthy).
 _INTERACTIVE_ARGS = frozenset({"-i", "--interactive"})
@@ -119,13 +123,13 @@ def _compose_rows(columns: int, lines: int):
 
     Returns a list of (kind, content) rows: ``art`` rows are pyramid tier
     digits, ``text`` rows are literal figlet glyphs. Degrades gracefully:
-    full "Powered by / Pydantic" -> "Pydantic" only -> pyramid only.
+    pyramid + "CODE PUPPY" -> pyramid + "PUP" -> pyramid only.
     """
-    top = [(line, _TAGLINE_TOP_WIDTH) for line in _TAGLINE_TOP]
-    bottom = [(line, _TAGLINE_BOTTOM_WIDTH) for line in _TAGLINE_BOTTOM]
+    full = [(line, _BANNER_FULL_WIDTH) for line in _BANNER_FULL]
+    compact = [(line, _BANNER_COMPACT_WIDTH) for line in _BANNER_COMPACT]
     variants = (
-        (top + [("", 0)] + bottom, _TAGLINE_TOP_WIDTH),
-        (bottom, _TAGLINE_BOTTOM_WIDTH),
+        (full, _BANNER_FULL_WIDTH),
+        (compact, _BANNER_COMPACT_WIDTH),
         ([], _PYRAMID_WIDTH),
     )
     for text_rows, text_width in variants:
@@ -144,6 +148,22 @@ def _compose_rows(columns: int, lines: int):
             pad = " " * ((width - block_width) // 2) if line else ""
             rows.append(("text", pad + line))
     return rows
+
+
+def _center_rows(rows, columns: int):
+    """Pad every row so the artwork block sits horizontally centered.
+
+    Art rows pad with '0' (the empty glow tier) and text rows with spaces,
+    so ``_build_frame`` needs no knowledge of centering at all.
+    """
+    block_width = max((len(content) for _, content in rows), default=0)
+    pad = max(0, (columns - block_width) // 2)
+    if not pad:
+        return list(rows)
+    return [
+        (kind, ("0" * pad if kind == "art" else " " * pad) + content)
+        for kind, content in rows
+    ]
 
 
 def _build_frame(phase: int, truecolor: bool, rows) -> str:
@@ -229,10 +249,8 @@ class _StreamCapture(io.TextIOBase):
 
 
 class _Splash:
-    def __init__(self, stream, min_seconds: float = _MIN_SHOW_SECONDS) -> None:
+    def __init__(self, stream) -> None:
         self._stream = stream
-        self._min_seconds = min_seconds
-        self._started = time.monotonic()
         self._stop_event = threading.Event()
         # Divert stdout/stderr into buffers for the splash's lifetime so
         # import-time output can't move the cursor mid-frame. Replayed in
@@ -249,20 +267,25 @@ class _Splash:
             target=self._run, name="code-puppy-splash", daemon=True
         )
         size = shutil.get_terminal_size(fallback=(80, 24))
-        self._rows = _compose_rows(size.columns, size.lines)
+        self._rows = _center_rows(_compose_rows(size.columns, size.lines), size.columns)
         self._height = len(self._rows)
+        # 1-based row where the frame starts, vertically centering the art.
+        self._top_row = max(1, (size.lines - self._height) // 2 + 1)
         self._stopped = False
         self._thread.start()
 
     def _run(self) -> None:
         phase = 0
-        # Reposition to frame top: carriage return + cursor-up (height-1).
-        # The frame has no trailing newline, so nothing ever scrolls and the
-        # cursor parks at the end of the last row between frames.
-        reposition = f"\r\x1b[{self._height - 1}A"
+        # The alt screen is ours alone, so every frame repaints from the
+        # same absolute, vertically-centered origin. The frame has no
+        # trailing newline, so nothing ever scrolls.
+        reposition = f"\x1b[{self._top_row};1H"
         try:
             first = _build_frame(phase, self._truecolor, self._rows)
-            self._stream.write(f"{_HIDE_CURSOR}{_SYNC_START}{first}{_SYNC_END}")
+            self._stream.write(
+                f"{_ALT_SCREEN_ON}{_HIDE_CURSOR}{_CLEAR_SCREEN}"
+                f"{_SYNC_START}{reposition}{first}{_SYNC_END}"
+            )
             self._stream.flush()
             while not self._stop_event.wait(_FRAME_SECONDS):
                 phase = (phase + 2) % _SHEEN_PERIOD
@@ -275,22 +298,16 @@ class _Splash:
             pass  # a dying terminal must never take the CLI down
 
     def stop(self) -> None:
-        """Stop the animation and erase it so real output starts clean.
-
-        Honors the minimum showtime: if imports finished early, the caller
-        blocks here while the shimmer finishes its contractual screen time.
-        """
+        """Stop the animation and erase it so real output starts clean."""
         if self._stopped:
             return
         self._stopped = True
-        remaining = self._min_seconds - (time.monotonic() - self._started)
-        if remaining > 0:
-            time.sleep(remaining)  # animation thread keeps shimmering meanwhile
         self._stop_event.set()
         self._thread.join(timeout=1.0)
         try:
-            # Back to frame top, erase to end of screen, restore cursor.
-            self._stream.write(f"\r\x1b[{self._height - 1}A\x1b[0J{_SHOW_CURSOR}")
+            # Leaving the alt screen restores the pre-splash terminal
+            # content and cursor position in one move; nothing to erase.
+            self._stream.write(f"{_ALT_SCREEN_OFF}{_SHOW_CURSOR}")
             self._stream.flush()
         except Exception:
             pass
@@ -341,15 +358,12 @@ def _enable_windows_vt(stream) -> bool:
         return False
 
 
-def start_splash(
-    stream=None, force: bool = False, min_seconds: float = _MIN_SHOW_SECONDS
-):
+def start_splash(stream=None, force: bool = False):
     """Start the shimmer if the terminal deserves it; else return a no-op.
 
     ``force=True`` bypasses ALL gating -- TTY detection included -- and is
     strictly for tests and demos; you get ANSI in whatever stream you gave
-    us. ``min_seconds`` is the guaranteed on-screen time: ``stop()`` blocks
-    until it has elapsed.
+    us.
     """
     stream = stream if stream is not None else sys.stdout
     try:
@@ -358,8 +372,14 @@ def start_splash(
                 return _NullSplash()
             if not _wants_splash(sys.argv):
                 return _NullSplash()
+            # _compose_rows degrades CODE PUPPY -> PUP -> bare pyramid,
+            # but below even the pyramid's footprint there is nothing
+            # honest left to draw: stay silent, never clip art.
+            size = shutil.get_terminal_size(fallback=(80, 24))
+            if size.columns < _PYRAMID_WIDTH + 2 or size.lines < len(_PYRAMID) + 2:
+                return _NullSplash()
         if not _enable_windows_vt(stream):
             return _NullSplash()
-        return _Splash(stream, min_seconds=min_seconds)
+        return _Splash(stream)
     except Exception:
         return _NullSplash()

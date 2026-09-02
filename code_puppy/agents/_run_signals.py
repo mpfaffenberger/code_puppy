@@ -9,11 +9,50 @@ daemon thread.
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Any, Callable, Optional
 
 from code_puppy.command_line.attachments import resolve_steer_content
 from code_puppy.messaging import emit_info, emit_warning
 from code_puppy.tools.agent_tools import _active_subagent_tasks
+
+# =============================================================================
+# Run-detach seam — the escape hatch for zombie cancellations
+# =============================================================================
+#
+# A cancelled run with sub-agents/MCP servers can get stuck unwinding (anyio
+# cancel-scope teardown, plugin cancel hooks, ...). The REPL awaits the run
+# task, the persistent prompt stays visually alive, and every quit gesture is
+# gated on ``is_run_active()`` — so a stuck unwind freezes the whole app.
+# The seam below lets repeated cancel gestures escalate to "abandon the run":
+# ``run_prompt_with_attachments`` installs an event and races it against the
+# agent task, so setting it unblocks the REPL even if the task never finishes.
+
+#: A second cancel gesture this many seconds after the first one on a run
+#: that STILL hasn't finished unwinding escalates to a detach.
+CANCEL_ESCALATE_AFTER_S = 3.0
+
+_detach_event: Optional[asyncio.Event] = None
+
+
+def install_detach_event(event: asyncio.Event) -> None:
+    """Register the top-level run's detach event (cli_runner owns it)."""
+    global _detach_event
+    _detach_event = event
+
+
+def clear_detach_event() -> None:
+    """Drop the seam once the run's await has resolved (normal or detached)."""
+    global _detach_event
+    _detach_event = None
+
+
+def request_run_detach() -> bool:
+    """Fire the detach event. Loop-thread only. Returns True if one was armed."""
+    if _detach_event is None:
+        return False
+    _detach_event.set()
+    return True
 
 
 def sigint_should_cancel() -> bool:
@@ -61,6 +100,12 @@ def make_schedule_cancel(
     terminal) while letting the cancel actually proceed.
     """
 
+    # Closure state: monotonic time of the first cancel request, so a later
+    # gesture on a still-stuck unwind can escalate to a detach (list, not a
+    # bare float, to stay writable from the nested function without nonlocal
+    # gymnastics on multiple call sites).
+    first_cancel_at: list = []
+
     def schedule_agent_cancel(force: bool = False) -> None:
         from code_puppy.tools.command_runner import (
             _RUNNING_PROCESSES,
@@ -70,6 +115,21 @@ def make_schedule_cancel(
 
         if agent_task.done():
             return
+        # Escalation: the user already cancelled, waited, and is cancelling
+        # again — the unwind is stuck. Abandon the run so the REPL (and
+        # every quit gesture it gates) comes back. The zombie task is left
+        # to finish — or not — in the background.
+        now = time.monotonic()
+        if first_cancel_at and now - first_cancel_at[0] >= CANCEL_ESCALATE_AFTER_S:
+            _tear_down_live_panels()
+            emit_warning(
+                "\nRun is stuck cancelling — abandoning it and returning "
+                "to the prompt..."
+            )
+            loop.call_soon_threadsafe(request_run_detach)
+            return
+        if not first_cancel_at:
+            first_cancel_at.append(now)
         if _RUNNING_PROCESSES and not force:
             # Ordering matters (see _shell_sigint_handler): banner BEFORE the
             # kill — the sweep blocks this thread ~2s per process, so the
@@ -236,11 +296,15 @@ def drain_pause_state_on_cancel() -> None:
         )
 
 
-all__ = [
+__all__ = [
+    "CANCEL_ESCALATE_AFTER_S",
+    "clear_detach_event",
     "drain_pause_state_on_cancel",
     "inject_interrupted_subagent_notes",
+    "install_detach_event",
     "make_schedule_cancel",
     "prepare_queued_steer_injection",
+    "request_run_detach",
     "reset_pause_state_at_run_start",
     "sigint_should_cancel",
 ]
