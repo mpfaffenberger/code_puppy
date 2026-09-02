@@ -614,6 +614,52 @@ class TestEventStreamHandler:
         assert console.print.call_count >= 2
 
 
+class TestStreamConfigSnapshot:
+    """Configuration-derived stream policy is resolved once per invocation."""
+
+    @pytest.mark.asyncio
+    async def test_thinking_deltas_do_not_reread_stream_config(self):
+        mock_ctx = MagicMock(spec=RunContext)
+        console = MagicMock(spec=Console)
+        set_streaming_console(console)
+
+        thinking_part = ThinkingPart(content="")
+
+        async def event_stream():
+            yield PartStartEvent(index=0, part=thinking_part)
+            yield PartDeltaEvent(
+                index=0,
+                delta=ThinkingPartDelta(content_delta="one"),
+            )
+            yield PartDeltaEvent(
+                index=0,
+                delta=ThinkingPartDelta(content_delta="two"),
+            )
+            yield PartDeltaEvent(
+                index=0,
+                delta=ThinkingPartDelta(content_delta="three"),
+            )
+
+        with (
+            patch(
+                "code_puppy.agents.event_stream_handler.get_output_level",
+                return_value="normal",
+            ) as mock_output_level,
+            patch(
+                "code_puppy.agents.event_stream_handler.get_suppress_thinking_messages",
+                return_value=False,
+            ) as mock_suppress_thinking,
+            patch(
+                "code_puppy.agents.event_stream_handler.get_banner_color",
+                return_value="blue",
+            ),
+        ):
+            await event_stream_handler(mock_ctx, event_stream())
+
+        assert mock_output_level.call_count == 1
+        assert mock_suppress_thinking.call_count == 1
+
+
 class TestSubAgentSuppression:
     """Test that sub-agent output is properly suppressed."""
 

@@ -219,7 +219,11 @@ class RichConsoleRenderer:
         SubAgentResponseMessage,
     )
 
-    def _should_collapse(self, message: AnyMessage) -> bool:
+    def _should_collapse(
+        self,
+        message: AnyMessage,
+        output_level: str | None = None,
+    ) -> bool:
         """Return True if *message* should be rendered as a one-line peek.
 
         Only applies when ``output_level`` is ``low``. Individual suppress
@@ -227,7 +231,8 @@ class RichConsoleRenderer:
         ``suppress_thinking_messages``) are handled separately and may hide
         a message entirely even when the level is ``medium``.
         """
-        if get_output_level() != "low":
+        level = get_output_level() if output_level is None else output_level
+        if level != "low":
             return False
         if isinstance(message, self._NEVER_COLLAPSE):
             return False
@@ -459,6 +464,8 @@ class RichConsoleRenderer:
         if self._should_silence_during_pause(message):
             return
 
+        output_level = get_output_level()
+
         # -- Individual suppress toggles (dead-code wiring: code_puppy_oss-dzz) --
         if isinstance(message, TextMessage) and message.level in (
             MessageLevel.INFO,
@@ -466,15 +473,15 @@ class RichConsoleRenderer:
             MessageLevel.SUCCESS,
         ):
             # High mode = maximum visibility; override suppress toggles.
-            if get_output_level() != "high" and get_suppress_informational_messages():
+            if output_level != "high" and get_suppress_informational_messages():
                 return
         if isinstance(message, AgentReasoningMessage):
             # In high mode, thinking is never suppressed.
-            if get_output_level() != "high" and get_suppress_thinking_messages():
+            if output_level != "high" and get_suppress_thinking_messages():
                 return
 
         # -- Output-level density gate --
-        if self._should_collapse(message):
+        if self._should_collapse(message, output_level):
             self._render_peek(message)
             return
 
@@ -505,7 +512,7 @@ class RichConsoleRenderer:
         elif isinstance(message, SubAgentResponseMessage):
             # High mode renders via streaming or render_result_without_streaming
             # in subagent_invocation.py. Non-high modes render here.
-            if get_output_level() != "high":
+            if output_level != "high":
                 self._render_subagent_response(message)
         elif isinstance(message, UniversalConstructorMessage):
             self._render_universal_constructor(message)
