@@ -263,6 +263,22 @@ def test_render_grep_result_concise(mock_sub, renderer, console):
 
 
 @patch("code_puppy.messaging.rich_renderer.is_subagent", return_value=False)
+def test_render_grep_result_warns_when_truncated(mock_sub, renderer, console):
+    msg = GrepResultMessage(
+        directory="/tmp",
+        search_term="foo",
+        matches=[GrepMatch(file_path="a.py", line_number=1, line_content="foo")],
+        total_matches=50,
+        files_searched=1,
+        truncated=True,
+    )
+
+    renderer._render_grep_result(msg)
+
+    assert "more matches exist" in output(console)
+
+
+@patch("code_puppy.messaging.rich_renderer.is_subagent", return_value=False)
 def test_render_grep_result_verbose(mock_sub, renderer, console):
     msg = GrepResultMessage(
         directory="/tmp",

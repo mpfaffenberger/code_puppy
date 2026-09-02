@@ -110,6 +110,7 @@ def test_grep_context_lines_do_not_evict_real_matches(tmp_path):
     # 50; real matches must now fill the whole budget.
     assert len(real) == 50
     assert all(m.line_content == "target" for m in real)
+    assert out.truncated is True
     # Context lines are still surfaced, just never counted as matches.
     assert context
 
@@ -157,3 +158,40 @@ def test_emit_grep_result_excludes_context_from_counts(monkeypatch):
     # ...but only the two real hits (in a.py and b.py) feed the counts.
     assert captured["msg"].total_matches == 2
     assert captured["msg"].files_searched == 2
+    assert captured["msg"].truncated is False
+
+
+def test_grep_exactly_at_limit_is_not_truncated(tmp_path):
+    (tmp_path / "exact.py").write_text("target\n" * 50)
+
+    out = _grep(None, "target", str(tmp_path))
+
+    assert len(out.matches) == 50
+    assert out.truncated is False
+
+
+def test_grep_exhausts_all_pages_without_duplicates_or_omissions(tmp_path):
+    (tmp_path / "many.py").write_text(
+        "".join(f"target-{line_number:03d}\n" for line_number in range(1, 442))
+    )
+
+    offsets = []
+    page_sizes = []
+    line_numbers = []
+    offset = 0
+    while True:
+        page = _grep(None, "target", str(tmp_path), offset=offset)
+        offsets.append(offset)
+        page_sizes.append(len(page.matches))
+        line_numbers.extend(match.line_number for match in page.matches)
+        if page.next_offset is None:
+            assert page.truncated is False
+            break
+        assert page.truncated is True
+        assert page.next_offset == offset + len(page.matches)
+        offset = page.next_offset
+
+    assert offsets == list(range(0, 401, 50))
+    assert page_sizes == [50] * 8 + [41]
+    assert line_numbers == list(range(1, 442))
+    assert len(set(line_numbers)) == 441
