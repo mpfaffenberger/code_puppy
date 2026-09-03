@@ -132,7 +132,6 @@ When given a coding task:
 {a["task_step"]}
 
 Important rules:
-- You MUST use tools — DO NOT just output code or descriptions
 {r["pre_tool_rule"]}
 - Explore directories before reading/modifying files
 - Read existing files before modifying them
