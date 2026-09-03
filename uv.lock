@@ -465,7 +465,7 @@ requires-dist = [
     { name = "azure-identity", specifier = ">=1.15.0" },
     { name = "boto3", specifier = ">=1.43.9" },
     { name = "boto3", marker = "extra == 'bedrock'", specifier = ">=1.35.0" },
-    { name = "code-puppy-core-plugins", specifier = ">=0.0.39" },
+    { name = "code-puppy-core-plugins", specifier = ">=0.0.40" },
     { name = "dbos", marker = "extra == 'durable'", specifier = ">=2.11.0" },
     { name = "httpx", extras = ["http2"], specifier = ">=0.24.1" },
     { name = "httpx2", specifier = ">=2.7" },
@@ -489,7 +489,7 @@ requires-dist = [
     { name = "requests", specifier = ">=2.28.0" },
     { name = "rich", specifier = ">=13.4.2" },
     { name = "ripgrep", marker = "sys_platform != 'android'", specifier = "==14.1.0" },
-    { name = "termflow-md", specifier = ">=0.9.0" },
+    { name = "termflow-md", specifier = ">=0.9.1" },
     { name = "typer", specifier = ">=0.12.0" },
 ]
 provides-extras = ["bedrock", "durable", "computer-use"]
@@ -506,15 +506,15 @@ dev = [
 
 [[package]]
 name = "code-puppy-core-plugins"
-version = "0.0.39"
+version = "0.0.40"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
     { name = "pydantic-ai-slim", extra = ["anthropic", "mcp", "openai"] },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f5/75/b9868bb0490a74fcaa335a3485f540be179da3a4465b21e13cf8130b9a0d/code_puppy_core_plugins-0.0.39.tar.gz", hash = "sha256:3c69bcf31e5c43c1ccd0b721ce7984403992bd37f18b505001f8d772d777f083", size = 537693, upload-time = "2026-09-01T21:48:34.977Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e5/e3/00b151a1b81c8c7051413b2579b2a869d4320965549684be3608a91e5ac4/code_puppy_core_plugins-0.0.40.tar.gz", hash = "sha256:86b7f6df4bf1a040a47c2bbe3b408ec7b5c62e1d5c396ab4758939e6dcf80760", size = 537831, upload-time = "2026-09-03T10:48:25.488Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d6/60/518f418e9c1cbbafefefceac204e0c2cb4e0242e6172cce70c521195233c/code_puppy_core_plugins-0.0.39-py3-none-any.whl", hash = "sha256:8a25bdd66fadb598a9952d9b0fd8a02d8f6c323c56407d8cc13c9adbd88841a5", size = 726890, upload-time = "2026-09-01T21:48:33.673Z" },
+    { url = "https://files.pythonhosted.org/packages/f0/26/9c5823ab7ed8bbf4127c7f47f0b6c1f02b8d9439076875c11ef66d7139ed/code_puppy_core_plugins-0.0.40-py3-none-any.whl", hash = "sha256:b95cfcbc6573f431f04adf47e63d67e49752e98a6602a9e0722820c9b5aa173d", size = 727052, upload-time = "2026-09-03T10:48:24.143Z" },
 ]
 
 [[package]]
@@ -2757,15 +2757,15 @@ wheels = [
 
 [[package]]
 name = "termflow-md"
-version = "0.9.0"
+version = "0.9.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pygments" },
     { name = "wcwidth" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/0b/f3/6135aea241a2f5e33066adf7e7d21bccf4930be6fa4f7f182f742becd970/termflow_md-0.9.0.tar.gz", hash = "sha256:32b70994f3d03a3e9af1479d8d4c3b5fbb0ede35aabe529e437ff6effc9c1d3a", size = 161428, upload-time = "2026-08-24T20:12:57.26Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/cb/f7/c8754f90f13edc4008d16ee3923654520a839ff123f0f054a12f485c2282/termflow_md-0.9.1.tar.gz", hash = "sha256:5c0500a1b7937b1a7ea0eeb205ee8b8739823b44b61201de93b76faf8d04e452", size = 162387, upload-time = "2026-09-03T11:18:38.594Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e2/2f/f0cfb710bed5c604b937131bb58267aef7002ec88efa0fa377bd183e050c/termflow_md-0.9.0-py3-none-any.whl", hash = "sha256:8bea0e4e21faf54a6af3107546a798f4c0b5c64938640bff4f39f326892c3531", size = 95300, upload-time = "2026-08-24T20:12:56.091Z" },
+    { url = "https://files.pythonhosted.org/packages/d4/55/5973340923f3fbfaaeddc0cb5c19b24aeced2b332937a84729a4a72d4131/termflow_md-0.9.1-py3-none-any.whl", hash = "sha256:22ce1e7d4e14bbe61af7bfc4207a0c9ed057c1cc26951fec83f2b5a9931459cb", size = 95775, upload-time = "2026-09-03T11:18:37.477Z" },
 ]
 
 [[package]]
