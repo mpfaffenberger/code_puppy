@@ -30,26 +30,27 @@ The overhead is everything *around* the stream.
 
 | Cost | Cause | Fix |
 |---|---|---|
-| ~1.0s per text part | `SmoothTermflowWriter` drains `ceil(remaining/42)` per 12ms tick (exponential decay: the last ~42 chars always crawl at 1 char/tick). Ran even when stdout was a pipe. | Smoothing is gated on `isatty()` (`agents/smooth_stream.py`). Interactive feel is unchanged. |
+| ~1.0s per text part | `SmoothTermflowWriter` drains `ceil(remaining/42)` per 12ms tick (exponential decay: the last ~42 chars always crawl at 1 char/tick). Ran even when stdout was a pipe. | Smoothing is gated on `isatty()` (`agents/smooth_stream.py`). Upstream, termflow's drain quota is now pinned to the burst's high-water mark, so the drain is linear and really finishes inside `catch_up_seconds` (~0.5s) instead of decaying past it. Still smooth. |
 | 75–170ms good wifi, up to **5s** bad | `httpx.get(pypi.org)` on the startup critical path, 5s timeout, headless too. | Fetch runs on a daemon thread; result lands on the message bus when it arrives (`version_checker.py`). |
+| **~1.2s on every exit** | `reset_unix_terminal()` shelled out to `reset(1)`; `tset` sleeps one second by design (a settling delay for hardware terminals), and with `capture_output=True` its escape codes never reached the terminal anyway — a one-second no-op in `main_entry`'s `finally`. | `stty sane` + targeted escape codes (soft reset, attrs off, cursor visible, alt-screen off, mouse tracking off), skipped entirely off-tty (`terminal_utils.py`). Deliberately not RIS: `reset(1)`'s full init clears the screen. |
 | ~170ms (anthropic) + ~200ms (openai) | `model_factory.py` and `provider_identity.py` imported both vendor SDKs at module scope. `agents/_runtime.py` imported both for `isinstance` checks. | Function-local imports per provider branch; `_sdk_exception()` peeks `sys.modules` (an SDK exception can only exist if the SDK is loaded). `ZaiChatModel` moved to `zai_model.py`. |
 | ~54ms pre-request, then 10–20 reads per streamed chunk | `config.get_value()` re-read and re-parsed `puppy.cfg` on every call — 388 times for one "hi". | Parser cached on `(path, inode, mtime_ns, size)`; `mutate_config`'s atomic replace rolls the key (`config.py`). |
 
+## Result
+
+Cold `-p hi` on a TTY: **~4.5s wall, of which ~3s is Anthropic**
+(TTFB + generation). Code-puppy overhead went from ~3.3s to ~1.1s:
+~0.9s to get the request out, ~0.5s of *intended* typewriter catch-up,
+~0.2s exit. `openai`/`anthropic` no longer load at startup at all
+(fixed in `code_puppy_core_plugins` ollama + here; needs the plugin
+release ≥0.0.40 and a termflow-md release with the linear drain).
+
 ## Still on the table
 
-* **`openai` still loads on Claude runs (~200ms)** — the `ollama` core
-  plugin does `from pydantic_ai.models.openai import OpenAIChatModel` at
-  module scope, and plugins load during `cli_runner` import. One-line lazy
-  import in `code_puppy_core_plugins/ollama/register_callbacks.py`.
 * **Upstream: `pydantic_ai.capabilities.mcp` eagerly imports
   `pydantic_ai.mcp`** → fastmcp → key_value → beartype → `mcp.types`
   (~186ms on every `import pydantic_ai`, MCP servers or not). A lazy import
-  inside the `MCP` capability would fix it. Needs a Notes proposal.
-* **Typewriter tail in interactive mode** — the exponential drain means
-  every text part (including the preamble before each tool call) pays a
-  fixed ~0.5–1s tail regardless of length. A linear drain that actually
-  finishes within `catch_up_seconds` is a termflow change and a UX
-  decision, not made here.
+  inside the `MCP` capability would fix it. Needs an upstream proposal.
 * `anthropic` SDK 1.0 imports every `types.beta.*` module eagerly (~100ms).
   Anthropic's problem.
 * `messaging.rich_renderer` → `tools.common` → `tools` → `browser` →
