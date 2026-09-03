@@ -5,18 +5,11 @@ import pathlib
 from collections.abc import Mapping
 from typing import Any, Dict, Optional
 
-from anthropic import AsyncAnthropic
-from openai import AsyncAzureOpenAI
-from pydantic_ai.models.anthropic import AnthropicModel, AnthropicModelSettings
-from pydantic_ai.models.openai import (
-    OpenAIChatModel,
-    OpenAIChatModelSettings,
-    OpenAIResponsesModel,
-    OpenAIResponsesModelSettings,
-)
+# Provider SDKs are imported inside the branch that needs them, not here:
+# ``openai`` (~200ms cold) and ``anthropic`` (~170ms cold) each drag in
+# their whole surface, and a run only ever talks to one provider family.
+# Cold-start TTFT pays for every eager import in this module.
 from pydantic_ai.profiles.openai import OpenAIModelProfile
-from pydantic_ai.providers.cerebras import CerebrasProvider
-from pydantic_ai.providers.openrouter import OpenRouterProvider
 from pydantic_ai.settings import ModelSettings
 
 from code_puppy.gemini_model import GeminiModel
@@ -370,6 +363,8 @@ def make_model_settings(
         for key in ("extended_thinking", "budget_tokens", "interleaved_thinking"):
             model_settings_dict.pop(key, None)
 
+        from pydantic_ai.models.openai import OpenAIChatModelSettings
+
         model_settings = OpenAIChatModelSettings(**model_settings_dict)
 
     elif is_copilot and (
@@ -379,6 +374,8 @@ def make_model_settings(
     ):
         # Copilot GPT/O-series: no reasoning_effort support (400 Bad Request).
         # Plain OpenAIChatModelSettings without reasoning params.
+        from pydantic_ai.models.openai import OpenAIChatModelSettings
+
         model_settings = OpenAIChatModelSettings(**model_settings_dict)
 
     elif "gpt-5" in model_name or "gpt-5" in str(model_config.get("name", "")).lower():
@@ -386,6 +383,11 @@ def make_model_settings(
         # custom endpoint entries are often keyed by an alias (e.g.
         # "luna-responses" -> name "gpt-5.6-luna") and would otherwise
         # silently skip all reasoning configuration.
+        from pydantic_ai.models.openai import (
+            OpenAIChatModelSettings,
+            OpenAIResponsesModelSettings,
+        )
+
         # Normalize legacy effort values (minimal->none, ultra->max)
         _EFFORT_ALIAS = {"minimal": "none", "ultra": "max"}
         effort = effective_settings.get("reasoning_effort", "medium")
@@ -510,6 +512,8 @@ def make_model_settings(
                 "anthropic_cache_messages": cache_setting,
             }
         )
+        from pydantic_ai.models.anthropic import AnthropicModelSettings
+
         model_settings = AnthropicModelSettings(**model_settings_dict)
 
     # Apply thinking defaults if the model supports them
@@ -534,12 +538,6 @@ def make_model_settings(
         model_settings["extra_body"] = extra_body
 
     return model_settings
-
-
-class ZaiChatModel(OpenAIChatModel):
-    def _process_response(self, response):
-        response.object = "chat.completion"
-        return super()._process_response(response)
 
 
 def get_custom_config(model_config):
@@ -777,6 +775,11 @@ class ModelFactory:
                 )
                 return None
 
+            from pydantic_ai.models.openai import (
+                OpenAIChatModel,
+                OpenAIResponsesModel,
+            )
+
             provider = make_openai_provider(provider_identity, api_key=api_key)
             model = OpenAIChatModel(
                 model_name=model_config["name"],
@@ -826,6 +829,9 @@ class ModelFactory:
             if beta_header:
                 default_headers["anthropic-beta"] = beta_header
 
+            from anthropic import AsyncAnthropic
+            from pydantic_ai.models.anthropic import AnthropicModel
+
             anthropic_client = AsyncAnthropic(
                 api_key=api_key,
                 http_client=client,
@@ -870,6 +876,9 @@ class ModelFactory:
             default_headers = {}
             if beta_header:
                 default_headers["anthropic-beta"] = beta_header
+
+            from anthropic import AsyncAnthropic
+            from pydantic_ai.models.anthropic import AnthropicModel
 
             anthropic_client = AsyncAnthropic(
                 base_url=url,
@@ -931,6 +940,9 @@ class ModelFactory:
             # Configure max_retries for the Azure client, defaulting if not specified in config
             azure_max_retries = model_config.get("max_retries", 2)
 
+            from openai import AsyncAzureOpenAI
+            from pydantic_ai.models.openai import OpenAIChatModel
+
             azure_client = AsyncAzureOpenAI(
                 azure_endpoint=azure_endpoint,
                 api_version=api_version,
@@ -954,6 +966,11 @@ class ModelFactory:
             if api_key:
                 provider_args["api_key"] = api_key
             provider = make_openai_provider(provider_identity, **provider_args)
+            from pydantic_ai.models.openai import (
+                OpenAIChatModel,
+                OpenAIResponsesModel,
+            )
+
             if _custom_openai_uses_responses_api(model_name, model_config):
                 return OpenAIResponsesModel(
                     model_name=model_config["name"], provider=provider
@@ -975,6 +992,8 @@ class ModelFactory:
                 api_key=api_key,
                 base_url="https://api.z.ai/api/coding/paas/v4",
             )
+            from code_puppy.zai_model import ZaiChatModel
+
             return ZaiChatModel(
                 model_name=model_config["name"],
                 provider=provider,
@@ -992,6 +1011,8 @@ class ModelFactory:
                 api_key=api_key,
                 base_url="https://api.z.ai/api/paas/v4/",
             )
+            from code_puppy.zai_model import ZaiChatModel
+
             return ZaiChatModel(
                 model_name=model_config["name"],
                 provider=provider,
@@ -1047,6 +1068,9 @@ class ModelFactory:
                 model_name="cerebras",
                 timeout=timeout if timeout is not None else 180,
             )
+            from pydantic_ai.models.openai import OpenAIChatModel
+            from pydantic_ai.providers.cerebras import CerebrasProvider
+
             provider = CerebrasProvider(
                 api_key=api_key,
                 http_client=client,
@@ -1096,6 +1120,9 @@ class ModelFactory:
                         f"OPENROUTER_API_KEY is not set (check config or environment); skipping OpenRouter model '{model_config.get('name')}'."
                     )
                     return None
+
+            from pydantic_ai.models.openai import OpenAIChatModel
+            from pydantic_ai.providers.openrouter import OpenRouterProvider
 
             provider = OpenRouterProvider(api_key=api_key)
 

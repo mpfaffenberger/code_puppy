@@ -157,16 +157,6 @@ def _load_plugin_tools() -> None:
         pass
 
 
-# System-prompt note for extended thinking when share_your_reasoning is removed:
-# encourages native thinking blocks between tool calls.
-EXTENDED_THINKING_PROMPT_NOTE = (
-    "\n\nIMPORTANT: You have extended thinking enabled. "
-    "Always think between tool calls or waves of tool calls "
-    "(if running parallel tools). Use your thinking blocks to reason "
-    "about the results before deciding on next steps."
-)
-
-
 def has_extended_thinking_active(model_name: str | None = None) -> bool:
     """Check if an Anthropic model has extended thinking enabled or adaptive.
 
