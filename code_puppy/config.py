@@ -305,9 +305,31 @@ _default_vision_model_cache = None
 _warned_no_model = False
 
 
+# Parsed-config cache: (path, inode, mtime_ns, size) -> parser. ``get_value``
+# is called hundreds of times per turn (and per streamed chunk), and each
+# call used to re-read and re-parse the INI file. Any write -- ours go through
+# ``mutate_config``'s atomic replace, which changes the inode -- rolls the key.
+_CONFIG_CACHE: tuple[tuple[str, int, int, int], configparser.ConfigParser] | None = None
+
+
 def _load_config() -> configparser.ConfigParser:
-    """Load ``CONFIG_FILE`` through the bounded, recoverable I/O layer."""
-    return load_config(CONFIG_FILE)
+    """Load ``CONFIG_FILE`` through the bounded, recoverable I/O layer.
+
+    Returns a shared, cached parser while the file on disk is unchanged;
+    callers must treat it as read-only (mutations go through ``mutate_config``).
+    """
+    global _CONFIG_CACHE
+    try:
+        st = os.stat(CONFIG_FILE)
+    except OSError:
+        # Missing/unreadable: let the I/O layer decide, nothing to cache.
+        return load_config(CONFIG_FILE)
+    key = (CONFIG_FILE, st.st_ino, st.st_mtime_ns, st.st_size)
+    if _CONFIG_CACHE is not None and _CONFIG_CACHE[0] == key:
+        return _CONFIG_CACHE[1]
+    parser = load_config(CONFIG_FILE)
+    _CONFIG_CACHE = (key, parser)
+    return parser
 
 
 def ensure_config_exists():
@@ -323,7 +345,9 @@ def ensure_config_exists():
     # Skip the read entirely when we already know there's nothing to read --
     # matches configparser's own no-op-on-missing-file behavior and avoids an
     # unnecessary open() attempt during first-run setup.
-    config = _load_config() if exists else configparser.ConfigParser()
+    # Uncached read: this parser is mutated in place below, and the cached
+    # instance from _load_config() is shared with every reader.
+    config = load_config(CONFIG_FILE) if exists else configparser.ConfigParser()
     missing = []
     if DEFAULT_SECTION not in config:
         config[DEFAULT_SECTION] = {}
