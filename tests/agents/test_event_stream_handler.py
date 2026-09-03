@@ -11,7 +11,7 @@ Covers:
 
 import contextlib
 from io import StringIO
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 from pydantic_ai import PartDeltaEvent, PartEndEvent, PartStartEvent, RunContext
@@ -435,6 +435,71 @@ class TestEventStreamHandler:
                             await event_stream_handler(mock_ctx, event_stream())
 
         # Handler should process multiple deltas without error
+
+    @pytest.mark.asyncio
+    async def test_finalizes_text_when_stream_ends_without_part_end(self, mock_ctx):
+        """An abrupt provider EOF must not drop buffered Markdown."""
+        start_event = PartStartEvent(index=0, part=TextPart(content=""))
+        delta_event = PartDeltaEvent(
+            index=0, delta=TextPartDelta(content_delta="```python\nprint(1)")
+        )
+
+        async def event_stream():
+            yield start_event
+            yield delta_event
+
+        console = MagicMock(spec=Console, width=80)
+        console.file = StringIO()
+        set_streaming_console(console)
+
+        with (
+            patch(
+                "code_puppy.agents.event_stream_handler.get_banner_color",
+                return_value="blue",
+            ),
+            patch("termflow.Parser") as parser_cls,
+            patch("termflow.Renderer"),
+        ):
+            parser = parser_cls.return_value
+            parser.parse_line.return_value = []
+            parser.finalize.return_value = []
+            await event_stream_handler(mock_ctx, event_stream())
+
+        assert parser.parse_line.call_args_list == [
+            call("```python"),
+            call("print(1)"),
+        ]
+        parser.finalize.assert_called_once_with()
+
+    @pytest.mark.asyncio
+    async def test_skips_whitespace_only_text_tail(self, mock_ctx):
+        """Whitespace-only trailing buffers must not create Markdown content."""
+        start_event = PartStartEvent(index=0, part=TextPart(content=""))
+        delta_event = PartDeltaEvent(index=0, delta=TextPartDelta(content_delta="   "))
+
+        async def event_stream():
+            yield start_event
+            yield delta_event
+
+        console = MagicMock(spec=Console, width=80)
+        console.file = StringIO()
+        set_streaming_console(console)
+
+        with (
+            patch(
+                "code_puppy.agents.event_stream_handler.get_banner_color",
+                return_value="blue",
+            ),
+            patch("termflow.Parser") as parser_cls,
+            patch("termflow.Renderer"),
+        ):
+            parser = parser_cls.return_value
+            parser.parse_line.return_value = []
+            parser.finalize.return_value = []
+            await event_stream_handler(mock_ctx, event_stream())
+
+        parser.parse_line.assert_not_called()
+        parser.finalize.assert_called_once_with()
 
     @pytest.mark.asyncio
     async def test_streaming_ignores_delta_for_unknown_part_index(self, mock_ctx):
