@@ -893,6 +893,34 @@ async def _run_with_mcp_impl(
         with executing_agent_context(agent):
             return await _run_agent_task_body()
 
+    def _note_unusable_run_context(cm: Any, exc: BaseException, group_id: str) -> None:
+        """Report a run context that could not be entered, and carry on.
+
+        Named rather than inlined so the message stays one thing: what was
+        lost, and where to look. `/mcp logs` is the only place the real cause
+        lives -- this layer knows a context manager raised, never why.
+
+        The name is best-effort: `run_ctxs` holds whatever plugins returned,
+        so a `toolset` attribute, a `name`, or the repr are all plausible.
+        Reporting `<unknown>` beats hiding the failure over a missing label.
+        """
+        name = (
+            getattr(cm, "name", None)
+            or getattr(getattr(cm, "toolset", None), "name", None)
+            or type(cm).__name__
+        )
+        emit_warning(
+            f"MCP server '{name}' could not start for this run - continuing "
+            f"without its tools. Run [cyan]/mcp logs {name}[/cyan] for the "
+            "reason.",
+            group_id=group_id,
+        )
+        import logging as _logging
+
+        _logging.getLogger(__name__).debug(
+            "run context %r failed to enter: %r", name, exc
+        )
+
     async def _run_agent_task_body() -> Any:
         try:
             agent._message_history = _history.prune_interrupted_tool_calls(
@@ -905,7 +933,21 @@ async def _run_with_mcp_impl(
             )
             async with AsyncExitStack() as stack:
                 for cm in run_ctxs:
-                    await stack.enter_async_context(cm)
+                    # ONE CONTEXT PER TRY, not one try around all of them.
+                    #
+                    # An MCP server whose subprocess never came up raises from
+                    # `__aenter__`. Entered as a single unit, that one failure
+                    # unwinds the whole stack and `_do_run` below is never
+                    # reached -- so a user with six connectors and one broken
+                    # one got no inference at all, only the McpError nudge.
+                    # The nudge reads like the run was rescued; it was not.
+                    #
+                    # A connector is a capability, not a precondition. Losing
+                    # one should cost its tools, not the answer.
+                    try:
+                        await stack.enter_async_context(cm)
+                    except Exception as exc:  # noqa: BLE001
+                        _note_unusable_run_context(cm, exc, group_id)
                 return await _do_run(prompt_payload)
         except* UsageLimitExceeded as ule:
             emit_info(f"Usage limit exceeded: {ule}", group_id=group_id)
