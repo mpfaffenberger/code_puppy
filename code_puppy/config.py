@@ -2399,6 +2399,16 @@ def auto_save_session_if_enabled(*, force: bool = False) -> bool:
             token_estimator=current_agent.estimate_tokens_for_message,
             auto_saved=True,
             scope_key=compute_scope_key(pathlib.Path.cwd()),
+            # Autosave is the path quick-resume actually reads, so identity
+            # has to ride here too or the common resume still loses it.
+            # Type-checked for the same reason as in persist_named_session:
+            # the sidecar is JSON written after the history, so an id that
+            # cannot be serialised must not turn a save into a half-write.
+            agent_id=(
+                current_agent.id
+                if isinstance(getattr(current_agent, "id", None), str)
+                else None
+            ),
         )
 
         # Point quick-resume at this save; every turn/exit/finalize routes through

@@ -61,12 +61,37 @@ def _extract_pydantic_agent_tools(pyd_agent: Any) -> Optional[Dict[str, Any]]:
     return legacy or None
 
 
+HEADLESS_AUTONOMY_PROMPT = """\
+This is an unattended, non-interactive run. Never ask for confirmation, approval,
+clarification, or manual verification, including through tools or MCP servers. Use
+reasonable defaults, proceed autonomously, and validate with the tools available to
+you. State any assumptions or optional manual checks only in the final response.\
+"""
+"""Scoped instruction for an unattended run, applied by the headless entry point.
+
+Defined here rather than in ``cli_runner`` because the prompt assembler has to
+recognise it: earlier builds wrote it INSIDE the durable part of the
+prompt, and ``set_message_history`` has to undo that. One definition, so the
+text the CLI applies and the text a resume heals cannot drift apart.
+"""
+
+
 class BaseAgent(ABC):
     """Abstract base for all Code Puppy agents."""
 
     def __init__(self) -> None:
         self.id: str = str(uuid.uuid4())
         self._message_history: List[Any] = []
+        # ``load_prompt`` fragments as this conversation opened with them.
+        # ``None`` means "not gathered yet"; an empty list is a real answer
+        # (no plugin contributed) and must not re-trigger a gather.
+        # See ``get_full_system_prompt`` for why these are frozen per
+        # conversation rather than recomputed per turn.
+        self._standing_prompt_additions: Optional[List[str]] = None
+        # The system prompt a RESUMED conversation was built with, adopted
+        # verbatim so the provider's cache prefix survives the resume.
+        # ``None`` means this agent is not resuming anything.
+        self._adopted_prompt_body: Optional[str] = None
         self._compacted_message_hashes: Set[str] = set()
         self._code_generation_agent: Any = None
         self._last_model_name: Optional[str] = None
@@ -204,26 +229,209 @@ class BaseAgent(ABC):
         They live here — not in ``get_system_prompt`` — so they're recomputed
         fresh every run and never get persisted into static agent definitions
         (e.g. when an agent is cloned to JSON). See ``clone_agent``.
+
+        Fragments are gathered ONCE PER CONVERSATION, not once per turn.
+        pydantic-ai stamps this string into ``instructions`` on every request,
+        and ``instructions`` is the provider's cache prefix — so a fragment
+        that changes between turns invalidates the cache on every turn. A
+        memory/recall plugin is the worst case: it recalls what the previous
+        turn wrote, so it grows precisely as the conversation gets long enough
+        for caching to matter. Measured on one such thread, the block went
+        5571 → 6129 characters between turn 1 and turn 2, missing the cache
+        each time.
+
+        The system prompt is the CONTRACT and does not change mid-conversation;
+        recall is CONTEXT and belongs in the message stream. Keeping the prefix
+        fixed is what makes a long conversation affordable.
+
+        Gathered on the first call and reused thereafter, rather than keyed on
+        whether history exists: the setup path calls this more than once before
+        any history does, so a history-keyed cache would still re-poll and
+        still drift, only earlier. ``clear_message_history`` (i.e. ``/clear``)
+        is the one reset — the prefix is allowed to change exactly when the
+        conversation does.
         """
         from code_puppy import callbacks
 
-        prompt = self.get_system_prompt()
-        prompt_additions = callbacks.on_load_prompt()
-        if prompt_additions:
-            prompt += "\n" + "\n".join(prompt_additions)
+        # A resumed conversation already has a prompt BODY, and it is
+        # authoritative: it is what the provider cached and what every stored
+        # message was sent under, and recomputing it would drift. The identity
+        # line is not part of it -- see ``set_message_history`` for why.
+        #
+        # It replaces the authored prompt and the standing fragments; it does
+        # NOT replace the runtime additions below. Those are scoped to THIS
+        # run, so a resumed conversation must still get them -- returning here
+        # would silently drop the headless autonomy instruction on every
+        # `code-puppy -p` against an existing session.
+        if self._adopted_prompt_body is not None:
+            prompt = self._adopted_prompt_body
+        else:
+            prompt = self.get_system_prompt()
+            # Gathered on the FIRST call and reused thereafter, not merely on
+            # turns after the first. The setup path calls this more than once
+            # before any history exists -- `_estimate_context_overhead` is one
+            # such caller -- so keying on "history is empty" would still
+            # re-poll and still drift, just earlier. Measured on this branch
+            # before the fix: 2 polls and a changed prompt before turn one had
+            # run.
+            #
+            # `None` means "not gathered yet"; `[]` is a real answer meaning no
+            # plugin contributed, and conflating them re-polls forever for
+            # conversations that have no fragments. Reset by
+            # `clear_message_history`, which is the one moment a new
+            # conversation legitimately begins.
+            if self._standing_prompt_additions is None:
+                self._standing_prompt_additions = callbacks.on_load_prompt()
+            prompt_additions = self._standing_prompt_additions
+            if prompt_additions:
+                prompt += "\n" + "\n".join(prompt_additions)
+        prompt += self.get_identity_prompt()
+        # Runtime additions go AFTER the identity line, which makes them
+        # unadoptable by construction: ``_strip_identity_prompt`` keeps only
+        # the text BEFORE that marker, so scoped text cannot survive into the
+        # next conversation's cached prefix. It also leaves the durable part
+        # (body + identity) as a maximal stable prefix, which is what the
+        # provider actually caches.
+        #
+        # The ordering matters because the headless loop calls
+        # ``set_message_history`` after the scoped block has already exited:
+        # the list is empty by then, so nothing on this object can tell the
+        # resume which bytes were ephemeral. Position is the only reliable
+        # signal, and it survives the trip through storage into another
+        # process.
         if self._runtime_system_prompt_additions:
             prompt += "\n" + "\n".join(self._runtime_system_prompt_additions)
-        return prompt + self.get_identity_prompt()
+        return prompt
 
     # ---- Message history (plain dict-level access) ------------------------
     def get_message_history(self) -> List[Any]:
         return self._message_history
 
-    def set_message_history(self, history: List[Any]) -> None:
+    def set_message_history(
+        self, history: List[Any], *, agent_id: Optional[str] = None
+    ) -> None:
+        """Adopt ``history``, and with it the conversation's prompt and id.
+
+        This is the resume door. Every front door that continues a
+        conversation arrives here -- the CLI through
+        ``restore_named_session``, an embedding runner by calling it
+        directly, a headless loop that rebuilds an agent per turn -- so
+        resume behaviour belongs here rather than in any one caller. Putting
+        it in a caller fixes exactly that caller, which is how an earlier
+        attempt at this passed its own tests while every other front end was
+        unchanged.
+
+        Non-empty history means a conversation is being resumed:
+
+        * Its opening ``instructions`` become this agent's system prompt.
+          pydantic-ai stamps the prompt onto every request message, so the
+          history knows what it was built with, and that string is the
+          provider's cache prefix. Recomputing it in a fresh process yields
+          a different one -- a live timestamp, a grown recall block -- and
+          the cache then misses on every turn of a long conversation, which
+          is exactly when it was worth having.
+        * ``agent_id``, when the caller knows it, replaces the uuid minted
+          in ``__init__``. It is not in the history, so it has to be passed;
+          the prompt tells the agent to use its id "for claiming task
+          ownership or coordination with other agents", and an id minted per
+          process cannot own anything.
+
+        Setting an empty history is not a resume: nothing is adopted, and
+        the agent keeps its own identity and computes its own prompt.
+        """
         self._message_history = history
+        if not history:
+            return
+        if agent_id:
+            self.id = agent_id
+        prior = self._opening_instructions(history)
+        if prior:
+            # Adopt the BODY, not the whole string. ``get_identity_prompt`` is
+            # appended last and is a pure function of ``self.id``, so keeping
+            # it out of the frozen text leaves exactly one representation of
+            # the identity -- the field -- instead of a field plus a copy
+            # rendered into English that the two could drift apart on.
+            #
+            # The alternative, recovering the id by matching the rendered
+            # sentence, closes the gap and opens worse ones: the line shows
+            # six characters of a uuid, so the round trip is lossy, and the
+            # wording of a user-facing sentence becomes load-bearing -- a
+            # translation or a reword would silently corrupt identity.
+            #
+            # Nothing is lost by excluding it. The body is what drifted (live
+            # timestamps, a growing recall block); the identity line is stable
+            # by construction once the id is, so re-rendering it yields the
+            # same bytes and the cache prefix still holds.
+            self._adopted_prompt_body = self._heal_legacy_body(
+                self._strip_identity_prompt(prior)
+            )
+
+    @staticmethod
+    def _heal_legacy_body(body: str) -> str:
+        """``body`` without a scoped addition an older build froze into it.
+
+        Earlier builds appended runtime additions BEFORE the identity line, so in a session saved by one of those the autonomy instruction
+        sits inside the durable body and the ordering fix cannot reach it.
+        Adopting it verbatim re-applies it to every later turn -- including
+        interactive ones, which would tell a user's own session never to ask
+        them for confirmation, with ``/clear`` as the only escape.
+
+        Measured on a session written in the legacy layout: present on turns
+        2, 3, 4 and 5 of an interactive resume.
+
+        Removing the exact known string is deliberately narrow. Anything
+        looser -- a heuristic, a marker, a regex over prompt prose -- would
+        risk eating authored text that merely resembles it, and the whole
+        design already refuses to make user-facing wording load-bearing. A
+        prompt that never contained it is returned unchanged, so this costs
+        nothing once the old sessions age out.
+        """
+        return body.replace("\n" + HEADLESS_AUTONOMY_PROMPT, "").replace(
+            HEADLESS_AUTONOMY_PROMPT, ""
+        )
+
+    def _strip_identity_prompt(self, prompt: str) -> str:
+        """``prompt`` without the trailing identity line this class appends.
+
+        Splits on the marker rather than recomputing the suffix for THIS
+        agent: the stored prompt carries the id of the conversation, which is
+        not necessarily the uuid this process minted, so
+        ``removesuffix(self.get_identity_prompt())`` would silently fail to
+        strip and re-introduce the duplication this avoids.
+
+        A prompt with no identity line -- from another tool, or an older
+        version -- is returned unchanged.
+        """
+        marker = "\n\nYour ID is `"
+        head, sep, _ = prompt.rpartition(marker)
+        return head if sep else prompt
+
+    @staticmethod
+    def _opening_instructions(history: List[Any]) -> Optional[str]:
+        """The system prompt the first request in ``history`` was sent with.
+
+        Reads the FIRST request rather than the last: the opener is the
+        prefix every later message was cached against, and a later message
+        may carry a prompt that had already drifted. Tolerant of shape --
+        histories arrive as pydantic-ai objects or as plain dicts depending
+        on the caller, and a resume must not fail over an attribute.
+        """
+        for message in history:
+            if isinstance(message, dict):
+                instructions = message.get("instructions")
+            else:
+                instructions = getattr(message, "instructions", None)
+            if isinstance(instructions, str) and instructions:
+                return instructions
+        return None
 
     def clear_message_history(self) -> None:
         self._message_history = []
+        # A new conversation gets fresh fragments and drops any prompt
+        # adopted from the old one: this is the single moment the cache
+        # prefix is meant to change.
+        self._standing_prompt_additions = None
+        self._adopted_prompt_body = None
         self._compacted_message_hashes.clear()
 
     def append_to_message_history(self, message: Any) -> None:
