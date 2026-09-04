@@ -14,6 +14,11 @@ import re
 from dataclasses import dataclass
 
 _GLM_VERSION_RE = re.compile(r"glm-(\d+(?:\.\d+)?)")
+_GPT_VERSION_RE = re.compile(r"gpt-(\d+)(?:\.(\d+))?")
+
+# First GPT generation exposing the Responses-API reasoning controls
+# (reasoning_context / reasoning_mode / encrypted reasoning, "max" effort).
+GPT_RESPONSES_CONTROLS_MIN_VERSION = (5, 6)
 
 
 @dataclass
@@ -448,6 +453,45 @@ def supports_glm_reasoning_effort(model_name: str) -> bool:
     """Only GLM-5.2 and newer support the ``reasoning_effort`` parameter."""
     version = get_glm_version(model_name)
     return version is not None and version >= 5.2
+
+
+def get_gpt_version(model_name: str) -> tuple[int, int] | None:
+    """Extract the ``(major, minor)`` GPT generation embedded in a model name.
+
+    Handles aliases and prefixes (``codex-gpt-5.6-sol``, ``gpt-6-astra``,
+    ``boodleton-gpt-5.4-mini``). A missing minor is ``0``. Returned as a
+    tuple, not a float, so ``5.10`` never sorts below ``5.6``.
+
+    Returns:
+        ``(major, minor)``, or ``None`` if the name isn't a GPT model.
+    """
+    match = _GPT_VERSION_RE.search(model_name.lower())
+    if not match:
+        return None
+    return int(match.group(1)), int(match.group(2) or 0)
+
+
+def is_gpt_reasoning_model(*model_names: str | None) -> bool:
+    """GPT-5 and newer take ``reasoning_effort`` (and verbosity/summaries)."""
+    return any(
+        (version := get_gpt_version(name)) is not None and version >= (5, 0)
+        for name in model_names
+        if name
+    )
+
+
+def supports_gpt_responses_controls(*model_names: str | None) -> bool:
+    """GPT-5.6 and newer expose reasoning_context/reasoning_mode and "max" effort.
+
+    Accepts several candidate names (config key, underlying ``name``) so callers
+    keyed by an alias (``luna-responses`` -> ``gpt-5.6-luna``) still match.
+    """
+    return any(
+        (version := get_gpt_version(name)) is not None
+        and version >= GPT_RESPONSES_CONTROLS_MIN_VERSION
+        for name in model_names
+        if name
+    )
 
 
 def get_thinking_tags(

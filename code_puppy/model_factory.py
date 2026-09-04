@@ -226,12 +226,13 @@ def make_model_settings(
     This handles model-specific settings:
     - GPT-5 models: reasoning_effort and verbosity (non-codex only)
     - Claude/Anthropic models: extended_thinking and budget_tokens
-    - Automatic max_tokens calculation based on model context length
+    - ``max_tokens`` resolved via :func:`config.get_model_max_output_tokens`
+      (per-model override > catalog ``max_output_tokens`` > 15% heuristic)
 
     Args:
         model_name: The name of the model to create settings for.
-        max_tokens: Optional max tokens limit. If None, automatically calculated
-            as: max(2048, min(15% of context_length, 65536))
+        max_tokens: Optional explicit output cap. Wins over every configured
+            source when given.
         overrides: Optional agent-scoped settings. Supported values override
             global and per-model settings before provider-specific translation.
 
@@ -239,38 +240,25 @@ def make_model_settings(
         Appropriate ModelSettings subclass instance for the model.
     """
     from code_puppy.config import (
+        MAX_OUTPUT_TOKENS_SETTING,
         get_effective_model_settings,
+        get_model_max_output_tokens,
         model_supports_setting,
     )
 
     model_settings_dict: dict = {}
 
-    # Calculate max_tokens if not explicitly provided
+    # Preserve the failed-load sentinel (None) so support checks can apply
+    # their backwards-compatible fallback instead of treating a failed load
+    # as a valid empty catalog.
     models_config: Optional[dict[str, Any]] = None
     model_config: dict[str, Any] = {}
-    if max_tokens is None:
-        # Load model config to get context length
-        try:
-            models_config = ModelFactory.load_config()
-            model_config = models_config.get(model_name, {})
-            context_length = model_config.get("context_length", 128000)
-        except Exception:
-            # Preserve the failed-load sentinel so support checks can apply
-            # their backwards-compatible fallback instead of treating a
-            # failed load as a valid empty catalog.
-            models_config = None
-            context_length = 128000
-        # min 2048, 15% of context, max 65536
-        max_tokens = max(2048, min(int(0.15 * context_length), 65536))
-    elif not model_config:
-        try:
-            models_config = ModelFactory.load_config()
-            model_config = models_config.get(model_name, {})
-        except Exception:
-            models_config = None
-            model_config = {}
+    try:
+        models_config = ModelFactory.load_config()
+        model_config = models_config.get(model_name, {})
+    except Exception:
+        pass
 
-    model_settings_dict["max_tokens"] = max_tokens
     effective_settings = get_effective_model_settings(model_name)
     if overrides:
         supported_overrides = {
@@ -289,6 +277,18 @@ def make_model_settings(
             )
         }
         effective_settings.update(supported_overrides)
+
+    # Not a provider field: fold it into ``max_tokens`` and keep it out of the
+    # raw request body. Agent overrides land here too, so they win over the
+    # per-model / catalog / heuristic chain inside the resolver.
+    configured_output = effective_settings.pop(MAX_OUTPUT_TOKENS_SETTING, None)
+    if max_tokens is None:
+        max_tokens = (
+            int(configured_output)
+            if configured_output
+            else get_model_max_output_tokens(model_name, models_config)
+        )
+    model_settings_dict["max_tokens"] = max_tokens
     model_settings_dict.update(effective_settings)
 
     # Disable parallel tool calls when yolo_mode is off (sequential so user can review each call)
@@ -335,9 +335,15 @@ def make_model_settings(
 
     # Copilot models speak OpenAI format even for Claude backends: Claude
     # thinking → reasoning_effort; GPT gets standard OpenAI reasoning.
+    from code_puppy.model_utils import (
+        is_gpt_reasoning_model,
+        supports_gpt_responses_controls,
+    )
+
     model_type = model_config.get("type")
+    underlying_name = str(model_config.get("name", "")).lower()
     is_copilot = model_type == "copilot"
-    copilot_underlying = model_config.get("name", "").lower() if is_copilot else ""
+    copilot_underlying = underlying_name if is_copilot else ""
 
     if is_copilot and copilot_underlying.startswith("claude-"):
         # Copilot wraps Claude behind OpenAI-compatible API; translate
@@ -378,7 +384,7 @@ def make_model_settings(
 
         model_settings = OpenAIChatModelSettings(**model_settings_dict)
 
-    elif "gpt-5" in model_name or "gpt-5" in str(model_config.get("name", "")).lower():
+    elif is_gpt_reasoning_model(model_name, underlying_name):
         # Match on the underlying model name as well as the config key:
         # custom endpoint entries are often keyed by an alias (e.g.
         # "luna-responses" -> name "gpt-5.6-luna") and would otherwise
@@ -401,7 +407,7 @@ def make_model_settings(
                 model_type == "openai"
                 and (
                     "codex" in model_name
-                    or "gpt-5.6" in str(model_config.get("name", "")).lower()
+                    or supports_gpt_responses_controls(underlying_name)
                 )
             )
             or (
@@ -786,9 +792,10 @@ class ModelFactory:
                 provider=provider,
                 profile=_thinking_tags_profile(model_name, model_config),
             )
-            if (
-                "codex" in model_name
-                or "gpt-5.6" in str(model_config.get("name", "")).lower()
+            from code_puppy.model_utils import supports_gpt_responses_controls
+
+            if "codex" in model_name or supports_gpt_responses_controls(
+                model_config.get("name")
             ):
                 model = OpenAIResponsesModel(
                     model_name=model_config["name"],

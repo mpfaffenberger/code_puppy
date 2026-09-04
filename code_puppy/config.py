@@ -483,6 +483,78 @@ def get_model_context_length() -> int:
         return 128000
 
 
+# Setting key (both in model catalog entries and the per-model
+# ``model_settings_`` namespace) for the output-token cap sent as
+# ``max_tokens``. Populated automatically from models.dev by ``/add_model``.
+MAX_OUTPUT_TOKENS_SETTING = "max_output_tokens"
+
+# Heuristic bounds used when a model entry carries no ``max_output_tokens``.
+_HEURISTIC_MIN_OUTPUT_TOKENS = 2048
+_HEURISTIC_MAX_OUTPUT_TOKENS = 65536
+_HEURISTIC_OUTPUT_FRACTION = 0.15
+
+
+def _coerce_positive_int(value: Any) -> Optional[int]:
+    """``int(value)`` when it parses to something > 0, else ``None``."""
+    try:
+        parsed = int(float(value))
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def get_model_max_output_tokens(
+    model_name: Optional[str] = None,
+    models_config: Optional[dict[str, Any]] = None,
+) -> int:
+    """Effective output-token cap (``max_tokens``) for a model.
+
+    Resolution order, first hit wins:
+
+    1. Per-model user override from ``/model_settings``.
+    2. ``max_output_tokens`` in the model's catalog entry
+       (``models.json`` / ``extra_models.json``; ``/add_model`` fills this
+       from models.dev's ``limit.output``).
+    3. Heuristic: 15% of ``context_length``, clamped to [2048, 65536].
+
+    Args:
+        model_name: Model key; defaults to the current global model.
+        models_config: Optional preloaded catalog to avoid a reload.
+    """
+    if model_name is None:
+        model_name = get_global_model_name()
+
+    override = _coerce_positive_int(
+        get_model_setting(model_name, MAX_OUTPUT_TOKENS_SETTING)
+    )
+    if override is not None:
+        return override
+
+    context_length = 128000
+    try:
+        if models_config is None:
+            from code_puppy.model_factory import ModelFactory
+
+            models_config = ModelFactory.load_config()
+        model_config = models_config.get(model_name, {})
+        catalog_value = _coerce_positive_int(
+            model_config.get(MAX_OUTPUT_TOKENS_SETTING)
+        )
+        if catalog_value is not None:
+            return catalog_value
+        context_length = int(model_config.get("context_length", context_length))
+    except Exception:
+        pass
+
+    return max(
+        _HEURISTIC_MIN_OUTPUT_TOKENS,
+        min(
+            int(_HEURISTIC_OUTPUT_FRACTION * context_length),
+            _HEURISTIC_MAX_OUTPUT_TOKENS,
+        ),
+    )
+
+
 # --- CONFIG SETTER STARTS HERE ---
 def get_config_keys():
     """
@@ -808,8 +880,15 @@ def model_supports_setting(
         True if the model supports the setting, False otherwise.
         Defaults to True for backwards compatibility if model config doesn't specify.
     """
-    from code_puppy.model_utils import get_anthropic_thinking_display_choices
+    from code_puppy.model_utils import (
+        get_anthropic_thinking_display_choices,
+        supports_gpt_responses_controls,
+    )
 
+    # Every model has an output cap; it's resolved into ``max_tokens`` by
+    # make_model_settings rather than sent to the provider as-is.
+    if setting == MAX_OUTPUT_TOKENS_SETTING:
+        return True
     # GLM-4.5+ models support deep-thinking controls (thinking_type,
     # clear_thinking); GLM-5.2+ additionally support reasoning_effort.
     if setting in ("thinking_type", "clear_thinking"):
@@ -823,9 +902,9 @@ def model_supports_setting(
         if supports_glm_reasoning_effort(model_name):
             return True
     if setting in ("reasoning_context", "reasoning_mode"):
-        # GPT-5.6 Responses API controls; detect here so injected/custom 5.6
+        # GPT-5.6+ Responses API controls; detect here so injected/custom
         # definitions needn't duplicate supported_settings metadata.
-        if "gpt-5.6" in model_name.lower():
+        if supports_gpt_responses_controls(model_name):
             return True
     if setting == "thinking_display":
         # Fable 5.1 progress-update display; same identity-based detection so
@@ -841,7 +920,7 @@ def model_supports_setting(
         model_config = models_config.get(model_name, {})
         underlying_name = str(model_config.get("name", "")).lower()
         if setting in ("reasoning_context", "reasoning_mode"):
-            if "gpt-5.6" in underlying_name:
+            if supports_gpt_responses_controls(underlying_name):
                 return True
         if setting == "thinking_display":
             if get_anthropic_thinking_display_choices(model_name, underlying_name):
