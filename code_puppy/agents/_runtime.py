@@ -71,6 +71,10 @@ from code_puppy.agents._non_streaming_render import (
     render_result_without_streaming,
     should_render_fallback,
 )
+from code_puppy.agents._prompt_preparation import (
+    build_prompt_observation,
+    observe_prompt_preparation,
+)
 from code_puppy.agents._run_signals import (
     drain_pause_state_on_cancel,
     inject_interrupted_subagent_notes,
@@ -563,28 +567,6 @@ def _extract_response_text(result: Any) -> str:
     return str(result)
 
 
-def _should_prepend_system_prompt(agent: Any, prompt: str) -> str:
-    """Prepend system prompt to user prompt on the first turn (claude-code etc)."""
-    from code_puppy.agents._builder import load_puppy_rules
-    from code_puppy.model_utils import prepare_prompt_for_model
-
-    if agent._message_history:
-        return prompt
-
-    system_prompt = agent.get_full_system_prompt()
-    rules = load_puppy_rules()
-    if rules:
-        system_prompt += f"\n{rules}"
-
-    prepared = prepare_prompt_for_model(
-        model_name=agent.get_model_name(),
-        system_prompt=system_prompt,
-        user_prompt=prompt,
-        prepend_system_to_user=True,
-    )
-    return prepared.user_prompt
-
-
 def _checkpoint_cancelled_history(exc_group: BaseException, agent: Any) -> None:
     """Preserve a cancelled run's partial work into ``agent._message_history``.
 
@@ -754,7 +736,11 @@ async def _run_with_mcp_impl(
     if output_type is not None:
         pydantic_agent = build_pydantic_agent(agent, output_type=output_type)
 
-    prompt = _should_prepend_system_prompt(agent, prompt)
+    # First-turn system-prompt fold (claude-code etc.) is delivered by the
+    # PromptPreparation capability at request time; here we only compute the
+    # raw -> prepared substitution (same call site + hook parity as the old
+    # baked-in prepend) and install it for the run task below.
+    prompt_observation, prompt = build_prompt_observation(agent, prompt)
     prompt_payload = _build_prompt_payload(prompt, attachments, link_attachments)
 
     async def _do_run(prompt_to_use: Any) -> Any:
@@ -992,6 +978,11 @@ async def _run_with_mcp_impl(
             from code_puppy.observability import clear_agent_context
 
             clear_agent_context(group_id)
+            # Custody boundary: whatever state this turn leaves behind
+            # (completed run, cancellation checkpoint, checkpointed partial
+            # progress after a crash) must store the PREPARED first-turn
+            # prompt, exactly as the old baked-in prepend did. Idempotent.
+            prompt_observation.mirror(agent._message_history)
             agent._message_history = _history.prune_interrupted_tool_calls(
                 agent._message_history
             )
@@ -1025,7 +1016,11 @@ async def _run_with_mcp_impl(
         # MCP trouble must never block the agent run itself.
         pass
 
-    agent_task = asyncio.create_task(run_agent_task())
+    # Install the observation so the task's context snapshot carries it: the
+    # PromptPreparation capability resolves it at request time (send side) and
+    # run end (persist side). Inert when the turn didn't qualify.
+    with observe_prompt_preparation(prompt_observation):
+        agent_task = asyncio.create_task(run_agent_task())
 
     loop = asyncio.get_running_loop()
 

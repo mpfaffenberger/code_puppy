@@ -339,6 +339,8 @@ async def _invoke_agent_impl(
     # if load_agent() itself fails before assignment.
     agent_config = None
     effective_model_name = model_name
+    prompt_observation = None
+    prepared_user_prompt = prompt
 
     try:
         # Lazy import to break circular dependency with messaging module
@@ -413,6 +415,11 @@ async def _invoke_agent_impl(
 
             # NOTE: load_prompt fragments are already baked into get_full_system_prompt
             # via BaseAgent — appending again would double-inject them.
+            from code_puppy.agents._prompt_preparation import (
+                PromptObservation,
+                PromptPreparation,
+                observe_prompt_preparation,
+            )
             from code_puppy.model_utils import prepare_prompt_for_model
 
             # Model-family prep (e.g. claude-code): may split off a standing
@@ -424,7 +431,21 @@ async def _invoke_agent_impl(
                 prepend_system_to_user=is_new_session,  # Only prepend on first message
             )
             instructions = prepared.instructions
-            prompt = prepared.user_prompt
+            prepared_user_prompt = prepared.user_prompt
+            if is_new_session and prompt:
+                # New session: the system-prompt fold is delivered by the
+                # PromptPreparation capability at request time; ``prompt``
+                # stays raw and the recorded history is mirrored at run end.
+                prompt_observation = PromptObservation(
+                    raw=prompt, prepared=prepared_user_prompt, active=True
+                )
+            else:
+                # Resumed session (hooks leave the user prompt untouched when
+                # the prepend flag is off) or degenerate empty prompt (no
+                # user part to anchor the swap on): keep the eager
+                # pass-through, exactly as before.
+                prompt = prepared_user_prompt
+                prompt_observation = PromptObservation.inactive()
 
             model_settings = make_model_settings(
                 effective_model_name,
@@ -473,9 +494,13 @@ async def _invoke_agent_impl(
                 output_type=str,
                 retries=3,
                 toolsets=mcp_servers,
-                # ProcessHistory capability replaces the deprecated
-                # `history_processors=` kwarg (removed in pydantic-ai v2).
+                # Prompt preparation FIRST so compaction sees the folded
+                # first user message exactly as it did when the fold was
+                # baked into the prompt argument. ProcessHistory capability
+                # replaces the deprecated `history_processors=` kwarg
+                # (removed in pydantic-ai v2).
                 capabilities=[
+                    PromptPreparation(),
                     ProcessHistory(make_history_processor(agent_config)),
                     build_model_message_transform(agent_name),
                     # Recursion guards ride the wrap_tool_execute seam so a
@@ -569,7 +594,10 @@ async def _invoke_agent_impl(
                         if include_usage_metrics
                         else None
                     )
-                    task = asyncio.create_task(_run_subagent())
+                    # The task's context snapshot carries the observation so
+                    # PromptPreparation can resolve it at request time.
+                    with observe_prompt_preparation(prompt_observation):
+                        task = asyncio.create_task(_run_subagent())
                     _active_subagent_tasks.add(task)
 
                     try:
@@ -610,12 +638,13 @@ async def _invoke_agent_impl(
             # The result contains all_messages which includes the full conversation
             updated_history = result.all_messages()
 
-            # Save to filesystem (include initial prompt only for new sessions)
+            # Save to filesystem (include initial prompt only for new
+            # sessions; the PREPARED form, matching what the model saw)
             _save_session_history(
                 session_id=session_id,
                 message_history=updated_history,
                 agent_name=agent_name,
-                initial_prompt=prompt if is_new_session else None,
+                initial_prompt=prepared_user_prompt if is_new_session else None,
             )
 
             # Emit via MessageBus; skip in high mode when streaming already
@@ -663,6 +692,15 @@ async def _invoke_agent_impl(
             e, (asyncio.CancelledError, KeyboardInterrupt)
         ) or _contains_cancellation(e)
 
+        # Custody boundary: checkpointed partial progress must persist the
+        # PREPARED first-turn prompt, exactly as the old baked-in prepend
+        # did. Idempotent; inert when the run never qualified.
+        if prompt_observation is not None and agent_config is not None:
+            try:
+                prompt_observation.mirror(agent_config.get_message_history() or [])
+            except Exception:
+                pass
+
         if interrupted:
             # CancelledError derives from BaseException, so it slipped past the
             # old ``except Exception`` save path. Persist progress, tell the user
@@ -672,7 +710,7 @@ async def _invoke_agent_impl(
                 session_id=session_id,
                 agent_name=agent_name,
                 baseline_count=len(message_history),
-                initial_prompt=prompt if is_new_session else None,
+                initial_prompt=prepared_user_prompt if is_new_session else None,
             )
             detail = (
                 f"{saved} message(s) saved"
@@ -710,7 +748,7 @@ async def _invoke_agent_impl(
             session_id=session_id,
             agent_name=agent_name,
             baseline_count=len(message_history),
-            initial_prompt=prompt if is_new_session else None,
+            initial_prompt=prepared_user_prompt if is_new_session else None,
         )
         if saved is not None:
             emit_info(
