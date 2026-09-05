@@ -4,12 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "code-puppy"
-version = "0.0.814"
+version = "0.0.824"
 description = "Code generation agent"
 readme = "README.md"
 requires-python = ">=3.11,<3.15"
 dependencies = [
-    "code-puppy-core-plugins>=0.0.38",
+    "code-puppy-core-plugins>=0.0.42",
     "logfire>=4.0",
     "pydantic-ai-slim[openai,anthropic,mcp]==2.35.0",
     "pydantic-ai-harness==0.23.0",
@@ -29,7 +29,7 @@ dependencies = [
     "openai>=2.45.0",
     "ripgrep==14.1.0; sys_platform != 'android'",
     "playwright>=1.40.0; sys_platform != 'android'",
-    "termflow-md>=0.9.0",
+    "termflow-md>=0.9.1",
     "Pillow>=10.0.0",
     "azure-identity>=1.15.0",
     "anthropic>=1.0.0,<2",

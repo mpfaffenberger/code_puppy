@@ -22,6 +22,7 @@ from rich.console import Console
 
 from code_puppy import __version__, callbacks, get_core_plugins_version, plugins
 from code_puppy.agents import get_current_agent
+from code_puppy.asyncio_cleanup import install_httpcore2_shutdown_filter
 from code_puppy.i18n import t, use_detected_locale
 from code_puppy.command_line.attachments import (
     parse_prompt_attachments,
@@ -154,6 +155,7 @@ def apply_quick_resume(args) -> bool:
 
 async def main():
     """Main async entry point for Code Puppy CLI."""
+    install_httpcore2_shutdown_filter()
     parser = argparse.ArgumentParser(description="Code Puppy - A code generation agent")
     parser.add_argument(
         "--version",

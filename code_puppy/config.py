@@ -305,9 +305,31 @@ _default_vision_model_cache = None
 _warned_no_model = False
 
 
+# Parsed-config cache: (path, inode, mtime_ns, size) -> parser. ``get_value``
+# is called hundreds of times per turn (and per streamed chunk), and each
+# call used to re-read and re-parse the INI file. Any write -- ours go through
+# ``mutate_config``'s atomic replace, which changes the inode -- rolls the key.
+_CONFIG_CACHE: tuple[tuple[str, int, int, int], configparser.ConfigParser] | None = None
+
+
 def _load_config() -> configparser.ConfigParser:
-    """Load ``CONFIG_FILE`` through the bounded, recoverable I/O layer."""
-    return load_config(CONFIG_FILE)
+    """Load ``CONFIG_FILE`` through the bounded, recoverable I/O layer.
+
+    Returns a shared, cached parser while the file on disk is unchanged;
+    callers must treat it as read-only (mutations go through ``mutate_config``).
+    """
+    global _CONFIG_CACHE
+    try:
+        st = os.stat(CONFIG_FILE)
+    except OSError:
+        # Missing/unreadable: let the I/O layer decide, nothing to cache.
+        return load_config(CONFIG_FILE)
+    key = (CONFIG_FILE, st.st_ino, st.st_mtime_ns, st.st_size)
+    if _CONFIG_CACHE is not None and _CONFIG_CACHE[0] == key:
+        return _CONFIG_CACHE[1]
+    parser = load_config(CONFIG_FILE)
+    _CONFIG_CACHE = (key, parser)
+    return parser
 
 
 def ensure_config_exists():
@@ -323,7 +345,9 @@ def ensure_config_exists():
     # Skip the read entirely when we already know there's nothing to read --
     # matches configparser's own no-op-on-missing-file behavior and avoids an
     # unnecessary open() attempt during first-run setup.
-    config = _load_config() if exists else configparser.ConfigParser()
+    # Uncached read: this parser is mutated in place below, and the cached
+    # instance from _load_config() is shared with every reader.
+    config = load_config(CONFIG_FILE) if exists else configparser.ConfigParser()
     missing = []
     if DEFAULT_SECTION not in config:
         config[DEFAULT_SECTION] = {}
@@ -378,6 +402,12 @@ def ensure_config_exists():
 
 
 def get_value(key: str):
+    from code_puppy.shared_credentials import get, is_credential_key
+
+    if is_credential_key(key, discover=False):
+        shared = get(key)
+        if shared:
+            return shared
     config = _load_config()
     val = config.get(DEFAULT_SECTION, key, fallback=None)
     return val
@@ -457,6 +487,78 @@ def get_model_context_length() -> int:
     except Exception:
         # Fallback to default context length if anything goes wrong
         return 128000
+
+
+# Setting key (both in model catalog entries and the per-model
+# ``model_settings_`` namespace) for the output-token cap sent as
+# ``max_tokens``. Populated automatically from models.dev by ``/add_model``.
+MAX_OUTPUT_TOKENS_SETTING = "max_output_tokens"
+
+# Heuristic bounds used when a model entry carries no ``max_output_tokens``.
+_HEURISTIC_MIN_OUTPUT_TOKENS = 2048
+_HEURISTIC_MAX_OUTPUT_TOKENS = 65536
+_HEURISTIC_OUTPUT_FRACTION = 0.15
+
+
+def _coerce_positive_int(value: Any) -> Optional[int]:
+    """``int(value)`` when it parses to something > 0, else ``None``."""
+    try:
+        parsed = int(float(value))
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def get_model_max_output_tokens(
+    model_name: Optional[str] = None,
+    models_config: Optional[dict[str, Any]] = None,
+) -> int:
+    """Effective output-token cap (``max_tokens``) for a model.
+
+    Resolution order, first hit wins:
+
+    1. Per-model user override from ``/model_settings``.
+    2. ``max_output_tokens`` in the model's catalog entry
+       (``models.json`` / ``extra_models.json``; ``/add_model`` fills this
+       from models.dev's ``limit.output``).
+    3. Heuristic: 15% of ``context_length``, clamped to [2048, 65536].
+
+    Args:
+        model_name: Model key; defaults to the current global model.
+        models_config: Optional preloaded catalog to avoid a reload.
+    """
+    if model_name is None:
+        model_name = get_global_model_name()
+
+    override = _coerce_positive_int(
+        get_model_setting(model_name, MAX_OUTPUT_TOKENS_SETTING)
+    )
+    if override is not None:
+        return override
+
+    context_length = 128000
+    try:
+        if models_config is None:
+            from code_puppy.model_factory import ModelFactory
+
+            models_config = ModelFactory.load_config()
+        model_config = models_config.get(model_name, {})
+        catalog_value = _coerce_positive_int(
+            model_config.get(MAX_OUTPUT_TOKENS_SETTING)
+        )
+        if catalog_value is not None:
+            return catalog_value
+        context_length = int(model_config.get("context_length", context_length))
+    except Exception:
+        pass
+
+    return max(
+        _HEURISTIC_MIN_OUTPUT_TOKENS,
+        min(
+            int(_HEURISTIC_OUTPUT_FRACTION * context_length),
+            _HEURISTIC_MAX_OUTPUT_TOKENS,
+        ),
+    )
 
 
 # --- CONFIG SETTER STARTS HERE ---
@@ -545,6 +647,12 @@ def set_config_value(key: str, value: str):
     """
     Sets a config value in the persistent config file.
     """
+
+    from code_puppy.shared_credentials import is_credential_key, save
+
+    if is_credential_key(key):
+        save(key, value)
+        return
 
     def _apply(config: configparser.ConfigParser) -> None:
         if DEFAULT_SECTION not in config:
@@ -784,8 +892,15 @@ def model_supports_setting(
         True if the model supports the setting, False otherwise.
         Defaults to True for backwards compatibility if model config doesn't specify.
     """
-    from code_puppy.model_utils import get_anthropic_thinking_display_choices
+    from code_puppy.model_utils import (
+        get_anthropic_thinking_display_choices,
+        supports_gpt_responses_controls,
+    )
 
+    # Every model has an output cap; it's resolved into ``max_tokens`` by
+    # make_model_settings rather than sent to the provider as-is.
+    if setting == MAX_OUTPUT_TOKENS_SETTING:
+        return True
     # GLM-4.5+ models support deep-thinking controls (thinking_type,
     # clear_thinking); GLM-5.2+ additionally support reasoning_effort.
     if setting in ("thinking_type", "clear_thinking"):
@@ -799,9 +914,9 @@ def model_supports_setting(
         if supports_glm_reasoning_effort(model_name):
             return True
     if setting in ("reasoning_context", "reasoning_mode"):
-        # GPT-5.6 Responses API controls; detect here so injected/custom 5.6
+        # GPT-5.6+ Responses API controls; detect here so injected/custom
         # definitions needn't duplicate supported_settings metadata.
-        if "gpt-5.6" in model_name.lower():
+        if supports_gpt_responses_controls(model_name):
             return True
     if setting == "thinking_display":
         # Fable 5.1 progress-update display; same identity-based detection so
@@ -817,7 +932,7 @@ def model_supports_setting(
         model_config = models_config.get(model_name, {})
         underlying_name = str(model_config.get("name", "")).lower()
         if setting in ("reasoning_context", "reasoning_mode"):
-            if "gpt-5.6" in underlying_name:
+            if supports_gpt_responses_controls(underlying_name):
                 return True
         if setting == "reasoning_effort":
             # Resolve OpenAI model IDs and aliases without letting another
@@ -1551,6 +1666,27 @@ def get_grep_output_verbose():
     When True: Shows full output with line numbers and content
     """
     return get_truthy_bool_value("grep_output_verbose", False)
+
+
+GREP_MAX_MATCHES_DEFAULT = 50
+
+
+def get_grep_max_matches() -> int:
+    """Return the per-call grep match budget.
+
+    Read from the ``grep_max_matches`` config key (``/set grep_max_matches=<int>``).
+    Defaults to ``GREP_MAX_MATCHES_DEFAULT`` when unset or non-numeric, and is
+    floored at 1: a budget of zero would make every search return nothing,
+    which is a foot-gun rather than a legitimate opt-out. Results past the
+    budget are dropped and reported via ``GrepOutput.truncated``.
+    """
+    val = get_value("grep_max_matches")
+    if val is None or not str(val).strip():
+        return GREP_MAX_MATCHES_DEFAULT
+    try:
+        return max(1, int(val))
+    except (ValueError, TypeError):
+        return GREP_MAX_MATCHES_DEFAULT
 
 
 def get_disable_dangerous_command_guard() -> bool:
@@ -2922,7 +3058,9 @@ def get_api_key(key_name: str) -> str:
     Returns:
         The API key value, or empty string if not set
     """
-    return get_value(key_name) or ""
+    from code_puppy.shared_credentials import get
+
+    return get(key_name) or get_value(key_name) or ""
 
 
 def set_api_key(key_name: str, value: str):

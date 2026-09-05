@@ -134,16 +134,16 @@ class TestCredentialHint(unittest.TestCase):
 
 class TestSaveCredential(unittest.TestCase):
     def test_saves_to_config_and_environ(self):
-        with patch("code_puppy.config.set_config_value") as mock_set:
+        with patch("code_puppy.shared_credentials.save") as mock_set:
             save_credential("TEST_KEY", "test_value")
-            mock_set.assert_called_once_with("test_key", "test_value")
+            mock_set.assert_called_once_with("TEST_KEY", "test_value")
             self.assertEqual(os.environ.get("TEST_KEY"), "test_value")
             os.environ.pop("TEST_KEY", None)
 
     def test_saves_empty_value(self):
-        with patch("code_puppy.config.set_config_value") as mock_set:
+        with patch("code_puppy.shared_credentials.save") as mock_set:
             save_credential("TEST_KEY", "")
-            mock_set.assert_called_once_with("test_key", "")
+            mock_set.assert_called_once_with("TEST_KEY", "")
             self.assertNotIn("TEST_KEY", os.environ)
 
 
