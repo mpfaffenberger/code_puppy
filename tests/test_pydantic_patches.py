@@ -10,6 +10,7 @@ The contract under test:
 """
 
 import builtins
+import json
 import logging
 from types import SimpleNamespace
 
@@ -18,6 +19,98 @@ import pytest
 from code_puppy import pydantic_patches
 
 LOGGER_NAME = "code_puppy.pydantic_patches"
+SHATTERING_MALFORMED_JSON = (
+    '{"file_path": "demo.py", "content": "print(f\\"wrote {n_rows:,} rows\\")\n'
+    'print(f"  {name:<30}{count:>10,}")\n'
+    "total_mb = 34.56 * len(ss) / total_sigs\n"
+    '"}'
+)
+
+
+def test_valid_tool_call_json_passes_through_without_repair(monkeypatch):
+    import json_repair
+
+    payload = json.dumps(
+        {
+            "file_path": "demo.py",
+            "content": 'print(f"{n_rows:,} rows")\nsummary = {"a": 1}\n',
+        }
+    )
+
+    def unexpected_repair(_raw):
+        pytest.fail("valid JSON must not be handed to json_repair")
+
+    monkeypatch.setattr(json_repair, "repair_json", unexpected_repair)
+
+    assert pydantic_patches._repair_tool_call_json(payload) == payload
+
+
+def test_non_object_tool_call_json_repair_is_rejected():
+    import json_repair
+
+    repaired = json.loads(json_repair.repair_json(SHATTERING_MALFORMED_JSON))
+    assert not isinstance(repaired, dict)
+    assert (
+        pydantic_patches._repair_tool_call_json(SHATTERING_MALFORMED_JSON)
+        == SHATTERING_MALFORMED_JSON
+    )
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        RecursionError("maximum recursion depth exceeded"),
+        ValueError("strict parser rejected input"),
+    ],
+)
+def test_strict_parse_failure_returns_original(monkeypatch, error):
+    raw = '{"value": {"nested": true}}'
+
+    def parse_failure(_raw):
+        raise error
+
+    monkeypatch.setattr(pydantic_patches.json, "loads", parse_failure)
+
+    assert pydantic_patches._repair_tool_call_json(raw) == raw
+
+
+def test_recoverable_tool_call_json_is_repaired():
+    malformed = '{"file_path": "demo.py", "content": "hi",}'
+
+    repaired = pydantic_patches._repair_tool_call_json(malformed)
+
+    assert repaired != malformed
+    assert json.loads(repaired) == {"file_path": "demo.py", "content": "hi"}
+
+
+def test_tool_call_json_repair_exception_returns_original(monkeypatch):
+    import json_repair
+
+    malformed = "{not json at all"
+
+    def explode(_raw):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(json_repair, "repair_json", explode)
+
+    assert pydantic_patches._repair_tool_call_json(malformed) == malformed
+
+
+@pytest.mark.asyncio
+async def test_json_repair_patch_rejects_non_object_repair(monkeypatch):
+    from pydantic_ai.tool_manager import ToolManager
+
+    async def validate_tool_call(_manager, call, **_kwargs):
+        return call.args
+
+    monkeypatch.setattr(ToolManager, "validate_tool_call", validate_tool_call)
+    assert pydantic_patches.patch_tool_call_json_repair() is True
+    call = SimpleNamespace(args=SHATTERING_MALFORMED_JSON)
+
+    result = await ToolManager.validate_tool_call(SimpleNamespace(), call)
+
+    assert result == SHATTERING_MALFORMED_JSON
+    assert call.args == SHATTERING_MALFORMED_JSON
 
 
 @pytest.mark.parametrize("tool_name", ["replace_in_file", "edit", "apply_patch"])
