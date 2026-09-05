@@ -436,6 +436,47 @@ def test_render_agent_response_plain(renderer, console):
     renderer._render_agent_response(msg)
 
 
+@patch(
+    "code_puppy.config.get_selection_friendly_transcript",
+    return_value=True,
+)
+def test_render_agent_response_selection_friendly_skips_theme_fg(
+    mock_toggle, renderer, console
+):
+    """Selection-friendly default: no theme fg override on print().
+
+    The whole point of the toggle is that the terminal's own selection
+    inversion keeps contrast. That only works if we hand Rich the
+    Markdown *without* a hex-color base style, so we assert print() was
+    called with no ``style`` keyword.
+    """
+    msg = AgentResponseMessage(content="**hi**", is_markdown=True)
+    with patch.object(renderer._console, "print") as mock_print:
+        renderer._render_agent_response(msg)
+    # First call = banner header, second = markdown body (the one we care about).
+    markdown_call = mock_print.call_args_list[1]
+    assert "style" not in markdown_call.kwargs
+
+
+@patch(
+    "code_puppy.callbacks.on_prompt_text_color",
+    return_value="#a9b1d6",
+)
+@patch(
+    "code_puppy.config.get_selection_friendly_transcript",
+    return_value=False,
+)
+def test_render_agent_response_legacy_applies_theme_fg(
+    mock_toggle, mock_color, renderer, console
+):
+    """Opt-out path still applies the theme fg (OSC-10 workaround)."""
+    msg = AgentResponseMessage(content="**hi**", is_markdown=True)
+    with patch.object(renderer._console, "print") as mock_print:
+        renderer._render_agent_response(msg)
+    markdown_call = mock_print.call_args_list[1]
+    assert markdown_call.kwargs.get("style") == "#a9b1d6"
+
+
 @patch("code_puppy.messaging.rich_renderer.is_subagent", return_value=False)
 def test_render_subagent_invocation(mock_sub, renderer, console):
     msg = SubAgentInvocationMessage(
