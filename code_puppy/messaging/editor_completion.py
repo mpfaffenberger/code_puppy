@@ -152,10 +152,18 @@ class CompletionEngine:
             if self._suppressed:
                 return
             was_open = self._open
+            # Existing items describe the PREVIOUS buffer, not this edit.
+            # Invalidate immediately, before the debounce/executor window:
+            # accepting an old anchor here leaves freshly typed suffixes.
+            self._seq += 1
+            self._open = False
+            self._items = []
+            self._anchor = -1
+            self._selected = -1
+        if was_open:
+            self._repaint()
         if was_open or should_autotrigger(text, cursor):
-            self._schedule_query(text, cursor, open_menu=was_open or True)
-        elif self.is_open():
-            self.close()
+            self._schedule_query(text, cursor, open_menu=True)
 
     def on_tab(self, text: str, cursor: int) -> bool:
         """Tab: cycle the selection when open, else force-open.
