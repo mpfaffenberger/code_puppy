@@ -255,11 +255,27 @@ class CompletionEngine:
         if loop is None or loop.is_closed():
             return
         try:
-            loop.call_soon_threadsafe(
-                lambda: loop.create_task(self._query_task(seq, text, cursor, delay))
-            )
+            loop.call_soon_threadsafe(self._arm_query, seq, text, cursor, delay)
         except RuntimeError:
             pass
+
+    def _arm_query(self, seq: int, text: str, cursor: int, delay: float) -> None:
+        """Loop-thread debounce: one timer, not one sleeping task per edit."""
+        with self._lock:
+            if seq != self._seq:
+                return
+        if self._debounce_handle is not None:
+            self._debounce_handle.cancel()
+        self._debounce_handle = self._loop.call_later(
+            delay, self._launch_query, seq, text, cursor
+        )
+
+    def _launch_query(self, seq: int, text: str, cursor: int) -> None:
+        self._debounce_handle = None
+        with self._lock:
+            if seq != self._seq:
+                return
+        self._loop.create_task(self._query_task(seq, text, cursor, 0.0))
 
     async def _query_task(self, seq: int, text: str, cursor: int, delay: float) -> None:
         if delay:

@@ -143,6 +143,22 @@ async def test_nontriggering_edit_invalidates_pending_query():
     assert not engine.is_open()
 
 
+async def test_rapid_edits_create_only_one_query_task():
+    from unittest.mock import AsyncMock
+
+    editor, engine = make_engine(["/help"])
+    query = AsyncMock()
+    engine._query_task = query
+    for length in range(1, 101):
+        engine.on_edit("/" + "h" * length, length + 1)
+        # Let each edit reach the loop; they must reset one timer rather
+        # than launch a sleeping coroutine for every intermediate buffer.
+        await asyncio.sleep(0)
+    await settle()
+    query.assert_awaited_once()
+    assert query.call_args.args[1:3] == ("/" + "h" * 100, 101)
+
+
 # =========================================================================
 # Adapter
 # =========================================================================
