@@ -419,7 +419,9 @@ def make_model_settings(
         _EFFORT_ALIAS = {"minimal": "none", "ultra": "max"}
         effort = effective_settings.get("reasoning_effort", "medium")
         effort = _EFFORT_ALIAS.get(effort, effort)
-        if reasoning_effort_choices and effort in reasoning_effort_choices:
+        if reasoning_effort_choices is None or (
+            reasoning_effort_choices and effort in reasoning_effort_choices
+        ):
             model_settings_dict["openai_reasoning_effort"] = effort
 
         uses_responses_api = (
@@ -463,6 +465,8 @@ def make_model_settings(
                 }
             model_settings = OpenAIChatModelSettings(**model_settings_dict)
     elif model_type in _OPENAI_COMPATIBLE_MODEL_TYPES and reasoning_effort_choices:
+        from pydantic_ai.models.openai import OpenAIChatModelSettings
+
         # Forward only documented effort values for OpenAI-compatible models.
         _EFFORT_ALIAS = {"minimal": "none", "ultra": "max"}
         effort = effective_settings.get("reasoning_effort", "medium")
