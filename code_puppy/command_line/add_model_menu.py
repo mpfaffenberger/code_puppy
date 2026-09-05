@@ -207,16 +207,24 @@ def build_model_config(model: ModelInfo, provider: ProviderInfo) -> dict:
             "extended_thinking",
             "budget_tokens",
         ]
-    elif model_type == "openai" and "gpt-5" in model.model_id:
-        if "codex" in model.model_id:
-            config["supported_settings"] = ["temperature", "top_p", "reasoning_effort"]
-        else:
+    elif model_type == "openai":
+        # Share OpenAI effort capabilities with config and settings menus.
+        # Empty means fixed effort; None means an unrecognized model.
+        from code_puppy.model_utils import get_openai_reasoning_effort_choices
+
+        effort_choices = get_openai_reasoning_effort_choices(model.model_id)
+        if effort_choices:
             config["supported_settings"] = [
                 "temperature",
                 "top_p",
                 "reasoning_effort",
-                "verbosity",
             ]
+            # Verbosity is a GPT-5-family Responses/Chat option; codex
+            # variants and o-series models don't support it.
+            if "gpt-5" in model.model_id and "codex" not in model.model_id:
+                config["supported_settings"].append("verbosity")
+        else:
+            config["supported_settings"] = ["temperature", "seed", "top_p"]
     else:
         config["supported_settings"] = ["temperature", "seed", "top_p"]
 

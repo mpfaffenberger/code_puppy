@@ -934,6 +934,21 @@ def model_supports_setting(
         if setting in ("reasoning_context", "reasoning_mode"):
             if supports_gpt_responses_controls(underlying_name):
                 return True
+        if setting == "reasoning_effort":
+            # Resolve OpenAI model IDs and aliases without letting another
+            # provider opt in merely because its key contains an OpenAI tag.
+            from code_puppy.model_factory import _OPENAI_COMPATIBLE_MODEL_TYPES
+            from code_puppy.model_utils import get_openai_reasoning_effort_choices
+
+            model_type = model_config.get("type")
+            if model_type is None or model_type in _OPENAI_COMPATIBLE_MODEL_TYPES:
+                choices = get_openai_reasoning_effort_choices(model_name, model_config)
+                if choices is None:
+                    choices = get_openai_reasoning_effort_choices(
+                        underlying_name, model_config
+                    )
+                if choices:
+                    return True
         if setting == "thinking_display":
             if get_anthropic_thinking_display_choices(model_name, underlying_name):
                 return True

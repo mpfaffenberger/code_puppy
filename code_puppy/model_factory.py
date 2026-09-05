@@ -55,6 +55,12 @@ _load_plugin_model_providers()
 CONTEXT_1M_BETA = "context-1m-2025-08-07"
 _CUSTOM_OPENAI_MODEL_TYPES = {"custom_openai", "custom_openai_responses"}
 _LEGACY_CUSTOM_OPENAI_RESPONSES_MODEL = "codex-gpt-5-codex"
+# Only these wire formats accept ``openai_reasoning_effort``.
+# A positive allowlist prevents short model tags from hijacking aliases.
+_OPENAI_COMPATIBLE_MODEL_TYPES = (
+    frozenset({"openai", "chatgpt_oauth", "azure_foundry_openai", "azure_openai"})
+    | _CUSTOM_OPENAI_MODEL_TYPES
+)
 
 
 def _custom_openai_uses_responses_api(
@@ -300,6 +306,7 @@ def make_model_settings(
     # GLM-4.5+ thinking/reasoning_effort are GLM-specific fields pydantic-ai
     # doesn't know; ride along in extra_body to reach the API.
     from code_puppy.model_utils import (
+        get_openai_reasoning_effort_choices,
         supports_glm_reasoning_effort,
         supports_glm_thinking,
     )
@@ -333,6 +340,11 @@ def make_model_settings(
         for key in ("thinking_type", "clear_thinking", "glm_reasoning_effort"):
             model_settings_dict.pop(key, None)
 
+    if "reasoning_effort" in model_settings_dict and not model_supports_setting(
+        model_name, "reasoning_effort", models_config=models_config
+    ):
+        model_settings_dict.pop("reasoning_effort")
+
     model_settings: ModelSettings = ModelSettings(**model_settings_dict)
 
     # Copilot models speak OpenAI format even for Claude backends: Claude
@@ -346,6 +358,13 @@ def make_model_settings(
     underlying_name = str(model_config.get("name", "")).lower()
     is_copilot = model_type == "copilot"
     copilot_underlying = underlying_name if is_copilot else ""
+    reasoning_effort_choices = get_openai_reasoning_effort_choices(
+        model_name, model_config
+    )
+    if reasoning_effort_choices is None:
+        reasoning_effort_choices = get_openai_reasoning_effort_choices(
+            str(model_config.get("name", "")), model_config
+        )
 
     if is_copilot and copilot_underlying.startswith("claude-"):
         # Copilot wraps Claude behind OpenAI-compatible API; translate
@@ -400,7 +419,10 @@ def make_model_settings(
         _EFFORT_ALIAS = {"minimal": "none", "ultra": "max"}
         effort = effective_settings.get("reasoning_effort", "medium")
         effort = _EFFORT_ALIAS.get(effort, effort)
-        model_settings_dict["openai_reasoning_effort"] = effort
+        if reasoning_effort_choices is None or (
+            reasoning_effort_choices and effort in reasoning_effort_choices
+        ):
+            model_settings_dict["openai_reasoning_effort"] = effort
 
         uses_responses_api = (
             model_type == "chatgpt_oauth"
@@ -442,6 +464,16 @@ def make_model_settings(
                     "verbosity": effective_settings.get("verbosity", "medium")
                 }
             model_settings = OpenAIChatModelSettings(**model_settings_dict)
+    elif model_type in _OPENAI_COMPATIBLE_MODEL_TYPES and reasoning_effort_choices:
+        from pydantic_ai.models.openai import OpenAIChatModelSettings
+
+        # Forward only documented effort values for OpenAI-compatible models.
+        _EFFORT_ALIAS = {"minimal": "none", "ultra": "max"}
+        effort = effective_settings.get("reasoning_effort", "medium")
+        effort = _EFFORT_ALIAS.get(effort, effort)
+        if effort in reasoning_effort_choices:
+            model_settings_dict["openai_reasoning_effort"] = effort
+        model_settings = OpenAIChatModelSettings(**model_settings_dict)
     elif _is_anthropic_model(model_name, model_config):
         from code_puppy.model_utils import (
             anthropic_disallows_sampling_settings,
