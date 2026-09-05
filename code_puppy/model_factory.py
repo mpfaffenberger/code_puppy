@@ -106,7 +106,9 @@ def get_api_key(env_var_name: str) -> str | None:
         The API key value, or None if not found in either config or environment.
     """
     # First check config (case-insensitive key lookup)
-    config_value = get_value(env_var_name.lower())
+    from code_puppy.shared_credentials import get
+
+    config_value = get(env_var_name) or get_value(env_var_name.lower())
     if config_value:
         return config_value
 

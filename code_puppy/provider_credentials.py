@@ -196,8 +196,9 @@ def get_credential_value(env_var: str) -> Optional[str]:
     puppy.cfg (case-insensitive key) first, then ``os.environ``.
     """
     from code_puppy.config import get_value
+    from code_puppy.shared_credentials import get
 
-    config_value = get_value(env_var.lower())
+    config_value = get(env_var) or get_value(env_var.lower())
     if config_value:
         return config_value
     return os.environ.get(env_var)
@@ -227,15 +228,11 @@ def credential_display(env_var: str) -> str:
 
 
 def save_credential(env_var: str, value: str) -> None:
-    """Persist a credential to puppy.cfg and apply it to the current process.
-
-    Stored under the lowercase key (so ``get_value(env_var.lower())`` resolves
-    it) and exported to ``os.environ`` so it is effective without a restart.
-    """
-    from code_puppy.config import set_config_value
+    """Persist once in the shared secret store and update this process's env."""
+    from code_puppy.shared_credentials import save
 
     value = (value or "").strip()
-    set_config_value(env_var.lower(), value)
+    save(env_var, value)
     if value:
         os.environ[env_var] = value
 

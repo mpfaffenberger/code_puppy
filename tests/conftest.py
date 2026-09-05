@@ -15,6 +15,27 @@ from unittest.mock import MagicMock
 
 import pytest
 
+
+@pytest.fixture(autouse=True)
+def _isolate_shared_provider_credentials(monkeypatch, request):
+    """Provider tests must neither use the OS keyring nor leak across cases."""
+    from code_puppy import shared_credentials
+
+    if request.node.path.name == "test_shared_credentials.py":
+        return
+    values = {}
+    monkeypatch.setattr(shared_credentials, "get", lambda key: values.get(key.upper()))
+
+    def save(key, value):
+        if not value.strip():
+            raise ValueError("Empty test credential")
+        values[key.upper()] = value.strip()
+        monkeypatch.setenv(key.upper(), value.strip())
+
+    monkeypatch.setattr(shared_credentials, "save", save)
+    return values
+
+
 # Config paths resolve at import time, before fixtures run - point every XDG category
 # at one session-scoped temp root so collection/tests never touch the dev's config.
 _XDG_TEMP_DIR = tempfile.TemporaryDirectory(prefix="code_puppy_pytest_xdg_")

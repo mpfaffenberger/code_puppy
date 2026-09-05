@@ -402,6 +402,12 @@ def ensure_config_exists():
 
 
 def get_value(key: str):
+    from code_puppy.shared_credentials import get, is_credential_key
+
+    if is_credential_key(key, discover=False):
+        shared = get(key)
+        if shared:
+            return shared
     config = _load_config()
     val = config.get(DEFAULT_SECTION, key, fallback=None)
     return val
@@ -641,6 +647,12 @@ def set_config_value(key: str, value: str):
     """
     Sets a config value in the persistent config file.
     """
+
+    from code_puppy.shared_credentials import is_credential_key, save
+
+    if is_credential_key(key):
+        save(key, value)
+        return
 
     def _apply(config: configparser.ConfigParser) -> None:
         if DEFAULT_SECTION not in config:
@@ -3031,7 +3043,9 @@ def get_api_key(key_name: str) -> str:
     Returns:
         The API key value, or empty string if not set
     """
-    return get_value(key_name) or ""
+    from code_puppy.shared_credentials import get
+
+    return get(key_name) or get_value(key_name) or ""
 
 
 def set_api_key(key_name: str, value: str):
