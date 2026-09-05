@@ -828,7 +828,7 @@ async def _run_with_mcp_impl(
 
         result = await _call_with_exception_recovery()
 
-        # ``now``-mode steers are injected by make_steer_history_processor
+        # ``now``-mode steers are injected by the SteerInjection capability
         # (before every model call); ``queue``-mode ones drain between runs
         # below — additive, won't interrupt in-progress work.
         async def _follow_up_run(follow_up_prompt: Any) -> Any:

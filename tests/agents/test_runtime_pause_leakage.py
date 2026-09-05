@@ -249,45 +249,52 @@ async def test_paused_state_cleared_on_cancel(_isolated_runtime, monkeypatch):
 # =============================================================================
 
 
-def test_steer_queued_mid_run_is_injected_via_history_processor():
+def test_steer_queued_mid_run_is_injected_via_capability():
     """End-to-end-ish smoke: a steer queued at any point during a run gets
-    seen by the steer ``history_processor`` on its next invocation.
+    seen by the ``SteerInjection`` capability on its next model request.
 
-    This is a unit test on the processor itself (we can't drive a real
+    This is a unit test on the capability itself (we can't drive a real
     pydantic-ai agent in CI), but it locks the contract: queue a steer,
-    invoke the processor, the steer shows up in the returned messages.
-    The actual pydantic-ai → ProcessHistory → model wiring is verified
-    by the unit tests in ``test_steer_history_processor.py`` and by the
-    ``_builder.py`` wiring (``capabilities=[ProcessHistory(compaction),
-    ProcessHistory(steer)]``).
+    fire ``before_model_request``, the steer shows up in the outbound
+    messages. The actual pydantic-ai → capability → model wiring is
+    verified by the unit tests in ``test_steering_capability.py`` and by
+    the ``_builder.py`` wiring (``capabilities=[ProcessHistory(compaction),
+    steer_injection]``).
     """
+    import asyncio
+    from types import SimpleNamespace
     from unittest.mock import Mock
 
     from pydantic_ai.messages import ModelRequest, UserPromptPart
 
-    from code_puppy.agents._steer_processor import make_steer_history_processor
+    from code_puppy.agents._steering import build_steer_injection
 
     agent = Mock()
     agent._message_history = []
-    processor = make_steer_history_processor(agent)
+    capability = build_steer_injection(agent)
 
-    # Simulate: agent is mid-run, history processor fires (queue empty → no-op).
-    msgs = processor([])
-    assert msgs == []
+    def fire(messages):
+        request_context = SimpleNamespace(messages=messages)
+        return asyncio.run(
+            capability.before_model_request(Mock(), request_context)
+        ).messages
+
+    # Simulate: agent is mid-run, the capability fires (queue empty → no-op).
+    assert fire([]) == []
 
     # Now: user presses Ctrl+T and submits a steer.
     get_pause_controller().request_steer("change direction")
 
-    # Next history-processor invocation must pick it up.
-    msgs = processor([])
+    # Next model request must pick it up.
+    msgs = fire([])
     assert len(msgs) == 1
     assert isinstance(msgs[0], ModelRequest)
     assert isinstance(msgs[0].parts[0], UserPromptPart)
     assert msgs[0].parts[0].content == "change direction"
 
 
-def test_steer_processor_is_wired_into_builder_after_compaction():
-    """Guard: the builder must wire the steer processor AFTER compaction
+def test_steer_capability_is_wired_into_builder_after_compaction():
+    """Guard: the builder must wire the steer capability AFTER compaction
     so steers don't get compacted away on the same call.
     """
     import inspect
@@ -295,17 +302,17 @@ def test_steer_processor_is_wired_into_builder_after_compaction():
     from code_puppy.agents import _builder
 
     src = inspect.getsource(_builder)
-    # Both processors must be referenced in the builder.
-    assert "make_steer_history_processor" in src
+    # Both capabilities must be referenced in the builder.
+    assert "build_steer_injection" in src
     assert "make_history_processor" in src
     # Order is checked textually against the capabilities list literal;
-    # ProcessHistory capabilities apply in registration order.
+    # before_model_request capabilities apply in registration order.
     cap_start = src.find("capabilities=[")
     assert cap_start >= 0, "builder must register capabilities=[ProcessHistory(...)]"
     cap_block = src[cap_start : src.find("]", cap_start)]
     # Just sanity-check both names appear and history_processor comes first.
     h_idx = cap_block.find("ProcessHistory(history_processor)")
-    s_idx = cap_block.find("ProcessHistory(steer_processor)")
+    s_idx = cap_block.find("steer_injection")
     assert h_idx >= 0 and s_idx > h_idx, (
-        f"steer_processor must come AFTER history_processor: {cap_block!r}"
+        f"steer_injection must come AFTER history_processor: {cap_block!r}"
     )

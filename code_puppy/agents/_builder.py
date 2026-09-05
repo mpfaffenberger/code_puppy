@@ -25,7 +25,7 @@ from code_puppy.agents._output_limits import (
     build_response_clamp,
     build_tool_output_limits,
 )
-from code_puppy.agents._steer_processor import make_steer_history_processor
+from code_puppy.agents._steering import build_steer_injection
 from code_puppy.agents.event_stream_handler import event_stream_handler
 from code_puppy.callbacks import (
     on_pre_mcp_autostart,
@@ -647,7 +647,7 @@ def build_pydantic_agent(
         overrides=agent.get_model_settings_overrides(),
     )
     history_processor = make_history_processor(agent)
-    steer_processor = make_steer_history_processor(agent)
+    steer_injection = build_steer_injection(agent)
     logical_agent_name = getattr(agent, "name", None) or agent.__class__.__name__
     # Read before ``_new_pydantic_agent`` runs: the closure's capability list
     # conditions the recursion guard on the agent's declared tool surface.
@@ -669,17 +669,17 @@ def build_pydantic_agent(
             toolsets=toolsets,
             # Order matters: compaction first (may trim history to fit
             # context), THEN steer injection (a fresh steer must not be
-            # compacted away). ProcessHistory capabilities apply in
-            # registration order (replaces the deprecated
+            # compacted away). Both hit before_model_request, which applies
+            # in registration order (replaces the deprecated
             # `history_processors=` kwarg, removed in pydantic-ai v2).
             # ToolOutputLimits reduces oversized tool returns on a different
             # hook (after_tool_execute), so its position is inert; the
-            # response clamp runs before_model_request after both history
-            # processors. The plugin transform wraps the final model request.
+            # response clamp runs before_model_request after compaction and
+            # steering. The plugin transform wraps the final model request.
             capabilities=[
                 *build_tool_output_limits(),
                 ProcessHistory(history_processor),
-                ProcessHistory(steer_processor),
+                steer_injection,
                 build_response_clamp(),
                 build_model_message_transform(logical_agent_name),
                 # Sub-agent recursion guards on the wrap_tool_execute seam
