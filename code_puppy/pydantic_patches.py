@@ -460,6 +460,76 @@ def patch_termflow_code_padding() -> bool:
         )
 
 
+def _render_table_complete_with_row_rules(header, rows, alignments, width, margin, style):
+    """Drop-in for termflow's ``render_table_complete`` with a rule after every row."""
+    from termflow.ansi import visible_length
+    from termflow.render.table import (
+        TableRenderState,
+        render_table_bottom,
+        render_table_row,
+        render_table_separator,
+        render_table_top,
+    )
+
+    state = TableRenderState()
+    state.update_widths(header)
+    for row in rows:
+        state.update_widths(row)
+    state.set_alignments(alignments)
+
+    margin_width = visible_length(margin)
+    state.cap_widths_to_max(margin_width, available_width=width + margin_width)
+
+    lines = [render_table_top(state, margin, style)]
+    lines.extend(render_table_row(header, state, width, margin, style, is_header=True))
+    lines.append(render_table_separator(state, margin, style))
+    state.end_header()
+
+    last_index = len(rows) - 1
+    for i, row in enumerate(rows):
+        lines.extend(render_table_row(row, state, width, margin, style, is_header=False))
+        if i != last_index:
+            lines.append(render_table_separator(state, margin, style))
+
+    lines.append(render_table_bottom(state, margin, style))
+    return lines
+
+
+def patch_termflow_table_row_separators() -> bool:
+    """Draw a rule between every table row, not just after the header.
+
+    termflow's ``render_table_complete`` draws exactly one horizontal rule --
+    right after the header -- and none between body rows, which makes wide
+    tables hard to scan row-by-row. This replaces it with an otherwise-
+    identical version that also draws a rule between consecutive body rows.
+
+    Must patch both ``termflow.render.table`` (the definition) AND
+    ``termflow.render.renderer`` (did ``from ... import render_table_complete``,
+    so it holds a stale reference) -- same reason as ``patch_termflow_code_padding``.
+    """
+    try:
+        import termflow.render.renderer as _termflow_renderer
+        import termflow.render.table as _termflow_table
+    except ImportError as exc:
+        return _optional_lib_missing("patch_termflow_table_row_separators", exc)
+
+    try:
+        if not hasattr(_termflow_table, "render_table_complete") or not hasattr(
+            _termflow_renderer, "render_table_complete"
+        ):
+            raise AttributeError("termflow render_table_complete not found")
+        _termflow_table.render_table_complete = _render_table_complete_with_row_rules
+        _termflow_renderer.render_table_complete = _render_table_complete_with_row_rules
+        return True
+    except Exception as exc:
+        return _patch_failed(
+            "patch_termflow_table_row_separators",
+            exc,
+            "table rows render without separators between them (header rule only).",
+            target="termflow",
+        )
+
+
 def patch_silence_anthropic_sampling_warnings() -> bool:
     """Silence pydantic-ai's unsupported-sampling-parameter UserWarning.
 
@@ -493,6 +563,7 @@ _ALL_PATCHES = (
     patch_tool_call_callbacks,
     patch_termflow_clipboard,
     patch_termflow_code_padding,
+    patch_termflow_table_row_separators,
 )
 
 
