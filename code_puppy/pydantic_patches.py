@@ -478,7 +478,9 @@ def _render_table_header_rule(state, margin, style) -> str:
     return f"{margin}{fg}╞{sep}╡{RESET}"
 
 
-def _render_table_complete_with_row_rules(header, rows, alignments, width, margin, style):
+def _render_table_complete_with_row_rules(
+    header, rows, alignments, width, margin, style
+):
     """Drop-in for termflow's ``render_table_complete`` with a rule after every
     row, and a heavier double-line rule marking the header/body boundary.
     """
@@ -507,7 +509,9 @@ def _render_table_complete_with_row_rules(header, rows, alignments, width, margi
 
     last_index = len(rows) - 1
     for i, row in enumerate(rows):
-        lines.extend(render_table_row(row, state, width, margin, style, is_header=False))
+        lines.extend(
+            render_table_row(row, state, width, margin, style, is_header=False)
+        )
         if i != last_index:
             lines.append(render_table_separator(state, margin, style))
 
