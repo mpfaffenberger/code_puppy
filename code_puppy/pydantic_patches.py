@@ -460,8 +460,28 @@ def patch_termflow_code_padding() -> bool:
         )
 
 
+def _render_table_header_rule(state, margin, style) -> str:
+    """Header/body divider using double-line chars (╞═╪═╡), mirroring
+    ``termflow.render.table.render_table_separator`` but visually heavier.
+
+    Once every body row also gets a rule (see below), a single-weight rule
+    after the header is no longer enough to mark it as different from a body
+    row -- bold text alone is an easy-to-miss signal. Same convention as
+    Rich's ``box.SQUARE_DOUBLE_HEAD``: double line under the header, single
+    lines everywhere else.
+    """
+    from termflow.ansi import RESET, fg_color
+
+    fg = fg_color(style.symbol)
+    parts = ["═" * (w + 2) for w in state.column_widths]
+    sep = "╪".join(parts)
+    return f"{margin}{fg}╞{sep}╡{RESET}"
+
+
 def _render_table_complete_with_row_rules(header, rows, alignments, width, margin, style):
-    """Drop-in for termflow's ``render_table_complete`` with a rule after every row."""
+    """Drop-in for termflow's ``render_table_complete`` with a rule after every
+    row, and a heavier double-line rule marking the header/body boundary.
+    """
     from termflow.ansi import visible_length
     from termflow.render.table import (
         TableRenderState,
@@ -482,7 +502,7 @@ def _render_table_complete_with_row_rules(header, rows, alignments, width, margi
 
     lines = [render_table_top(state, margin, style)]
     lines.extend(render_table_row(header, state, width, margin, style, is_header=True))
-    lines.append(render_table_separator(state, margin, style))
+    lines.append(_render_table_header_rule(state, margin, style))
     state.end_header()
 
     last_index = len(rows) - 1
@@ -501,7 +521,9 @@ def patch_termflow_table_row_separators() -> bool:
     termflow's ``render_table_complete`` draws exactly one horizontal rule --
     right after the header -- and none between body rows, which makes wide
     tables hard to scan row-by-row. This replaces it with an otherwise-
-    identical version that also draws a rule between consecutive body rows.
+    identical version that also draws a rule between consecutive body rows,
+    using a double-line rule under the header specifically so it stays
+    visually distinct from body-to-body rules.
 
     Must patch both ``termflow.render.table`` (the definition) AND
     ``termflow.render.renderer`` (did ``from ... import render_table_complete``,
