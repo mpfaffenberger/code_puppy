@@ -78,8 +78,15 @@ def should_autotrigger(text: str, cursor: int) -> bool:
     """
     if text.lstrip().startswith("/"):
         return True
-    word = text[:cursor].split()[-1] if text[:cursor].split() else ""
-    return "@" in word
+    # Only inspect the last word before the cursor. Splitting the entire
+    # pasted prompt twice on every keystroke allocates thousands of strings.
+    end = max(0, min(cursor, len(text)))
+    while end and text[end - 1].isspace():
+        end -= 1
+    start = end
+    while start and not text[start - 1].isspace():
+        start -= 1
+    return "@" in text[start:end]
 
 
 @dataclass
