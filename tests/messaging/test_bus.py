@@ -2,7 +2,8 @@
 
 import asyncio
 import queue
-from unittest.mock import patch
+import threading
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -173,6 +174,27 @@ async def test_request_input(bus):
 
 
 @pytest.mark.asyncio
+async def test_request_input_response_from_foreign_thread(bus):
+    request = asyncio.create_task(bus.request_input("Enter:"))
+    while bus.pending_requests_count == 0:
+        await asyncio.sleep(0)
+
+    with bus._lock:
+        prompt_id = next(iter(bus._pending_requests))
+
+    thread = threading.Thread(
+        target=bus.provide_response,
+        args=(UserInputResponse(prompt_id=prompt_id, value="thread-safe"),),
+    )
+    thread.start()
+    result = await asyncio.wait_for(request, timeout=1)
+    thread.join()
+
+    assert result == "thread-safe"
+    assert bus.pending_requests_count == 0
+
+
+@pytest.mark.asyncio
 async def test_request_input_empty_uses_default(bus):
     async def respond():
         await asyncio.sleep(0.05)
@@ -264,13 +286,56 @@ def test_complete_request_unknown_prompt_id(bus):
     bus._complete_request("nonexistent", "value")
 
 
+def test_complete_request_consumes_pending_before_scheduling(bus):
+    loop = Mock()
+    future = Mock()
+
+    def assert_consumed(*_args):
+        assert bus.pending_requests_count == 0
+
+    loop.call_soon_threadsafe.side_effect = assert_consumed
+    with bus._lock:
+        bus._pending_requests["test-id"] = (loop, future)
+
+    bus._complete_request("test-id", "result")
+
+    loop.call_soon_threadsafe.assert_called_once_with(
+        bus._set_future_result, future, "result"
+    )
+
+
+def test_complete_request_racing_responses_schedule_once(bus):
+    loop = Mock()
+    future = Mock()
+    barrier = threading.Barrier(3)
+    with bus._lock:
+        bus._pending_requests["test-id"] = (loop, future)
+
+    def respond(result):
+        barrier.wait()
+        bus._complete_request("test-id", result)
+
+    threads = [
+        threading.Thread(target=respond, args=(result,))
+        for result in ("first", "second")
+    ]
+    for thread in threads:
+        thread.start()
+    barrier.wait()
+    for thread in threads:
+        thread.join()
+
+    loop.call_soon_threadsafe.assert_called_once()
+    assert bus.pending_requests_count == 0
+
+
 def test_complete_request_with_event_loop(bus):
     loop = asyncio.new_event_loop()
     future = loop.create_future()
-    bus._event_loop = loop
     with bus._lock:
-        bus._pending_requests["test-id"] = future
+        bus._pending_requests["test-id"] = (loop, future)
     bus._complete_request("test-id", "result")
+    assert bus.pending_requests_count == 0
     loop.run_until_complete(asyncio.sleep(0.01))
     assert future.result() == "result"
     loop.close()
@@ -279,12 +344,30 @@ def test_complete_request_with_event_loop(bus):
 def test_complete_request_event_loop_closed(bus):
     loop = asyncio.new_event_loop()
     future = loop.create_future()
-    bus._event_loop = loop
     loop.close()  # Close loop so call_soon_threadsafe raises RuntimeError
     with bus._lock:
-        bus._pending_requests["test-id"] = future
-    # Should not raise
+        bus._pending_requests["test-id"] = (loop, future)
+    # Should not raise or mutate a Future owned by a closed loop.
     bus._complete_request("test-id", "result")
+    assert bus.pending_requests_count == 0
+    assert not future.done()
+
+
+def test_complete_request_cancelled_before_callback_runs(bus):
+    loop = asyncio.new_event_loop()
+    future = loop.create_future()
+    callback_errors = []
+    loop.set_exception_handler(lambda _loop, context: callback_errors.append(context))
+    with bus._lock:
+        bus._pending_requests["test-id"] = (loop, future)
+
+    bus._complete_request("test-id", "result")
+    future.cancel()
+    loop.run_until_complete(asyncio.sleep(0))
+
+    assert future.cancelled()
+    assert callback_errors == []
+    loop.close()
 
 
 def test_set_future_result_already_done(bus):
@@ -296,27 +379,13 @@ def test_set_future_result_already_done(bus):
     loop.close()
 
 
-def test_complete_request_no_event_loop(bus):
-    """With no event loop, falls back to direct set."""
-    loop = asyncio.new_event_loop()
-    future = loop.create_future()
-    bus._event_loop = None
-    with bus._lock:
-        bus._pending_requests["test-id"] = future
-    bus._complete_request("test-id", "val")
-    # future.result() needs the loop
-    loop.run_until_complete(asyncio.sleep(0))
-    assert future.result() == "val"
-    loop.close()
-
-
 def test_complete_request_future_already_done(bus):
     """Should not raise when future already done."""
     loop = asyncio.new_event_loop()
     future = loop.create_future()
     future.set_result("done")
     with bus._lock:
-        bus._pending_requests["test-id"] = future
+        bus._pending_requests["test-id"] = (loop, future)
     bus._complete_request("test-id", "ignored")
     loop.close()
 
