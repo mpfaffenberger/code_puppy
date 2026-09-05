@@ -1,15 +1,14 @@
 import os
 import sys
 
-from code_puppy.callbacks import on_register_agent_tools, on_register_tools
+from code_puppy.callbacks import (
+    on_filter_agent_tools,
+    on_register_agent_tools,
+    on_register_tools,
+)
 from code_puppy.messaging import emit_warning
 from code_puppy.tools.agent_tools import register_list_agents
-from code_puppy.tools.subagent_invocation import (
-    register_invoke_agent,
-    register_invoke_agent_with_model,
-)
 from code_puppy.tools.ask_user_question import register_ask_user_question
-
 from code_puppy.tools.command_runner import (
     register_agent_run_shell_command,
     register_agent_share_your_reasoning,
@@ -33,6 +32,10 @@ from code_puppy.tools.file_operations import (
 )
 from code_puppy.tools.image_tools import register_load_image
 from code_puppy.tools.model_tools import register_list_available_models
+from code_puppy.tools.subagent_invocation import (
+    register_invoke_agent,
+    register_invoke_agent_with_model,
+)
 
 # Map of tool names to their individual registration functions
 TOOL_REGISTRY = {
@@ -212,8 +215,8 @@ def register_tools_for_agent(
             (like agent_share_your_reasoning) should be skipped. If None,
             falls back to the current global model.
         agent_name: Optional logical agent name (e.g. ``"code-puppy"``).
-            Passed to the ``register_agent_tools`` callback so plugins can
-            advertise tools per-agent if they want.
+            Passed to the ``register_agent_tools`` and ``filter_agent_tools``
+            callbacks so plugins can advertise and curate tools per agent.
     """
     from code_puppy.config import get_universal_constructor_enabled
 
@@ -235,6 +238,10 @@ def register_tools_for_agent(
                 merged.append(extra)
                 seen.add(extra)
         tool_names = merged
+
+    # Let policy plugins curate the complete merged surface without changing
+    # registration. Specialized tools remain available to other agents.
+    tool_names = on_filter_agent_tools(agent_name, tool_names)
 
     if os.environ.get("CODE_PUPPY_DISABLE_ASK_USER_QUESTION", "").lower() in {
         "1",

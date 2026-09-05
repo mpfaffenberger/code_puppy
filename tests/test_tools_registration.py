@@ -67,6 +67,35 @@ class TestToolRegistration:
         # nothing raised.
         assert True  # If we get here, no exception was raised
 
+    @patch("code_puppy.tools._load_plugin_tools")
+    @patch("code_puppy.tools.on_filter_agent_tools")
+    @patch("code_puppy.tools.on_register_agent_tools")
+    def test_filter_receives_complete_merged_tool_surface(
+        self, mock_plugin_tools, mock_filter, _mock_load_plugin_tools
+    ):
+        """Policy filters run after plugin tools join the agent's base tools."""
+        base_register = MagicMock()
+        plugin_register = MagicMock()
+        mock_plugin_tools.return_value = ["__plugin_tool"]
+        mock_filter.return_value = ["__base_tool"]
+
+        with patch.dict(
+            TOOL_REGISTRY,
+            {
+                "__base_tool": base_register,
+                "__plugin_tool": plugin_register,
+            },
+        ):
+            register_tools_for_agent(
+                MagicMock(), ["__base_tool"], agent_name="code-puppy"
+            )
+
+        mock_filter.assert_called_once_with(
+            "code-puppy", ["__base_tool", "__plugin_tool"]
+        )
+        base_register.assert_called_once()
+        plugin_register.assert_not_called()
+
     def test_register_tools_invalid_tool(self):
         """Test that registering an invalid tool prints warning and continues."""
         mock_agent = MagicMock()
