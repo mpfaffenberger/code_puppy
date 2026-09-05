@@ -251,6 +251,20 @@ async def event_stream_handler(
         else:
             console.print(f"[dim]{escape(text)}[/dim]", end="")
 
+    async def _finish_text_part(index: int) -> None:
+        """Flush one text part, including streams missing ``PartEndEvent``."""
+        parser = termflow_parsers.pop(index, None)
+        renderer = termflow_renderers.pop(index, None)
+        if parser is not None and renderer is not None:
+            remaining = termflow_line_buffers.pop(index, "")
+            if remaining.strip():
+                renderer.render_all(parser.parse_line(remaining))
+            renderer.render_all(parser.finalize())
+
+        writer = termflow_writers.pop(index, None)
+        if writer is not None:
+            await writer.close()
+
     async def _print_thinking_banner() -> None:
         """Print the THINKING banner on a fresh line."""
         nonlocal did_stream_anything
@@ -481,33 +495,8 @@ async def event_stream_handler(
                 )
 
                 if event.index in streaming_parts:
-                    # For text parts, finalize termflow rendering
                     if event.index in text_parts:
-                        # Render any remaining buffered content
-                        if event.index in termflow_parsers:
-                            parser = termflow_parsers[event.index]
-                            renderer = termflow_renderers[event.index]
-                            remaining = termflow_line_buffers.get(event.index, "")
-
-                            # Parse and render any remaining partial line
-                            if remaining.strip():
-                                events_to_render = parser.parse_line(remaining)
-                                renderer.render_all(events_to_render)
-
-                            # Finalize the parser to close any open blocks
-                            final_events = parser.finalize()
-                            renderer.render_all(final_events)
-
-                            # Clean up termflow state
-                            del termflow_parsers[event.index]
-                            del termflow_renderers[event.index]
-                            del termflow_line_buffers[event.index]
-
-                        # Drain any smooth typewriter writer to completion so the
-                        # full response has finished printing before we move on.
-                        writer = termflow_writers.pop(event.index, None)
-                        if writer is not None:
-                            await writer.close()
+                        await _finish_text_part(event.index)
                     # For tool parts, clear the chunk counter line
                     elif event.index in tool_parts:
                         # Erase the \r-repainted chunk-counter line entirely;
@@ -561,6 +550,11 @@ async def event_stream_handler(
         # background drain tasks that keep typing into the terminal. Abort them.
         _abort_all_drainers()
         raise
+
+    # Providers can end without PartEndEvent. Finalize those parsers too;
+    # otherwise an unterminated fence or partial line disappears.
+    for index in list(text_parts):
+        await _finish_text_part(index)
 
     # Drain any smoothers/writers that didn't see a PartEndEvent (e.g. the
     # stream ended abruptly) so we never lose buffered text or orphan tasks.
