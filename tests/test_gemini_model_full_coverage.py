@@ -550,12 +550,14 @@ class TestMapMessages:
         ] == [
             ["function_response"],
             ["text"],
+            ["text"],
             ["inline_data"],
         ]
-        assert contents[-1]["parts"][0]["text"].startswith("Steering media")
-        system_texts = [part["text"] for part in system_instruction["parts"]]
-        assert "continuing the current task" in system_texts[-2]
-        assert system_texts[-1] == "steer"
+        assert contents[-1]["parts"][0]["text"].startswith(
+            "Additional guidance for the current task"
+        )
+        assert contents[-1]["parts"][1]["text"] == "steer"
+        assert system_instruction is None
 
         msgs.extend(
             [
@@ -576,8 +578,8 @@ class TestMapMessages:
                 ),
             ]
         )
-        continued_system, _ = await model._map_messages(msgs, default_params)
-        assert "steer" in str(continued_system)
+        _, continued_contents = await model._map_messages(msgs, default_params)
+        assert "steer" in str(continued_contents)
 
         msgs.extend(
             [
