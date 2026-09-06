@@ -535,7 +535,7 @@ class TestMapMessages:
             ),
             ModelRequest(
                 parts=[UserPromptPart(content=["steer", media])],
-                metadata=STEER_METADATA,
+                metadata=dict(STEER_METADATA),
             ),
         ]
 
@@ -638,7 +638,7 @@ class TestMapMessages:
             ),
             ModelRequest(
                 parts=[UserPromptPart(content="steer")],
-                metadata=STEER_METADATA,
+                metadata=dict(STEER_METADATA),
             ),
             ModelRequest(
                 parts=[
@@ -670,11 +670,11 @@ class TestMapMessages:
             ModelRequest(parts=[UserPromptPart(content="start")]),
             ModelRequest(
                 parts=[UserPromptPart(content="first steer")],
-                metadata=STEER_METADATA,
+                metadata=dict(STEER_METADATA),
             ),
             ModelRequest(
                 parts=[UserPromptPart(content="second steer")],
-                metadata=STEER_METADATA,
+                metadata=dict(STEER_METADATA),
             ),
         ]
 
@@ -699,7 +699,7 @@ class TestMapMessages:
                     SystemPromptPart(content="be terse"),
                     UserPromptPart(content="steer"),
                 ],
-                metadata=STEER_METADATA,
+                metadata=dict(STEER_METADATA),
             ),
         ]
 
@@ -717,12 +717,12 @@ class TestMapMessages:
         msgs = [
             ModelRequest(
                 parts=[UserPromptPart(content="steer1")],
-                metadata=STEER_METADATA,
+                metadata=dict(STEER_METADATA),
             ),
             ModelRequest(parts=[UserPromptPart(content=[])]),
             ModelRequest(
                 parts=[UserPromptPart(content="steer2")],
-                metadata=STEER_METADATA,
+                metadata=dict(STEER_METADATA),
             ),
         ]
 

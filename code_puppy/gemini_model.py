@@ -438,7 +438,7 @@ class GeminiModel(Model):
                         contents[-1]["parts"].extend(model_parts["parts"])
                     else:
                         contents.append(model_parts)
-                    steer_block_open = False
+                steer_block_open = False
 
         # Gemini 3.x 400s on a history ending in a model turn, which /steer
         # injection and interrupted tool calls both produce. Same trim
