@@ -340,12 +340,14 @@ class GeminiModel(Model):
         system_parts: list[dict[str, Any]] = []
         steer_instruction_parts: list[dict[str, Any]] = []
         steer_content_parts: list[dict[str, Any]] = []
-        # Only steers after the latest response remain active.
-        last_response_index = max(
+        # A normal user prompt starts the next turn and retires older steers.
+        last_prompt_index = max(
             (
                 i
                 for i, message in enumerate(messages)
-                if isinstance(message, ModelResponse)
+                if isinstance(message, ModelRequest)
+                and not (message.metadata or {}).get("code_puppy_steer")
+                and any(isinstance(part, UserPromptPart) for part in message.parts)
             ),
             default=-1,
         )
@@ -354,7 +356,7 @@ class GeminiModel(Model):
             if isinstance(m, ModelRequest) and (m.metadata or {}).get(
                 "code_puppy_steer"
             ):
-                if i > last_response_index:
+                if i > last_prompt_index:
                     for part in m.parts:
                         if isinstance(part, UserPromptPart):
                             mapped_parts = await self._map_user_prompt(part)

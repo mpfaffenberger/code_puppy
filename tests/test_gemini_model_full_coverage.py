@@ -559,6 +559,28 @@ class TestMapMessages:
 
         msgs.extend(
             [
+                ModelResponse(
+                    parts=[
+                        ToolCallPart(tool_name="shell", args={}, tool_call_id="call-2")
+                    ],
+                    model_name="m",
+                ),
+                ModelRequest(
+                    parts=[
+                        ToolReturnPart(
+                            tool_name="shell",
+                            content="done again",
+                            tool_call_id="call-2",
+                        )
+                    ]
+                ),
+            ]
+        )
+        continued_system, _ = await model._map_messages(msgs, default_params)
+        assert "steer" in str(continued_system)
+
+        msgs.extend(
+            [
                 ModelResponse(parts=[TextPart(content="handled")], model_name="m"),
                 ModelRequest(parts=[UserPromptPart(content="next turn")]),
             ]
