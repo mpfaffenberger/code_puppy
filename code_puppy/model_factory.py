@@ -75,6 +75,20 @@ def _custom_openai_uses_responses_api(
     )
 
 
+def _azure_foundry_uses_responses_api(deployment_name: str) -> bool:
+    """Mirror the azure_foundry plugin's Responses-vs-Chat deployment rule.
+
+    The plugin keys this decision solely off the Azure *deployment* name --
+    never the catalog key -- so this must do the same or the settings class
+    stops matching the constructed model. Deployments are free-form, so a
+    renamed gpt-5 deployment (``prod-gpt5-deploy``) gets a Chat model from
+    the plugin and therefore must get Chat settings here too; fixing that
+    narrowing belongs in the plugin, not in this mirror.
+    See ``azure_foundry/register_callbacks :: _create_azure_foundry_openai_model()``.
+    """
+    return deployment_name.lower().startswith("gpt-5")
+
+
 def _uses_responses_api(model_name: str, model_config: Dict[str, Any]) -> bool:
     """Return whether this model is built as an ``OpenAIResponsesModel``.
 
@@ -90,7 +104,7 @@ def _uses_responses_api(model_name: str, model_config: Dict[str, Any]) -> bool:
     if model_type == "chatgpt_oauth":
         return True
     if model_type == "azure_foundry_openai":
-        return underlying_name.lower().startswith("gpt-5")
+        return _azure_foundry_uses_responses_api(underlying_name)
     if model_type == "openai":
         return "codex" in model_name or supports_gpt_responses_controls(underlying_name)
     if model_type in _CUSTOM_OPENAI_MODEL_TYPES:
