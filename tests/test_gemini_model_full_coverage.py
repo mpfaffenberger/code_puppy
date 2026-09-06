@@ -712,6 +712,30 @@ class TestMapMessages:
         ]
 
     @pytest.mark.anyio
+    async def test_empty_mapping_prompt_closes_steer_block(self, model, default_params):
+        """A non-steer request that maps to zero parts still closes the steer block."""
+        msgs = [
+            ModelRequest(
+                parts=[UserPromptPart(content="steer1")],
+                metadata=STEER_METADATA,
+            ),
+            ModelRequest(parts=[UserPromptPart(content=[])]),
+            ModelRequest(
+                parts=[UserPromptPart(content="steer2")],
+                metadata=STEER_METADATA,
+            ),
+        ]
+
+        _, contents = await model._map_messages(msgs, default_params)
+
+        assert [content["role"] for content in contents] == ["user", "user"]
+        assert contents[0]["parts"] == [{"text": "steer1"}]
+        assert contents[1]["parts"] == [
+            {"text": STEER_PREAMBLE},
+            {"text": "steer2"},
+        ]
+
+    @pytest.mark.anyio
     async def test_instructions_injected(self, model, default_params):
         with patch.object(model, "_get_instructions", return_value="INJECTED"):
             msgs = [ModelRequest(parts=[UserPromptPart(content="hi")])]

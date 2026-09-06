@@ -428,7 +428,7 @@ class GeminiModel(Model):
                         contents[-1]["parts"].extend(message_parts)
                     else:
                         contents.append({"role": "user", "parts": message_parts})
-                        steer_block_open = False
+                steer_block_open = False
 
             elif isinstance(m, ModelResponse):
                 model_parts = self._map_model_response(m)
