@@ -273,6 +273,8 @@ class BottomBar(TranscriptGuardMixin, BarPainterMixin):
         """
         cleaned = [_sanitize(str(line)) for line in (lines or [])][:POPUP_MAX_ROWS]
         with self._lock:
+            if cleaned == self._popup_lines and selected == self._popup_selected:
+                return
             old_block = len(self._popup_lines) + self._popup_slack
             self._popup_lines = cleaned
             self._popup_selected = selected

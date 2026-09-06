@@ -163,12 +163,9 @@ class CompletionEngine:
             # Invalidate immediately, before the debounce/executor window:
             # accepting an old anchor here leaves freshly typed suffixes.
             self._seq += 1
-            self._open = False
-            self._items = []
             self._anchor = -1
-            self._selected = -1
-        if was_open:
-            self._repaint()
+            # Keep the previous rows visible during refresh. The invalid
+            # anchor prevents acceptance without closing/reopening the UI.
         if was_open or should_autotrigger(text, cursor):
             self._schedule_query(text, cursor, open_menu=True)
 
@@ -202,7 +199,7 @@ class CompletionEngine:
         into the buffer.
         """
         with self._lock:
-            if not (self._open and self._items):
+            if not (self._open and self._items) or self._anchor < 0:
                 return False
             index = max(0, self._selected)
             item = self._items[index]
