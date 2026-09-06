@@ -443,15 +443,75 @@ class TestMapMessages:
 
     @pytest.mark.anyio
     async def test_merge_consecutive_model_responses(self, model, default_params):
+        # Trailing user turn keeps the merged model turn out of the tail trim.
         msgs = [
             ModelRequest(parts=[UserPromptPart(content="hi")]),
             ModelResponse(parts=[TextPart(content="a")], model_name="m"),
             ModelResponse(parts=[TextPart(content="b")], model_name="m"),
+            ModelRequest(parts=[UserPromptPart(content="steer")]),
         ]
         _, contents = await model._map_messages(msgs, default_params)
         model_msgs = [c for c in contents if c["role"] == "model"]
         assert len(model_msgs) == 1
         assert len(model_msgs[0]["parts"]) == 2
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        "trailing_parts, case",
+        [
+            ([TextPart(content="partial answer")], "text-only tail"),
+            (
+                [ToolCallPart(tool_name="t", args={}, tool_call_id="id1")],
+                "interrupted tool-call tail",
+            ),
+            (
+                [
+                    TextPart(content="a"),
+                    ToolCallPart(tool_name="t", args={}, tool_call_id="id2"),
+                ],
+                "mixed tail",
+            ),
+        ],
+    )
+    async def test_trailing_model_turns_are_dropped(
+        self, model, default_params, trailing_parts, case
+    ):
+        """Gemini 3.x 400s on a history ending in a model turn."""
+        msgs = [
+            ModelRequest(parts=[UserPromptPart(content="hi")]),
+            ModelResponse(parts=trailing_parts, model_name="m"),
+        ]
+        _, contents = await model._map_messages(msgs, default_params)
+        assert [c["role"] for c in contents] == ["user"], case
+        assert contents[0]["parts"] == [{"text": "hi"}], case
+
+    @pytest.mark.anyio
+    async def test_all_model_turns_falls_back_to_empty_user_turn(
+        self, model, default_params
+    ):
+        """Dropping every turn still yields a valid single user content."""
+        msgs = [ModelResponse(parts=[TextPart(content="orphan")], model_name="m")]
+        _, contents = await model._map_messages(msgs, default_params)
+        assert contents == [{"role": "user", "parts": [{"text": ""}]}]
+
+    @pytest.mark.anyio
+    async def test_interior_model_turns_are_preserved(self, model, default_params):
+        """Only the tail is trimmed; real history stays intact."""
+        msgs = [
+            ModelRequest(parts=[UserPromptPart(content="one")]),
+            ModelResponse(parts=[TextPart(content="two")], model_name="m"),
+            ModelRequest(parts=[UserPromptPart(content="three")]),
+            ModelResponse(parts=[TextPart(content="four")], model_name="m"),
+            ModelRequest(parts=[UserPromptPart(content="steer")]),
+        ]
+        _, contents = await model._map_messages(msgs, default_params)
+        assert [c["role"] for c in contents] == [
+            "user",
+            "model",
+            "user",
+            "model",
+            "user",
+        ]
 
     @pytest.mark.anyio
     async def test_instructions_injected(self, model, default_params):
