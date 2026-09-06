@@ -60,9 +60,8 @@ def make_steer_history_processor(agent: Any) -> Callable[..., List[ModelMessage]
             None,
         )
 
-        # One user message per steer (each shows as a discrete turn — clearer
-        # than concatenating). Attachments resolve just like the main prompt
-        # path, so steering with a pasted screenshot Just Works.
+        # Keep each steer separate so providers can preserve its boundary.
+        # Attachments use the main prompt resolution path.
         injected: List[ModelMessage] = []
         for steer_text in pending:
             content, preview_text = resolve_steer_content(steer_text)
@@ -74,11 +73,11 @@ def make_steer_history_processor(agent: Any) -> Callable[..., List[ModelMessage]
                 ModelRequest(
                     parts=[UserPromptPart(content=content)],
                     instructions=last_instructions,
+                    metadata={"code_puppy_steer": True},
                 )
             )
 
-        # Append AFTER existing messages; pydantic-ai passes them on this
-        # exact call, so the very next response answers the steer.
+        # Append after history so the next model call applies the steer.
         new_messages = list(messages) + injected
 
         # Mirror into agent._message_history so the steer persists across the

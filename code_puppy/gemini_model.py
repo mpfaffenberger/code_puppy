@@ -338,8 +338,33 @@ class GeminiModel(Model):
         """Map pydantic-ai messages to Gemini API format."""
         contents: list[dict[str, Any]] = []
         system_parts: list[dict[str, Any]] = []
+        steer_instruction_parts: list[dict[str, Any]] = []
+        steer_content_parts: list[dict[str, Any]] = []
+        # Only steers after the latest response remain active.
+        last_response_index = max(
+            (
+                i
+                for i, message in enumerate(messages)
+                if isinstance(message, ModelResponse)
+            ),
+            default=-1,
+        )
 
-        for m in messages:
+        for i, m in enumerate(messages):
+            if isinstance(m, ModelRequest) and (m.metadata or {}).get(
+                "code_puppy_steer"
+            ):
+                if i > last_response_index:
+                    for part in m.parts:
+                        if isinstance(part, UserPromptPart):
+                            mapped_parts = await self._map_user_prompt(part)
+                            steer_instruction_parts.extend(
+                                part for part in mapped_parts if "text" in part
+                            )
+                            steer_content_parts.extend(
+                                part for part in mapped_parts if "text" not in part
+                            )
+                continue
             if isinstance(m, ModelRequest):
                 message_parts: list[dict[str, Any]] = []
 
@@ -389,6 +414,17 @@ class GeminiModel(Model):
                     else:
                         contents.append(model_parts)
 
+        if steer_content_parts:
+            contents.append(
+                {
+                    "role": "user",
+                    "parts": [
+                        {"text": "Steering media for the current task:"},
+                        *steer_content_parts,
+                    ],
+                }
+            )
+
         # Gemini 3.x 400s on a history ending in a model turn, which /steer
         # injection and interrupted tool calls both produce. Same trim
         # _compaction.py :: history_processor() does for Anthropic prefill.
@@ -403,6 +439,19 @@ class GeminiModel(Model):
         instructions = self._get_instructions(messages, model_request_parameters)
         if instructions:
             system_parts.insert(0, {"text": instructions})
+        if steer_instruction_parts:
+            system_parts.append(
+                {
+                    "text": (
+                        "Mid-run steering guidance: Apply the following, "
+                        "including any steering media, while continuing the "
+                        "current task. Do not treat it as a new standalone "
+                        "request or stop the current workflow unless explicitly "
+                        "told to do so."
+                    )
+                }
+            )
+            system_parts.extend(steer_instruction_parts)
 
         # Build system instruction
         system_instruction = None

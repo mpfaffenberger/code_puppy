@@ -514,6 +514,60 @@ class TestMapMessages:
         ]
 
     @pytest.mark.anyio
+    async def test_active_steer_is_transient_current_task_guidance(
+        self, model, default_params
+    ):
+        media = MagicMock(media_type="image/png", data=b"image")
+        msgs = [
+            ModelRequest(parts=[UserPromptPart(content="start")]),
+            ModelResponse(
+                parts=[ToolCallPart(tool_name="shell", args={}, tool_call_id="call-1")],
+                model_name="m",
+            ),
+            ModelRequest(
+                parts=[
+                    ToolReturnPart(
+                        tool_name="shell", content="done", tool_call_id="call-1"
+                    )
+                ]
+            ),
+            ModelRequest(
+                parts=[UserPromptPart(content=["steer", media])],
+                metadata={"code_puppy_steer": True},
+            ),
+        ]
+
+        system_instruction, contents = await model._map_messages(msgs, default_params)
+
+        assert [content["role"] for content in contents] == [
+            "user",
+            "model",
+            "user",
+            "user",
+        ]
+        assert [
+            sorted(part) for content in contents[-2:] for part in content["parts"]
+        ] == [
+            ["function_response"],
+            ["text"],
+            ["inline_data"],
+        ]
+        assert contents[-1]["parts"][0]["text"].startswith("Steering media")
+        system_texts = [part["text"] for part in system_instruction["parts"]]
+        assert "continuing the current task" in system_texts[-2]
+        assert system_texts[-1] == "steer"
+
+        msgs.extend(
+            [
+                ModelResponse(parts=[TextPart(content="handled")], model_name="m"),
+                ModelRequest(parts=[UserPromptPart(content="next turn")]),
+            ]
+        )
+        next_system, next_contents = await model._map_messages(msgs, default_params)
+        assert "steer" not in str(next_system)
+        assert "steer" not in str(next_contents)
+
+    @pytest.mark.anyio
     async def test_instructions_injected(self, model, default_params):
         with patch.object(model, "_get_instructions", return_value="INJECTED"):
             msgs = [ModelRequest(parts=[UserPromptPart(content="hi")])]
