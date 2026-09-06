@@ -55,6 +55,8 @@ _load_plugin_model_providers()
 CONTEXT_1M_BETA = "context-1m-2025-08-07"
 _CUSTOM_OPENAI_MODEL_TYPES = {"custom_openai", "custom_openai_responses"}
 _LEGACY_CUSTOM_OPENAI_RESPONSES_MODEL = "codex-gpt-5-codex"
+# Legacy effort normalization mapping
+_EFFORT_ALIAS = {"minimal": "none", "ultra": "max"}
 # Only these wire formats accept ``openai_reasoning_effort``.
 # A positive allowlist prevents short model tags from hijacking aliases.
 _OPENAI_COMPATIBLE_MODEL_TYPES = (
@@ -306,7 +308,6 @@ def make_model_settings(
     # GLM-4.5+ thinking/reasoning_effort are GLM-specific fields pydantic-ai
     # doesn't know; ride along in extra_body to reach the API.
     from code_puppy.model_utils import (
-        get_openai_reasoning_effort_choices,
         supports_glm_reasoning_effort,
         supports_glm_thinking,
     )
@@ -351,6 +352,7 @@ def make_model_settings(
     # thinking → reasoning_effort; GPT gets standard OpenAI reasoning.
     from code_puppy.model_utils import (
         is_gpt_reasoning_model,
+        resolve_openai_reasoning_effort_choices,
         supports_gpt_responses_controls,
     )
 
@@ -358,13 +360,9 @@ def make_model_settings(
     underlying_name = str(model_config.get("name", "")).lower()
     is_copilot = model_type == "copilot"
     copilot_underlying = underlying_name if is_copilot else ""
-    reasoning_effort_choices = get_openai_reasoning_effort_choices(
+    reasoning_effort_choices = resolve_openai_reasoning_effort_choices(
         model_name, model_config
     )
-    if reasoning_effort_choices is None:
-        reasoning_effort_choices = get_openai_reasoning_effort_choices(
-            str(model_config.get("name", "")), model_config
-        )
 
     if is_copilot and copilot_underlying.startswith("claude-"):
         # Copilot wraps Claude behind OpenAI-compatible API; translate
@@ -416,7 +414,6 @@ def make_model_settings(
         )
 
         # Normalize legacy effort values (minimal->none, ultra->max)
-        _EFFORT_ALIAS = {"minimal": "none", "ultra": "max"}
         effort = effective_settings.get("reasoning_effort", "medium")
         effort = _EFFORT_ALIAS.get(effort, effort)
         if reasoning_effort_choices is None or (
@@ -468,7 +465,6 @@ def make_model_settings(
         from pydantic_ai.models.openai import OpenAIChatModelSettings
 
         # Forward only documented effort values for OpenAI-compatible models.
-        _EFFORT_ALIAS = {"minimal": "none", "ultra": "max"}
         effort = effective_settings.get("reasoning_effort", "medium")
         effort = _EFFORT_ALIAS.get(effort, effort)
         if effort in reasoning_effort_choices:

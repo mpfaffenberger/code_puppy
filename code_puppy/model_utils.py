@@ -459,21 +459,24 @@ def supports_glm_reasoning_effort(model_name: str) -> bool:
 # None means unrecognized; an empty tuple means fixed effort.
 _OPENAI_REASONING_EFFORT_ORDER = ("none", "low", "medium", "high", "xhigh", "max")
 _OPENAI_REASONING_EFFORT_CHOICES: tuple[tuple[str, tuple[str, ...]], ...] = (
-    # GPT-5.6 family: adds "max" on top of the full scale.
-    ("gpt-5.6", ("none", "low", "medium", "high", "xhigh", "max")),
     # Non-reasoning chat variants: no reasoning_effort at all.
+    ("gpt-5.6-chat-latest", ()),
     ("gpt-5.1-chat-latest", ()),
     ("gpt-5-chat-latest", ()),
     # Explicitly documented Codex variants, ordered newest first.
+    ("gpt-5.6-codex", ("low", "medium", "high", "xhigh")),
     ("gpt-5.3-codex", ("low", "medium", "high", "xhigh")),
     ("gpt-5.1-codex", ("low", "medium", "high", "xhigh")),
     ("gpt-5-codex", ("low", "medium", "high")),
     # Fixed-effort model: no configurable choice.
     ("gpt-5-pro", ()),
     # Pro variants omit none/low from their documented effort scale.
-    ("gpt-5.2-pro", ("medium", "high", "xhigh")),
-    ("gpt-5.4-pro", ("medium", "high", "xhigh")),
+    ("gpt-5.6-pro", ("medium", "high", "xhigh", "max")),
     ("gpt-5.5-pro", ("medium", "high", "xhigh")),
+    ("gpt-5.4-pro", ("medium", "high", "xhigh")),
+    ("gpt-5.2-pro", ("medium", "high", "xhigh")),
+    # GPT-5.6 family: adds "max" on top of the full scale.
+    ("gpt-5.6", ("none", "low", "medium", "high", "xhigh", "max")),
     # GPT-5.2/5.4/5.5: none/low/medium/high/xhigh (documented explicitly).
     ("gpt-5.2", ("none", "low", "medium", "high", "xhigh")),
     ("gpt-5.4", ("none", "low", "medium", "high", "xhigh")),
@@ -498,7 +501,12 @@ def get_openai_reasoning_effort_choices(
 ) -> list[str] | None:
     """Return effective effort choices, None if unknown, or [] if fixed."""
     if model_config:
-        advertised = model_config.get("setting_choices", {}).get("reasoning_effort")
+        setting_choices = model_config.get("setting_choices")
+        advertised = (
+            setting_choices.get("reasoning_effort")
+            if isinstance(setting_choices, dict)
+            else None
+        )
         if isinstance(advertised, list):
             recognized = [
                 choice
@@ -522,6 +530,18 @@ def get_openai_reasoning_effort_choices(
                 choice for choice in _OPENAI_REASONING_EFFORT_ORDER if choice in allowed
             ]
     return None
+
+
+def resolve_openai_reasoning_effort_choices(
+    model_name: str, model_config: dict | None = None
+) -> list[str] | None:
+    """Resolve effort choices for a model, falling back to underlying catalog name."""
+    choices = get_openai_reasoning_effort_choices(model_name, model_config)
+    if choices is None and model_config:
+        underlying_name = str(model_config.get("name") or "")
+        if underlying_name:
+            choices = get_openai_reasoning_effort_choices(underlying_name, model_config)
+    return choices
 
 
 def get_gpt_version(model_name: str) -> tuple[int, int] | None:

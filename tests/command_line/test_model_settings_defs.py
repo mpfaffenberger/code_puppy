@@ -13,6 +13,30 @@ class TestGetSettingChoicesReasoningEffort:
         assert "xhigh" in choices
 
     @pytest.mark.parametrize(
+        ("model_name", "expected_choices"),
+        [
+            ("gpt-5.6-pro", ["medium", "high", "xhigh", "max"]),
+            ("gpt-5.6-codex", ["low", "medium", "high", "xhigh"]),
+            ("gpt-5.6-chat-latest", []),
+        ],
+    )
+    def test_gpt_5_6_subvariants_preserve_specific_scales(
+        self, model_name, expected_choices
+    ):
+        catalog = {model_name: {"name": model_name}}
+        choices = _get_setting_choices("reasoning_effort", model_name, catalog)
+        assert choices == expected_choices
+
+    @pytest.mark.parametrize(
+        "setting_choices",
+        [None, "low", ["low"]],
+    )
+    def test_non_dict_setting_choices_does_not_crash(self, setting_choices):
+        catalog = {"my-5": {"name": "gpt-5", "setting_choices": setting_choices}}
+        choices = _get_setting_choices("reasoning_effort", "my-5", catalog)
+        assert "none" in choices and "high" in choices
+
+    @pytest.mark.parametrize(
         "model_name", ["gpt-5.2-pro", "gpt-5.4-pro", "gpt-5.5-pro"]
     )
     def test_pro_variants_offer_documented_reduced_scale(self, model_name):

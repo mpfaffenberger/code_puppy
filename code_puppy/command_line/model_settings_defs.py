@@ -371,7 +371,12 @@ def _get_setting_choices(
         if models_config is None:
             models_config = ModelFactory.load_config()
         model_config = models_config.get(model_name, {})
-        advertised = model_config.get("setting_choices", {}).get(setting_key)
+        setting_choices = model_config.get("setting_choices")
+        advertised = (
+            setting_choices.get(setting_key)
+            if isinstance(setting_choices, dict)
+            else None
+        )
         if isinstance(advertised, list):
             recognized = [choice for choice in base_choices if choice in advertised]
             if recognized:
@@ -379,16 +384,11 @@ def _get_setting_choices(
 
         if setting_key == "reasoning_effort":
             # Prefer model-specific OpenAI effort choices, including GPT-5.6 max.
-            from code_puppy.model_utils import get_openai_reasoning_effort_choices
+            from code_puppy.model_utils import resolve_openai_reasoning_effort_choices
 
-            underlying_name = str(model_config.get("name", ""))
-            dynamic_choices = get_openai_reasoning_effort_choices(
+            dynamic_choices = resolve_openai_reasoning_effort_choices(
                 model_name, model_config
             )
-            if dynamic_choices is None:
-                dynamic_choices = get_openai_reasoning_effort_choices(
-                    underlying_name, model_config
-                )
             if dynamic_choices is not None:
                 return dynamic_choices
 
