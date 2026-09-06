@@ -388,6 +388,9 @@ def make_history_processor(agent: Any) -> Callable[..., Any]:
         # Claude. Cheap no-op when all IDs already conform.
         cleaned = sanitize_tool_call_ids(cleaned)
 
+        from code_puppy.agents._session_state import stamp_session_state
+
+        cleaned = stamp_session_state(agent, cleaned)
         agent._message_history = cleaned
 
         on_message_history_processor_end(

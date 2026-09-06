@@ -64,8 +64,13 @@ def _extract_pydantic_agent_tools(pyd_agent: Any) -> Optional[Dict[str, Any]]:
 class BaseAgent(ABC):
     """Abstract base for all Code Puppy agents."""
 
-    def __init__(self) -> None:
-        self.id: str = str(uuid.uuid4())
+    def __init__(self, *, agent_id: Optional[str] = None) -> None:
+        from code_puppy.agents._session_state import validate_agent_id
+
+        self.id: str = (
+            validate_agent_id(agent_id) if agent_id is not None else str(uuid.uuid4())
+        )
+        self._explicit_agent_id = agent_id
         self._message_history: List[Any] = []
         self._compacted_message_hashes: Set[str] = set()
         self._code_generation_agent: Any = None
@@ -219,8 +224,43 @@ class BaseAgent(ABC):
     def get_message_history(self) -> List[Any]:
         return self._message_history
 
-    def set_message_history(self, history: List[Any]) -> None:
+    def initialize_session(self, *, agent_id: str) -> None:
+        """Set runner-owned identity before the first turn; conflicting resumes fail."""
+        from code_puppy.agents._session_state import validate_agent_id
+
+        agent_id = validate_agent_id(agent_id)
+        if self._message_history and agent_id != self.id:
+            raise ValueError("Cannot change agent_id during a conversation")
+        self.id = agent_id
+        self._explicit_agent_id = agent_id
+        self._code_generation_agent = None
+
+    def get_session_state(self) -> Dict[str, Any]:
+        return {"agent_id": self.id}
+
+    def set_message_history(
+        self, history: List[Any], *, agent_id: Optional[str] = None
+    ) -> None:
+        """Restore identity through the common resume door, including raw history runners."""
+        from code_puppy.agents._session_state import (
+            read_session_state,
+            validate_agent_id,
+        )
+
+        state = read_session_state(history)
+        saved_id = state["agent_id"] if state else None
+        requested_id = (
+            validate_agent_id(agent_id)
+            if agent_id is not None
+            else self._explicit_agent_id
+        )
+        if saved_id and requested_id and saved_id != requested_id:
+            raise ValueError("Requested agent_id conflicts with saved conversation")
+        restored_id = saved_id or requested_id
+        if restored_id is not None:
+            self.id = restored_id
         self._message_history = history
+        self._code_generation_agent = None
 
     def clear_message_history(self) -> None:
         self._message_history = []
