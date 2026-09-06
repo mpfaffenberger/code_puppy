@@ -1,5 +1,7 @@
 from unittest.mock import patch
 
+import pytest
+
 from code_puppy.model_factory import ModelFactory, make_model_settings
 
 
@@ -81,3 +83,55 @@ def test_alias_keyed_custom_responses_model_gets_reasoning_settings():
     assert settings["openai_reasoning_summary"] == "auto"
     assert settings["openai_reasoning_context"] == "all_turns"
     assert settings["openai_reasoning_mode"] == "standard"
+
+
+# Each case pairs a model type with the settings class its factory builds:
+# chatgpt_oauth is always Responses, azure_foundry only for gpt-5 deployments.
+_RESPONSES_API_CASES = [
+    ("chatgpt_oauth", "gpt-5.2", True),
+    ("chatgpt_oauth", "o3", True),
+    ("chatgpt_oauth", "codex-mini-latest", True),
+    ("azure_foundry_openai", "gpt-5.2", True),
+    ("azure_foundry_openai", "o3", False),
+    ("azure_foundry_openai", "codex-mini-latest", False),
+    ("custom_openai_responses", "o3", True),
+    ("custom_openai", "o3", False),
+    ("openai", "o3", False),
+    ("azure_openai", "o3", False),
+]
+
+
+@pytest.mark.parametrize(
+    ("model_type", "name", "expect_responses"), _RESPONSES_API_CASES
+)
+def test_settings_class_matches_constructed_model(model_type, name, expect_responses):
+    """The settings class must follow the wire format the model factory builds.
+
+    An o-series model under ``chatgpt_oauth`` is still a Responses model, so
+    emitting Chat settings for it would send the wrong payload shape.
+    """
+    import pydantic_ai.models.openai as oai
+
+    constructed: list[str] = []
+    real_chat = oai.OpenAIChatModelSettings
+    real_responses = oai.OpenAIResponsesModelSettings
+
+    def record_chat(*args, **kwargs):
+        constructed.append("chat")
+        return real_chat(*args, **kwargs)
+
+    def record_responses(*args, **kwargs):
+        constructed.append("responses")
+        return real_responses(*args, **kwargs)
+
+    config = {"m": {"type": model_type, "name": name}}
+    with (
+        patch.object(oai, "OpenAIChatModelSettings", record_chat),
+        patch.object(oai, "OpenAIResponsesModelSettings", record_responses),
+        patch.object(ModelFactory, "load_config", return_value=config),
+        patch("code_puppy.config.get_custom_model_settings", return_value={}),
+    ):
+        make_model_settings("m", max_tokens=4096)
+
+    expected = "responses" if expect_responses else "chat"
+    assert constructed == [expected]

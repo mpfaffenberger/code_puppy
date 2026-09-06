@@ -75,6 +75,29 @@ def _custom_openai_uses_responses_api(
     )
 
 
+def _uses_responses_api(model_name: str, model_config: Dict[str, Any]) -> bool:
+    """Return whether this model is built as an ``OpenAIResponsesModel``.
+
+    Mirrors the model construction decisions so the settings class always
+    matches the wire format. The ``chatgpt_oauth`` plugin always builds a
+    Responses model; the ``azure_foundry`` plugin only does so for gpt-5
+    deployments (see each plugin's ``register_callbacks :: create_model()``).
+    """
+    from code_puppy.model_utils import supports_gpt_responses_controls
+
+    model_type = model_config.get("type")
+    underlying_name = str(model_config.get("name") or "")
+    if model_type == "chatgpt_oauth":
+        return True
+    if model_type == "azure_foundry_openai":
+        return underlying_name.lower().startswith("gpt-5")
+    if model_type == "openai":
+        return "codex" in model_name or supports_gpt_responses_controls(underlying_name)
+    if model_type in _CUSTOM_OPENAI_MODEL_TYPES:
+        return _custom_openai_uses_responses_api(model_name, model_config)
+    return False
+
+
 def _build_anthropic_beta_header(
     model_config: Dict,
     *,
@@ -353,7 +376,6 @@ def make_model_settings(
     from code_puppy.model_utils import (
         is_gpt_reasoning_model,
         resolve_openai_reasoning_effort_choices,
-        supports_gpt_responses_controls,
     )
 
     model_type = model_config.get("type")
@@ -421,23 +443,7 @@ def make_model_settings(
         ):
             model_settings_dict["openai_reasoning_effort"] = effort
 
-        uses_responses_api = (
-            model_type == "chatgpt_oauth"
-            or model_type == "azure_foundry_openai"
-            or (
-                model_type == "openai"
-                and (
-                    "codex" in model_name
-                    or supports_gpt_responses_controls(underlying_name)
-                )
-            )
-            or (
-                model_type in _CUSTOM_OPENAI_MODEL_TYPES
-                and _custom_openai_uses_responses_api(model_name, model_config)
-            )
-        )
-
-        if uses_responses_api:
+        if _uses_responses_api(model_name, model_config):
             model_settings_dict["openai_reasoning_summary"] = effective_settings.get(
                 "summary", "auto"
             )
@@ -462,14 +468,22 @@ def make_model_settings(
                 }
             model_settings = OpenAIChatModelSettings(**model_settings_dict)
     elif model_type in _OPENAI_COMPATIBLE_MODEL_TYPES and reasoning_effort_choices:
-        from pydantic_ai.models.openai import OpenAIChatModelSettings
+        from pydantic_ai.models.openai import (
+            OpenAIChatModelSettings,
+            OpenAIResponsesModelSettings,
+        )
 
         # Forward only documented effort values for OpenAI-compatible models.
         effort = effective_settings.get("reasoning_effort", "medium")
         effort = _EFFORT_ALIAS.get(effort, effort)
         if effort in reasoning_effort_choices:
             model_settings_dict["openai_reasoning_effort"] = effort
-        model_settings = OpenAIChatModelSettings(**model_settings_dict)
+        # Non-GPT reasoning models (o-series, codex-mini) can still be served
+        # over the Responses API, so the settings class must follow the model.
+        if _uses_responses_api(model_name, model_config):
+            model_settings = OpenAIResponsesModelSettings(**model_settings_dict)
+        else:
+            model_settings = OpenAIChatModelSettings(**model_settings_dict)
     elif _is_anthropic_model(model_name, model_config):
         from code_puppy.model_utils import (
             anthropic_disallows_sampling_settings,
