@@ -27,6 +27,7 @@ from pydantic_ai.messages import ModelMessage, ModelRequest, UserPromptPart
 from code_puppy.command_line.attachments import resolve_steer_content
 from code_puppy.messaging import emit_info
 from code_puppy.messaging.pause_controller import get_pause_controller
+from code_puppy.steer_metadata import STEER_METADATA
 
 
 def make_steer_history_processor(agent: Any) -> Callable[..., List[ModelMessage]]:
@@ -73,7 +74,7 @@ def make_steer_history_processor(agent: Any) -> Callable[..., List[ModelMessage]
                 ModelRequest(
                     parts=[UserPromptPart(content=content)],
                     instructions=last_instructions,
-                    metadata={"code_puppy_steer": True},
+                    metadata=dict(STEER_METADATA),
                 )
             )
 

@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
@@ -22,12 +22,14 @@ from pydantic_ai.tools import ToolDefinition
 
 from code_puppy.gemini_model import (
     BYPASS_THOUGHT_SIGNATURE,
+    STEER_PREAMBLE,
     GeminiModel,
     GeminiStreamingResponse,
     _flatten_union_to_object_gemini,
     _sanitize_schema_for_gemini,
     generate_tool_call_id,
 )
+from code_puppy.steer_metadata import STEER_METADATA
 
 
 @pytest.fixture
@@ -533,7 +535,7 @@ class TestMapMessages:
             ),
             ModelRequest(
                 parts=[UserPromptPart(content=["steer", media])],
-                metadata={"code_puppy_steer": True},
+                metadata=STEER_METADATA,
             ),
         ]
 
@@ -553,9 +555,7 @@ class TestMapMessages:
             ["text"],
             ["inline_data"],
         ]
-        assert contents[-1]["parts"][0]["text"].startswith(
-            "Additional guidance for the current task"
-        )
+        assert contents[-1]["parts"][0]["text"] == STEER_PREAMBLE
         assert contents[-1]["parts"][1]["text"] == "steer"
         assert system_instruction is None
 
@@ -579,7 +579,22 @@ class TestMapMessages:
             ]
         )
         _, continued_contents = await model._map_messages(msgs, default_params)
-        assert "steer" in str(continued_contents)
+        # The steer stays its own text-only block; the tool result that landed
+        # after it starts a new block rather than mixing into the steer.
+        assert [content["role"] for content in continued_contents] == [
+            "user",
+            "model",
+            "user",
+            "user",
+            "model",
+            "user",
+        ]
+        assert continued_contents[3]["parts"] == [
+            {"text": STEER_PREAMBLE},
+            {"text": "steer"},
+            {"inline_data": {"mime_type": "image/png", "data": ANY}},
+        ]
+        assert sorted(continued_contents[-1]["parts"][0]) == ["function_response"]
 
         msgs.extend(
             [
@@ -588,8 +603,113 @@ class TestMapMessages:
             ]
         )
         next_system, next_contents = await model._map_messages(msgs, default_params)
+        # Retiring drops the current-task framing, never the user's own words.
+        assert STEER_PREAMBLE not in str(next_contents)
         assert "steer" not in str(next_system)
-        assert "steer" not in str(next_contents)
+        assert next_contents[3]["parts"] == [
+            {"text": "steer"},
+            {"inline_data": {"mime_type": "image/png", "data": ANY}},
+        ]
+
+    @pytest.mark.anyio
+    async def test_steer_never_mixes_with_a_parallel_tool_result(
+        self, model, default_params
+    ):
+        """A tool call outstanding across a steer must not join the steer block.
+
+        Mixing ``function_response`` with ``text`` in one block is the exact
+        HTTP 400 shape this feature exists to avoid.
+        """
+        msgs = [
+            ModelRequest(parts=[UserPromptPart(content="start")]),
+            ModelResponse(
+                parts=[
+                    ToolCallPart(tool_name="shell", args={}, tool_call_id="call-1"),
+                    ToolCallPart(tool_name="shell", args={}, tool_call_id="call-2"),
+                ],
+                model_name="m",
+            ),
+            ModelRequest(
+                parts=[
+                    ToolReturnPart(
+                        tool_name="shell", content="first", tool_call_id="call-1"
+                    )
+                ]
+            ),
+            ModelRequest(
+                parts=[UserPromptPart(content="steer")],
+                metadata=STEER_METADATA,
+            ),
+            ModelRequest(
+                parts=[
+                    ToolReturnPart(
+                        tool_name="shell", content="second", tool_call_id="call-2"
+                    )
+                ]
+            ),
+        ]
+
+        _, contents = await model._map_messages(msgs, default_params)
+
+        assert [
+            sorted({key for part in content["parts"] for key in part})
+            for content in contents
+        ] == [
+            ["text"],
+            ["function_call", "thoughtSignature"],
+            ["function_response"],
+            ["text"],
+            ["function_response"],
+        ]
+
+    @pytest.mark.anyio
+    async def test_consecutive_steers_share_one_block_and_preamble(
+        self, model, default_params
+    ):
+        msgs = [
+            ModelRequest(parts=[UserPromptPart(content="start")]),
+            ModelRequest(
+                parts=[UserPromptPart(content="first steer")],
+                metadata=STEER_METADATA,
+            ),
+            ModelRequest(
+                parts=[UserPromptPart(content="second steer")],
+                metadata=STEER_METADATA,
+            ),
+        ]
+
+        _, contents = await model._map_messages(msgs, default_params)
+
+        assert [content["role"] for content in contents] == ["user", "user"]
+        assert contents[1]["parts"] == [
+            {"text": STEER_PREAMBLE},
+            {"text": "first steer"},
+            {"text": "second steer"},
+        ]
+
+    @pytest.mark.anyio
+    async def test_steer_system_prompt_part_reaches_system_instruction(
+        self, model, default_params
+    ):
+        """A ``SystemPromptPart`` on a steer must not be silently dropped."""
+        msgs = [
+            ModelRequest(parts=[UserPromptPart(content="start")]),
+            ModelRequest(
+                parts=[
+                    SystemPromptPart(content="be terse"),
+                    UserPromptPart(content="steer"),
+                ],
+                metadata=STEER_METADATA,
+            ),
+        ]
+
+        system_instruction, contents = await model._map_messages(msgs, default_params)
+
+        assert system_instruction["parts"] == [{"text": "be terse"}]
+        assert contents[-1]["parts"] == [
+            {"text": STEER_PREAMBLE},
+            {"text": "steer"},
+        ]
 
     @pytest.mark.anyio
     async def test_instructions_injected(self, model, default_params):
