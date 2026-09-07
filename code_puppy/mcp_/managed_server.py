@@ -20,6 +20,7 @@ from pydantic_ai.toolsets import AbstractToolset
 
 from code_puppy.http_utils import create_async_client, get_cert_bundle_path
 from code_puppy.mcp_.blocking_startup import BlockingStdioToolset
+from code_puppy.mcp_.capabilities import build_capability_kwargs
 from code_puppy.mcp_.tool_arg_coercion import coerce_tool_args
 
 
@@ -256,13 +257,19 @@ class ManagedMCPServer:
 
         return self._pydantic_server
 
-    def _toolset_kwargs(self, config: Dict[str, Any]) -> Dict[str, Any]:
+    def _toolset_kwargs(
+        self, config: Dict[str, Any], server_name: str = ""
+    ) -> Dict[str, Any]:
         """Map our config keys onto ``MCPToolset`` constructor kwargs.
 
         ``timeout`` (time allowed for the initialize handshake) maps to
         ``init_timeout``; ``read_timeout`` keeps its name. Omitted keys fall
         through to pydantic-ai's defaults (5s / 300s — same as the old
         ``MCPServer*`` defaults).
+
+        The ``capabilities`` block is folded in by ``build_capability_kwargs``.
+        ``server_name`` keys the log sink, so pass the tool prefix that stderr
+        capture and ``/mcp logs`` already use.
 
         ``prefer_tasks=False``: pydantic-ai v2 defaults to task-augmented
         execution (SEP-1686) for tools whose server marks task support
@@ -274,6 +281,7 @@ class ManagedMCPServer:
             "process_tool_call": process_tool_call,
             "prefer_tasks": False,
         }
+        kwargs.update(build_capability_kwargs(config, server_name or self.config.name))
         if "timeout" in config:
             kwargs["init_timeout"] = config["timeout"]
         if "read_timeout" in config:
@@ -315,7 +323,9 @@ class ManagedMCPServer:
                     else None
                 ),
             )
-            self._toolset = MCPToolset(transport, **self._toolset_kwargs(config))
+            self._toolset = MCPToolset(
+                transport, **self._toolset_kwargs(config, tool_prefix)
+            )
 
         elif server_type == "stdio":
             if "command" not in config:
@@ -349,7 +359,7 @@ class ManagedMCPServer:
                 server_name=tool_prefix,
                 emit_stderr=False,  # Logs go to file (use /mcp logs to view)
                 message_group=uuid.uuid4(),
-                **self._toolset_kwargs(stdio_config),
+                **self._toolset_kwargs(stdio_config, tool_prefix),
             )
 
         elif server_type == "http":
@@ -363,7 +373,9 @@ class ManagedMCPServer:
                 url=_expand_env_vars(config["url"]),
                 headers=headers,
             )
-            self._toolset = MCPToolset(transport, **self._toolset_kwargs(config))
+            self._toolset = MCPToolset(
+                transport, **self._toolset_kwargs(config, tool_prefix)
+            )
 
         else:
             raise ValueError(f"Unsupported server type: {server_type}")
