@@ -188,6 +188,7 @@ class TestImageResizing:
         mock_image = MagicMock()
         mock_image.width = width
         mock_image.height = height
+        mock_image.size = (width, height)
 
         call_count = [0]
 

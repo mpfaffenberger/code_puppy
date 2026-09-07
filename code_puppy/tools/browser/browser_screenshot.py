@@ -12,6 +12,7 @@ from typing import Any, Dict, Optional, Union
 
 from pydantic_ai import BinaryContent, RunContext, ToolReturn
 
+from code_puppy.command_line.image_utils import normalize_image_bytes
 from code_puppy.messaging import emit_error, emit_info, emit_success
 from code_puppy.tools.common import generate_group_id
 
@@ -124,14 +125,18 @@ async def take_screenshot(
 
         screenshot_path = result.get("screenshot_path", "(not saved)")
 
+        # Preserve the full-resolution file; normalize only the model payload.
+        image_bytes, media_type = normalize_image_bytes(
+            result["screenshot_bytes"], "image/png"
+        )
         # Return as ToolReturn with BinaryContent so the model can SEE the image!
         return ToolReturn(
             return_value=f"Screenshot captured successfully. Saved to: {screenshot_path}",
             content=[
                 f"Here's the browser screenshot ({target}):",
                 BinaryContent(
-                    data=result["screenshot_bytes"],
-                    media_type="image/png",
+                    data=image_bytes,
+                    media_type=media_type,
                 ),
                 "Please analyze what you see and describe any relevant details.",
             ],
