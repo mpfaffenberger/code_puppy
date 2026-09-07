@@ -109,6 +109,31 @@ async def test_real_quick_resume_restores_identity(tmp_path, monkeypatch):
     assert resumed.id == owner.id
 
 
+def test_initialized_identity_cannot_be_overridden_by_restore_argument():
+    owner = SessionAgent(agent_id="initialized")
+    with pytest.raises(ValueError, match="initialized identity"):
+        owner.set_message_history([], agent_id="different")
+    assert owner.id == "initialized"
+    assert owner.get_message_history() == []
+
+
+async def test_manual_compaction_preserves_identity(monkeypatch):
+    from code_puppy.agents import _compaction
+    from pydantic_ai.models.test import TestModel
+
+    owner = SessionAgent(agent_id="saved-id")
+    history = await run_turn(owner)
+
+    async def replacement(*args, **kwargs):
+        return [ModelRequest(parts=[UserPromptPart("summary")])]
+
+    monkeypatch.setattr(_compaction, "compact_now", replacement)
+    compacted = _compaction.run_compaction_sync(object(), history, model=TestModel())
+    resumed = SessionAgent()
+    resumed.set_message_history(compacted)
+    assert resumed.id == "saved-id"
+
+
 async def test_existing_metadata_and_legacy_history():
     owner = SessionAgent(agent_id="explicit")
     owner.set_message_history(

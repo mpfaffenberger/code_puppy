@@ -36,7 +36,10 @@ def stamp_session_state(agent: Any, messages: list[Any]) -> list[Any]:
     export = getattr(agent, "get_session_state", None)
     if not callable(export):
         return messages
-    state = export()
+    return stamp_state(export(), messages)
+
+
+def stamp_state(state: dict[str, Any], messages: list[Any]) -> list[Any]:
     for index in range(len(messages) - 1, -1, -1):
         message = messages[index]
         if isinstance(message, ModelRequest):

@@ -248,6 +248,12 @@ class BaseAgent(ABC):
         )
 
         state = read_session_state(history)
+        if (
+            agent_id is not None
+            and self._explicit_agent_id is not None
+            and agent_id != self._explicit_agent_id
+        ):
+            raise ValueError("Requested agent_id conflicts with initialized identity")
         saved_id = state["agent_id"] if state else None
         requested_id = (
             validate_agent_id(agent_id)
