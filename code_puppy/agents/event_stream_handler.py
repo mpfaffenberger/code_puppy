@@ -51,9 +51,13 @@ def _fire_stream_event(event_type: str, event_data: Any) -> None:
         agent_session_id = get_session_context()
 
         # Use create_task to fire callback without blocking
-        asyncio.create_task(
-            callbacks.on_stream_event(event_type, event_data, agent_session_id)
-        )
+        coroutine = callbacks.on_stream_event(event_type, event_data, agent_session_id)
+        try:
+            asyncio.create_task(coroutine)
+        except BaseException:
+            # Submission failed: no task owns this coroutine. Preserve cancellation.
+            coroutine.close()
+            raise
     except ImportError:
         logger.debug("callbacks or messaging module not available for stream event")
     except Exception as e:
