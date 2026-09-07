@@ -55,10 +55,16 @@ async def test_browser_normalizes_payload_but_preserves_saved_capture(
         assert image.size == (2000, 1125)
 
 
-def test_file_loader_uses_shared_limit():
-    from code_puppy.tools.image_tools import MAX_IMAGE_EDGE
+async def test_file_loader_caps_actual_payload_and_preserves_file(tmp_path):
+    from code_puppy.tools.image_tools import load_image
 
-    assert MAX_IMAGE_EDGE == 2000
+    data = png((2048, 1024))
+    path = tmp_path / "capture.png"
+    path.write_bytes(data)
+    result = await load_image(str(path))
+    assert path.read_bytes() == data
+    with Image.open(io.BytesIO(result.content[1].data)) as image:
+        assert image.size == (2000, 1000)
 
 
 def test_linux_clipboard_normalizes_small_byte_capture(monkeypatch):
