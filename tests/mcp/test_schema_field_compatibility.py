@@ -3,6 +3,7 @@
 from types import SimpleNamespace
 
 import pytest
+from mcp.types import Tool
 
 from code_puppy.mcp_.managed_server import _input_schema_for_tool
 from code_puppy.mcp_.tool_arg_coercion import coerce_tool_args
@@ -33,20 +34,22 @@ class Server:
 
 
 @pytest.mark.parametrize(
-    "tool",
+    ("tool", "expected"),
     [
-        ModernTool(),
-        SimpleNamespace(name="test", inputSchema=SCHEMA),
-        SimpleNamespace(name="test", input_schema=None, inputSchema=SCHEMA),
-        SimpleNamespace(name="test", input_schema={}),
-        SimpleNamespace(name="test"),
+        (ModernTool(), SCHEMA),
+        (SimpleNamespace(name="test", input_schema=SCHEMA), SCHEMA),
+        (SimpleNamespace(name="test", inputSchema=SCHEMA), SCHEMA),
+        (SimpleNamespace(name="test", input_schema=None, inputSchema=SCHEMA), SCHEMA),
+        (SimpleNamespace(name="test", input_schema=SCHEMA, inputSchema={}), SCHEMA),
+        (SimpleNamespace(name="test", input_schema={}, inputSchema=SCHEMA), {}),
+        (SimpleNamespace(name="test", input_schema={}), {}),
+        (SimpleNamespace(name="test"), None),
+        (Tool(name="test", inputSchema=SCHEMA), SCHEMA),
+        (Tool(name="test", inputSchema={}), {}),
     ],
 )
-async def test_live_and_cached_schema_reads_agree(tool):
+async def test_live_and_cached_schema_reads_agree(tool, expected):
     server = Server(tool)
-    expected = getattr(tool, "input_schema", None)
-    if expected is None:
-        expected = getattr(tool, "inputSchema", None)
     schema = await _input_schema_for_tool(server.call_tool, "test")
     assert schema == expected
     assert list(iter_cached_tool_defs(server))[0][2] == expected
