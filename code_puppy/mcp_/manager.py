@@ -824,6 +824,63 @@ class MCPManager:
                 return True
             return False
 
+    async def restart_server(self, server_id: str) -> bool:
+        """Serialize restart callers without changing the other lifecycle APIs."""
+        if not hasattr(self, "_restart_locks"):
+            self._restart_locks = {}
+        lock = self._restart_locks.setdefault(server_id, asyncio.Lock())
+        async with lock:
+            return await self._restart_server(server_id)
+
+    async def _restart_server(self, server_id: str) -> bool:
+        """Restart one idle connector; never replace it after an incomplete stop.
+
+        Command callers serialize restart requests and rebind after completion.
+        Other pending start/stop operations are refused rather than raced.
+        """
+        from .toolset_utils import toolset_is_running
+
+        if any(
+            server_id in getattr(self, name, {})
+            and not getattr(self, name)[server_id].done()
+            for name in ("_pending_start_tasks", "_pending_stop_tasks")
+        ):
+            return False
+        old = self._managed_servers.get(server_id)
+        config = self.registry.get(server_id)
+        if old is None or config is None:
+            return False
+        lifecycle = get_lifecycle_manager()
+        # Save the toolset before disable() makes get_pydantic_server reject it.
+        toolset = old.get_pydantic_server() if old.is_enabled() else None
+        old.disable()
+        succeeded = False
+        self.status_tracker.set_status(server_id, ServerState.STOPPING)
+        try:
+            if server_id in lifecycle.list_servers():
+                if not await lifecycle.stop_server(server_id):
+                    return False
+            if toolset is not None and toolset_is_running(toolset):
+                return False  # another agent still owns a live reference
+            replacement = ManagedMCPServer(config)
+            if replacement.get_status()["state"] == ServerState.ERROR.value:
+                return False
+            replacement.enable()
+            self._managed_servers[server_id] = replacement
+            if not await lifecycle.start_server(
+                server_id, replacement.get_pydantic_server()
+            ):
+                replacement.disable()
+                return False
+            self.status_tracker.set_status(server_id, ServerState.RUNNING)
+            self.status_tracker.record_start_time(server_id)
+            succeeded = True
+            return True
+        finally:
+            if not succeeded:
+                self._managed_servers[server_id].disable()
+                self.status_tracker.set_status(server_id, ServerState.ERROR)
+
     def reload_server(self, server_id: str) -> bool:
         """
         Reload a server configuration.
