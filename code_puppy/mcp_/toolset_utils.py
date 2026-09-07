@@ -56,6 +56,41 @@ def toolset_is_running(toolset: Any) -> bool:
     return bool(getattr(unwrap_toolset(toolset), "is_running", False))
 
 
+def toolset_capabilities(toolset: Any) -> Optional[Any]:
+    """Server capabilities advertised during the handshake, or ``None``.
+
+    ``MCPToolset.capabilities`` raises ``AttributeError`` ("only available
+    after initialization") until the toolset has been entered, so callers
+    that render status for a mix of running and stopped servers would
+    otherwise need a try/except at every call site. ``None`` means "not
+    connected yet", which is exactly what a status view wants to show.
+    """
+    try:
+        return unwrap_toolset(toolset).capabilities
+    except AttributeError:
+        return None
+
+
+def toolset_instructions(toolset: Any) -> Optional[str]:
+    """Server-provided instructions, or ``None`` if not connected/absent."""
+    try:
+        return unwrap_toolset(toolset).instructions
+    except AttributeError:
+        return None
+
+
+def toolset_server_info(toolset: Any) -> Optional[Any]:
+    """Server name/version stamp, or ``None`` if not connected.
+
+    Optional even on a live connection: on a modern (stateless) session
+    ``serverInfo`` is a display-only field the server may omit entirely.
+    """
+    try:
+        return unwrap_toolset(toolset).server_info
+    except AttributeError:
+        return None
+
+
 def iter_cached_tool_defs(toolset: Any) -> Iterator[Tuple[str, str, Any]]:
     """Yield ``(full_name, description, input_schema)`` for cached MCP tools.
 
