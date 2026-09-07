@@ -14,8 +14,8 @@ def test_preserve_empty_signed_thinking_part():
     assert filtered == 0
 
 
-def test_remove_empty_unsigned_thinking_part():
-    message = ModelResponse([ThinkingPart(content="", id="rs_1")])
+def test_remove_empty_thinking_part_without_replay_state():
+    message = ModelResponse([ThinkingPart(content="")])
 
     cleaned, filtered = _strip_empty_thinking_parts([message])
 
