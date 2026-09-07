@@ -117,6 +117,48 @@ def test_initialized_identity_cannot_be_overridden_by_restore_argument():
     assert owner.get_message_history() == []
 
 
+@pytest.mark.parametrize("constructor", [False, True])
+def test_repeated_initialization_is_atomic_and_idempotent(constructor):
+    owner = SessionAgent(agent_id="initialized") if constructor else SessionAgent()
+    owner.initialize_session(agent_id="initialized")
+    cached = owner._code_generation_agent = object()
+    with pytest.raises(ValueError, match="Cannot change"):
+        owner.initialize_session(agent_id="different")
+    owner.initialize_session(agent_id="initialized")
+    assert owner.id == owner._explicit_agent_id == "initialized"
+    assert owner.get_message_history() == []
+    assert owner._code_generation_agent is cached
+
+
+@pytest.mark.parametrize("source", ["legacy", "saved", "argument"])
+def test_history_checkpoint_keeps_cache_when_identity_is_unchanged(source):
+    owner = SessionAgent()
+    cached = owner._code_generation_agent = object()
+    metadata = {SESSION_KEY: {"agent_id": owner.id}} if source == "saved" else None
+    history = [ModelRequest(parts=[UserPromptPart("hello")], metadata=metadata)]
+    kwargs = {"agent_id": owner.id} if source == "argument" else {}
+    owner.set_message_history(history, **kwargs)
+    assert owner.get_message_history() is history
+    assert owner._code_generation_agent is cached
+
+
+@pytest.mark.parametrize("source", ["saved", "argument", "initialize"])
+def test_changed_identity_invalidates_cache(source):
+    owner = SessionAgent()
+    owner._code_generation_agent = object()
+    if source == "initialize":
+        owner.initialize_session(agent_id="restored")
+    else:
+        metadata = (
+            {SESSION_KEY: {"agent_id": "restored"}} if source == "saved" else None
+        )
+        history = [ModelRequest(parts=[UserPromptPart("hello")], metadata=metadata)]
+        kwargs = {"agent_id": "restored"} if source == "argument" else {}
+        owner.set_message_history(history, **kwargs)
+    assert owner.id == "restored"
+    assert owner._code_generation_agent is None
+
+
 async def test_manual_compaction_preserves_identity(monkeypatch):
     from code_puppy.agents import _compaction
     from pydantic_ai.models.test import TestModel

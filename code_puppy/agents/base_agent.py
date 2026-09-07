@@ -229,11 +229,14 @@ class BaseAgent(ABC):
         from code_puppy.agents._session_state import validate_agent_id
 
         agent_id = validate_agent_id(agent_id)
-        if self._message_history and agent_id != self.id:
+        if (
+            self._message_history or self._explicit_agent_id is not None
+        ) and agent_id != self.id:
             raise ValueError("Cannot change agent_id during a conversation")
+        if agent_id != self.id:
+            self._code_generation_agent = None
         self.id = agent_id
         self._explicit_agent_id = agent_id
-        self._code_generation_agent = None
 
     def get_session_state(self) -> Dict[str, Any]:
         return {"agent_id": self.id}
@@ -263,10 +266,10 @@ class BaseAgent(ABC):
         if saved_id and requested_id and saved_id != requested_id:
             raise ValueError("Requested agent_id conflicts with saved conversation")
         restored_id = saved_id or requested_id
-        if restored_id is not None:
+        if restored_id is not None and restored_id != self.id:
             self.id = restored_id
+            self._code_generation_agent = None
         self._message_history = history
-        self._code_generation_agent = None
 
     def clear_message_history(self) -> None:
         self._message_history = []
