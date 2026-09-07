@@ -76,6 +76,8 @@ def _validate_and_prepare_image(
             resized = image.resize(
                 (output_width, output_height), Image.Resampling.LANCZOS
             )
+            if resized.mode not in ("RGB", "RGBA", "L", "LA", "P"):
+                resized = resized.convert("RGB")
             output = io.BytesIO()
             resized.save(output, format="PNG", optimize=True)
             output.seek(0)

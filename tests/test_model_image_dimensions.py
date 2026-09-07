@@ -70,3 +70,30 @@ def test_linux_clipboard_normalizes_small_byte_capture(monkeypatch):
     result = clipboard.get_clipboard_image()
     with Image.open(io.BytesIO(result)) as image:
         assert image.size == (2000, 1118)
+
+
+def test_linux_clipboard_reencodes_oversized_encoding(monkeypatch):
+    from code_puppy.command_line import clipboard
+
+    buf = io.BytesIO()
+    Image.new("RGB", (2000, 2000), "white").save(buf, format="PNG", compress_level=0)
+    data = buf.getvalue()
+    assert len(data) > clipboard.MAX_IMAGE_SIZE_BYTES
+    monkeypatch.setattr(clipboard.sys, "platform", "linux")
+    monkeypatch.setattr(clipboard, "_get_linux_clipboard_image", lambda: data)
+    result = clipboard.get_clipboard_image()
+    assert len(result) < clipboard.MAX_IMAGE_SIZE_BYTES
+    with Image.open(io.BytesIO(result)) as image:
+        assert image.size == (2000, 2000)
+
+
+def test_file_loader_normalizes_cmyk_when_new_limit_requires_resize():
+    from code_puppy.tools.image_tools import MAX_IMAGE_EDGE, _validate_and_prepare_image
+
+    buf = io.BytesIO()
+    Image.new("CMYK", (2048, 1024)).save(buf, format="JPEG")
+    result = _validate_and_prepare_image(buf.getvalue(), max_edge=MAX_IMAGE_EDGE)
+    assert result["media_type"] == "image/png"
+    with Image.open(io.BytesIO(result["image_bytes"])) as image:
+        assert image.size == (2000, 1000)
+        assert image.mode == "RGB"

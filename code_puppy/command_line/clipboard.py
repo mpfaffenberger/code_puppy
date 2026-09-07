@@ -258,7 +258,7 @@ def get_clipboard_image() -> Optional[bytes]:
                 logger.warning("Image verification failed for Linux clipboard image")
                 return None
             resized = _resize_image_if_needed(image, MAX_IMAGE_SIZE_BYTES)
-            if resized is not image:
+            if resized is not image or len(image_bytes) > MAX_IMAGE_SIZE_BYTES:
                 buffer = io.BytesIO()
                 resized.save(buffer, format="PNG", optimize=True)
                 image_bytes = buffer.getvalue()
