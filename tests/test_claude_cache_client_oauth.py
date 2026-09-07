@@ -54,7 +54,8 @@ class TestProactiveTokenRefresh:
                 return_value="new_fresh_token",
             ) as mock_refresh:
                 client = ClaudeCacheAsyncClient(
-                    headers={"Authorization": f"Bearer {old_token}"}
+                    apply_claude_code_prefix=True,
+                    headers={"Authorization": f"Bearer {old_token}"},
                 )
 
                 request = httpx2.Request(
@@ -97,7 +98,8 @@ class TestProactiveTokenRefresh:
                 "_refresh_claude_oauth_token_async",
             ) as mock_refresh:
                 client = ClaudeCacheAsyncClient(
-                    headers={"Authorization": f"Bearer {fresh_token}"}
+                    apply_claude_code_prefix=True,
+                    headers={"Authorization": f"Bearer {fresh_token}"},
                 )
 
                 request = httpx2.Request(
@@ -219,7 +221,7 @@ class TestTokenRefreshOnCloudflareError:
             # Mock the refresh function
             with patch.object(
                 ClaudeCacheAsyncClient,
-                "_refresh_claude_oauth_token",
+                "_refresh_claude_oauth_token_async",
                 return_value="new_token_123",
             ) as mock_refresh:
                 # Mock stored token expiry check to prevent proactive refresh
@@ -230,7 +232,8 @@ class TestTokenRefreshOnCloudflareError:
                     return_value=False,
                 ):
                     client = ClaudeCacheAsyncClient(
-                        headers={"Authorization": "Bearer old_token"}
+                        apply_claude_code_prefix=True,
+                        headers={"Authorization": "Bearer old_token"},
                     )
 
                     # Create a mock request
@@ -266,7 +269,7 @@ class TestTokenRefreshOnCloudflareError:
             httpx2.AsyncClient, "send", new_callable=AsyncMock, return_value=response
         ):
             with patch.object(
-                ClaudeCacheAsyncClient, "_refresh_claude_oauth_token"
+                ClaudeCacheAsyncClient, "_refresh_claude_oauth_token_async"
             ) as mock_refresh:
                 # Mock stored token expiry check to prevent proactive refresh
                 with patch.object(
@@ -275,7 +278,8 @@ class TestTokenRefreshOnCloudflareError:
                     return_value=False,
                 ):
                     client = ClaudeCacheAsyncClient(
-                        headers={"Authorization": "Bearer token"}
+                        apply_claude_code_prefix=True,
+                        headers={"Authorization": "Bearer token"},
                     )
 
                     request = httpx2.Request(
@@ -314,7 +318,7 @@ class TestTokenRefreshOnCloudflareError:
 
             with patch.object(
                 ClaudeCacheAsyncClient,
-                "_refresh_claude_oauth_token",
+                "_refresh_claude_oauth_token_async",
                 return_value="new_token_456",
             ) as mock_refresh:
                 # Mock stored token expiry check to prevent proactive refresh
@@ -325,7 +329,8 @@ class TestTokenRefreshOnCloudflareError:
                     return_value=False,
                 ):
                     client = ClaudeCacheAsyncClient(
-                        headers={"Authorization": "Bearer old_token"}
+                        apply_claude_code_prefix=True,
+                        headers={"Authorization": "Bearer old_token"},
                     )
 
                     request = httpx2.Request(
@@ -364,11 +369,12 @@ class TestTokenRefreshOnCloudflareError:
         ) as mock_send:
             with patch.object(
                 ClaudeCacheAsyncClient,
-                "_refresh_claude_oauth_token",
+                "_refresh_claude_oauth_token_async",
                 return_value="new_token",
             ):
                 client = ClaudeCacheAsyncClient(
-                    headers={"Authorization": "Bearer token"}
+                    apply_claude_code_prefix=True,
+                    headers={"Authorization": "Bearer token"},
                 )
 
                 request = httpx2.Request(

@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import logging
 import traceback
 from typing import Any, Callable, Dict, List, Literal, Optional, Set, Tuple
@@ -478,7 +479,13 @@ async def _trigger_callbacks(phase: PhaseType, *args, **kwargs) -> List[Any]:
     results = []
     for callback in callbacks:
         try:
-            result = callback(*args, **kwargs)
+            if phase in {
+                "refresh_claude_oauth_token",
+                "check_claude_oauth_token_expiry",
+            } and not inspect.iscoroutinefunction(callback):
+                result = await asyncio.to_thread(callback, *args, **kwargs)
+            else:
+                result = callback(*args, **kwargs)
             if asyncio.iscoroutine(result):
                 result = await result
             results.append(result)
