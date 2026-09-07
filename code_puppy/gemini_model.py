@@ -389,6 +389,12 @@ class GeminiModel(Model):
                     else:
                         contents.append(model_parts)
 
+        # Gemini 3.x 400s on a history ending in a model turn, which /steer
+        # injection and interrupted tool calls both produce. Same trim
+        # _compaction.py :: history_processor() does for Anthropic prefill.
+        while contents and contents[-1].get("role") == "model":
+            contents.pop()
+
         # Ensure at least one content
         if not contents:
             contents = [{"role": "user", "parts": [{"text": ""}]}]
