@@ -297,7 +297,7 @@ def make_history_processor(agent: Any) -> Callable[..., Any]:
          (preserving the last-message regardless of compacted-hash collisions).
       3. Runs ``compact(...)`` if we're over threshold (or ``/compact`` forced).
       4. Records dropped-message hashes in ``agent._compacted_message_hashes``.
-      5. Strips empty ThinkingParts that carry no replay signature.
+      5. Strips empty ThinkingParts that carry no provider replay state.
       6. Trims trailing ModelResponse messages so history ends with a ModelRequest.
       7. Fires ``on_message_history_processor_end``.
 
