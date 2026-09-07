@@ -12,6 +12,7 @@ Note: mcp_completion.py is covered in tests/command_line/test_mcp_completion.py
 """
 
 import os
+import shlex
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -192,7 +193,11 @@ class TestFilePathCompleterMissedLines:
             doc = Document(f"@~/{basename}/t")
             completions = list(self.completer.get_completions(doc, None))
             for c in completions:
-                assert c.text.startswith("~")
+                # Insertion text is shlex-quoted (see 029ca24); decode it
+                # before asserting the tilde-prefixed absolute path.
+                decoded = shlex.split(c.text)
+                assert len(decoded) == 1
+                assert decoded[0].startswith("~/")
 
     def test_nonexistent_dir_listing(self):
         """Line 41: base_path is not a directory → paths = []."""
