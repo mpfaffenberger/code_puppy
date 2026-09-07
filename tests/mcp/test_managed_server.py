@@ -270,14 +270,14 @@ class TestProcessToolCall:
     async def test_unwraps_functools_partial_for_schema_lookup(self):
         """Schema lookup unwraps functools.partial (MCPToolset.call_tool shape)."""
         import functools
+        from types import SimpleNamespace
 
         mock_ctx = Mock()
         mock_ctx.deps = None
 
         class FakeToolset:
             async def list_tools(self):
-                tool = Mock()
-                tool.name = "t"
+                tool = SimpleNamespace(name="t")
                 tool.inputSchema = {
                     "type": "object",
                     "properties": {"flag": {"type": "boolean"}},
