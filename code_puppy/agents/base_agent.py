@@ -71,6 +71,10 @@ class BaseAgent(ABC):
             validate_agent_id(agent_id) if agent_id is not None else str(uuid.uuid4())
         )
         self._explicit_agent_id = agent_id
+        self._session_prompt_body: Optional[str] = None
+        self._session_rules: Optional[str] = None
+        self._session_prepared_prompt: Optional[Dict[str, Any]] = None
+        self._initial_system_prompt: Optional[str] = None
         self._message_history: List[Any] = []
         self._compacted_message_hashes: Set[str] = set()
         self._code_generation_agent: Any = None
@@ -198,48 +202,84 @@ class BaseAgent(ABC):
             "such as claiming task ownership or coordination with other agents."
         )
 
-    def get_full_system_prompt(self) -> str:
-        """Assemble the runtime system prompt.
-
-        Layered as: authored prompt (``get_system_prompt``) + per-turn
-        ``load_prompt`` plugin fragments + this instance's identity.
-
-        The ``load_prompt`` fragments (live timestamp/CWD, file-permission
-        rules, kennel memory, ...) and the identity ID are *runtime* concerns.
-        They live here — not in ``get_system_prompt`` — so they're recomputed
-        fresh every run and never get persisted into static agent definitions
-        (e.g. when an agent is cloned to JSON). See ``clone_agent``.
-        """
+    def get_session_prompt_body(self) -> str:
+        """Freeze authored/plugin instructions once per conversation, not per process turn."""
         from code_puppy import callbacks
 
-        prompt = self.get_system_prompt()
-        prompt_additions = callbacks.on_load_prompt()
-        if prompt_additions:
-            prompt += "\n" + "\n".join(prompt_additions)
-        if self._runtime_system_prompt_additions:
-            prompt += "\n" + "\n".join(self._runtime_system_prompt_additions)
-        return prompt + self.get_identity_prompt()
+        if self._session_prompt_body is None:
+            prompt = self._initial_system_prompt
+            if prompt is None:
+                prompt = self.get_system_prompt()
+            additions = callbacks.on_load_prompt()
+            if additions:
+                prompt += "\n" + "\n".join(additions)
+            self._session_prompt_body = prompt
+        return self._session_prompt_body
+
+    def get_session_rules(self) -> str:
+        if self._session_rules is None:
+            from code_puppy.agents._builder import load_puppy_rules
+
+            self._session_rules = load_puppy_rules() or ""
+        return self._session_rules
+
+    def get_runtime_prompt_suffix(self) -> str:
+        return (
+            "\n" + "\n".join(self._runtime_system_prompt_additions)
+            if self._runtime_system_prompt_additions
+            else ""
+        )
+
+    def get_full_system_prompt(self) -> str:
+        """Stable body/identity followed by this run's temporary instructions."""
+        return (
+            self.get_session_prompt_body()
+            + self.get_identity_prompt()
+            + self.get_runtime_prompt_suffix()
+        )
 
     # ---- Message history (plain dict-level access) ------------------------
     def get_message_history(self) -> List[Any]:
         return self._message_history
 
-    def initialize_session(self, *, agent_id: str) -> None:
+    def initialize_session(
+        self, *, agent_id: Optional[str] = None, system_prompt: Optional[str] = None
+    ) -> None:
         """Set runner-owned identity before the first turn; conflicting resumes fail."""
         from code_puppy.agents._session_state import validate_agent_id
 
-        agent_id = validate_agent_id(agent_id)
-        if (
-            self._message_history or self._explicit_agent_id is not None
-        ) and agent_id != self.id:
-            raise ValueError("Cannot change agent_id during a conversation")
-        if agent_id != self.id:
-            self._code_generation_agent = None
-        self.id = agent_id
-        self._explicit_agent_id = agent_id
+        if agent_id is not None:
+            validate_agent_id(agent_id)
+            if (
+                self._message_history
+                or self._explicit_agent_id is not None
+                or self._session_prompt_body is not None
+            ) and agent_id != self.id:
+                raise ValueError("Cannot change agent_id during a conversation")
+        if system_prompt is not None:
+            if not isinstance(system_prompt, str):
+                raise ValueError("system_prompt must be a string")
+            if self._message_history or self._session_prompt_body is not None:
+                raise ValueError("Set system_prompt before the conversation starts")
+        if agent_id is not None:
+            if agent_id != self.id:
+                self._code_generation_agent = None
+            self.id = agent_id
+            self._explicit_agent_id = agent_id
+        if system_prompt is not None:
+            if system_prompt != self._initial_system_prompt:
+                self._code_generation_agent = None
+            self._initial_system_prompt = system_prompt
 
     def get_session_state(self) -> Dict[str, Any]:
-        return {"agent_id": self.id}
+        state = {"agent_id": self.id}
+        if self._session_prompt_body is not None:
+            state["prompt_body"] = self._session_prompt_body
+        if self._session_rules is not None:
+            state["project_rules"] = self._session_rules
+        if self._session_prepared_prompt is not None:
+            state["prepared_prompt"] = dict(self._session_prepared_prompt)
+        return state
 
     def set_message_history(
         self, history: List[Any], *, agent_id: Optional[str] = None
@@ -265,14 +305,31 @@ class BaseAgent(ABC):
         )
         if saved_id and requested_id and saved_id != requested_id:
             raise ValueError("Requested agent_id conflicts with saved conversation")
+        previous_state = self.get_session_state()
         restored_id = saved_id or requested_id
-        if restored_id is not None and restored_id != self.id:
+        if restored_id is not None:
             self.id = restored_id
-            self._code_generation_agent = None
+        if state is not None:
+            self._session_prompt_body = state.get("prompt_body")
+            self._session_rules = state.get("project_rules")
+            self._session_prepared_prompt = state.get("prepared_prompt")
+        else:
+            # Legacy prompt text has no trustworthy durable/temporary boundary.
+            # Rebuild once rather than parse identity prose or freeze run policy.
+            self._session_prompt_body = None
+            self._session_rules = None
+            self._session_prepared_prompt = None
         self._message_history = history
+        if self.get_session_state() != previous_state:
+            self._code_generation_agent = None
 
     def clear_message_history(self) -> None:
         self._message_history = []
+        self._session_prompt_body = None
+        self._session_rules = None
+        self._session_prepared_prompt = None
+        self._initial_system_prompt = None
+        self._code_generation_agent = None
         self._compacted_message_hashes.clear()
 
     def append_to_message_history(self, message: Any) -> None:

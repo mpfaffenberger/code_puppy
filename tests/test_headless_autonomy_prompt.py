@@ -36,8 +36,9 @@ def test_headless_autonomy_prompt_is_scoped_to_the_run(monkeypatch):
         assert full_prompt.index("Authored prompt.") < full_prompt.index(
             _HEADLESS_AUTONOMY_PROMPT
         )
-        assert full_prompt.index(_HEADLESS_AUTONOMY_PROMPT) < full_prompt.index(
-            "Your ID is"
+        # Ephemeral headless policy follows the stable identity prefix.
+        assert full_prompt.index("Your ID is") < full_prompt.index(
+            _HEADLESS_AUTONOMY_PROMPT
         )
 
     assert _HEADLESS_AUTONOMY_PROMPT not in agent.get_full_system_prompt()
