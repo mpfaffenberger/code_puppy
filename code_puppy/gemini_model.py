@@ -232,6 +232,31 @@ def _sanitize_schema_for_gemini(schema: dict) -> dict:
     return resolve_refs(schema)
 
 
+def _split_mixed_user_contents(contents: list[dict[str, Any]]) -> None:
+    """Split user turns carrying both function responses and other parts.
+
+    Gemini rejects a user content that mixes ``function_response`` with text.
+    The consecutive-user merge in ``_map_messages`` produces exactly that
+    whenever a tool return is followed by a user prompt with no model turn
+    between them, which ``/steer`` and Ctrl+C-interrupted runs both do.
+    """
+    split: list[dict[str, Any]] = []
+    for content in contents:
+        parts = content.get("parts", [])
+        if content.get("role") != "user":
+            split.append(content)
+            continue
+        response_parts = [part for part in parts if "function_response" in part]
+        other_parts = [part for part in parts if "function_response" not in part]
+        if not response_parts or not other_parts:
+            split.append(content)
+            continue
+        # Tool results first: they answer the model's preceding call.
+        split.append({"role": "user", "parts": response_parts})
+        split.append({"role": "user", "parts": other_parts})
+    contents[:] = split
+
+
 class GeminiModel(Model):
     """Standalone Model implementation for Google's Generative Language API.
 
@@ -394,6 +419,8 @@ class GeminiModel(Model):
         # _compaction.py :: history_processor() does for Anthropic prefill.
         while contents and contents[-1].get("role") == "model":
             contents.pop()
+
+        _split_mixed_user_contents(contents)
 
         # Ensure at least one content
         if not contents:

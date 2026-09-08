@@ -514,6 +514,74 @@ class TestMapMessages:
         ]
 
     @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        "trailing_parts",
+        (
+            pytest.param(
+                [
+                    ToolReturnPart(
+                        tool_name="shell", content="out", tool_call_id="call-1"
+                    ),
+                    UserPromptPart(content="stop, do this instead"),
+                ],
+                id="same_request",
+            ),
+            pytest.param(None, id="separate_requests"),
+        ),
+    )
+    async def test_tool_return_and_user_text_never_share_a_content(
+        self, model, default_params, trailing_parts
+    ):
+        """Gemini 400s when one user content mixes function_response and text."""
+        msgs = [
+            ModelRequest(parts=[UserPromptPart(content="do the thing")]),
+            ModelResponse(
+                parts=[ToolCallPart(tool_name="shell", args={}, tool_call_id="call-1")],
+                model_name="m",
+            ),
+        ]
+        if trailing_parts is None:
+            msgs.append(
+                ModelRequest(
+                    parts=[
+                        ToolReturnPart(
+                            tool_name="shell", content="out", tool_call_id="call-1"
+                        )
+                    ]
+                )
+            )
+            msgs.append(
+                ModelRequest(parts=[UserPromptPart(content="stop, do this instead")])
+            )
+        else:
+            msgs.append(ModelRequest(parts=trailing_parts))
+
+        _, contents = await model._map_messages(msgs, default_params)
+
+        for content in contents:
+            if content["role"] != "user":
+                continue
+            parts = content["parts"]
+            has_response = any("function_response" in part for part in parts)
+            has_other = any("function_response" not in part for part in parts)
+            assert not (has_response and has_other), content
+
+        # The tool result must still precede the prompt that followed it.
+        response_index = next(
+            i
+            for i, content in enumerate(contents)
+            if any("function_response" in part for part in content["parts"])
+        )
+        text_index = next(
+            i
+            for i, content in enumerate(contents)
+            if any(
+                part.get("text") == "stop, do this instead" for part in content["parts"]
+            )
+        )
+        assert response_index < text_index
+
+    @pytest.mark.anyio
     async def test_instructions_injected(self, model, default_params):
         with patch.object(model, "_get_instructions", return_value="INJECTED"):
             msgs = [ModelRequest(parts=[UserPromptPart(content="hi")])]
