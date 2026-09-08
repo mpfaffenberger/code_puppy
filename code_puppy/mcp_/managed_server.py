@@ -256,6 +256,12 @@ class ManagedMCPServer:
 
         return self._pydantic_server
 
+    def has_running_toolset(self) -> bool:
+        """Check retained ownership, even when disabled or quarantined."""
+        from .toolset_utils import toolset_is_running
+
+        return toolset_is_running(self._pydantic_server)
+
     def _toolset_kwargs(self, config: Dict[str, Any]) -> Dict[str, Any]:
         """Map our config keys onto ``MCPToolset`` constructor kwargs.
 

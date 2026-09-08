@@ -838,8 +838,6 @@ class MCPManager:
         Command callers serialize restart requests and rebind after completion.
         Other pending start/stop operations are refused rather than raced.
         """
-        from .toolset_utils import toolset_is_running
-
         if any(
             server_id in getattr(self, name, {})
             and not getattr(self, name)[server_id].done()
@@ -851,8 +849,6 @@ class MCPManager:
         if old is None or config is None:
             return False
         lifecycle = get_lifecycle_manager()
-        # Save the toolset before disable() makes get_pydantic_server reject it.
-        toolset = old.get_pydantic_server() if old.is_enabled() else None
         old.disable()
         succeeded = False
         self.status_tracker.set_status(server_id, ServerState.STOPPING)
@@ -860,8 +856,8 @@ class MCPManager:
             if server_id in lifecycle.list_servers():
                 if not await lifecycle.stop_server(server_id):
                     return False
-            if toolset is not None and toolset_is_running(toolset):
-                return False  # another agent still owns a live reference
+            if old.has_running_toolset():
+                return False  # availability does not determine retained ownership
             replacement = ManagedMCPServer(config)
             if replacement.get_status()["state"] == ServerState.ERROR.value:
                 return False

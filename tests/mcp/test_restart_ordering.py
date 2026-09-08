@@ -56,6 +56,7 @@ def setup_restart(monkeypatch):
             enable=lambda: available.__setitem__(0, True),
             disable=lambda: available.__setitem__(0, False),
             is_enabled=lambda: available[0],
+            has_running_toolset=lambda: leaf.is_running,
             get_pydantic_server=lambda: wrapper,
             get_status=lambda: {"state": "stopped"},
         )
