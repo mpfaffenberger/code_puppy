@@ -500,10 +500,14 @@ class TestHandleCustomCommand:
         mock_file = MagicMock()
         mock_file.exists.return_value = True
         mock_path.return_value = mock_file
-        assert (
-            _handle_custom_command("/claude-code-logout", "claude-code-logout") is True
-        )
-        mock_file.unlink.assert_called_once()
+        with patch(
+            "code_puppy_core_plugins.claude_code_oauth.token_store.remove_tokens"
+        ) as remove_tokens:
+            assert (
+                _handle_custom_command("/claude-code-logout", "claude-code-logout")
+                is True
+            )
+        remove_tokens.assert_called_once_with()
 
     @patch(f"{MOD}.get_token_storage_path")
     @patch(f"{MOD}.remove_claude_code_models", return_value=0)
@@ -749,8 +753,8 @@ class TestAgentRunStart:
                     return_value=mock_hb,
                 ):
                     await _on_agent_run_start("agent", "claude-code-opus", "sess2")
-        assert "sess2" in _active_heartbeats
-        _active_heartbeats.pop("sess2", None)  # cleanup
+        assert ("agent", "claude-code-opus", "sess2") in _active_heartbeats
+        _active_heartbeats.pop(("agent", "claude-code-opus", "sess2"), None)  # cleanup
 
     @pytest.mark.asyncio
     async def test_import_error_handled(self):
@@ -798,10 +802,10 @@ class TestAgentRunEnd:
         mock_hb = AsyncMock()
         mock_hb.stop = AsyncMock()
         mock_hb.refresh_count = 5
-        _active_heartbeats["sess5"] = mock_hb
+        _active_heartbeats[("agent", "claude-code-opus", "sess5")] = [mock_hb, 1]
         await _on_agent_run_end("agent", "claude-code-opus", "sess5")
         mock_hb.stop.assert_called_once()
-        assert "sess5" not in _active_heartbeats
+        assert ("agent", "claude-code-opus", "sess5") not in _active_heartbeats
 
     @pytest.mark.asyncio
     async def test_stop_error_handled(self):
@@ -813,9 +817,9 @@ class TestAgentRunEnd:
         mock_hb = AsyncMock()
         mock_hb.stop = AsyncMock(side_effect=RuntimeError("stop failed"))
         mock_hb.refresh_count = 0
-        _active_heartbeats["sess6"] = mock_hb
+        _active_heartbeats[("agent", "claude-code-opus", "sess6")] = [mock_hb, 1]
         await _on_agent_run_end("agent", "claude-code-opus", "sess6")
-        assert "sess6" not in _active_heartbeats
+        assert ("agent", "claude-code-opus", "sess6") not in _active_heartbeats
 
     @pytest.mark.asyncio
     async def test_default_session_key(self):
@@ -827,9 +831,9 @@ class TestAgentRunEnd:
         mock_hb = AsyncMock()
         mock_hb.stop = AsyncMock()
         mock_hb.refresh_count = 0
-        _active_heartbeats["default"] = mock_hb
+        _active_heartbeats[("agent", "model", None)] = [mock_hb, 1]
         await _on_agent_run_end("agent", "model", None)
-        assert "default" not in _active_heartbeats
+        assert ("agent", "model", None) not in _active_heartbeats
 
 
 class TestCallbackRegistration:

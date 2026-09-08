@@ -18,8 +18,8 @@ from __future__ import annotations
 
 import os
 import shutil
-import subprocess
 import threading
+import time
 from dataclasses import dataclass, field
 from typing import List, Optional
 
@@ -50,6 +50,9 @@ class FileIndex:
         self._lock = threading.Lock()
         self._build_thread: Optional[threading.Thread] = None
         self._test_mode: bool = False
+        self._requested = ""
+        self._attempted = ""
+        self._finished = 0.0
 
     # ----------------------------------------------------------------- public
 
@@ -58,39 +61,49 @@ class FileIndex:
         return self._current
 
     def reindex(self, root: Optional[str] = None, *, blocking: bool = False) -> None:
-        """Kick off a (re)build of the index.
+        """Refresh at most every five seconds; failures use the same backoff.
 
-        Args:
-            root: Directory to index. Defaults to ``os.getcwd()``.
-            blocking: When True, wait for the build to finish (used in tests).
+        A single worker drains the latest requested root. Publishing and
+        scheduling share a lock, so an older build cannot overwrite a new root.
         """
-        # Skip reindexing in test mode unless explicitly blocking (tests
-        # can still force a rebuild if needed).
         if self._test_mode and not blocking:
             return
-
-        target_root = os.path.abspath(root or os.getcwd())
-
-        # Don't pile up redundant rebuilds — if one's already in flight, let it
-        # finish. The next /cd will trigger a fresh one anyway.
+        target = os.path.abspath(root or os.getcwd())
         with self._lock:
-            if self._build_thread and self._build_thread.is_alive():
-                if blocking:
-                    thread_to_wait = self._build_thread
-                else:
+            self._requested = target
+            if self._build_thread is None:
+                if (
+                    not blocking
+                    and target == self._attempted
+                    and time.monotonic() - self._finished < 5.0
+                ):
                     return
-            else:
-                thread_to_wait = None
-
-        if thread_to_wait is not None:
-            thread_to_wait.join()
-
-        thread = threading.Thread(target=self._build, args=(target_root,), daemon=True)
-        with self._lock:
-            self._build_thread = thread
-        thread.start()
+                self._build_thread = threading.Thread(target=self._work, daemon=True)
+                self._build_thread.start()
+            thread = self._build_thread
         if blocking:
             thread.join()
+
+    def _work(self) -> None:
+        while True:
+            with self._lock:
+                root = self._requested
+            try:
+                paths = _run_ripgrep(root)
+                snapshot = _make_index(root, paths) if paths is not None else None
+            except Exception:
+                snapshot = None  # worker failures must not wedge future refreshes
+            with self._lock:
+                if root != self._requested:
+                    continue
+                if snapshot is not None:
+                    self._current = snapshot
+                elif self._current.root != root:
+                    self._current = Index(root=root)
+                self._attempted = root
+                self._finished = time.monotonic()
+                self._build_thread = None
+                return
 
     def set_for_testing(self, root: str, paths: List[str]) -> None:
         """Inject an index directly. Tests only — keeps subprocess out of unit tests.
@@ -101,39 +114,14 @@ class FileIndex:
         self._current = _make_index(os.path.abspath(root), paths)
         self._test_mode = True
 
-    # ---------------------------------------------------------------- private
-
-    def _build(self, root: str) -> None:
-        paths = _run_ripgrep(root)
-        if paths is None:
-            # rg unavailable or errored — keep whatever we had so completion
-            # still has *something* to chew on.
-            return
-        self._current = _make_index(root, paths)
-
 
 def _run_ripgrep(root: str) -> Optional[List[str]]:
     rg = shutil.which("rg")
     if not rg:
         return None
-    try:
-        proc = subprocess.run(
-            [rg, "--files", "--hidden", "--glob", "!.git"],
-            cwd=root,
-            capture_output=True,
-            text=True,
-            timeout=INDEX_BUILD_TIMEOUT_SECONDS,
-            check=False,
-        )
-    except (subprocess.TimeoutExpired, OSError):
-        return None
-    # rg exits 1 when there are no matches; that's fine, treat as empty.
-    if proc.returncode not in (0, 1):
-        return None
-    lines = [ln for ln in proc.stdout.splitlines() if ln]
-    if len(lines) > MAX_INDEXED_PATHS:
-        lines = lines[:MAX_INDEXED_PATHS]
-    return lines
+    from code_puppy.file_completion_io import read_paths
+
+    return read_paths(rg, root, MAX_INDEXED_PATHS, INDEX_BUILD_TIMEOUT_SECONDS)
 
 
 def _make_index(root: str, paths: List[str]) -> Index:
