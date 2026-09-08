@@ -11,7 +11,7 @@ Covers:
 
 import contextlib
 from io import StringIO
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 from pydantic_ai import PartDeltaEvent, PartEndEvent, PartStartEvent, RunContext
@@ -203,6 +203,39 @@ class TestEventStreamHandler:
                             await event_stream_handler(mock_ctx, event_stream())
 
         assert console.print.called
+
+    @pytest.mark.asyncio
+    async def test_multiline_initial_text_is_parsed_line_by_line(self, mock_ctx):
+        """A complete provider response must not become one Markdown line."""
+        text_part = TextPart(content="### Heading\n\nbody tail")
+        events = (
+            PartStartEvent(index=0, part=text_part),
+            PartEndEvent(index=0, part=text_part, next_part_kind=None),
+        )
+
+        async def event_stream():
+            for event in events:
+                yield event
+
+        console = MagicMock(spec=Console, width=80)
+        console.file = StringIO()
+        set_streaming_console(console)
+
+        with (
+            patch("termflow.Parser") as parser_cls,
+            patch("termflow.Renderer"),
+        ):
+            parser = parser_cls.return_value
+            parser.parse_line.return_value = []
+            parser.finalize.return_value = []
+            await event_stream_handler(mock_ctx, event_stream())
+
+        assert parser.parse_line.call_args_list == [
+            call("### Heading"),
+            call(""),
+            call("body tail"),
+        ]
+        parser.finalize.assert_called_once_with()
 
     @pytest.mark.asyncio
     async def test_handles_thinking_part_delta_event(self, mock_ctx):

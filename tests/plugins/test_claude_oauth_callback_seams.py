@@ -187,7 +187,9 @@ def test_token_refresh_seam(case, expected, install_provider, isolate_callback_p
     elif case == "valid":
         install_provider(phase, lambda: "new-token")
 
-    client = ClaudeCacheAsyncClient(headers={"Authorization": "Bearer old-token"})
+    client = ClaudeCacheAsyncClient(
+        headers={"Authorization": "Bearer old-token"}, apply_claude_code_prefix=True
+    )
     try:
         assert client._refresh_claude_oauth_token() == expected
         if expected:
@@ -335,7 +337,9 @@ async def test_real_send_awaits_async_oauth_providers_without_runtime_warning(
 
     # ClaudeCacheAsyncClient rides httpx2 (the anthropic>=1 SDK's client).
     monkeypatch.setattr(httpx2.AsyncClient, "send", fake_send)
-    client = ClaudeCacheAsyncClient(headers={"Authorization": "Bearer old-token"})
+    client = ClaudeCacheAsyncClient(
+        headers={"Authorization": "Bearer old-token"}, apply_claude_code_prefix=True
+    )
     request = httpx2.Request(
         "GET",
         "https://api.anthropic.com/health",

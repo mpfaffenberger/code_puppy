@@ -402,7 +402,7 @@ wheels = [
 
 [[package]]
 name = "code-puppy"
-version = "0.0.805"
+version = "0.0.830"
 source = { editable = "." }
 dependencies = [
     { name = "agent-client-protocol" },
@@ -465,7 +465,7 @@ requires-dist = [
     { name = "azure-identity", specifier = ">=1.15.0" },
     { name = "boto3", specifier = ">=1.43.9" },
     { name = "boto3", marker = "extra == 'bedrock'", specifier = ">=1.35.0" },
-    { name = "code-puppy-core-plugins", specifier = ">=0.0.34" },
+    { name = "code-puppy-core-plugins", specifier = ">=0.0.45" },
     { name = "dbos", marker = "extra == 'durable'", specifier = ">=2.11.0" },
     { name = "httpx", extras = ["http2"], specifier = ">=0.24.1" },
     { name = "httpx2", specifier = ">=2.7" },
@@ -489,7 +489,7 @@ requires-dist = [
     { name = "requests", specifier = ">=2.28.0" },
     { name = "rich", specifier = ">=13.4.2" },
     { name = "ripgrep", marker = "sys_platform != 'android'", specifier = "==14.1.0" },
-    { name = "termflow-md", specifier = ">=0.9.0" },
+    { name = "termflow-md", specifier = ">=0.9.1" },
     { name = "typer", specifier = ">=0.12.0" },
 ]
 provides-extras = ["bedrock", "durable", "computer-use"]
@@ -506,15 +506,15 @@ dev = [
 
 [[package]]
 name = "code-puppy-core-plugins"
-version = "0.0.34"
+version = "0.0.45"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
     { name = "pydantic-ai-slim", extra = ["anthropic", "mcp", "openai"] },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/27/73/7ec40d96781c6372e1b01b92a2986fbb866b3dd173d7c5553215f70a5d58/code_puppy_core_plugins-0.0.34.tar.gz", hash = "sha256:53d490d55c8e0c8a840323df10f99b781ac97d3203fe550c593d67df8e7ae2a3", size = 542036, upload-time = "2026-08-29T15:27:21.998Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/67/f7/adb5dc459bcc0a0ab3781e5124394864491f78c9ca2053f149d16732a763/code_puppy_core_plugins-0.0.45.tar.gz", hash = "sha256:abf65bfb336ee4f2a2564651b6d83844f08e335708296984e331241450751baf", size = 549066, upload-time = "2026-09-08T13:24:56.345Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/fd/60/81964e2c9bc864ed6d23aa98ed58d383a02d844183a49b78c8ad389834b2/code_puppy_core_plugins-0.0.34-py3-none-any.whl", hash = "sha256:1d16cea7c0c430480e72df4a49606891bf0fc3d80d267102ebd0b47e85796591", size = 732889, upload-time = "2026-08-29T15:27:20.864Z" },
+    { url = "https://files.pythonhosted.org/packages/a3/1f/2906d291fdfd794b37c9150c6bf1bcb6cf1d1b983f4b08a1e7aff8d837c6/code_puppy_core_plugins-0.0.45-py3-none-any.whl", hash = "sha256:7c3df8d56ba417e6483895259c92c34b748b8e99dc1aca4ed96544746fcf2851", size = 745498, upload-time = "2026-09-08T13:24:54.936Z" },
 ]
 
 [[package]]
@@ -3036,15 +3036,15 @@ wheels = [
 
 [[package]]
 name = "termflow-md"
-version = "0.9.0"
+version = "0.9.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pygments" },
     { name = "wcwidth" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/0b/f3/6135aea241a2f5e33066adf7e7d21bccf4930be6fa4f7f182f742becd970/termflow_md-0.9.0.tar.gz", hash = "sha256:32b70994f3d03a3e9af1479d8d4c3b5fbb0ede35aabe529e437ff6effc9c1d3a", size = 161428, upload-time = "2026-08-24T20:12:57.26Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/cb/f7/c8754f90f13edc4008d16ee3923654520a839ff123f0f054a12f485c2282/termflow_md-0.9.1.tar.gz", hash = "sha256:5c0500a1b7937b1a7ea0eeb205ee8b8739823b44b61201de93b76faf8d04e452", size = 162387, upload-time = "2026-09-03T11:18:38.594Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e2/2f/f0cfb710bed5c604b937131bb58267aef7002ec88efa0fa377bd183e050c/termflow_md-0.9.0-py3-none-any.whl", hash = "sha256:8bea0e4e21faf54a6af3107546a798f4c0b5c64938640bff4f39f326892c3531", size = 95300, upload-time = "2026-08-24T20:12:56.091Z" },
+    { url = "https://files.pythonhosted.org/packages/d4/55/5973340923f3fbfaaeddc0cb5c19b24aeced2b332937a84729a4a72d4131/termflow_md-0.9.1-py3-none-any.whl", hash = "sha256:22ce1e7d4e14bbe61af7bfc4207a0c9ed057c1cc26951fec83f2b5a9931459cb", size = 95775, upload-time = "2026-09-03T11:18:37.477Z" },
 ]
 
 [[package]]

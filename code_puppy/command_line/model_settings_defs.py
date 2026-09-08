@@ -10,14 +10,17 @@ from typing import Dict, List, Optional
 
 from code_puppy.config import (
     CUSTOM_MODEL_SETTING,
+    MAX_OUTPUT_TOKENS_SETTING,
     get_all_model_settings,
     get_custom_model_settings,
+    get_model_max_output_tokens,
     get_value,
     model_supports_setting,
     reset_value,
     set_value,
 )
 from code_puppy.model_factory import ModelFactory
+from code_puppy.model_utils import THINKING_DISPLAY_CHOICES
 
 # Pagination config
 MODELS_PER_PAGE = 15
@@ -54,6 +57,20 @@ SETTING_DEFINITIONS: Dict[str, Dict] = {
         "step": 0.05,
         "default": None,
         "format": "{:.2f}",
+    },
+    MAX_OUTPUT_TOKENS_SETTING: {
+        "name": "Max Output Tokens",
+        "description": (
+            "Output-token cap sent as max_tokens. Default comes from the model's "
+            "catalog entry (filled from models.dev by /add_model), else 15% of "
+            "context length clamped to 2048-65536."
+        ),
+        "type": "numeric",
+        "min": 256,
+        "max": 1048576,
+        "step": 1024,
+        "default": None,
+        "format": "{:.0f}",
     },
     "reasoning_effort": {
         "name": "Reasoning Effort",
@@ -152,6 +169,19 @@ SETTING_DEFINITIONS: Dict[str, Dict] = {
         "type": "choice",
         "choices": ["low", "medium", "high", "xhigh", "max"],
         "default": "high",
+    },
+    "thinking_display": {
+        "name": "Thinking Display",
+        "description": (
+            "How Fable 5.1 surfaces its thinking between tool calls. "
+            "'updates' = short progress status lines only, reasoning stays hidden "
+            "(adds the thinking-display-updates beta header). "
+            "'summarized' = the same progress updates mixed into a condensed "
+            "reasoning trace."
+        ),
+        "type": "choice",
+        "choices": list(THINKING_DISPLAY_CHOICES),
+        "default": THINKING_DISPLAY_CHOICES[0],
     },
     "retry_main_strategy": {
         "name": "Retry Strategy (main agent)",
@@ -381,6 +411,10 @@ def _get_setting_default(setting_key: str, model_name: Optional[str] = None):
         from code_puppy.model_utils import get_default_extended_thinking
 
         return get_default_extended_thinking(model_name)
+    if setting_key == MAX_OUTPUT_TOKENS_SETTING and model_name:
+        # Only consulted when the user override is unset, so this surfaces
+        # the catalog/heuristic value the runtime would actually use.
+        return get_model_max_output_tokens(model_name)
 
     setting_def = SETTING_DEFINITIONS.get(setting_key, {})
     return setting_def.get("default")

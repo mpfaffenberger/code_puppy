@@ -21,6 +21,7 @@ import asyncio
 import json
 import re
 import signal
+import sys
 import threading
 import uuid
 from contextlib import AsyncExitStack
@@ -28,7 +29,12 @@ from typing import Any, Callable, Iterator, List, Optional, Sequence, Type, Unio
 
 import httpcore
 import httpx
-import mcp
+
+try:  # pragma: no cover - mcp version dependent
+    from mcp.shared.exceptions import McpError
+except ImportError:  # newer mcp SDKs renamed McpError -> MCPError
+    from mcp.shared.exceptions import MCPError as McpError
+
 from pydantic_ai import (
     BinaryContent,
     DocumentUrl,
@@ -44,17 +50,6 @@ try:  # pragma: no cover - pydantic-ai version dependent
 except ImportError:
     ModelHTTPError = None  # type: ignore[misc,assignment]
 
-try:  # pragma: no cover - optional dependency
-    from openai import APIError as OpenAIAPIError
-except ImportError:
-    OpenAIAPIError = None  # type: ignore[assignment]
-
-try:  # pragma: no cover - optional dependency
-    from anthropic import APIConnectionError as AnthropicAPIConnectionError
-    from anthropic import APIStatusError as AnthropicAPIStatusError
-except ImportError:
-    AnthropicAPIConnectionError = None  # type: ignore[assignment]
-    AnthropicAPIStatusError = None  # type: ignore[assignment]
 
 try:  # pragma: no cover - pydantic-ai version dependent
     from pydantic_ai.exceptions import ModelAPIError
@@ -167,6 +162,18 @@ def _matches_retryable_snippet(msg: str) -> bool:
 _EMBEDDED_HTTP_STATUS_RE = re.compile(r"\[HTTP\s+(\d{3})\]", re.IGNORECASE)
 
 
+def _sdk_exception(module: str, name: str) -> type | None:
+    """Resolve a provider-SDK exception class only if that SDK is loaded.
+
+    An exception raised by a vendor SDK can only exist if the SDK is already
+    in ``sys.modules``, so peeking there (rather than importing) keeps
+    ``openai``/``anthropic`` (~200ms cold apiece) off the startup path for
+    providers this run never touches. ``None`` doubles as "not installed".
+    """
+    loaded = sys.modules.get(module)
+    return getattr(loaded, name, None) if loaded is not None else None
+
+
 def _is_transient_status(status_code: object) -> bool:
     """True for HTTP statuses worth a silent retry: 429 or any 5xx."""
     return status_code == 429 or (isinstance(status_code, int) and status_code >= 500)
@@ -233,7 +240,8 @@ def _is_retryable_one(exc: BaseException) -> bool:
     if isinstance(exc, UnexpectedModelBehavior):
         return _matches_retryable_snippet(msg)
 
-    if OpenAIAPIError is not None and isinstance(exc, OpenAIAPIError):
+    openai_api_error = _sdk_exception("openai", "APIError")
+    if openai_api_error is not None and isinstance(exc, openai_api_error):
         # 5xx and 429 are transient regardless of wording; the SDK exposes the
         # HTTP status on APIStatusError subclasses (connection/timeout errors
         # have none and are covered by the transport branch above). Mirrors the
@@ -255,14 +263,16 @@ def _is_retryable_one(exc: BaseException) -> bool:
                 return _matches_retryable_snippet(body_msg)
 
     # Anthropic SDK: a bare APIConnectionError is, by definition, transient.
-    if AnthropicAPIConnectionError is not None and isinstance(
-        exc, AnthropicAPIConnectionError
+    anthropic_connection_error = _sdk_exception("anthropic", "APIConnectionError")
+    if anthropic_connection_error is not None and isinstance(
+        exc, anthropic_connection_error
     ):
         return True
 
     # Anthropic SDK: status errors are retryable on 5xx (or unset) OR when the
     # message/body matches a gateway-transient snippet (e.g. upstream_idle_timeout).
-    if AnthropicAPIStatusError is not None and isinstance(exc, AnthropicAPIStatusError):
+    anthropic_status_error = _sdk_exception("anthropic", "APIStatusError")
+    if anthropic_status_error is not None and isinstance(exc, anthropic_status_error):
         status_code = getattr(exc, "status_code", None)
         if status_code is None or (isinstance(status_code, int) and status_code >= 500):
             return True
@@ -775,23 +785,18 @@ async def _run_with_mcp_impl(
         # honoured), built once so a run has consistent backoff behaviour.
         from code_puppy.agents.retry_profiles import make_streaming_retry
 
-        _main_retry = make_streaming_retry(
-            "main",
-            agent.get_model_name(),
-            # Completed steps are checkpointed into _message_history, so a
-            # growing history means real progress → refresh the budget.
-            progress_fn=lambda: len(agent._message_history or []),
-        )
+        from code_puppy.agents.retry_checkpoint import RetryCheckpoint, resumable_call
 
-        @_main_retry
-        async def _call() -> Any:
-            return await pydantic_agent.run(
-                prompt_to_use,
-                message_history=agent._message_history,
-                usage_limits=usage_limits,
-                event_stream_handler=stream_handler,
-                **kwargs,
-            )
+        checkpoint = RetryCheckpoint(agent)
+        _main_retry = make_streaming_retry(
+            "main", agent.get_model_name(), progress_fn=checkpoint.progress
+        )
+        run_options = dict(
+            usage_limits=usage_limits, event_stream_handler=stream_handler, **kwargs
+        )
+        _call = _main_retry(
+            resumable_call(agent, pydantic_agent, prompt_to_use, **run_options)
+        )
 
         async def _call_with_exception_recovery() -> Any:
             """Run ``_call`` and let plugins request one exception retry."""
@@ -822,17 +827,10 @@ async def _run_with_mcp_impl(
         # (before every model call); ``queue``-mode ones drain between runs
         # below — additive, won't interrupt in-progress work.
         async def _follow_up_run(follow_up_prompt: Any) -> Any:
-            @_main_retry
-            async def _call_follow_up() -> Any:
-                return await pydantic_agent.run(
-                    follow_up_prompt,
-                    message_history=agent._message_history,
-                    usage_limits=usage_limits,
-                    event_stream_handler=stream_handler,
-                    **kwargs,
-                )
-
-            return await _call_follow_up()
+            call = _main_retry(
+                resumable_call(agent, pydantic_agent, follow_up_prompt, **run_options)
+            )
+            return await call()
 
         hook_retries_used = 0
         queued_steers_used = 0
@@ -909,7 +907,7 @@ async def _run_with_mcp_impl(
                 "by saying 'please continue' or similar.",
                 group_id=group_id,
             )
-        except* mcp.shared.exceptions.McpError as mcp_error:
+        except* McpError as mcp_error:
             # Already announced by blocking_startup.py with a /mcp logs hint —
             # just give a single short, actionable nudge.
             emit_info(

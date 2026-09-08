@@ -226,8 +226,14 @@ class TestCallbackIntegration:
         )
 
         # Heartbeat should be stored
-        assert "test-session-123" in _active_heartbeats
-        heartbeat = _active_heartbeats["test-session-123"]
+        assert (
+            "test-agent",
+            "claude-code-sonnet-4",
+            "test-session-123",
+        ) in _active_heartbeats
+        heartbeat = _active_heartbeats[
+            ("test-agent", "claude-code-sonnet-4", "test-session-123")
+        ][0]
         assert heartbeat.is_running
 
         # Cleanup

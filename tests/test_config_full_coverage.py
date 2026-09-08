@@ -92,6 +92,21 @@ class TestBooleanGetters:
         cp_config.set_config_value("grep_output_verbose", "1")
         assert cp_config.get_grep_output_verbose() is True
 
+    def test_get_grep_max_matches_default(self):
+        assert cp_config.get_grep_max_matches() == cp_config.GREP_MAX_MATCHES_DEFAULT
+
+    def test_get_grep_max_matches_configured(self):
+        cp_config.set_config_value("grep_max_matches", "200")
+        assert cp_config.get_grep_max_matches() == 200
+
+    def test_get_grep_max_matches_floors_at_one(self):
+        cp_config.set_config_value("grep_max_matches", "0")
+        assert cp_config.get_grep_max_matches() == 1
+
+    def test_get_grep_max_matches_garbage_falls_back(self):
+        cp_config.set_config_value("grep_max_matches", "lots")
+        assert cp_config.get_grep_max_matches() == cp_config.GREP_MAX_MATCHES_DEFAULT
+
     def test_get_http2_values(self):
         cp_config.set_http2(True)
         assert cp_config.get_http2() is True
@@ -137,8 +152,8 @@ class TestAgencyLevel:
         """Other tests may exercise the -p path, leaking the sticky flag."""
         monkeypatch.setattr(cp_config, "_headless_mode", False)
 
-    def test_default_extreme(self):
-        assert cp_config.get_agency_level() == "extreme"
+    def test_default_high(self):
+        assert cp_config.get_agency_level() == "high"
 
     def test_valid_levels(self):
         for level in cp_config.AGENCY_LEVELS:
@@ -149,9 +164,9 @@ class TestAgencyLevel:
         cp_config.set_config_value("agency_level", "  MeDiUm ")
         assert cp_config.get_agency_level() == "medium"
 
-    def test_invalid_falls_back_to_extreme(self):
+    def test_invalid_falls_back_to_high(self):
         cp_config.set_config_value("agency_level", "ludicrous")
-        assert cp_config.get_agency_level() == "extreme"
+        assert cp_config.get_agency_level() == "high"
 
     def test_headless_forces_extreme(self, monkeypatch):
         cp_config.set_config_value("agency_level", "low")

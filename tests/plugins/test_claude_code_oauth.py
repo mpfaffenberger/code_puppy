@@ -473,7 +473,9 @@ class TestTokenRefresh:
 
     @patch("code_puppy_core_plugins.claude_code_oauth.utils.requests.post")
     @patch("code_puppy_core_plugins.claude_code_oauth.utils.load_stored_tokens")
-    @patch("code_puppy_core_plugins.claude_code_oauth.utils.save_tokens")
+    @patch(
+        "code_puppy_core_plugins.claude_code_oauth.token_store._save_tokens_unlocked"
+    )
     def test_refresh_access_token_success(
         self, mock_save, mock_load, mock_post, expired_token_data
     ):
@@ -537,7 +539,9 @@ class TestTokenRefresh:
 
     @patch("code_puppy_core_plugins.claude_code_oauth.utils.requests.post")
     @patch("code_puppy_core_plugins.claude_code_oauth.utils.load_stored_tokens")
-    @patch("code_puppy_core_plugins.claude_code_oauth.utils.save_tokens")
+    @patch(
+        "code_puppy_core_plugins.claude_code_oauth.token_store._save_tokens_unlocked"
+    )
     def test_refresh_access_token_missing_expires_in_reuses_existing(
         self, mock_save, mock_load, mock_post
     ):

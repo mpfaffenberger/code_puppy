@@ -15,6 +15,27 @@ from unittest.mock import MagicMock
 
 import pytest
 
+
+@pytest.fixture(autouse=True)
+def _isolate_shared_provider_credentials(monkeypatch, request):
+    """Provider tests must neither use the OS keyring nor leak across cases."""
+    from code_puppy import shared_credentials
+
+    if request.node.path.name == "test_shared_credentials.py":
+        return
+    values = {}
+    monkeypatch.setattr(shared_credentials, "get", lambda key: values.get(key.upper()))
+
+    def save(key, value):
+        if not value.strip():
+            raise ValueError("Empty test credential")
+        values[key.upper()] = value.strip()
+        monkeypatch.setenv(key.upper(), value.strip())
+
+    monkeypatch.setattr(shared_credentials, "save", save)
+    return values
+
+
 # Config paths resolve at import time, before fixtures run - point every XDG category
 # at one session-scoped temp root so collection/tests never touch the dev's config.
 _XDG_TEMP_DIR = tempfile.TemporaryDirectory(prefix="code_puppy_pytest_xdg_")
@@ -124,6 +145,7 @@ def isolate_global_state_between_tests(tmp_path_factory):
     # Save original config path and callback registry.
     original_config_file = cp_config.CONFIG_FILE
     original_config_dir = cp_config.CONFIG_DIR
+    original_data_dir = cp_config.DATA_DIR
     original_history_file = cp_config.COMMAND_HISTORY_FILE
     original_callbacks = deepcopy(cp_callbacks._callbacks)
     # The fail-closed policy set is keyed by (phase, callback) and lives
@@ -142,6 +164,7 @@ def isolate_global_state_between_tests(tmp_path_factory):
     # defaults, not the local developer's personal settings.
     cp_config.CONFIG_FILE = temp_config_file
     cp_config.CONFIG_DIR = temp_config_dir
+    cp_config.DATA_DIR = os.path.join(temp_config_dir, "data")
     # The persistent editor's HistoryStore resolves this at construction:
     # never let tests read/append the developer's REAL command history.
     cp_config.COMMAND_HISTORY_FILE = os.path.join(
@@ -161,6 +184,7 @@ def isolate_global_state_between_tests(tmp_path_factory):
     # Restore original config paths and callback registrations.
     cp_config.CONFIG_FILE = original_config_file
     cp_config.CONFIG_DIR = original_config_dir
+    cp_config.DATA_DIR = original_data_dir
     cp_config.COMMAND_HISTORY_FILE = original_history_file
     cp_callbacks._callbacks.clear()
     cp_callbacks._callbacks.update(original_callbacks)
