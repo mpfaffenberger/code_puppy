@@ -216,6 +216,18 @@ async def event_stream_handler(
             highlighter=on_termflow_highlighter(Highlighter()),
         )
 
+    def _render_text_content(index: int, content: str) -> None:
+        """Feed text through Termflow one complete line at a time."""
+        buffer = termflow_line_buffers[index] + content
+        parser = termflow_parsers[index]
+        renderer = termflow_renderers[index]
+
+        while "\n" in buffer:
+            line, buffer = buffer.split("\n", 1)
+            renderer.render_all(parser.parse_line(line))
+
+        termflow_line_buffers[index] = buffer
+
     # Smooth-stream state per thinking part: index → smoother (steady drain)
     # or ``thinking_direct`` when smoothing is off (print deltas immediately).
     thinking_smoothers: dict[int, ThinkingStreamSmoother] = {}
@@ -368,7 +380,7 @@ async def event_stream_handler(
                     if part.content and part.content.strip():
                         await _print_response_banner()
                         banner_printed.add(event.index)
-                        termflow_line_buffers[event.index] = part.content
+                        _render_text_content(event.index, part.content)
                 elif isinstance(part, ToolCallPart):
                     streaming_parts.add(event.index)
                     tool_parts.add(event.index)
@@ -404,22 +416,7 @@ async def event_stream_handler(
                                     await _print_response_banner()
                                     banner_printed.add(event.index)
 
-                                # Add content to line buffer
-                                termflow_line_buffers[event.index] += (
-                                    delta.content_delta
-                                )
-
-                                # Process complete lines
-                                parser = termflow_parsers[event.index]
-                                renderer = termflow_renderers[event.index]
-                                buffer = termflow_line_buffers[event.index]
-
-                                while "\n" in buffer:
-                                    line, buffer = buffer.split("\n", 1)
-                                    events_to_render = parser.parse_line(line)
-                                    renderer.render_all(events_to_render)
-
-                                termflow_line_buffers[event.index] = buffer
+                                _render_text_content(event.index, delta.content_delta)
                             else:
                                 # Stream thinking parts smoothly (dim) via a
                                 # rate-limited buffer; gate on output level /
