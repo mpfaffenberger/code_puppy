@@ -145,6 +145,7 @@ _AZURE_DEPLOYMENT_CASES = [
     "prod-gpt5-deploy",
     "my-deployment",
     "o3",
+    "GPT-5.2",
 ]
 
 

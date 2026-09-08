@@ -86,7 +86,7 @@ def _azure_foundry_uses_responses_api(deployment_name: str) -> bool:
     narrowing belongs in the plugin, not in this mirror.
     See ``azure_foundry/register_callbacks :: _create_azure_foundry_openai_model()``.
     """
-    return deployment_name.lower().startswith("gpt-5")
+    return deployment_name.startswith("gpt-5")
 
 
 def _uses_responses_api(model_name: str, model_config: Dict[str, Any]) -> bool:
