@@ -38,11 +38,19 @@ from pydantic_ai.settings import ModelSettings
 from pydantic_ai.tools import ToolDefinition
 from pydantic_ai.usage import RequestUsage
 
+from code_puppy.steer_metadata import is_steer_request
+
 logger = logging.getLogger(__name__)
 
 # Bypass thought signature for Gemini when no pending signature is available.
 # This allows function calls to work with thinking models.
 BYPASS_THOUGHT_SIGNATURE = "context_engineering_is_the_way_to_go"
+
+# Frames an in-flight /steer as guidance for the running task rather than a
+# new turn. Model-facing prompt text, so deliberately not translated.
+STEER_PREAMBLE = (
+    "Additional guidance for the current task; continue the existing workflow:"
+)
 
 
 def generate_tool_call_id() -> str:
@@ -363,8 +371,88 @@ class GeminiModel(Model):
         """Map pydantic-ai messages to Gemini API format."""
         contents: list[dict[str, Any]] = []
         system_parts: list[dict[str, Any]] = []
+        # A normal user prompt starts the next turn and retires older steers.
+        # A retired steer keeps the user's words (parity with every other
+        # provider, which never drop the message) and loses only the
+        # current-task framing.
+        last_prompt_index = max(
+            (
+                i
+                for i, message in enumerate(messages)
+                if isinstance(message, ModelRequest)
+                and not is_steer_request(message)
+                and any(isinstance(part, UserPromptPart) for part in message.parts)
+            ),
+            default=-1,
+        )
+        # Gemini 400s on a block mixing function_response with text, so a steer
+        # block stays closed to later merges: a tool result outstanding across
+        # the steer starts its own block instead of being absorbed.
+        steer_block_open = False
+        steer_blocks: set[int] = set()
 
-        for m in messages:
+        def _is_steer_block(block: dict[str, Any] | None) -> bool:
+            return block is not None and id(block) in steer_blocks
+
+        for i, m in enumerate(messages):
+            if is_steer_request(m):
+                tool_parts: list[dict[str, Any]] = []
+                steer_parts: list[dict[str, Any]] = []
+                for part in m.parts:
+                    if isinstance(part, SystemPromptPart):
+                        system_parts.append({"text": part.content})
+                    elif isinstance(part, UserPromptPart):
+                        steer_parts.extend(await self._map_user_prompt(part))
+                    elif isinstance(part, ToolReturnPart):
+                        tool_parts.append(
+                            {
+                                "function_response": {
+                                    "name": part.tool_name,
+                                    "response": part.model_response_object(),
+                                    "id": part.tool_call_id,
+                                }
+                            }
+                        )
+                    elif isinstance(part, RetryPromptPart):
+                        if part.tool_name is None:
+                            steer_parts.append({"text": part.model_response()})
+                        else:
+                            tool_parts.append(
+                                {
+                                    "function_response": {
+                                        "name": part.tool_name,
+                                        "response": {"error": part.model_response()},
+                                        "id": part.tool_call_id,
+                                    }
+                                }
+                            )
+
+                if tool_parts:
+                    # Tool returns (e.g. spliced by prune_interrupted_tool_calls)
+                    # must precede steer guidance and never mix into a steer block.
+                    if (
+                        contents
+                        and contents[-1].get("role") == "user"
+                        and not _is_steer_block(contents[-1])
+                    ):
+                        contents[-1]["parts"].extend(tool_parts)
+                    else:
+                        contents.append({"role": "user", "parts": tool_parts})
+                    steer_block_open = False
+
+                if steer_parts:
+                    if steer_block_open and contents and _is_steer_block(contents[-1]):
+                        # Consecutive steers share one block and one preamble.
+                        # A kind change (retired -> active) can only happen
+                        # across the normal prompt that closes the block.
+                        contents[-1]["parts"].extend(steer_parts)
+                    else:
+                        if i > last_prompt_index:
+                            steer_parts.insert(0, {"text": STEER_PREAMBLE})
+                        contents.append({"role": "user", "parts": steer_parts})
+                        steer_blocks.add(id(contents[-1]))
+                        steer_block_open = True
+                continue
             if isinstance(m, ModelRequest):
                 message_parts: list[dict[str, Any]] = []
 
@@ -400,10 +488,15 @@ class GeminiModel(Model):
 
                 if message_parts:
                     # Merge with previous user message if exists
-                    if contents and contents[-1].get("role") == "user":
+                    if (
+                        contents
+                        and contents[-1].get("role") == "user"
+                        and not _is_steer_block(contents[-1])
+                    ):
                         contents[-1]["parts"].extend(message_parts)
                     else:
                         contents.append({"role": "user", "parts": message_parts})
+                steer_block_open = False
 
             elif isinstance(m, ModelResponse):
                 model_parts = self._map_model_response(m)
@@ -413,6 +506,7 @@ class GeminiModel(Model):
                         contents[-1]["parts"].extend(model_parts["parts"])
                     else:
                         contents.append(model_parts)
+                steer_block_open = False
 
         # Gemini 3.x 400s on a history ending in a model turn, which /steer
         # injection and interrupted tool calls both produce. Same trim
