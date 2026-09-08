@@ -255,10 +255,14 @@ class SpeculationPanel:
         if launch is not None:
             launch.state = event.outcome
             launch.elapsed_ms = event.elapsed_ms
-    
+
     def _on_claimed(self, event: SpeculativeCallClaimedEvent, console: Console) -> None:
         launch = self._launches.get(event.launch_id)
         if launch is None:
+            # Cross-retry claims can reference a launch from a finalized cycle.
+            # Count them now because `finalize` cannot recover them from `_launches`.
+            self._session_hits += 1
+            self._session_hidden_ms += event.elapsed_ms
             console.print(
                 Text(
                     f"  speculation hit: {event.wrapped_tool_name} "
@@ -273,6 +277,7 @@ class SpeculationPanel:
 
     def _on_missed(self, event: SpeculativeCallMissedEvent, console: Console) -> None:
         if self._phase == "idle":
+            self._session_misses += 1
             console.print(
                 Text(
                     f"  speculation miss: {event.wrapped_tool_name} ran cold",
@@ -285,6 +290,7 @@ class SpeculationPanel:
     def _on_evicted(self, event: SpeculativeCallEvictedEvent, console: Console) -> None:
         launch = self._launches.get(event.launch_id)
         if launch is None:
+            self._session_wasted += 1
             console.print(
                 Text(
                     f"  speculation wasted: {event.wrapped_tool_name} was never claimed",

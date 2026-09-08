@@ -178,10 +178,59 @@ class TestSpeculationPanelLifecycle:
             console,
         )
 
+        panel.handle_event(
+            SpeculativeCallEvictedEvent(
+                tool_call_id="p0",
+                launch_id="unknown",
+                wrapped_tool_name="read_file",
+                state="ready",
+            ),
+            console,
+        )
+
         output = console.export_text()
         assert "speculation miss: grep ran cold" in output
         assert "speculation hit: grep ran 10ms" in output
+        assert "speculation wasted: read_file was never claimed" in output
         assert not panel.active
+
+        summary_console = _console()
+        panel.handle_event(_update(CODE, 1), summary_console)
+        panel.on_part_end()
+        panel.finalize()
+        assert (
+            "speculation this session: hits 1 (0.0s hidden) - misses 1 - wasted 1"
+            in summary_console.export_text()
+        )
+
+    def test_retry_claim_from_previous_cycle_counts_in_session_totals(self):
+        panel = SpeculationPanel()
+
+        first = _console()
+        panel.handle_event(_update(CODE, 1), first)
+        panel.handle_event(_launch(), first)
+        panel.on_part_end()
+        panel.finalize()
+
+        retry = _console()
+        panel.handle_event(_update(CODE, 1), retry)
+        panel.on_part_end()
+        panel.handle_event(
+            SpeculativeCallClaimedEvent(
+                tool_call_id="p2",
+                launch_id="p1__spec_1",
+                nested_tool_call_id="p2__1",
+                wrapped_tool_name="grep",
+                ready_at_claim=True,
+                elapsed_ms=600.0,
+            ),
+            retry,
+        )
+        panel.finalize()
+
+        output = retry.export_text()
+        assert "speculation hit: grep ran 600ms" in output
+        assert "speculation this session: hits 1 (0.6s hidden)" in output
 
     def test_partial_hit_renders_distinctly(self):
         panel = SpeculationPanel()
@@ -443,7 +492,9 @@ class TestEagerCommitReveal:
             console,
         )
         panel.finalize()
-        assert "eager ran 2 stmts during generation (0.0s hidden)" in console.export_text()
+        assert (
+            "eager ran 2 stmts during generation (0.0s hidden)" in console.export_text()
+        )
 
 
 class TestDimmedCode:
