@@ -162,6 +162,43 @@ async def test_rejected_token_is_passed_to_refresh_and_sdk_is_updated():
 
 
 @pytest.mark.asyncio
+async def test_rate_limit_body_and_headers_are_logged():
+    attempts = []
+
+    def transport(request):
+        attempts.append(1)
+        if len(attempts) == 1:
+            return httpx2.Response(
+                429,
+                headers={
+                    "retry-after": "1",
+                    "anthropic-ratelimit-input-tokens-remaining": "0",
+                },
+                json={"error": {"type": "rate_limit_error", "message": "slow down"}},
+            )
+        return httpx2.Response(200, json={})
+
+    with (
+        patch("code_puppy.error_logging.log_error_message") as log_message,
+        patch("code_puppy.claude_cache_client.asyncio.sleep", AsyncMock()),
+    ):
+        async with ClaudeCacheAsyncClient(
+            transport=httpx2.MockTransport(transport)
+        ) as client:
+            response = await client.post(
+                "https://api.anthropic.com/v1/messages", json={}
+            )
+
+    assert response.status_code == 200
+    log_message.assert_called_once()
+    (message,) = log_message.call_args.args
+    context = log_message.call_args.kwargs["context"]
+    assert "429" in message and "rate_limit_error: slow down" in message
+    assert "anthropic-ratelimit-input-tokens-remaining" in context
+    assert "retry-after" in context
+
+
+@pytest.mark.asyncio
 async def test_sync_oauth_hooks_do_not_block_event_loop():
     loop_thread = threading.get_ident()
     threads = []

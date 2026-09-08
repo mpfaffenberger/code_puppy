@@ -402,6 +402,7 @@ class ClaudeCacheAsyncClient(ClaudeOAuthTransport, httpx2.AsyncClient):
                 ):
                     return response
                 status_code = response.status_code
+                await self._record_retryable_response(response)
                 await response.aclose()
             except (httpx2.ConnectError, httpx2.ReadTimeout, httpx2.PoolTimeout) as exc:
                 last_exception = exc
@@ -449,6 +450,36 @@ class ClaudeCacheAsyncClient(ClaudeOAuthTransport, httpx2.AsyncClient):
         if last_exception is not None:
             raise last_exception
         raise RuntimeError("Retry loop completed without response or exception")
+
+    @staticmethod
+    async def _record_retryable_response(response: httpx2.Response) -> None:
+        """Persist why the provider pushed back, so 429s are diagnosable.
+
+        Rate-limit bodies carry the error type (per-minute limit vs usage
+        cap vs overload) and the ``anthropic-ratelimit-*`` headers say which
+        bucket tripped. Without this the error log only ever said "429".
+        """
+        try:
+            body = await response.aread()
+            try:
+                err = json.loads(body).get("error") or {}
+                detail = f"{err.get('type')}: {err.get('message')}"
+            except Exception:
+                detail = body[:200].decode("utf-8", "replace")
+            limits = {
+                k: v
+                for k, v in response.headers.items()
+                if k.lower().startswith("anthropic-ratelimit")
+                or k.lower() == "retry-after"
+            }
+            from code_puppy.error_logging import log_error_message
+
+            log_error_message(
+                f"HTTP {response.status_code} from {response.url.path}: {detail[:300]}",
+                context=f"claude transport retry; limits={limits}",
+            )
+        except Exception as exc:
+            logger.debug("Could not record retryable response: %s", exc)
 
     @staticmethod
     def _extract_body_bytes(request: httpx2.Request) -> bytes | None:
