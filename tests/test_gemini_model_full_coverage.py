@@ -29,7 +29,7 @@ from code_puppy.gemini_model import (
     _sanitize_schema_for_gemini,
     generate_tool_call_id,
 )
-from code_puppy.steer_metadata import STEER_METADATA
+from code_puppy.steer_metadata import STEER_METADATA, is_steer_request
 
 
 @pytest.fixture
@@ -728,12 +728,148 @@ class TestMapMessages:
 
         _, contents = await model._map_messages(msgs, default_params)
 
+        assert not any(
+            {k for part in content["parts"] for k in part}
+            >= {"text", "function_response"}
+            for content in contents
+        )
         assert [content["role"] for content in contents] == ["user", "user"]
         assert contents[0]["parts"] == [{"text": "steer1"}]
         assert contents[1]["parts"] == [
             {"text": STEER_PREAMBLE},
             {"text": "steer2"},
         ]
+
+    @pytest.mark.anyio
+    async def test_zero_part_request_does_not_reopen_merge_into_steer_block(
+        self, model, default_params
+    ):
+        """A zero-part request or empty ModelResponse must not merge tool results into steer."""
+        msgs_sys = [
+            ModelResponse(
+                parts=[ToolCallPart(tool_name="shell", args={}, tool_call_id="c1")],
+                model_name="m",
+            ),
+            ModelRequest(
+                parts=[UserPromptPart(content="steer")],
+                metadata=dict(STEER_METADATA),
+            ),
+            ModelRequest(parts=[SystemPromptPart(content="sys")]),
+            ModelRequest(
+                parts=[
+                    ToolReturnPart(tool_name="shell", content="done", tool_call_id="c1")
+                ]
+            ),
+        ]
+        _, contents_sys = await model._map_messages(msgs_sys, default_params)
+        assert not any(
+            {k for part in content["parts"] for k in part}
+            >= {"text", "function_response"}
+            for content in contents_sys
+        )
+        assert [content["role"] for content in contents_sys] == [
+            "model",
+            "user",
+            "user",
+        ]
+        assert contents_sys[1]["parts"] == [
+            {"text": STEER_PREAMBLE},
+            {"text": "steer"},
+        ]
+        assert sorted(contents_sys[2]["parts"][0]) == ["function_response"]
+
+        msgs_empty_resp = [
+            ModelResponse(
+                parts=[ToolCallPart(tool_name="shell", args={}, tool_call_id="c1")],
+                model_name="m",
+            ),
+            ModelRequest(
+                parts=[UserPromptPart(content="steer")],
+                metadata=dict(STEER_METADATA),
+            ),
+            ModelResponse(parts=[], model_name="m"),
+            ModelRequest(
+                parts=[
+                    ToolReturnPart(tool_name="shell", content="done", tool_call_id="c1")
+                ]
+            ),
+        ]
+        _, contents_empty_resp = await model._map_messages(
+            msgs_empty_resp, default_params
+        )
+        assert not any(
+            {k for part in content["parts"] for k in part}
+            >= {"text", "function_response"}
+            for content in contents_empty_resp
+        )
+        assert [content["role"] for content in contents_empty_resp] == [
+            "model",
+            "user",
+            "user",
+        ]
+        assert contents_empty_resp[1]["parts"] == [
+            {"text": STEER_PREAMBLE},
+            {"text": "steer"},
+        ]
+        assert sorted(contents_empty_resp[2]["parts"][0]) == ["function_response"]
+
+    @pytest.mark.anyio
+    async def test_steer_with_tool_return_part_does_not_drop_or_mix(
+        self, model, default_params
+    ):
+        """A steer carrying a spliced ToolReturnPart preserves the tool return without mixing."""
+        msgs = [
+            ModelRequest(parts=[UserPromptPart(content="start")]),
+            ModelResponse(
+                parts=[ToolCallPart(tool_name="shell", args={}, tool_call_id="call-1")],
+                model_name="m",
+            ),
+            ModelRequest(
+                parts=[
+                    ToolReturnPart(
+                        tool_name="shell", content="done", tool_call_id="call-1"
+                    ),
+                    UserPromptPart(content="steer me"),
+                ],
+                metadata=dict(STEER_METADATA),
+            ),
+        ]
+
+        _, contents = await model._map_messages(msgs, default_params)
+
+        assert not any(
+            {k for part in content["parts"] for k in part}
+            >= {"text", "function_response"}
+            for content in contents
+        )
+        assert [content["role"] for content in contents] == [
+            "user",
+            "model",
+            "user",
+            "user",
+        ]
+        assert sorted(contents[2]["parts"][0]) == ["function_response"]
+        assert contents[3]["parts"] == [
+            {"text": STEER_PREAMBLE},
+            {"text": "steer me"},
+        ]
+
+    def test_is_steer_request_handles_non_mapping_metadata(self):
+        req_str = ModelRequest(parts=[UserPromptPart(content="hi")], metadata="invalid")
+        assert is_steer_request(req_str) is False
+
+        req_none = ModelRequest(parts=[UserPromptPart(content="hi")], metadata=None)
+        assert is_steer_request(req_none) is False
+
+        req_valid = ModelRequest(
+            parts=[UserPromptPart(content="hi")], metadata=dict(STEER_METADATA)
+        )
+        assert is_steer_request(req_valid) is True
+
+        req_proxy = ModelRequest(
+            parts=[UserPromptPart(content="hi")], metadata=STEER_METADATA
+        )
+        assert is_steer_request(req_proxy) is True
 
     @pytest.mark.anyio
     async def test_instructions_injected(self, model, default_params):

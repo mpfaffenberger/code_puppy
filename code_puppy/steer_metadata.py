@@ -11,6 +11,7 @@ modules can import it without pulling in the agent package.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from types import MappingProxyType
 
 from pydantic_ai.messages import ModelMessage, ModelRequest
@@ -24,6 +25,9 @@ STEER_METADATA: MappingProxyType[str, bool] = MappingProxyType(
 
 def is_steer_request(message: ModelMessage) -> bool:
     """True if ``message`` is a ``/steer`` request injected by the processor."""
-    return isinstance(message, ModelRequest) and bool(
-        (message.metadata or {}).get(STEER_METADATA_KEY)
+    metadata = getattr(message, "metadata", None)
+    return (
+        isinstance(message, ModelRequest)
+        and isinstance(metadata, Mapping)
+        and bool(metadata.get(STEER_METADATA_KEY))
     )

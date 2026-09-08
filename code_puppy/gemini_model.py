@@ -364,17 +364,59 @@ class GeminiModel(Model):
         # block stays closed to later merges: a tool result outstanding across
         # the steer starts its own block instead of being absorbed.
         steer_block_open = False
+        steer_blocks: set[int] = set()
+
+        def _is_steer_block(block: dict[str, Any] | None) -> bool:
+            return block is not None and id(block) in steer_blocks
 
         for i, m in enumerate(messages):
             if is_steer_request(m):
+                tool_parts: list[dict[str, Any]] = []
                 steer_parts: list[dict[str, Any]] = []
                 for part in m.parts:
                     if isinstance(part, SystemPromptPart):
                         system_parts.append({"text": part.content})
                     elif isinstance(part, UserPromptPart):
                         steer_parts.extend(await self._map_user_prompt(part))
+                    elif isinstance(part, ToolReturnPart):
+                        tool_parts.append(
+                            {
+                                "function_response": {
+                                    "name": part.tool_name,
+                                    "response": part.model_response_object(),
+                                    "id": part.tool_call_id,
+                                }
+                            }
+                        )
+                    elif isinstance(part, RetryPromptPart):
+                        if part.tool_name is None:
+                            steer_parts.append({"text": part.model_response()})
+                        else:
+                            tool_parts.append(
+                                {
+                                    "function_response": {
+                                        "name": part.tool_name,
+                                        "response": {"error": part.model_response()},
+                                        "id": part.tool_call_id,
+                                    }
+                                }
+                            )
+
+                if tool_parts:
+                    # Tool returns (e.g. spliced by prune_interrupted_tool_calls)
+                    # must precede steer guidance and never mix into a steer block.
+                    if (
+                        contents
+                        and contents[-1].get("role") == "user"
+                        and not _is_steer_block(contents[-1])
+                    ):
+                        contents[-1]["parts"].extend(tool_parts)
+                    else:
+                        contents.append({"role": "user", "parts": tool_parts})
+                    steer_block_open = False
+
                 if steer_parts:
-                    if steer_block_open:
+                    if steer_block_open and contents and _is_steer_block(contents[-1]):
                         # Consecutive steers share one block and one preamble.
                         # A kind change (retired -> active) can only happen
                         # across the normal prompt that closes the block.
@@ -383,6 +425,7 @@ class GeminiModel(Model):
                         if i > last_prompt_index:
                             steer_parts.insert(0, {"text": STEER_PREAMBLE})
                         contents.append({"role": "user", "parts": steer_parts})
+                        steer_blocks.add(id(contents[-1]))
                         steer_block_open = True
                 continue
             if isinstance(m, ModelRequest):
@@ -423,7 +466,7 @@ class GeminiModel(Model):
                     if (
                         contents
                         and contents[-1].get("role") == "user"
-                        and not steer_block_open
+                        and not _is_steer_block(contents[-1])
                     ):
                         contents[-1]["parts"].extend(message_parts)
                     else:
