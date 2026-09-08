@@ -223,6 +223,14 @@ class BaseAgent(ABC):
             self._session_rules = load_puppy_rules() or ""
         return self._session_rules
 
+    def refresh_project_instructions(self) -> None:
+        """Explicit project transition: keep history/identity, rebuild the contract."""
+        self._session_prompt_body = None
+        self._session_rules = None
+        self._session_prepared_prompt = None
+        self._code_generation_agent = None
+        self._tool_probe_agent = None
+
     def get_runtime_prompt_suffix(self) -> str:
         return (
             "\n" + "\n".join(self._runtime_system_prompt_additions)
@@ -353,19 +361,23 @@ class BaseAgent(ABC):
 
     def _estimate_context_overhead(self) -> int:
         """Tokens used by system prompt + registered pydantic tools."""
-        system_prompt = self.get_full_system_prompt()
-        try:
-            from code_puppy.model_utils import prepare_prompt_for_model
+        from code_puppy.agents._session_prompt import saved_system_text
 
-            prepared = prepare_prompt_for_model(
-                model_name=self.get_model_name() or "",
-                system_prompt=system_prompt,
-                user_prompt="",
-                prepend_system_to_user=False,
-            )
-            resolved = prepared.system_text or system_prompt
-        except Exception:
-            resolved = system_prompt
+        resolved = saved_system_text(self)
+        if resolved is None:
+            system_prompt = self.get_full_system_prompt()
+            try:
+                from code_puppy.model_utils import prepare_prompt_for_model
+
+                prepared = prepare_prompt_for_model(
+                    model_name=self.get_model_name() or "",
+                    system_prompt=system_prompt,
+                    user_prompt="",
+                    prepend_system_to_user=False,
+                )
+                resolved = prepared.system_text or system_prompt
+            except Exception:
+                resolved = system_prompt
 
         tools_source = self.pydantic_agent or self._get_tool_probe()
         tools = _extract_pydantic_agent_tools(tools_source) if tools_source else None

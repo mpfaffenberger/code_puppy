@@ -5,6 +5,17 @@ from typing import Any
 from code_puppy.model_utils import PreparedPrompt
 
 
+def saved_system_text(agent: Any) -> str | None:
+    """Read the authoritative prepared system text without replaying live hooks."""
+    from code_puppy.agents.base_agent import BaseAgent
+
+    if not isinstance(agent, BaseAgent) or agent._session_prepared_prompt is None:
+        return None
+    saved = agent._session_prepared_prompt
+    instructions = saved["instructions"] + agent.get_runtime_prompt_suffix()
+    return "\n\n".join(text for text in (saved["system_prompt"], instructions) if text)
+
+
 def prepare_session_prompt(
     agent: Any,
     model_name: str,
