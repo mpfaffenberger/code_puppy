@@ -162,8 +162,9 @@ class ClaudeCacheAsyncClient(ClaudeOAuthTransport, httpx2.AsyncClient):
             return None
         system = data.get("system")
         if isinstance(system, str):
-            if system.startswith(CLAUDE_CODE_SYSTEM_PROMPT):
+            if system == CLAUDE_CODE_SYSTEM_PROMPT:
                 return None
+            system = system.removeprefix(CLAUDE_CODE_SYSTEM_PROMPT)
             blocks: list[Any] = [{"type": "text", "text": CLAUDE_CODE_SYSTEM_PROMPT}]
             if system:
                 blocks.append({"type": "text", "text": system})
@@ -171,8 +172,17 @@ class ClaudeCacheAsyncClient(ClaudeOAuthTransport, httpx2.AsyncClient):
         elif isinstance(system, list):
             first = system[0] if system else None
             text = first.get("text") if isinstance(first, dict) else None
-            if isinstance(text, str) and text.startswith(CLAUDE_CODE_SYSTEM_PROMPT):
+            if text == CLAUDE_CODE_SYSTEM_PROMPT:
                 return None
+            # Compaction adds a SystemPromptPart that the SDK joins to the
+            # signature. A matching prefix is not a standalone identity block.
+            # Keep metadata (including cache_control) on the remainder so its
+            # cache boundary still follows all the original content.
+            if isinstance(text, str) and text.startswith(CLAUDE_CODE_SYSTEM_PROMPT):
+                system = [
+                    {**first, "text": text.removeprefix(CLAUDE_CODE_SYSTEM_PROMPT)},
+                    *system[1:],
+                ]
             data["system"] = [
                 {"type": "text", "text": CLAUDE_CODE_SYSTEM_PROMPT},
                 *system,
