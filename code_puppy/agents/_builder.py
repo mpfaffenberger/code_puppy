@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple
 from pydantic_ai import Agent as PydanticAgent
 from pydantic_ai.capabilities import ProcessHistory
 
-from code_puppy.agents._compaction import make_history_processor
+from code_puppy.agents._compaction import HistoryCompaction
 from code_puppy.agents._model_message_transform import build_model_message_transform
 from code_puppy.agents._subagent_recursion import build_subagent_recursion_guard
 from code_puppy.agents._output_limits import (
@@ -646,7 +646,7 @@ def build_pydantic_agent(
         resolved_model_name,
         overrides=agent.get_model_settings_overrides(),
     )
-    history_processor = make_history_processor(agent)
+    history_compaction = HistoryCompaction(agent)
     steer_processor = make_steer_history_processor(agent)
     logical_agent_name = getattr(agent, "name", None) or agent.__class__.__name__
     # Read before ``_new_pydantic_agent`` runs: the closure's capability list
@@ -669,16 +669,17 @@ def build_pydantic_agent(
             toolsets=toolsets,
             # Order matters: compaction first (may trim history to fit
             # context), THEN steer injection (a fresh steer must not be
-            # compacted away). ProcessHistory capabilities apply in
+            # compacted away). Both hit before_model_request — the exact
+            # seam ProcessHistory uses — and capabilities apply in
             # registration order (replaces the deprecated
             # `history_processors=` kwarg, removed in pydantic-ai v2).
             # ToolOutputLimits reduces oversized tool returns on a different
             # hook (after_tool_execute), so its position is inert; the
-            # response clamp runs before_model_request after both history
-            # processors. The plugin transform wraps the final model request.
+            # response clamp runs before_model_request after compaction and
+            # steering. The plugin transform wraps the final model request.
             capabilities=[
                 *build_tool_output_limits(),
-                ProcessHistory(history_processor),
+                history_compaction,
                 ProcessHistory(steer_processor),
                 build_response_clamp(),
                 build_model_message_transform(logical_agent_name),

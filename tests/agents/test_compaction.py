@@ -5,8 +5,8 @@ Covers:
 - compact() — trigger math, force path, fallback + failure resilience,
   dropped-hash bookkeeping
 - run_compaction_sync() — the sync bridge driving compact_now for /compact
-- make_history_processor() — the pydantic-ai processor closure, including
-  the ctx-taking calling-convention regression test
+- HistoryCompaction — the pydantic-ai capability, exercised through its real
+  before_model_request seam plus a TestModel-backed Agent.run() dispatch test
 """
 
 from __future__ import annotations
@@ -39,9 +39,9 @@ from pydantic_ai_harness.compaction import (
 
 from code_puppy.agents import _compaction
 from code_puppy.agents._compaction import (
+    HistoryCompaction,
     build_compaction_strategy,
     compact,
-    make_history_processor,
     run_compaction_sync,
 )
 
@@ -58,6 +58,11 @@ def _user_msg(text: str) -> ModelMessage:
 
 def _assistant_text(text: str) -> ModelMessage:
     return ModelResponse(parts=[TextPart(content=text)])
+
+
+class _IdentityStrategy:
+    async def compact(self, messages, ctx):
+        return messages
 
 
 def _tool_call(tool_name: str, args: dict, call_id: str) -> ModelMessage:
@@ -136,7 +141,7 @@ def _orphan_tool_ids(messages: List[ModelMessage]) -> tuple[set, set]:
 
 
 class _FakeAgent:
-    """Minimal agent stub satisfying the make_history_processor contract."""
+    """Minimal agent stub satisfying the HistoryCompaction agent contract."""
 
     def __init__(
         self,
@@ -233,9 +238,49 @@ class TestBuildCompactionStrategy:
 
 
 class TestCompact:
+    async def test_summarization_reports_protected_and_older_messages(self):
+        msgs = [_user_msg("system"), _user_msg("old"), _user_msg("recent")]
+
+        with (
+            patch.multiple(
+                _compaction,
+                get_compaction_strategy=lambda: "summarization",
+                get_protected_token_count=lambda: 2,
+                estimate_tokens_for_message=lambda message, model_name: 1,
+                build_compaction_strategy=lambda: _IdentityStrategy(),
+            ),
+            patch.object(_compaction, "emit_info") as emit_info,
+        ):
+            await compact(None, msgs, 100, 0, _ctx(), force=True)
+
+        assert [call.args[0] for call in emit_info.call_args_list] == [
+            "\U0001f512 Protecting 2 recent messages (2 tokens, limit: 2)",
+            "\U0001f4dd Summarizing 1 older messages",
+        ]
+
+    async def test_truncation_reports_history_management(self):
+        msgs = [_user_msg("old"), _user_msg("recent")]
+
+        with (
+            patch.multiple(
+                _compaction,
+                get_compaction_strategy=lambda: "truncation",
+                build_compaction_strategy=lambda: _IdentityStrategy(),
+            ),
+            patch.object(_compaction, "emit_info") as emit_info,
+        ):
+            await compact(None, msgs, 100, 0, _ctx(), force=True)
+
+        emit_info.assert_called_once_with(
+            "Truncating message history to manage token usage"
+        )
+
     async def test_under_threshold_is_noop(self):
         msgs = _build_long_history(n_turns=2)
-        with patch.object(_compaction, "get_compaction_threshold", return_value=0.95):
+        with (
+            patch.object(_compaction, "get_compaction_threshold", return_value=0.95),
+            patch.object(_compaction, "emit_info") as emit_info,
+        ):
             new_msgs, dropped = await compact(
                 agent=None,
                 messages=msgs,
@@ -245,6 +290,7 @@ class TestCompact:
             )
         assert new_msgs is msgs, "under threshold must return the input unchanged"
         assert dropped == []
+        emit_info.assert_not_called()
 
     async def test_force_bypasses_threshold(self):
         msgs = _build_long_history(n_turns=20)
@@ -474,24 +520,47 @@ class TestRunCompactionSync:
         assert msgs == snapshot
 
 
-# ---------- make_history_processor() -----------------------------------------
+# ---------- HistoryCompaction -------------------------------------------------
 
 
-class TestMakeHistoryProcessor:
-    def test_closure_takes_run_context(self):
-        """REGRESSION: pydantic-ai picks the 2-arg calling convention off the
-        first parameter's RunContext annotation. The closure must opt in so
-        the live ctx reaches the harness strategies."""
-        from pydantic_ai._utils import takes_run_context
+async def _fire(agent: Any, messages: List[ModelMessage]) -> List[ModelMessage]:
+    """Drive the capability through its REAL seam — before_model_request —
+    exactly as pydantic-ai's capability chain does, and hand back the
+    (possibly replaced) outbound message list."""
+    from types import SimpleNamespace
 
-        processor = make_history_processor(_FakeAgent())
-        assert takes_run_context(processor)
+    request_context = SimpleNamespace(messages=messages)
+    out = await HistoryCompaction(agent).before_model_request(_ctx(), request_context)
+    return out.messages
+
+
+class TestHistoryCompaction:
+    def test_not_spec_serializable(self):
+        """The capability holds a live agent reference — it must opt out of
+        spec serialization like ProcessHistory does."""
+        assert HistoryCompaction.get_serialization_name() is None
+
+    async def test_before_model_request_replaces_outbound_messages(self):
+        """Parity with ProcessHistory: the seam must REPLACE
+        request_context.messages with the processed history, not append."""
+        from types import SimpleNamespace
+
+        agent = _FakeAgent(model_max=1_000_000)
+        request_context = SimpleNamespace(messages=[_user_msg("hello")])
+        with patch.object(_compaction, "get_compaction_threshold", return_value=0.95):
+            out = await HistoryCompaction(agent).before_model_request(
+                _ctx(), request_context
+            )
+        assert out is request_context
+        # Identity, not just equality: the processed durable history object
+        # itself becomes the outbound list — replace, never append.
+        assert out.messages is agent._message_history
 
     async def test_merges_new_messages_into_agent_history(self):
         agent = _FakeAgent(model_max=1_000_000)
         m1, m2, m3 = _user_msg("hello"), _assistant_text("hi there"), _user_msg("more")
         with patch.object(_compaction, "get_compaction_threshold", return_value=0.95):
-            result = await make_history_processor(agent)(_ctx(), [m1, m2, m3])
+            result = await _fire(agent, [m1, m2, m3])
         assert m1 in agent._message_history
         assert m2 in agent._message_history
         assert m3 in agent._message_history
@@ -502,7 +571,7 @@ class TestMakeHistoryProcessor:
         m1 = _user_msg("hello")
         agent._message_history = [m1]
         with patch.object(_compaction, "get_compaction_threshold", return_value=0.95):
-            await make_history_processor(agent)(_ctx(), [_user_msg("hello")])
+            await _fire(agent, [_user_msg("hello")])
         assert len(agent._message_history) == 1
 
     async def test_last_message_preserved_even_on_compacted_hash_collision(self):
@@ -514,7 +583,7 @@ class TestMakeHistoryProcessor:
         newest = _user_msg("yes")
         agent._compacted_message_hashes.add(hash_message(newest))
         with patch.object(_compaction, "get_compaction_threshold", return_value=0.95):
-            await make_history_processor(agent)(_ctx(), [_user_msg("yes")])
+            await _fire(agent, [_user_msg("yes")])
         assert len(agent._message_history) == 1
 
     async def test_repeated_user_prompt_is_not_dropped_as_duplicate(self):
@@ -533,7 +602,7 @@ class TestMakeHistoryProcessor:
             _user_msg("yes"),
         ]
         with patch.object(_compaction, "get_compaction_threshold", return_value=0.95):
-            result = await make_history_processor(agent)(_ctx(), incoming)
+            result = await HistoryCompaction(agent)._process(_ctx(), incoming)
 
         user_turns = [m for m in result if isinstance(m, ModelRequest)]
         assert len(user_turns) == 2, "the second 'yes' was dropped"
@@ -546,7 +615,7 @@ class TestMakeHistoryProcessor:
         agent = _FakeAgent(model_max=1_000_000)
         agent._message_history = [_user_msg("yes"), _assistant_text("done")]
         with patch.object(_compaction, "get_compaction_threshold", return_value=0.95):
-            await make_history_processor(agent)(
+            await HistoryCompaction(agent)._process(
                 _ctx(), [_user_msg("yes"), _assistant_text("done")]
             )
         assert len(agent._message_history) == 1  # trailing response popped
@@ -555,7 +624,7 @@ class TestMakeHistoryProcessor:
         agent = _FakeAgent(model_max=1_000_000)
         msgs = [_user_msg("q"), _assistant_text("a"), _assistant_text("trailing")]
         with patch.object(_compaction, "get_compaction_threshold", return_value=0.95):
-            result = await make_history_processor(agent)(_ctx(), msgs)
+            result = await _fire(agent, msgs)
         assert isinstance(result[-1], ModelRequest)
 
     async def test_strips_empty_thinking_parts(self):
@@ -563,7 +632,7 @@ class TestMakeHistoryProcessor:
         empty_thinking = ModelResponse(parts=[ThinkingPart(content="")])
         msgs = [_user_msg("q"), empty_thinking, _user_msg("q2")]
         with patch.object(_compaction, "get_compaction_threshold", return_value=0.95):
-            result = await make_history_processor(agent)(_ctx(), msgs)
+            result = await _fire(agent, msgs)
         assert empty_thinking not in result
 
     async def test_triggers_compaction_over_threshold(self):
@@ -576,7 +645,7 @@ class TestMakeHistoryProcessor:
             get_protected_token_count=lambda: 500,
             get_model_context_length=lambda: 10_000,
         ):
-            result = await make_history_processor(agent)(_ctx(), msgs)
+            result = await _fire(agent, msgs)
         assert len(result) < len(msgs)
         assert agent._compacted_message_hashes, "dropped hashes must be recorded"
 
@@ -585,9 +654,42 @@ class TestMakeHistoryProcessor:
         # End on a user turn so the trailing-ModelResponse trim is a no-op.
         msgs = _build_long_history(n_turns=3) + [_user_msg("latest")]
         with patch.object(_compaction, "get_compaction_threshold", return_value=0.95):
-            result = await make_history_processor(agent)(_ctx(), msgs)
+            result = await _fire(agent, msgs)
         assert len(result) == len(msgs)
         assert not agent._compacted_message_hashes
+
+    async def test_agent_run_dispatches_through_capability_chain(self):
+        """End-to-end: a real pydantic-ai Agent wired with the capability must
+        dispatch it on every model request — the user prompt lands in the
+        owning agent's durable message history via the real chain, and the
+        model receives exactly the processed history the capability built."""
+        from pydantic_ai import Agent as PydanticAgent
+
+        fake = _FakeAgent(model_max=1_000_000)
+        seen: List[List[ModelMessage]] = []
+
+        def _capture(messages: List[ModelMessage], info: AgentInfo) -> ModelResponse:
+            seen.append(list(messages))
+            return ModelResponse(parts=[TextPart(content="ok")])
+
+        pyd_agent = PydanticAgent(
+            model=FunctionModel(_capture),
+            output_type=str,
+            capabilities=[HistoryCompaction(fake)],
+        )
+        with patch.object(_compaction, "get_compaction_threshold", return_value=0.95):
+            result = await pyd_agent.run("hello capability")
+        assert any(
+            any(
+                getattr(p, "content", None) == "hello capability"
+                for p in getattr(m, "parts", [])
+            )
+            for m in fake._message_history
+        ), "user prompt must be merged into the durable history via the chain"
+        # The wire request carried the capability's processed durable history
+        # — not the raw incoming list.
+        assert seen and seen[0] == fake._message_history
+        assert result.output == "ok"
 
 
 # ---------- FallbackCompaction wiring sanity ---------------------------------
