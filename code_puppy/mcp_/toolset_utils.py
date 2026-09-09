@@ -56,6 +56,34 @@ def toolset_is_running(toolset: Any) -> bool:
     return bool(getattr(unwrap_toolset(toolset), "is_running", False))
 
 
+def toolset_capabilities(toolset: Any) -> Optional[Any]:
+    """Capabilities the server advertised, or ``None`` if not connected yet.
+
+    The underlying properties raise ``AttributeError`` until the toolset is
+    entered; ``None`` spares callers a try/except per call site.
+    """
+    try:
+        return unwrap_toolset(toolset).capabilities
+    except AttributeError:
+        return None
+
+
+def toolset_instructions(toolset: Any) -> Optional[str]:
+    """Server-provided instructions, or ``None`` if not connected/absent."""
+    try:
+        return unwrap_toolset(toolset).instructions
+    except AttributeError:
+        return None
+
+
+def toolset_server_info(toolset: Any) -> Optional[Any]:
+    """Server name/version, or ``None``. Servers may omit it even when live."""
+    try:
+        return unwrap_toolset(toolset).server_info
+    except AttributeError:
+        return None
+
+
 def iter_cached_tool_defs(toolset: Any) -> Iterator[Tuple[str, str, Any]]:
     """Yield ``(full_name, description, input_schema)`` for cached MCP tools.
 
