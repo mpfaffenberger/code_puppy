@@ -115,7 +115,7 @@ def _sanitize_schema_for_gemini(schema: dict) -> dict:
 
     Removes/transforms fields that Gemini doesn't support:
     - $defs, definitions, $schema, $id
-    - additionalProperties
+    - additionalProperties, propertyNames
     - $ref (inlined)
     - anyOf/oneOf/allOf (flattened - Gemini doesn't support unions!)
       - For unions of objects: merges into single object with all properties
@@ -221,6 +221,7 @@ def _sanitize_schema_for_gemini(schema: dict) -> dict:
                     "$schema",
                     "$id",
                     "additionalProperties",
+                    "propertyNames",
                     "default",
                     "examples",
                     "const",

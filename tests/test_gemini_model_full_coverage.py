@@ -90,6 +90,28 @@ class TestSanitizeSchema:
         assert "additionalProperties" not in result
         assert result["properties"]["x"]["type"] == "string"
 
+    def test_removes_property_names_recursively(self):
+        schema = {
+            "type": "object",
+            "propertyNames": {"type": "string"},
+            "properties": {
+                "data": {
+                    "type": "object",
+                    "propertyNames": {"pattern": "^[a-z]+/[a-z]+$"},
+                    "additionalProperties": {"type": "string"},
+                }
+            },
+        }
+
+        result = _sanitize_schema_for_gemini(schema)
+
+        assert "propertyNames" not in result
+        assert "propertyNames" not in result["properties"]["data"]
+        assert result["properties"]["data"]["type"] == "object"
+        assert schema["properties"]["data"]["propertyNames"] == {
+            "pattern": "^[a-z]+/[a-z]+$"
+        }
+
     def test_resolves_ref(self):
         schema = {
             "$defs": {"Foo": {"type": "string", "description": "a foo"}},
