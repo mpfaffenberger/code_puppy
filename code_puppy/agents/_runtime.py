@@ -571,6 +571,23 @@ def _should_prepend_system_prompt(agent: Any, prompt: str) -> str:
     if agent._message_history:
         return prompt
 
+    from code_puppy.agents.base_agent import BaseAgent
+
+    if isinstance(agent, BaseAgent):
+        from code_puppy.agents._session_prompt import prepare_session_prompt
+
+        saved = agent._session_prepared_prompt
+        # The builder has already resolved any provider fallback. Use that
+        # model and its durable source, never get_full_system_prompt's suffix.
+        model_name = saved["model_name"] if saved else agent.get_model_name()
+        source = agent.get_session_prompt_body() + agent.get_identity_prompt()
+        rules = agent.get_session_rules()
+        if rules:
+            source += f"\n{rules}"
+        return prepare_session_prompt(
+            agent, model_name, source, prompt, prepend_system_to_user=True
+        ).user_prompt
+
     system_prompt = agent.get_full_system_prompt()
     rules = load_puppy_rules()
     if rules:

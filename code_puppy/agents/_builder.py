@@ -585,10 +585,15 @@ def _assemble_instructions(agent: Any, resolved_model_name: str) -> PreparedProm
     standing ``system_prompt`` a plugin wants emitted as its own
     ``SystemPromptPart`` ahead of them.
     """
-    from code_puppy.model_utils import prepare_prompt_for_model
+    from code_puppy.agents._session_prompt import prepare_session_prompt
+    from code_puppy.agents.base_agent import BaseAgent
 
-    instructions = agent.get_full_system_prompt()
-    puppy_rules = load_puppy_rules()
+    if isinstance(agent, BaseAgent):
+        instructions = agent.get_session_prompt_body() + agent.get_identity_prompt()
+        puppy_rules = agent.get_session_rules()
+    else:
+        instructions = agent.get_full_system_prompt()
+        puppy_rules = load_puppy_rules()
     if puppy_rules:
         instructions += f"\n{puppy_rules}"
 
@@ -598,9 +603,7 @@ def _assemble_instructions(agent: Any, resolved_model_name: str) -> PreparedProm
         if _agent_exposes_tool(agent, "agent_run_shell_command"):
             instructions += _GPT_5_6_RUN_SHELL_COMMAND_GUARD_TEXT
 
-    return prepare_prompt_for_model(
-        agent.get_model_name(), instructions, "", prepend_system_to_user=False
-    )
+    return prepare_session_prompt(agent, resolved_model_name, instructions)
 
 
 def build_pydantic_agent(

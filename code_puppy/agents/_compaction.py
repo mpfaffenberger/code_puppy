@@ -150,7 +150,11 @@ def run_compaction_sync(strategy: Any, messages: List[ModelMessage], *, model: M
     from concurrent.futures import ThreadPoolExecutor
 
     def _run():
-        return asyncio.run(compact_now(strategy, list(messages), model=model))
+        from code_puppy.agents._session_state import read_session_state, stamp_state
+
+        state = read_session_state(messages)
+        result = asyncio.run(compact_now(strategy, list(messages), model=model))
+        return stamp_state(state, result) if state is not None else result
 
     try:
         asyncio.get_running_loop()
@@ -388,6 +392,9 @@ def make_history_processor(agent: Any) -> Callable[..., Any]:
         # Claude. Cheap no-op when all IDs already conform.
         cleaned = sanitize_tool_call_ids(cleaned)
 
+        from code_puppy.agents._session_state import stamp_session_state
+
+        cleaned = stamp_session_state(agent, cleaned)
         agent._message_history = cleaned
 
         on_message_history_processor_end(

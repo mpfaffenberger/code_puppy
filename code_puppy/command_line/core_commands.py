@@ -106,9 +106,13 @@ def handle_cd_command(command: str) -> bool:
             try:
                 from code_puppy.agents.agent_manager import get_current_agent
 
-                # reload_code_generation_agent() invalidates cached rules
-                # and rebuilds prompt/context from the new cwd
-                get_current_agent().reload_code_generation_agent()
+                # /cd is an explicit contract transition, unlike ordinary resume.
+                from code_puppy.agents.base_agent import BaseAgent
+
+                agent = get_current_agent()
+                if isinstance(agent, BaseAgent):
+                    agent.refresh_project_instructions()
+                agent.reload_code_generation_agent()
                 emit_info(t("cmd.cd.agent_updated"))
             except Exception as e:
                 # Non-fatal: directory change succeeded even if reload failed

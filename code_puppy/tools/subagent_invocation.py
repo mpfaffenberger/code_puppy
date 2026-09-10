@@ -404,8 +404,15 @@ async def _invoke_agent_impl(
                 )
 
             # Create a temporary agent instance to avoid interfering with current agent state
-            instructions = agent_config.get_full_system_prompt()
-            instructions += f"\n\n{_subagent_identity_prompt(agent_name)}"
+            from code_puppy.agents.base_agent import BaseAgent
+
+            if isinstance(agent_config, BaseAgent):
+                instructions = (
+                    agent_config.get_session_prompt_body()
+                    + agent_config.get_identity_prompt()
+                )
+            else:
+                instructions = agent_config.get_full_system_prompt()
 
             # AGENTS.md deliberately NOT injected into sub-agents: those are
             # user-facing steering for the MAIN agent and would create recursion
@@ -413,17 +420,23 @@ async def _invoke_agent_impl(
 
             # NOTE: load_prompt fragments are already baked into get_full_system_prompt
             # via BaseAgent — appending again would double-inject them.
-            from code_puppy.model_utils import prepare_prompt_for_model
+            from code_puppy.agents._session_prompt import prepare_session_prompt
 
-            # Model-family prep (e.g. claude-code): may split off a standing
-            # system_prompt part, or touch the user prompt on the first message.
-            prepared = prepare_prompt_for_model(
+            # Share durable preparation with main agents without importing their
+            # project rules. User-prompt hooks still run for each actual turn.
+            prepared = prepare_session_prompt(
+                agent_config,
                 effective_model_name,
                 instructions,
                 prompt,
                 prepend_system_to_user=is_new_session,  # Only prepend on first message
+                preparation_scope=f"subagent:{agent_name}",
             )
-            instructions = prepared.instructions
+            # Parent chain/depth can change on resume: keep invocation context
+            # live and outside hooks that could copy it into persisted user text.
+            instructions = (
+                prepared.instructions + f"\n\n{_subagent_identity_prompt(agent_name)}"
+            )
             prompt = prepared.user_prompt
 
             model_settings = make_model_settings(
