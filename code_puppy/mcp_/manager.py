@@ -30,11 +30,6 @@ logger = logging.getLogger(__name__)
 _WARNED_UNBOUND: set = set()
 
 
-async def _shutdown_mcp() -> None:
-    """Stable callback identity prevents duplicate hooks across managers."""
-    await get_lifecycle_manager().stop_all()
-
-
 def _warn_unbound_servers(server_names: List[str], agent_name: str) -> None:
     """Warn once, in a single consolidated block, about registered-but-unbound MCP servers.
 
@@ -150,9 +145,6 @@ class MCPManager:
         # Load existing servers from registry
         self._initialize_servers()
 
-        from code_puppy.callbacks import register_callback
-
-        register_callback("shutdown", _shutdown_mcp)
         logger.info("MCPManager initialized with core components")
 
     def sync_from_config(self) -> None:
@@ -244,10 +236,6 @@ class MCPManager:
 
         for config in configs:
             try:
-                # External installers refresh this existing manager after sync;
-                # this is not a second __init__. Reload owns config changes.
-                if config.id in self._managed_servers:
-                    continue
                 managed_server = ManagedMCPServer(config)
                 self._managed_servers[config.id] = managed_server
 
