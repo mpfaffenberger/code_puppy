@@ -1568,6 +1568,11 @@ def register_agent_run_shell_command(agent):
         """Execute a shell command with comprehensive monitoring and safety features.
 
         Supports streaming output, timeout handling, and background execution.
+
+        Write commands for human readers, not code golf. Avoid nested subshells,
+        one-letter variables, and obscure flags. Simple pipe chains are
+        encouraged. Split into separate commands when one line stops making
+        sense.
         """
         result = await run_shell_command(context, command, cwd, timeout, background)
         await on_run_shell_command_output(result)
