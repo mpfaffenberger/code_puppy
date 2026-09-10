@@ -28,6 +28,10 @@ class ManagedServerContext:
     exit_stack: AsyncExitStack
     start_time: datetime
     task: asyncio.Task  # The task that manages this server's lifecycle
+    cleanup_failed: bool = False
+
+
+SERVER_STOP_TIMEOUT = 5.0
 
 
 class AsyncServerLifecycleManager:
@@ -62,18 +66,17 @@ class AsyncServerLifecycleManager:
         Returns:
             True if server started successfully, False otherwise
         """
+        # A stale lifecycle must drain without holding the registry lock.
+        existing = self._servers.get(server_id)
+        if existing is not None:
+            if self.is_running(server_id):
+                return True
+            if not await self.stop_server(server_id):
+                return False
+
         async with self._lock:
-            # Check if already running
             if server_id in self._servers:
-                if toolset_is_running(self._servers[server_id].server):
-                    logger.info(f"Server {server_id} is already running")
-                    return True
-                else:
-                    # Server exists but not running, clean it up
-                    logger.warning(
-                        f"Server {server_id} exists but not running, cleaning up"
-                    )
-                    await self._stop_server_internal(server_id)
+                return self.is_running(server_id)
 
             # Create an event so we know when the server is actually registered
             ready_event = asyncio.Event()
@@ -186,20 +189,15 @@ class AsyncServerLifecycleManager:
                 f"Server {server_id} lifecycle ending, _running_count={running_count}"
             )
 
-            # NOTE: aclose() can raise (cancel scope entered in a different task,
-            # BaseExceptionGroup); harmless at shutdown — swallow the asyncio noise.
+            cleanup_failed = False
             try:
                 await exit_stack.aclose()
-            except (RuntimeError, BaseExceptionGroup) as e:
-                logger.debug(
-                    f"Server {server_id} cleanup raised (suppressed): {e}",
-                    exc_info=True,
+            except (Exception, BaseExceptionGroup, asyncio.CancelledError):
+                cleanup_failed = True
+                logger.warning(
+                    "MCP cleanup failed for %s; retaining lifecycle", server_id
                 )
-            except Exception as e:
-                logger.debug(
-                    f"Server {server_id} cleanup raised (suppressed): {e}",
-                    exc_info=True,
-                )
+                logger.debug("MCP cleanup exception for %s", server_id, exc_info=True)
 
             running_count_after = getattr(leaf, "_running_count", "N/A")
             logger.info(
@@ -209,8 +207,12 @@ class AsyncServerLifecycleManager:
             # Remove from managed servers
             try:
                 async with self._lock:
-                    if server_id in self._servers:
-                        del self._servers[server_id]
+                    context = self._servers.get(server_id)
+                    if context is not None and context.task is asyncio.current_task():
+                        if cleanup_failed:
+                            context.cleanup_failed = True
+                        else:
+                            del self._servers[server_id]
             except Exception as e:
                 logger.debug(f"Error removing {server_id} from registry: {e}")
 
@@ -229,29 +231,30 @@ class AsyncServerLifecycleManager:
             True if server was stopped, False if not found
         """
         async with self._lock:
-            return await self._stop_server_internal(server_id)
+            context = self._servers.get(server_id)
+            if context is None:
+                return False
+            task = context.task
+            if not task.done() and not task.cancelling():
+                task.cancel()
 
-    async def _stop_server_internal(self, server_id: str) -> bool:
-        """
-        Internal method to stop a server (must be called with lock held).
-        """
-        if server_id not in self._servers:
-            logger.warning(f"Server {server_id} not found")
+        # wait() bounds the caller without cancelling the draining task again.
+        # Caller cancellation propagates; cleanup retains its original owner.
+        done, _ = await asyncio.wait({task}, timeout=SERVER_STOP_TIMEOUT)
+        if not done:
+            logger.warning("MCP cleanup deadline exceeded for %s", server_id)
             return False
-
-        context = self._servers[server_id]
-
-        # Cancel the lifecycle task
-        # This will cause the task to exit and clean up properly
-        context.task.cancel()
-
-        try:
-            await context.task
-        except asyncio.CancelledError:
-            pass  # Expected
-
-        logger.info(f"Stopped server {server_id}")
-        return True
+        if not task.cancelled():
+            try:
+                task.result()
+            except (Exception, BaseExceptionGroup):
+                logger.debug(
+                    "MCP lifecycle task failed for %s", server_id, exc_info=True
+                )
+                return False
+        return (
+            not context.cleanup_failed and self._servers.get(server_id) is not context
+        )
 
     def is_running(self, server_id: str) -> bool:
         """
@@ -264,7 +267,12 @@ class AsyncServerLifecycleManager:
             True if server is running, False otherwise
         """
         context = self._servers.get(server_id)
-        return toolset_is_running(context.server) if context else False
+        return bool(
+            context
+            and not context.task.done()
+            and not context.task.cancelling()
+            and toolset_is_running(context.server)
+        )
 
     def list_servers(self) -> Dict[str, Dict[str, Any]]:
         """
@@ -285,13 +293,11 @@ class AsyncServerLifecycleManager:
         return servers
 
     async def stop_all(self) -> None:
-        """Stop all running servers."""
-        server_ids = list(self._servers.keys())
-
-        for server_id in server_ids:
-            await self.stop_server(server_id)
-
-        logger.info("All MCP servers stopped")
+        """Drain registered lifecycles concurrently, including cancelled ones."""
+        server_ids = list(self._servers)
+        results = await asyncio.gather(*(self.stop_server(key) for key in server_ids))
+        if not all(results):
+            logger.warning("MCP shutdown incomplete; undrained lifecycles retained")
 
 
 # Global singleton instance
