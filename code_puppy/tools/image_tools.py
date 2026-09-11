@@ -20,13 +20,14 @@ from typing import Any, Dict, Union
 from PIL import Image, UnidentifiedImageError
 from pydantic_ai import BinaryContent, RunContext, ToolReturn
 
+from code_puppy.command_line.image_utils import MAX_IMAGE_DIMENSION
 from code_puppy.messaging import emit_error, emit_info, emit_success
 from code_puppy.tools.common import generate_group_id
 
 logger = logging.getLogger(__name__)
 
 # Bigger than this on either edge and we resize to save tokens.
-MAX_IMAGE_EDGE = 2048
+MAX_IMAGE_EDGE = MAX_IMAGE_DIMENSION
 DEFAULT_MAX_HEIGHT = 768  # kept for backward-compat in tool signature
 
 
@@ -109,6 +110,8 @@ def _validate_and_prepare_image(
             resized = image.resize(
                 (output_width, output_height), Image.Resampling.LANCZOS
             )
+            if resized.mode not in ("RGB", "RGBA", "L", "LA", "P"):
+                resized = resized.convert("RGB")
             output = io.BytesIO()
             resized.save(output, format="PNG", optimize=True)
             output.seek(0)

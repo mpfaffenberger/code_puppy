@@ -194,6 +194,7 @@ class TestGetClipboardImage:
         mock_image.mode = "RGB"
         mock_image.width = 100
         mock_image.height = 100
+        mock_image.size = (100, 100)
         mock_image.info = {}
 
         def save_as_png(buffer, format, **kwargs):
@@ -379,6 +380,7 @@ class TestGetClipboardImageLinux:
 
         small_bytes = b"pngdata" * 10
         mock_img = MagicMock()
+        mock_img.size = (100, 100)
         with (
             patch("code_puppy.command_line.clipboard.sys.platform", "linux"),
             patch(

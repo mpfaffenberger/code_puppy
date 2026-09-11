@@ -23,8 +23,8 @@ logger = logging.getLogger(__name__)
 #: Maximum encoded image size before a resize is triggered.
 MAX_IMAGE_SIZE_BYTES: int = 10 * 1024 * 1024  # 10 MB
 
-#: Hard cap on either dimension after any resize.
-MAX_IMAGE_DIMENSION: int = 4096  # px
+#: Conservative cap compatible with Anthropic's many-image request limit.
+MAX_IMAGE_DIMENSION: int = 2000  # px
 
 
 # ---------------------------------------------------------------------------
@@ -80,56 +80,33 @@ def _resize_image_if_needed(
     image: "Image.Image",
     max_bytes: int,
 ) -> "Image.Image":
-    """Return *image* downscaled so its PNG encoding fits within *max_bytes*.
+    """Downscale for dimension and encoded-size limits independently.
 
-    Uses a square-root area estimate with a 10 % safety margin.  Dimensions
-    are capped at :data:`MAX_IMAGE_DIMENSION` and floored at 100 px.
-
-    Returns the **same object** unchanged when no resize is required — callers
-    can use ``result is image`` to detect whether a resize occurred.
+    The dimension cap applies even to highly compressible screenshots. Preserve
+    aspect ratio and never upscale a short edge to satisfy a pixel floor.
     """
     if Image is None:  # pragma: no cover
         return image
 
+    scale = min(1.0, MAX_IMAGE_DIMENSION / max(image.size))
+    resized = image
+    if scale < 1.0:
+        resized = image.resize(
+            tuple(max(1, int(edge * scale)) for edge in image.size),
+            Image.Resampling.LANCZOS,
+        )
+
     buf = io.BytesIO()
-    image.save(buf, format="PNG", optimize=True)
+    resized.save(buf, format="PNG", optimize=True)
     current = buf.tell()
-
-    if current <= max_bytes:
-        return image
-
-    logger.info(
-        "Image size (%.2f MB) exceeds limit (%.2f MB), resizing…",
-        current / 1024 / 1024,
-        max_bytes / 1024 / 1024,
-    )
-
-    scale = (max_bytes / current) ** 0.5 * 0.9  # 10 % safety margin
-    new_w = int(image.width * scale)
-    new_h = int(image.height * scale)
-
-    # Respect aspect ratio when a dimension hits the hard cap
-    if new_w > MAX_IMAGE_DIMENSION:
-        ratio = MAX_IMAGE_DIMENSION / new_w
-        new_w = MAX_IMAGE_DIMENSION
-        new_h = int(new_h * ratio)
-    if new_h > MAX_IMAGE_DIMENSION:
-        ratio = MAX_IMAGE_DIMENSION / new_h
-        new_h = MAX_IMAGE_DIMENSION
-        new_w = int(new_w * ratio)
-
-    # Floor both dimensions
-    new_w = max(new_w, 100)
-    new_h = max(new_h, 100)
-
-    resized = image.resize((new_w, new_h), Image.Resampling.LANCZOS)
-    logger.info(
-        "Resized image from %dx%d to %dx%d",
-        image.width,
-        image.height,
-        new_w,
-        new_h,
-    )
+    if current > max_bytes:
+        # Retain the existing approximate byte-budget policy; the dimension
+        # ceiling above is unconditional, not gated on this estimate.
+        scale = (max_bytes / current) ** 0.5 * 0.9
+        resized = resized.resize(
+            tuple(max(1, int(edge * scale)) for edge in resized.size),
+            Image.Resampling.LANCZOS,
+        )
     return resized
 
 
@@ -158,7 +135,7 @@ def normalize_image_bytes(
 
         - *media_type* does not start with ``"image/"``
         - PIL is unavailable
-        - the image already fits within *max_bytes*
+        - the image already fits the byte and dimension limits
         - any error occurs (always fails gracefully)
     """
     if not media_type.startswith("image/"):
