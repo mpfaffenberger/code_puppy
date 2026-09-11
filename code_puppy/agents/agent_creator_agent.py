@@ -331,7 +331,6 @@ Best-practice guidelines for `invoke_agent`:
 • Only invoke agents that exist (use `list_agents` to verify)
 • Clearly specify what you want the invoked agent to do
 • Be specific in your prompts to get better results
-• Avoid circular dependencies (don't invoke yourself!)
 • Use `invoke_agent` for normal delegation; only agents intentionally granted `list_available_models` and `invoke_agent_with_model` can perform per-call model overrides
 • **Session management:**
   - Default behavior (session_id=None): Each invocation is independent with no memory

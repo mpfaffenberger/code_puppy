@@ -66,6 +66,77 @@ def _repair_tool_call_json(raw: str) -> str:
         return raw
 
 
+def _resolve_tool_properties(manager: Any, call: Any) -> dict | None:
+    """Best-effort lookup of a tool's declared JSON-Schema properties.
+
+    Returns the ``properties`` mapping, or ``None`` when the tool (or its
+    schema) cannot be resolved — callers must treat ``None`` as "unknown".
+    Never raises: this runs on the validation hot path.
+    """
+    try:
+        tool_def = manager.get_tool_def(getattr(call, "tool_name", None))
+        schema = getattr(tool_def, "parameters_json_schema", None)
+        properties = schema.get("properties") if isinstance(schema, dict) else None
+        return properties if isinstance(properties, dict) else None
+    except Exception:
+        return None
+
+
+def _unwrap_arguments_envelope(tool_args: Any, properties: dict | None) -> Any:
+    """Collapse a spurious ``{"arguments": {...}}`` envelope into its payload.
+
+    Some models encode a tool call as the function-call envelope *itself* --
+    literally ``{"arguments": {}}`` -- rather than an empty argument object.
+    Because pydantic-ai declares every tool schema with
+    ``additionalProperties: false``, that stray key hard-fails validation and
+    the tool can never be called. Zero-parameter tools (e.g. ``list_agents``)
+    are hit hardest: the model has no real parameter to name, so it emits the
+    envelope and every call is rejected with ``extra_forbidden``.
+
+    Unwraps ONLY when ``arguments`` is the sole key *and* the tool does not
+    declare a real ``arguments`` property, so a legitimate parameter of that
+    name is never clobbered. Anything ambiguous is returned untouched.
+    """
+    if not isinstance(tool_args, dict) or list(tool_args) != ["arguments"]:
+        return tool_args
+    if isinstance(properties, dict) and "arguments" in properties:
+        return tool_args  # a real parameter -- hands off
+
+    inner = tool_args["arguments"]
+    if isinstance(inner, str):
+        try:
+            inner = json.loads(inner)
+        except Exception:
+            return tool_args
+    return inner if isinstance(inner, dict) else tool_args
+
+
+def _sanitize_tool_call_args(manager: Any, call: Any) -> None:
+    """Rewrite ``call.args`` in place if it carries the ``arguments`` envelope.
+
+    ``ToolCallPart.args`` may be a dict or a JSON string, so both shapes are
+    handled (and a string is re-serialized to preserve the original shape).
+    Invalid JSON strings are left for :func:`_repair_tool_call_json`.
+    """
+    args = getattr(call, "args", None)
+    properties = _resolve_tool_properties(manager, call)
+
+    if isinstance(args, dict):
+        unwrapped = _unwrap_arguments_envelope(args, properties)
+        if unwrapped is not args:
+            call.args = unwrapped
+    elif isinstance(args, str) and args:
+        try:
+            parsed = json.loads(args)
+        except Exception:
+            return
+        if not isinstance(parsed, dict):
+            return
+        unwrapped = _unwrap_arguments_envelope(parsed, properties)
+        if unwrapped is not parsed:
+            call.args = json.dumps(unwrapped)
+
+
 # Loud failures recorded during the current apply_all_patches() run, so the
 # summary line can distinguish real breakage from skipped optional deps.
 _LOUD_FAILURES: list[str] = []
@@ -203,6 +274,10 @@ def patch_tool_call_json_repair() -> bool:
             # Only attempt repair if args is a string (JSON)
             if isinstance(call.args, str) and call.args:
                 call.args = _repair_tool_call_json(call.args)
+
+            # Drop a stray {"arguments": ...} envelope (valid JSON, so the
+            # repair above never sees it) before strict validation runs.
+            _sanitize_tool_call_args(self, call)
 
             return await _original_validate_tool_call(self, call, **kwargs)
 

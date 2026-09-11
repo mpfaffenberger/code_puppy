@@ -209,7 +209,14 @@ def prepare_queued_steer_injection(agent: Any, result: Any) -> Optional[Any]:
         loop iteration to keep turn boundaries clean for the model).
       - Emits a diagnostic with a preview of the steer text.
     """
+    from code_puppy.agent_completion_inbox import pop_completion
     from code_puppy.messaging.pause_controller import get_pause_controller
+
+    completion = pop_completion(agent)
+    if completion is not None:
+        if hasattr(result, "all_messages"):
+            agent._message_history = list(result.all_messages())
+        return completion
 
     pc = get_pause_controller()
     pending = pc.drain_pending_steer_queued()

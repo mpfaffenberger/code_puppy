@@ -108,6 +108,13 @@ omit = ["code_puppy/main.py"]
 [tool.uv]
 python-preference = "only-managed"
 
+# Develop against the sibling core-plugins checkout instead of the PyPI
+# release. Without this, `uv sync`/`uv run` restores the locked registry
+# build on every launch and silently drops local plugins (e.g.
+# background_agents). Comment out to go back to the published bundle.
+[tool.uv.sources]
+code-puppy-core-plugins = { path = "../code_puppy_core_plugins", editable = true }
+
 [dependency-groups]
 dev = [
     "pytest>=8.3.4",

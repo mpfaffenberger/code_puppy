@@ -113,6 +113,114 @@ async def test_json_repair_patch_rejects_non_object_repair(monkeypatch):
     assert call.args == SHATTERING_MALFORMED_JSON
 
 
+# ---------------------------------------------------------------------------
+# Spurious {"arguments": ...} envelope from zero-parameter tool calls.
+#
+# Some models encode the *function-call envelope* as the args object itself
+# ({"arguments": {}}) instead of an empty dict. pydantic-ai declares tool
+# schemas with additionalProperties: false, so the stray key hard-fails
+# validation and the tool can never be called (seen with `list_agents`).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "raw, expected",
+    [
+        ({"arguments": {}}, {}),
+        ({"arguments": "{}"}, {}),
+        ({"arguments": {"a": 1}}, {"a": 1}),
+        ({"arguments": '{"a": 1}'}, {"a": 1}),
+    ],
+)
+def test_arguments_envelope_is_unwrapped(raw, expected):
+    assert pydantic_patches._unwrap_arguments_envelope(raw, {}) == expected
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        {"arguments": {"a": 1}},  # tool really declares an `arguments` property
+        {"arguments": "not json"},
+        {"arguments": 5},
+        {"arguments": None},
+        {"arguments": {}, "extra": 1},  # not the sole key
+        {},
+        {"file_path": "puppy.py"},
+        "not-a-dict",
+    ],
+)
+def test_ambiguous_or_legit_args_are_left_untouched(raw):
+    properties = {"arguments": {"type": "object"}}
+    assert pydantic_patches._unwrap_arguments_envelope(raw, properties) == raw
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        {"arguments": "not json"},
+        {"arguments": 5},
+        {"arguments": None},
+        {"arguments": [1, 2]},
+    ],
+)
+def test_non_dict_envelope_payloads_are_left_untouched(raw):
+    """No declared `arguments` property, but the payload isn't an object."""
+    assert pydantic_patches._unwrap_arguments_envelope(raw, {}) == raw
+
+
+def test_sanitize_unwraps_dict_args_in_place():
+    call = SimpleNamespace(args={"arguments": {"file_path": "puppy.py"}})
+
+    pydantic_patches._sanitize_tool_call_args(_stub_manager({}), call)
+
+    assert call.args == {"file_path": "puppy.py"}
+
+
+def test_sanitize_unwraps_string_args_and_keeps_string_shape():
+    call = SimpleNamespace(args='{"arguments": "{}"}')
+
+    pydantic_patches._sanitize_tool_call_args(_stub_manager({}), call)
+
+    assert call.args == "{}"
+    assert isinstance(call.args, str)
+
+
+def test_sanitize_leaves_invalid_json_string_for_the_repairer():
+    call = SimpleNamespace(args="{not json at all")
+
+    pydantic_patches._sanitize_tool_call_args(_stub_manager({}), call)
+
+    assert call.args == "{not json at all"
+
+
+def _stub_manager(properties):
+    """A ToolManager stand-in whose zero-arg tool declares ``properties``."""
+    schema = {"type": "object", "properties": properties, "additionalProperties": False}
+    return SimpleNamespace(
+        get_tool_def=lambda _name: SimpleNamespace(parameters_json_schema=schema)
+    )
+
+
+@pytest.mark.asyncio
+async def test_zero_arg_tool_call_with_arguments_envelope_validates(monkeypatch):
+    """The whole point: list_agents-style calls must survive validation."""
+    from pydantic_ai.tool_manager import ToolManager
+
+    async def validate_tool_call(_manager, call, **_kwargs):
+        return call.args
+
+    monkeypatch.setattr(ToolManager, "validate_tool_call", validate_tool_call)
+    assert pydantic_patches.patch_tool_call_json_repair() is True
+
+    manager = _stub_manager({})
+    call = SimpleNamespace(tool_name="list_agents", args={"arguments": {}})
+
+    result = await ToolManager.validate_tool_call(manager, call)
+
+    assert result == {}
+    assert call.args == {}
+
+
 @pytest.mark.parametrize("tool_name", ["replace_in_file", "edit", "apply_patch"])
 def test_editor_args_are_repaired_before_pre_tool_call(tool_name):
     """Every model-native editor reaches hooks with repaired JSON args."""

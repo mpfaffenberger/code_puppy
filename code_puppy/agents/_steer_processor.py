@@ -39,11 +39,16 @@ def make_steer_history_processor(agent: Any) -> Callable[..., List[ModelMessage]
     """
 
     def steer_history_processor(messages: List[ModelMessage]) -> List[ModelMessage]:
+        from code_puppy.agent_completion_inbox import pop_completion
+
         # Drain ONLY ``now``-mode steers; the between-turns loop in
         # ``_runtime._do_run`` owns ``queue``-mode ones — draining both
         # here would double-inject.
         pending = get_pause_controller().drain_pending_steer_now()
-        if not pending:
+        completions = []
+        while (completion := pop_completion(agent)) is not None:
+            completions.append(completion)
+        if not pending and not completions:
             return messages
 
         # CRITICAL: carry the in-effect instructions onto the injected request.
@@ -64,6 +69,14 @@ def make_steer_history_processor(agent: Any) -> Callable[..., List[ModelMessage]
         # Keep each steer separate so providers can preserve its boundary.
         # Attachments use the main prompt resolution path.
         injected: List[ModelMessage] = []
+        for completion in completions:
+            injected.append(
+                ModelRequest(
+                    parts=[UserPromptPart(content=completion)],
+                    instructions=last_instructions,
+                    metadata=dict(STEER_METADATA),
+                )
+            )
         for steer_text in pending:
             content, preview_text = resolve_steer_content(steer_text)
             n_extras = len(content) - 1 if isinstance(content, list) else 0
