@@ -2,12 +2,15 @@
 MCP Restart Command - Restarts a specific MCP server.
 """
 
+import asyncio
 import logging
 from typing import List, Optional
 
 from rich.text import Text
 
 from code_puppy.messaging import emit_info
+from code_puppy.i18n import t
+from rich.markup import escape
 
 from .base import MCPCommandBase
 from .utils import find_server_id_by_name, suggest_similar_servers
@@ -48,49 +51,67 @@ class RestartCommand(MCPCommandBase):
                 suggest_similar_servers(self.manager, server_name, group_id=group_id)
                 return
 
-            # Stop the server first
-            emit_info(f"Stopping server: {server_name}", message_group=group_id)
-            self.manager.stop_server_sync(server_id)
-
-            # Then reload and start it
-            emit_info("Reloading configuration...", message_group=group_id)
-            reload_success = self.manager.reload_server(server_id)
-
-            if reload_success:
-                emit_info(f"Starting server: {server_name}", message_group=group_id)
-                start_success = self.manager.start_server_sync(server_id)
-
-                if start_success:
-                    emit_info(
-                        f"✓ Restarted server: {server_name}", message_group=group_id
-                    )
-
-                    # Reload the agent to pick up the server changes
-                    try:
-                        from code_puppy.agents import get_current_agent
-
-                        agent = get_current_agent()
-                        agent.reload_code_generation_agent()
-                        # Update MCP tool cache immediately so token counts reflect the change
-                        agent.update_mcp_tool_cache_sync()
-                        emit_info(
-                            Text.from_markup(
-                                "[dim]Agent reloaded with updated servers[/dim]"
-                            ),
-                            message_group=group_id,
-                        )
-                    except Exception as e:
-                        logger.warning(f"Could not reload agent: {e}")
-                else:
-                    emit_info(
-                        f"✗ Failed to start server after reload: {server_name}",
-                        message_group=group_id,
-                    )
-            else:
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                emit_info(t("mcp.restart.no_loop"), message_group=group_id)
+                return
+            pending = getattr(self.manager, "_pending_restart_tasks", None)
+            if not isinstance(pending, dict):
+                pending = self.manager._pending_restart_tasks = {}
+            if server_id in pending and not pending[server_id].done():
                 emit_info(
-                    f"✗ Failed to reload server configuration: {server_name}",
+                    t("mcp.restart.pending", name=escape(server_name)),
                     message_group=group_id,
                 )
+                return
+            from code_puppy.agents import get_current_agent
+
+            agent = (
+                get_current_agent()
+            )  # rebind the requesting agent, not a later switch
+
+            async def restart():
+                success = False
+                try:
+                    success = await self.manager.restart_server(server_id)
+                except Exception:
+                    logger.exception("MCP restart failed for %s", server_id)
+                finally:
+                    # Failed replacement must not leave old toolsets cached. Do not
+                    # rebuild on failure: the builder could autostart the failed server.
+                    agent._code_generation_agent = None
+                    agent.pydantic_agent = None
+                if success:
+                    try:
+                        agent.reload_code_generation_agent()
+                        agent.update_mcp_tool_cache_sync()
+                    except Exception:
+                        agent._code_generation_agent = None
+                        agent.pydantic_agent = None
+                        logger.exception("MCP restarted but agent rebuild failed")
+                        emit_info(
+                            t("mcp.restart.rebind_failed", name=escape(server_name)),
+                            message_group=group_id,
+                        )
+                        return
+                key = "mcp.restart.done" if success else "mcp.restart.failed"
+                emit_info(t(key, name=escape(server_name)), message_group=group_id)
+
+            task = loop.create_task(restart(), name=f"mcp_restart_{server_id}")
+            pending[server_id] = task
+
+            def finished(done):
+                if pending.get(server_id) is done:
+                    pending.pop(server_id, None)
+                if not done.cancelled() and done.exception() is not None:
+                    logger.error("MCP restart completion failed for %s", server_id)
+
+            task.add_done_callback(finished)
+            emit_info(
+                t("mcp.restart.scheduled", name=escape(server_name)),
+                message_group=group_id,
+            )
 
         except Exception as e:
             logger.error(f"Error restarting server '{server_name}': {e}")
