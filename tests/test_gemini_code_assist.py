@@ -166,24 +166,13 @@ class TestGeminiCodeAssistModel:
         decls = body["request"]["tools"][0]["functionDeclarations"]
         assert len(decls) == 2
         assert decls[0]["name"] == "my_tool"
-        assert "parametersJsonSchema" in decls[0]
-        assert "parametersJsonSchema" not in decls[1]
-
-    def test_build_generation_config_none(self, model):
-        assert model._build_generation_config(None) is None
-
-    def test_build_generation_config_empty(self, model):
-        settings = ModelSettings()
-        result = model._build_generation_config(settings)
-        # No fields set -> None or empty
-        assert result is None or result == {}
+        assert "parameters" in decls[0]
+        assert "parameters" not in decls[1]
 
     def test_build_request_with_generation_config(self, model, default_params):
         """Test that generationConfig is added when settings have values."""
-        settings = MagicMock()
-        settings.temperature = 0.7
-        settings.top_p = None
-        settings.max_tokens = None
+        """Test that generationConfig is added when settings have values."""
+        settings = ModelSettings(temperature=0.7)
         msgs = [ModelRequest(parts=[UserPromptPart(content="hi")])]
         body = model._build_request(msgs, settings, default_params)
         assert "generationConfig" in body["request"]
@@ -208,18 +197,6 @@ class TestGeminiCodeAssistModel:
         fr = body["request"]["contents"][0]["parts"][0]["functionResponse"]
         # Falls back to str()
         assert isinstance(fr["response"]["result"], str)
-
-    def test_build_generation_config_with_values(self, model):
-        # ModelSettings is a TypedDict; the code uses hasattr which works on
-        # objects with real attributes. Use a mock to simulate that.
-        settings = MagicMock()
-        settings.temperature = 0.5
-        settings.top_p = 0.9
-        settings.max_tokens = 100
-        result = model._build_generation_config(settings)
-        assert result["temperature"] == 0.5
-        assert result["topP"] == 0.9
-        assert result["maxOutputTokens"] == 100
 
     def test_parse_response_text(self, model):
         data = {

@@ -30,8 +30,13 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.models import Model, ModelRequestParameters
 from pydantic_ai.settings import ModelSettings
-from pydantic_ai.tools import ToolDefinition
 from pydantic_ai.usage import RequestUsage
+
+from code_puppy.gemini_common import (
+    _build_tools,
+    _build_generation_config,
+    _parse_candidate_parts,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -215,12 +220,12 @@ class GeminiCodeAssistModel(Model):
 
         # Add tools if available
         if model_request_parameters.function_tools:
-            inner_request["tools"] = [
-                self._build_tools(model_request_parameters.function_tools)
-            ]
+            inner_request["tools"] = _build_tools(
+                model_request_parameters.function_tools
+            )
 
         # Add generation config
-        generation_config = self._build_generation_config(model_settings)
+        generation_config = _build_generation_config(model_settings)
         if generation_config:
             inner_request["generationConfig"] = generation_config
 
@@ -232,83 +237,16 @@ class GeminiCodeAssistModel(Model):
             "request": inner_request,
         }
 
-    def _build_tools(self, tools: list[ToolDefinition]) -> Dict[str, Any]:
-        """Build tool definitions for the API."""
-        function_declarations = []
-
-        for tool in tools:
-            func_decl: Dict[str, Any] = {
-                "name": tool.name,
-                "description": tool.description or "",
-            }
-
-            if tool.parameters_json_schema:
-                func_decl["parametersJsonSchema"] = tool.parameters_json_schema
-
-            function_declarations.append(func_decl)
-
-        return {"functionDeclarations": function_declarations}
-
-    def _build_generation_config(
-        self, model_settings: ModelSettings | None
-    ) -> Optional[Dict[str, Any]]:
-        """Build generation config from model settings."""
-        if not model_settings:
-            return None
-
-        config: Dict[str, Any] = {}
-
-        if (
-            hasattr(model_settings, "temperature")
-            and model_settings.temperature is not None
-        ):
-            config["temperature"] = model_settings.temperature
-
-        if hasattr(model_settings, "top_p") and model_settings.top_p is not None:
-            config["topP"] = model_settings.top_p
-
-        if (
-            hasattr(model_settings, "max_tokens")
-            and model_settings.max_tokens is not None
-        ):
-            config["maxOutputTokens"] = model_settings.max_tokens
-
-        return config if config else None
-
     def _parse_response(self, data: Dict[str, Any]) -> ModelResponse:
         """Parse the Code Assist API response."""
-        # Unwrap the Code Assist response format
+        # Unwrap the Code Assist response format.
         inner_response = data.get("response", data)
 
         candidates = inner_response.get("candidates", [])
         if not candidates:
             raise RuntimeError("No candidates in response")
 
-        candidate = candidates[0]
-        content = candidate.get("content", {})
-        parts = content.get("parts", [])
-
-        response_parts: list[ModelResponsePart] = []
-
-        for part in parts:
-            if "text" in part:
-                response_parts.append(TextPart(content=part["text"]))
-            elif "functionCall" in part:
-                func_call = part["functionCall"]
-                response_parts.append(
-                    ToolCallPart(
-                        tool_name=func_call["name"],
-                        args=func_call.get("args", {}),
-                        tool_call_id=str(uuid.uuid4()),
-                    )
-                )
-
-        # Extract usage metadata
-        usage_meta = inner_response.get("usageMetadata", {})
-        usage = RequestUsage(
-            input_tokens=usage_meta.get("promptTokenCount", 0),
-            output_tokens=usage_meta.get("candidatesTokenCount", 0),
-        )
+        usage, response_parts = _parse_candidate_parts(inner_response, candidates)
 
         return ModelResponse(
             parts=response_parts, model_name=self._model_name, usage=usage
