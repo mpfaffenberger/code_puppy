@@ -1,6 +1,5 @@
 """Full coverage tests for code_puppy/gemini_model.py."""
 
-import uuid
 from datetime import datetime
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
