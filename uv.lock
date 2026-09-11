@@ -465,7 +465,7 @@ requires-dist = [
     { name = "azure-identity", specifier = ">=1.15.0" },
     { name = "boto3", specifier = ">=1.43.9" },
     { name = "boto3", marker = "extra == 'bedrock'", specifier = ">=1.35.0" },
-    { name = "code-puppy-core-plugins", editable = "../code_puppy_core_plugins" },
+    { name = "code-puppy-core-plugins", specifier = ">=0.0.45" },
     { name = "dbos", marker = "extra == 'durable'", specifier = ">=2.11.0" },
     { name = "httpx", extras = ["http2"], specifier = ">=0.24.1" },
     { name = "httpx2", specifier = ">=2.7" },
@@ -506,27 +506,15 @@ dev = [
 
 [[package]]
 name = "code-puppy-core-plugins"
-version = "0.0.46"
-source = { editable = "../code_puppy_core_plugins" }
+version = "0.0.45"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
     { name = "pydantic-ai-slim", extra = ["anthropic", "mcp", "openai"] },
 ]
-
-[package.metadata]
-requires-dist = [
-    { name = "httpx", specifier = ">=0.24.1,<1" },
-    { name = "pydantic-ai-slim", extras = ["openai", "anthropic", "mcp"], specifier = ">=2.35.0,<3" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "pexpect", specifier = ">=4.9.0" },
-    { name = "prompt-toolkit", specifier = ">=3.0.0,<4" },
-    { name = "pytest", specifier = ">=8.3.4" },
-    { name = "pytest-asyncio", specifier = ">=0.23.1" },
-    { name = "pytest-cov", specifier = ">=6.1.1" },
-    { name = "ruff", specifier = ">=0.15,<0.16" },
+sdist = { url = "https://files.pythonhosted.org/packages/67/f7/adb5dc459bcc0a0ab3781e5124394864491f78c9ca2053f149d16732a763/code_puppy_core_plugins-0.0.45.tar.gz", hash = "sha256:abf65bfb336ee4f2a2564651b6d83844f08e335708296984e331241450751baf", size = 549066, upload-time = "2026-09-08T13:24:56.345Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a3/1f/2906d291fdfd794b37c9150c6bf1bcb6cf1d1b983f4b08a1e7aff8d837c6/code_puppy_core_plugins-0.0.45-py3-none-any.whl", hash = "sha256:7c3df8d56ba417e6483895259c92c34b748b8e99dc1aca4ed96544746fcf2851", size = 745498, upload-time = "2026-09-08T13:24:54.936Z" },
 ]
 
 [[package]]
