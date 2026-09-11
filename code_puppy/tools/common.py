@@ -23,6 +23,7 @@ from termflow.diff import brighten_hex as brighten_hex  # re-export (public API)
 from termflow.syntax import Highlighter as TermflowHighlighter
 
 from code_puppy.tools.file_permission_state import set_diff_already_shown
+from code_puppy.tools import fs_access
 
 # =============================================================================
 # Approval queueing locks
@@ -1177,6 +1178,43 @@ async def _get_user_approval_async_impl(
         emit_success("Approved!")
 
     return confirmed, user_feedback
+
+
+def _sanitize_string(text: str) -> str:
+    """Sanitize a string to remove invalid Unicode surrogates.
+    This handles encoding issues common on Windows with copy-paste operations.
+    """
+    if not text:
+        return text
+
+    try:
+        # Try encoding — if it works, string is clean.
+        text.encode("utf-8")
+        return text
+
+    except UnicodeEncodeError:
+        pass
+
+    try:
+        # Encode allowing surrogates, then decode replacing them.
+        return text.encode("utf-8", errors="surrogatepass").decode(
+            "utf-8", errors="replace"
+        )
+
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        # Last resort: filter out surrogate characters.
+        return "".join(
+            char if ord(char) < 0xD800 or ord(char) > 0xDFFF else "\ufffd"
+            for char in text
+        )
+
+
+def read_text_sanitized(
+    path: str, line: int | None = None, limit: int | None = None
+) -> str:
+    """Read text via fs_access (backend-aware), then sanitize surrogates."""
+    text = fs_access.read_text(path, line=line, limit=limit)
+    return _sanitize_string(text)
 
 
 def atomic_write_text(
