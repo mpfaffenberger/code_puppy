@@ -514,7 +514,13 @@ class TestSessionBrowser:
         return browser, result, visible(output.getvalue()), output.getvalue()
 
     def sample_entries(self):
-        now = datetime.now()
+        # Anchor to midday of the *current* day. Using the wall clock directly
+        # made this suite time-of-day dependent: a run between 00:00 and 02:00
+        # pushed the "<now> - 2h" entries onto the previous date, so nothing
+        # bucketed as TODAY and test_open_project_and_select_session failed.
+        # Midday keeps every entry deterministically on today's date while
+        # preserving the relative ordering the scripts rely on.
+        now = datetime.now().replace(hour=12, minute=0, second=0, microsecond=0)
         stamp = lambda **kw: (now - timedelta(**kw)).isoformat()  # noqa: E731
         return [
             _entry(
