@@ -30,8 +30,9 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.models import Model, ModelRequestParameters
 from pydantic_ai.settings import ModelSettings
-from pydantic_ai.tools import ToolDefinition
 from pydantic_ai.usage import RequestUsage
+
+from code_puppy.gemini_common import _build_tools
 
 logger = logging.getLogger(__name__)
 
@@ -216,7 +217,7 @@ class GeminiCodeAssistModel(Model):
         # Add tools if available
         if model_request_parameters.function_tools:
             inner_request["tools"] = [
-                self._build_tools(model_request_parameters.function_tools)
+                _build_tools(model_request_parameters.function_tools)
             ]
 
         # Add generation config
@@ -231,23 +232,6 @@ class GeminiCodeAssistModel(Model):
             "user_prompt_id": str(uuid.uuid4()),
             "request": inner_request,
         }
-
-    def _build_tools(self, tools: list[ToolDefinition]) -> Dict[str, Any]:
-        """Build tool definitions for the API."""
-        function_declarations = []
-
-        for tool in tools:
-            func_decl: Dict[str, Any] = {
-                "name": tool.name,
-                "description": tool.description or "",
-            }
-
-            if tool.parameters_json_schema:
-                func_decl["parametersJsonSchema"] = tool.parameters_json_schema
-
-            function_declarations.append(func_decl)
-
-        return {"functionDeclarations": function_declarations}
 
     def _build_generation_config(
         self, model_settings: ModelSettings | None
