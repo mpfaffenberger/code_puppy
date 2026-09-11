@@ -53,9 +53,6 @@ STEER_PREAMBLE = (
 )
 
 
-
-
-
 def _flatten_union_to_object_gemini(union_items: list, defs: dict, resolve_fn) -> dict:
     """Flatten a union of object types into a single object with all properties.
 

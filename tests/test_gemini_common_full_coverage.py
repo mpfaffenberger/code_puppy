@@ -20,7 +20,6 @@ class TestUtilities:
         assert isinstance(BYPASS_THOUGHT_SIGNATURE, str)
 
 
-
 # --- Parse candidate parts. ---
 
 
