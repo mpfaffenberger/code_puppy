@@ -23,7 +23,6 @@ from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
     ModelResponse,
-    ModelResponsePart,
     ModelResponseStreamEvent,
     RetryPromptPart,
     SystemPromptPart,
@@ -38,6 +37,7 @@ from pydantic_ai.settings import ModelSettings
 from pydantic_ai.tools import ToolDefinition
 from pydantic_ai.usage import RequestUsage
 
+from code_puppy.gemini_common import _parse_candidate_parts, generate_tool_call_id
 from code_puppy.steer_metadata import is_steer_request
 
 logger = logging.getLogger(__name__)
@@ -51,11 +51,6 @@ BYPASS_THOUGHT_SIGNATURE = "context_engineering_is_the_way_to_go"
 STEER_PREAMBLE = (
     "Additional guidance for the current task; continue the existing workflow:"
 )
-
-
-def generate_tool_call_id() -> str:
-    """Generate a unique tool call ID."""
-    return str(uuid.uuid4())
 
 
 def _flatten_union_to_object_gemini(union_items: list, defs: dict, resolve_fn) -> dict:
@@ -712,40 +707,7 @@ class GeminiModel(Model):
                 usage=RequestUsage(),
             )
 
-        candidate = candidates[0]
-        content = candidate.get("content", {})
-        parts = content.get("parts", [])
-
-        response_parts: list[ModelResponsePart] = []
-
-        for part in parts:
-            if part.get("thought") and part.get("text") is not None:
-                # Thinking part.
-                signature = part.get("thoughtSignature")
-                response_parts.append(
-                    ThinkingPart(content=part["text"], signature=signature)
-                )
-
-            elif "text" in part:
-                response_parts.append(TextPart(content=part["text"]))
-
-            elif "functionCall" in part:
-                fc = part["functionCall"]
-
-                response_parts.append(
-                    ToolCallPart(
-                        tool_name=fc["name"],
-                        args=fc.get("args", {}),
-                        tool_call_id=fc.get("id") or generate_tool_call_id(),
-                    )
-                )
-
-        # Extract usage.
-        usage_meta = data.get("usageMetadata", {})
-        usage = RequestUsage(
-            input_tokens=usage_meta.get("promptTokenCount", 0),
-            output_tokens=usage_meta.get("candidatesTokenCount", 0),
-        )
+        usage, response_parts = _parse_candidate_parts(data, candidates)
 
         return ModelResponse(
             parts=response_parts,
