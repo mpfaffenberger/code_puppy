@@ -216,9 +216,9 @@ class GeminiCodeAssistModel(Model):
 
         # Add tools if available
         if model_request_parameters.function_tools:
-            inner_request["tools"] = [
-                _build_tools(model_request_parameters.function_tools)
-            ]
+            inner_request["tools"] = _build_tools(
+                model_request_parameters.function_tools
+            )
 
         # Add generation config
         generation_config = self._build_generation_config(model_settings)
