@@ -56,6 +56,14 @@ def toolset_is_running(toolset: Any) -> bool:
     return bool(getattr(unwrap_toolset(toolset), "is_running", False))
 
 
+def tool_input_schema(tool: Any) -> Any:
+    """Prefer SDK v2's spelling without evaluating its deprecated camelCase alias."""
+    schema = getattr(tool, "input_schema", None)
+    if schema is not None:
+        return schema
+    return getattr(tool, "inputSchema", None)
+
+
 def iter_cached_tool_defs(toolset: Any) -> Iterator[Tuple[str, str, Any]]:
     """Yield ``(full_name, description, input_schema)`` for cached MCP tools.
 
@@ -73,5 +81,5 @@ def iter_cached_tool_defs(toolset: Any) -> Iterator[Tuple[str, str, Any]]:
         name = getattr(mcp_tool, "name", "") or ""
         full_name = f"{prefix}_{name}" if prefix and name else name
         description = getattr(mcp_tool, "description", "") or ""
-        schema = getattr(mcp_tool, "inputSchema", None)
+        schema = tool_input_schema(mcp_tool)
         yield full_name, description, schema
