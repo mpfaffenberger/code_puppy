@@ -37,7 +37,7 @@ from pydantic_ai.models import Model, ModelRequestParameters, StreamedResponse
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import RequestUsage
 
-from code_puppy.gemini_common import _build_tools
+from code_puppy.gemini_common import _build_tools, _build_generation_config
 from code_puppy.steer_metadata import is_steer_request
 
 logger = logging.getLogger(__name__)
@@ -399,44 +399,6 @@ class GeminiModel(Model):
             return None
         return {"role": "model", "parts": parts}
 
-    def _build_generation_config(
-        self, model_settings: ModelSettings | None
-    ) -> dict[str, Any]:
-        """Build generation config from model settings."""
-        config: dict[str, Any] = {}
-
-        if model_settings:
-            # ModelSettings is a TypedDict, so use .get() for all access
-            temperature = model_settings.get("temperature")
-            if temperature is not None:
-                config["temperature"] = temperature
-
-            top_p = model_settings.get("top_p")
-            if top_p is not None:
-                config["topP"] = top_p
-
-            max_tokens = model_settings.get("max_tokens")
-            if max_tokens is not None:
-                config["maxOutputTokens"] = max_tokens
-
-            # Handle Gemini 3 Pro thinking settings
-            thinking_enabled = model_settings.get("thinking_enabled")
-            thinking_level = model_settings.get("thinking_level")
-
-            # Build thinkingConfig if thinking settings are present
-            if thinking_enabled is False:
-                # Disable thinking by not including thinkingConfig
-                pass
-            elif thinking_level is not None:
-                # Gemini 3 Pro uses thinkingLevel with values "low" or "high"
-                # includeThoughts=True is required to surface the thinking in the response
-                config["thinkingConfig"] = {
-                    "thinkingLevel": thinking_level,
-                    "includeThoughts": True,
-                }
-
-        return config
-
     def _build_request_body(
         self,
         system_instruction,
@@ -448,7 +410,7 @@ class GeminiModel(Model):
     ) -> dict[str, Any]:
         body: dict[str, Any] = {"contents": contents}
 
-        gen_config = self._build_generation_config(model_settings)
+        gen_config = _build_generation_config(model_settings)
         if gen_config:
             body["generationConfig"] = gen_config
 

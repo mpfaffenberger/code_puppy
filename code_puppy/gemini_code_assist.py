@@ -32,7 +32,7 @@ from pydantic_ai.models import Model, ModelRequestParameters
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import RequestUsage
 
-from code_puppy.gemini_common import _build_tools
+from code_puppy.gemini_common import _build_tools, _build_generation_config
 
 logger = logging.getLogger(__name__)
 
@@ -221,7 +221,7 @@ class GeminiCodeAssistModel(Model):
             )
 
         # Add generation config
-        generation_config = self._build_generation_config(model_settings)
+        generation_config = _build_generation_config(model_settings)
         if generation_config:
             inner_request["generationConfig"] = generation_config
 
@@ -232,32 +232,6 @@ class GeminiCodeAssistModel(Model):
             "user_prompt_id": str(uuid.uuid4()),
             "request": inner_request,
         }
-
-    def _build_generation_config(
-        self, model_settings: ModelSettings | None
-    ) -> Optional[Dict[str, Any]]:
-        """Build generation config from model settings."""
-        if not model_settings:
-            return None
-
-        config: Dict[str, Any] = {}
-
-        if (
-            hasattr(model_settings, "temperature")
-            and model_settings.temperature is not None
-        ):
-            config["temperature"] = model_settings.temperature
-
-        if hasattr(model_settings, "top_p") and model_settings.top_p is not None:
-            config["topP"] = model_settings.top_p
-
-        if (
-            hasattr(model_settings, "max_tokens")
-            and model_settings.max_tokens is not None
-        ):
-            config["maxOutputTokens"] = model_settings.max_tokens
-
-        return config if config else None
 
     def _parse_response(self, data: Dict[str, Any]) -> ModelResponse:
         """Parse the Code Assist API response."""

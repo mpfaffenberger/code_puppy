@@ -9,6 +9,7 @@ Wire-format knowledge for the Gemini API should live in exactly one place.
 from typing import Any
 
 from pydantic_ai.tools import ToolDefinition
+from pydantic_ai.settings import ModelSettings
 
 
 def _flatten_union_to_object_gemini(union_items: list, defs: dict, resolve_fn) -> dict:
@@ -233,3 +234,41 @@ def _build_tools(tools: list[ToolDefinition]) -> list[dict[str, Any]]:
         function_declarations.append(func_decl)
 
     return [{"functionDeclarations": function_declarations}]
+
+
+def _build_generation_config(model_settings: ModelSettings | None) -> dict[str, Any]:
+    """Build generation config from model settings."""
+    config: dict[str, Any] = {}
+
+    if model_settings:
+        # ModelSettings is a TypedDict, so use .get() for all access.
+        temperature = model_settings.get("temperature")
+        if temperature is not None:
+            config["temperature"] = temperature
+
+        top_p = model_settings.get("top_p")
+        if top_p is not None:
+            config["topP"] = top_p
+
+        max_tokens = model_settings.get("max_tokens")
+        if max_tokens is not None:
+            config["maxOutputTokens"] = max_tokens
+
+        # Handle Gemini 3 Pro thinking settings.
+        thinking_enabled = model_settings.get("thinking_enabled")
+        thinking_level = model_settings.get("thinking_level")
+
+        # Build thinkingConfig if thinking settings are present.
+        if thinking_enabled is False:
+            # Disable thinking by not including thinkingConfig.
+            pass
+
+        elif thinking_level is not None:
+            # Gemini 3 Pro uses thinkingLevel with values "low" or "high".
+            # `includeThoughts=True` is required to surface the thinking in response.
+            config["thinkingConfig"] = {
+                "thinkingLevel": thinking_level,
+                "includeThoughts": True,
+            }
+
+    return config

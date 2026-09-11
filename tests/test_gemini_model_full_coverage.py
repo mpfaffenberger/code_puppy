@@ -810,36 +810,6 @@ class TestMapModelResponse:
         assert result is None
 
 
-# --- Build generation config ---
-
-
-class TestBuildGenerationConfig:
-    def test_none_settings(self, model):
-        assert model._build_generation_config(None) == {}
-
-    def test_with_temperature(self, model):
-        s = {"temperature": 0.5}
-        result = model._build_generation_config(s)
-        assert result["temperature"] == 0.5
-
-    def test_with_top_p(self, model):
-        result = model._build_generation_config({"top_p": 0.9})
-        assert result["topP"] == 0.9
-
-    def test_with_max_tokens(self, model):
-        result = model._build_generation_config({"max_tokens": 100})
-        assert result["maxOutputTokens"] == 100
-
-    def test_thinking_disabled(self, model):
-        result = model._build_generation_config({"thinking_enabled": False})
-        assert "thinkingConfig" not in result
-
-    def test_thinking_level(self, model):
-        result = model._build_generation_config({"thinking_level": "high"})
-        assert result["thinkingConfig"]["thinkingLevel"] == "high"
-        assert result["thinkingConfig"]["includeThoughts"] is True
-
-
 # --- Request ---
 
 

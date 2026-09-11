@@ -1,11 +1,15 @@
 """Full coverage tests for code_puppy/gemini_common.py."""
 
+from unittest.mock import MagicMock
+
+from pydantic_ai import ModelSettings
 from pydantic_ai.tools import ToolDefinition
 
 from code_puppy.gemini_common import (
     _flatten_union_to_object_gemini,
     _sanitize_schema_for_gemini,
     _build_tools,
+    _build_generation_config,
 )
 
 
@@ -243,3 +247,50 @@ class TestBuildTools:
         assert len(decls) == 2
         assert "parameters" in decls[0]
         assert "parameters" not in decls[1]
+
+
+# --- Build generation config. ---
+
+
+class TestBuildGenerationConfig:
+    def test_none_settings(self):
+        assert _build_generation_config(None) == {}
+
+    def test_with_temperature(self):
+        s = {"temperature": 0.5}
+        result = _build_generation_config(s)
+        assert result["temperature"] == 0.5
+
+    def test_with_top_p(self):
+        result = _build_generation_config({"top_p": 0.9})
+        assert result["topP"] == 0.9
+
+    def test_with_max_tokens(self):
+        result = _build_generation_config({"max_tokens": 100})
+        assert result["maxOutputTokens"] == 100
+
+    def test_thinking_disabled(self):
+        result = _build_generation_config({"thinking_enabled": False})
+        assert "thinkingConfig" not in result
+
+    def test_thinking_level(self):
+        result = _build_generation_config({"thinking_level": "high"})
+        assert result["thinkingConfig"]["thinkingLevel"] == "high"
+        assert result["thinkingConfig"]["includeThoughts"] is True
+
+    def test_build_generation_config_none(self):
+        assert _build_generation_config(None) == {}
+
+    def test_build_generation_config_empty(self):
+        settings = ModelSettings()
+        result = _build_generation_config(settings)
+        # No fields set -> None or empty.
+        assert result is None or result == {}
+
+    def test_build_generation_config_with_values(self):
+        settings = ModelSettings(temperature=0.5, top_p=0.9, max_tokens=100)
+        result = _build_generation_config(settings)
+
+        assert result["temperature"] == 0.5
+        assert result["topP"] == 0.9
+        assert result["maxOutputTokens"] == 100
