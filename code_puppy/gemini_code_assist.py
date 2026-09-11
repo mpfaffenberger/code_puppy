@@ -32,7 +32,11 @@ from pydantic_ai.models import Model, ModelRequestParameters
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import RequestUsage
 
-from code_puppy.gemini_common import _build_tools, _build_generation_config
+from code_puppy.gemini_common import (
+    _build_tools,
+    _build_generation_config,
+    _parse_candidate_parts,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -235,38 +239,14 @@ class GeminiCodeAssistModel(Model):
 
     def _parse_response(self, data: Dict[str, Any]) -> ModelResponse:
         """Parse the Code Assist API response."""
-        # Unwrap the Code Assist response format
+        # Unwrap the Code Assist response format.
         inner_response = data.get("response", data)
 
         candidates = inner_response.get("candidates", [])
         if not candidates:
             raise RuntimeError("No candidates in response")
 
-        candidate = candidates[0]
-        content = candidate.get("content", {})
-        parts = content.get("parts", [])
-
-        response_parts: list[ModelResponsePart] = []
-
-        for part in parts:
-            if "text" in part:
-                response_parts.append(TextPart(content=part["text"]))
-            elif "functionCall" in part:
-                func_call = part["functionCall"]
-                response_parts.append(
-                    ToolCallPart(
-                        tool_name=func_call["name"],
-                        args=func_call.get("args", {}),
-                        tool_call_id=str(uuid.uuid4()),
-                    )
-                )
-
-        # Extract usage metadata
-        usage_meta = inner_response.get("usageMetadata", {})
-        usage = RequestUsage(
-            input_tokens=usage_meta.get("promptTokenCount", 0),
-            output_tokens=usage_meta.get("candidatesTokenCount", 0),
-        )
+        usage, response_parts = _parse_candidate_parts(inner_response, candidates)
 
         return ModelResponse(
             parts=response_parts, model_name=self._model_name, usage=usage

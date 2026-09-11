@@ -25,7 +25,6 @@ from code_puppy.gemini_model import (
     STEER_PREAMBLE,
     GeminiModel,
     GeminiStreamingResponse,
-    generate_tool_call_id,
 )
 from code_puppy.steer_metadata import STEER_METADATA, is_steer_request
 
@@ -54,18 +53,6 @@ def default_params():
         function_tools=[],
         allow_text_output=True,
     )
-
-
-# --- Utility functions ---
-
-
-class TestUtilities:
-    def test_generate_tool_call_id(self):
-        result = generate_tool_call_id()
-        uuid.UUID(result)  # should not raise
-
-    def test_bypass_thought_signature(self):
-        assert isinstance(BYPASS_THOUGHT_SIGNATURE, str)
 
 
 # --- GeminiModel properties ---
