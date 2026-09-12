@@ -182,3 +182,256 @@ class TestMakeModelSettingsCustomParams:
             settings = make_model_settings("some-model", max_tokens=4096)
 
         assert settings.get("extra_body") is None
+
+
+class TestMakeModelSettingsOpenAIReasoningEffort:
+    """OpenAI reasoning models forward effort to the provider field."""
+
+    def test_o_series_forwards_reasoning_effort_to_openai_field(self):
+        from code_puppy.model_factory import make_model_settings
+
+        models_config = {"o3-mini": {"type": "openai", "name": "o3-mini"}}
+        with (
+            patch(
+                "code_puppy.model_factory.ModelFactory.load_config",
+                return_value=models_config,
+            ),
+            patch(
+                "code_puppy.config.get_effective_model_settings",
+                return_value={"reasoning_effort": "high"},
+            ),
+            patch("code_puppy.config.get_custom_model_settings", return_value={}),
+        ):
+            settings = make_model_settings("o3-mini", max_tokens=4096)
+
+        assert settings["openai_reasoning_effort"] == "high"
+
+    def test_o_series_defaults_to_medium(self):
+        from code_puppy.model_factory import make_model_settings
+
+        models_config = {"o4-mini": {"type": "openai", "name": "o4-mini"}}
+        with (
+            patch(
+                "code_puppy.model_factory.ModelFactory.load_config",
+                return_value=models_config,
+            ),
+            patch("code_puppy.config.get_effective_model_settings", return_value={}),
+            patch("code_puppy.config.get_custom_model_settings", return_value={}),
+        ):
+            settings = make_model_settings("o4-mini", max_tokens=4096)
+
+        assert settings["openai_reasoning_effort"] == "medium"
+
+    @pytest.mark.parametrize(
+        "unsupported_effort",
+        ["none", "xhigh", "max", "minimal", "ultra", "banana"],
+    )
+    def test_o_series_drops_unsupported_effort(self, unsupported_effort):
+        from code_puppy.model_factory import make_model_settings
+
+        models_config = {
+            "codex-mini-latest": {"type": "openai", "name": "codex-mini-latest"}
+        }
+        with (
+            patch(
+                "code_puppy.model_factory.ModelFactory.load_config",
+                return_value=models_config,
+            ),
+            patch(
+                "code_puppy.config.get_effective_model_settings",
+                return_value={"reasoning_effort": unsupported_effort},
+            ),
+            patch("code_puppy.config.get_custom_model_settings", return_value={}),
+        ):
+            settings = make_model_settings("codex-mini-latest", max_tokens=4096)
+
+        assert "openai_reasoning_effort" not in settings
+
+    @pytest.mark.parametrize(
+        ("model_name", "effort"),
+        [
+            ("gpt-5-pro", "high"),
+            ("gpt-5.2", "banana"),
+            ("gpt-5.2-pro", "low"),
+        ],
+    )
+    def test_gpt5_drops_fixed_or_unsupported_effort(self, model_name, effort):
+        from code_puppy.model_factory import make_model_settings
+
+        models_config = {model_name: {"type": "openai", "name": model_name}}
+        with (
+            patch(
+                "code_puppy.model_factory.ModelFactory.load_config",
+                return_value=models_config,
+            ),
+            patch(
+                "code_puppy.config.get_effective_model_settings",
+                return_value={"reasoning_effort": effort},
+            ),
+            patch("code_puppy.config.get_custom_model_settings", return_value={}),
+        ):
+            settings = make_model_settings(model_name, max_tokens=4096)
+
+        assert "openai_reasoning_effort" not in settings
+
+    @pytest.mark.parametrize(
+        "capability",
+        [
+            {"setting_choices": {"reasoning_effort": ["max"]}},
+            {"supports_max_reasoning": True},
+        ],
+    )
+    def test_gpt5_forwards_catalog_expanded_effort(self, capability):
+        from code_puppy.model_factory import make_model_settings
+
+        model_config = {"type": "openai", "name": "gpt-5.2", **capability}
+        models_config = {"custom-gpt": model_config}
+        with (
+            patch(
+                "code_puppy.model_factory.ModelFactory.load_config",
+                return_value=models_config,
+            ),
+            patch(
+                "code_puppy.config.get_effective_model_settings",
+                return_value={"reasoning_effort": "max"},
+            ),
+            patch("code_puppy.config.get_custom_model_settings", return_value={}),
+        ):
+            settings = make_model_settings("custom-gpt", max_tokens=4096)
+
+        assert settings["openai_reasoning_effort"] == "max"
+
+    def test_fixed_effort_model_is_left_untouched(self):
+        from code_puppy.model_factory import make_model_settings
+
+        models_config = {"o1-mini": {"type": "openai", "name": "o1-mini"}}
+        with (
+            patch(
+                "code_puppy.model_factory.ModelFactory.load_config",
+                return_value=models_config,
+            ),
+            patch(
+                "code_puppy.config.get_effective_model_settings",
+                return_value={"reasoning_effort": "high"},
+            ),
+            patch("code_puppy.config.get_custom_model_settings", return_value={}),
+        ):
+            settings = make_model_settings("o1-mini", max_tokens=4096)
+
+        assert "openai_reasoning_effort" not in settings
+
+    def test_forwards_via_catalog_name_alias(self):
+        """extra_models.json-style entries commonly use a friendly alias
+        for the catalog key with the real OpenAI model id in "name"."""
+        from code_puppy.model_factory import make_model_settings
+
+        models_config = {"acme-reasoner": {"type": "custom_openai", "name": "o3"}}
+        with (
+            patch(
+                "code_puppy.model_factory.ModelFactory.load_config",
+                return_value=models_config,
+            ),
+            patch(
+                "code_puppy.config.get_effective_model_settings",
+                return_value={"reasoning_effort": "high"},
+            ),
+            patch("code_puppy.config.get_custom_model_settings", return_value={}),
+        ):
+            settings = make_model_settings("acme-reasoner", max_tokens=4096)
+
+        assert settings["openai_reasoning_effort"] == "high"
+
+    def test_short_token_alias_does_not_hijack_a_non_openai_model(self):
+        """OpenAI-like aliases must not hijack Anthropic models."""
+        from code_puppy.model_factory import make_model_settings
+
+        models_config = {
+            "zoo1-claude": {
+                "type": "custom_anthropic",
+                "name": "claude-3-5-sonnet-20241022",
+            }
+        }
+        with (
+            patch(
+                "code_puppy.model_factory.ModelFactory.load_config",
+                return_value=models_config,
+            ),
+            patch(
+                "code_puppy.config.get_effective_model_settings",
+                return_value={"reasoning_effort": "high"},
+            ),
+            patch("code_puppy.config.get_custom_model_settings", return_value={}),
+        ):
+            settings = make_model_settings("zoo1-claude", max_tokens=4096)
+
+        assert "openai_reasoning_effort" not in settings
+        # Took the Anthropic branch instead (temperature defaulted to 1.0
+        # for extended thinking, per that branch's logic).
+        assert settings["temperature"] == 1.0
+
+    def test_short_token_alias_does_not_hijack_a_non_anthropic_model_either(self):
+        """OpenAI-like aliases must not hijack other provider types."""
+        from code_puppy.model_factory import make_model_settings
+
+        models_config = {"team-o1-eval": {"type": "gemini", "name": "gemini-2.5-pro"}}
+        with (
+            patch(
+                "code_puppy.model_factory.ModelFactory.load_config",
+                return_value=models_config,
+            ),
+            patch(
+                "code_puppy.config.get_effective_model_settings",
+                return_value={"reasoning_effort": "high"},
+            ),
+            patch("code_puppy.config.get_custom_model_settings", return_value={}),
+        ):
+            settings = make_model_settings("team-o1-eval", max_tokens=4096)
+
+        assert "openai_reasoning_effort" not in settings
+        assert "reasoning_effort" not in settings
+
+    def test_null_catalog_name_does_not_crash(self):
+        from code_puppy.model_factory import make_model_settings
+
+        models_config = {"custom-reasoner": {"type": "openai", "name": None}}
+        with (
+            patch(
+                "code_puppy.model_factory.ModelFactory.load_config",
+                return_value=models_config,
+            ),
+            patch(
+                "code_puppy.config.get_effective_model_settings",
+                return_value={"reasoning_effort": "high"},
+            ),
+            patch("code_puppy.config.get_custom_model_settings", return_value={}),
+        ):
+            settings = make_model_settings("custom-reasoner", max_tokens=4096)
+
+        assert settings["max_tokens"] == 4096
+        assert "reasoning_effort" not in settings
+        assert "openai_reasoning_effort" not in settings
+
+    def test_gpt5_branch_also_falls_back_to_catalog_name_alias(self):
+        """GPT-5 aliases retain GPT-5-specific settings handling."""
+        from code_puppy.model_factory import make_model_settings
+
+        models_config = {
+            "acme-reasoner-5": {"type": "custom_openai", "name": "gpt-5.2"}
+        }
+        with (
+            patch(
+                "code_puppy.model_factory.ModelFactory.load_config",
+                return_value=models_config,
+            ),
+            patch(
+                "code_puppy.config.get_effective_model_settings",
+                return_value={"reasoning_effort": "high", "verbosity": "low"},
+            ),
+            patch("code_puppy.config.get_custom_model_settings", return_value={}),
+        ):
+            settings = make_model_settings("acme-reasoner-5", max_tokens=4096)
+
+        assert settings["openai_reasoning_effort"] == "high"
+        # Only the GPT-5 branch injects verbosity via extra_body -- proves
+        # this went through that branch, not the generic o-series one.
+        assert settings["extra_body"]["verbosity"] == "low"

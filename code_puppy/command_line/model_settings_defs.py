@@ -371,13 +371,28 @@ def _get_setting_choices(
         if models_config is None:
             models_config = ModelFactory.load_config()
         model_config = models_config.get(model_name, {})
-        advertised = model_config.get("setting_choices", {}).get(setting_key)
+        setting_choices = model_config.get("setting_choices")
+        advertised = (
+            setting_choices.get(setting_key)
+            if isinstance(setting_choices, dict)
+            else None
+        )
         if isinstance(advertised, list):
             recognized = [choice for choice in base_choices if choice in advertised]
             if recognized:
                 return recognized
 
         if setting_key == "reasoning_effort":
+            # Prefer model-specific OpenAI effort choices, including GPT-5.6 max.
+            from code_puppy.model_utils import resolve_openai_reasoning_effort_choices
+
+            dynamic_choices = resolve_openai_reasoning_effort_choices(
+                model_name, model_config
+            )
+            if dynamic_choices is not None:
+                return dynamic_choices
+
+            # Preserve legacy opt-in flags for unrecognized custom models.
             unsupported_choices = set()
             if not model_config.get("supports_xhigh_reasoning", False):
                 unsupported_choices.add("xhigh")

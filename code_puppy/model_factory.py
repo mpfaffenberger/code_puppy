@@ -55,6 +55,14 @@ _load_plugin_model_providers()
 CONTEXT_1M_BETA = "context-1m-2025-08-07"
 _CUSTOM_OPENAI_MODEL_TYPES = {"custom_openai", "custom_openai_responses"}
 _LEGACY_CUSTOM_OPENAI_RESPONSES_MODEL = "codex-gpt-5-codex"
+# Legacy effort normalization mapping
+_EFFORT_ALIAS = {"minimal": "none", "ultra": "max"}
+# Only these wire formats accept ``openai_reasoning_effort``.
+# A positive allowlist prevents short model tags from hijacking aliases.
+_OPENAI_COMPATIBLE_MODEL_TYPES = (
+    frozenset({"openai", "chatgpt_oauth", "azure_foundry_openai", "azure_openai"})
+    | _CUSTOM_OPENAI_MODEL_TYPES
+)
 
 
 def _custom_openai_uses_responses_api(
@@ -65,6 +73,43 @@ def _custom_openai_uses_responses_api(
         model_config.get("type") == "custom_openai_responses"
         or model_name == _LEGACY_CUSTOM_OPENAI_RESPONSES_MODEL
     )
+
+
+def _azure_foundry_uses_responses_api(deployment_name: str) -> bool:
+    """Mirror the azure_foundry plugin's Responses-vs-Chat deployment rule.
+
+    The plugin keys this decision solely off the Azure *deployment* name --
+    never the catalog key -- so this must do the same or the settings class
+    stops matching the constructed model. Deployments are free-form, so a
+    renamed gpt-5 deployment (``prod-gpt5-deploy``) gets a Chat model from
+    the plugin and therefore must get Chat settings here too; fixing that
+    narrowing belongs in the plugin, not in this mirror.
+    See ``azure_foundry/register_callbacks :: _create_azure_foundry_openai_model()``.
+    """
+    return deployment_name.startswith("gpt-5")
+
+
+def _uses_responses_api(model_name: str, model_config: Dict[str, Any]) -> bool:
+    """Return whether this model is built as an ``OpenAIResponsesModel``.
+
+    Mirrors the model construction decisions so the settings class always
+    matches the wire format. The ``chatgpt_oauth`` plugin always builds a
+    Responses model; the ``azure_foundry`` plugin only does so for gpt-5
+    deployments (see each plugin's ``register_callbacks :: create_model()``).
+    """
+    from code_puppy.model_utils import supports_gpt_responses_controls
+
+    model_type = model_config.get("type")
+    underlying_name = str(model_config.get("name") or "")
+    if model_type == "chatgpt_oauth":
+        return True
+    if model_type == "azure_foundry_openai":
+        return _azure_foundry_uses_responses_api(underlying_name)
+    if model_type == "openai":
+        return "codex" in model_name or supports_gpt_responses_controls(underlying_name)
+    if model_type in _CUSTOM_OPENAI_MODEL_TYPES:
+        return _custom_openai_uses_responses_api(model_name, model_config)
+    return False
 
 
 def _build_anthropic_beta_header(
@@ -333,19 +378,27 @@ def make_model_settings(
         for key in ("thinking_type", "clear_thinking", "glm_reasoning_effort"):
             model_settings_dict.pop(key, None)
 
+    if "reasoning_effort" in model_settings_dict and not model_supports_setting(
+        model_name, "reasoning_effort", models_config=models_config
+    ):
+        model_settings_dict.pop("reasoning_effort")
+
     model_settings: ModelSettings = ModelSettings(**model_settings_dict)
 
     # Copilot models speak OpenAI format even for Claude backends: Claude
     # thinking → reasoning_effort; GPT gets standard OpenAI reasoning.
     from code_puppy.model_utils import (
         is_gpt_reasoning_model,
-        supports_gpt_responses_controls,
+        resolve_openai_reasoning_effort_choices,
     )
 
     model_type = model_config.get("type")
     underlying_name = str(model_config.get("name", "")).lower()
     is_copilot = model_type == "copilot"
     copilot_underlying = underlying_name if is_copilot else ""
+    reasoning_effort_choices = resolve_openai_reasoning_effort_choices(
+        model_name, model_config
+    )
 
     if is_copilot and copilot_underlying.startswith("claude-"):
         # Copilot wraps Claude behind OpenAI-compatible API; translate
@@ -397,28 +450,14 @@ def make_model_settings(
         )
 
         # Normalize legacy effort values (minimal->none, ultra->max)
-        _EFFORT_ALIAS = {"minimal": "none", "ultra": "max"}
         effort = effective_settings.get("reasoning_effort", "medium")
         effort = _EFFORT_ALIAS.get(effort, effort)
-        model_settings_dict["openai_reasoning_effort"] = effort
+        if reasoning_effort_choices is None or (
+            reasoning_effort_choices and effort in reasoning_effort_choices
+        ):
+            model_settings_dict["openai_reasoning_effort"] = effort
 
-        uses_responses_api = (
-            model_type == "chatgpt_oauth"
-            or model_type == "azure_foundry_openai"
-            or (
-                model_type == "openai"
-                and (
-                    "codex" in model_name
-                    or supports_gpt_responses_controls(underlying_name)
-                )
-            )
-            or (
-                model_type in _CUSTOM_OPENAI_MODEL_TYPES
-                and _custom_openai_uses_responses_api(model_name, model_config)
-            )
-        )
-
-        if uses_responses_api:
+        if _uses_responses_api(model_name, model_config):
             model_settings_dict["openai_reasoning_summary"] = effective_settings.get(
                 "summary", "auto"
             )
@@ -441,6 +480,23 @@ def make_model_settings(
                 model_settings_dict["extra_body"] = {
                     "verbosity": effective_settings.get("verbosity", "medium")
                 }
+            model_settings = OpenAIChatModelSettings(**model_settings_dict)
+    elif model_type in _OPENAI_COMPATIBLE_MODEL_TYPES and reasoning_effort_choices:
+        from pydantic_ai.models.openai import (
+            OpenAIChatModelSettings,
+            OpenAIResponsesModelSettings,
+        )
+
+        # Forward only documented effort values for OpenAI-compatible models.
+        effort = effective_settings.get("reasoning_effort", "medium")
+        effort = _EFFORT_ALIAS.get(effort, effort)
+        if effort in reasoning_effort_choices:
+            model_settings_dict["openai_reasoning_effort"] = effort
+        # Non-GPT reasoning models (o-series, codex-mini) can still be served
+        # over the Responses API, so the settings class must follow the model.
+        if _uses_responses_api(model_name, model_config):
+            model_settings = OpenAIResponsesModelSettings(**model_settings_dict)
+        else:
             model_settings = OpenAIChatModelSettings(**model_settings_dict)
     elif _is_anthropic_model(model_name, model_config):
         from code_puppy.model_utils import (

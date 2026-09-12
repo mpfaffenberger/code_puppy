@@ -127,6 +127,14 @@ class TestBuildModelConfig:
             "top_p",
             "reasoning_effort",
         ]
+        fixed_effort = amm.build_model_config(
+            make_model(model_id="gpt-5-pro"), make_provider(id="openai")
+        )
+        assert fixed_effort["supported_settings"] == [
+            "temperature",
+            "seed",
+            "top_p",
+        ]
         default = amm.build_model_config(make_model(), make_provider(id="groq"))
         assert default["supported_settings"] == ["temperature", "seed", "top_p"]
 
