@@ -193,17 +193,20 @@ class BaseAgent(ABC):
             "such as claiming task ownership or coordination with other agents."
         )
 
-    def get_full_system_prompt(self) -> str:
-        """Assemble the runtime system prompt.
+    def get_stable_system_prompt(self) -> str:
+        """Assemble the system prompt *without* the per-instance identity block.
 
         Layered as: authored prompt (``get_system_prompt``) + per-turn
-        ``load_prompt`` plugin fragments + this instance's identity.
+        ``load_prompt`` plugin fragments + any scoped runtime additions. This is
+        everything ``get_full_system_prompt`` renders except the trailing
+        ``get_identity_prompt`` block.
 
-        The ``load_prompt`` fragments (live timestamp/CWD, file-permission
-        rules, kennel memory, ...) and the identity ID are *runtime* concerns.
-        They live here — not in ``get_system_prompt`` — so they're recomputed
-        fresh every run and never get persisted into static agent definitions
-        (e.g. when an agent is cloned to JSON). See ``clone_agent``.
+        Kept as its own component so callers that care about which parts of the
+        prompt are stable vs. per-invocation (e.g. sub-agent prompt-cache
+        assembly) can separate them explicitly, without string surgery on the
+        combined prompt. ``load_prompt`` fragments and the identity ID stay
+        *runtime* concerns computed fresh every run — never persisted into
+        static agent definitions (e.g. JSON clones); see ``clone_agent``.
         """
         from code_puppy import callbacks
 
@@ -213,7 +216,15 @@ class BaseAgent(ABC):
             prompt += "\n" + "\n".join(prompt_additions)
         if self._runtime_system_prompt_additions:
             prompt += "\n" + "\n".join(self._runtime_system_prompt_additions)
-        return prompt + self.get_identity_prompt()
+        return prompt
+
+    def get_full_system_prompt(self) -> str:
+        """Assemble the runtime system prompt.
+
+        Exactly ``get_stable_system_prompt`` followed by this instance's
+        identity block; the rendered output is unchanged.
+        """
+        return self.get_stable_system_prompt() + self.get_identity_prompt()
 
     # ---- Message history (plain dict-level access) ------------------------
     def get_message_history(self) -> List[Any]:

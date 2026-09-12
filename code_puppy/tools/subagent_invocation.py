@@ -180,6 +180,77 @@ above enforces the depth cap automatically, so nesting beyond it is refused
 rather than forbidden by convention."""
 
 
+def build_subagent_instructions(
+    agent_config,
+    agent_name: str,
+    effective_model_name: str,
+    user_prompt: str,
+    is_new_session: bool,
+):
+    """Assemble a sub-agent's instructions as a stable prefix + volatile suffix.
+
+    pydantic-ai marks the *last static* instruction block with Anthropic
+    ``cache_control`` and caches the whole prefix up to it; any *dynamic*
+    instruction part is deliberately ordered after that breakpoint. Two pieces
+    of the sub-agent prompt are per-invocation volatile:
+
+    * the instance identity block (``get_identity_prompt`` embeds a fresh UUID
+      that ``load_agent`` mints on *every* invocation), and
+    * the sub-agent nesting context (depth / invocation chain).
+
+    Baking those into the single static ``instructions`` string — as the old
+    code did — put them inside the cached block, giving *each construction of
+    the same sub-agent* a unique cache key: a cold prefix-sized cache *write*
+    that no later construction of that sub-agent could reuse. Returning them as
+    a pydantic-ai *dynamic* instruction (a callable) keeps the breakpoint after
+    the stable prefix, so repeated constructions of the same sub-agent share an
+    identical cacheable prefix.
+
+    This does NOT make one agent's prefix reusable by a *different* agent: the
+    stable prefix is still the agent's own ``get_stable_system_prompt`` and its
+    own tool set, so genuinely different agents keep distinct prefixes (a first
+    child of a different-agent parent still cold-writes its own prefix). Only
+    the per-invocation volatile tail moves out of the cache boundary; no
+    unauthorized context or tools are shared.
+
+    Returns ``(prepared, instruction_items)`` where ``prepared`` is the
+    ``PreparedPrompt`` (for ``system_prompt_parts`` and the possibly-rewritten
+    user prompt) and ``instruction_items`` is the value for
+    ``Agent(instructions=...)``: the stable literal followed by a callable
+    carrying the volatile suffix.
+    """
+    from code_puppy.model_utils import prepare_prompt_for_model
+
+    # Explicit stable/volatile split via BaseAgent's prompt-component API (no
+    # string surgery): ``get_stable_system_prompt`` is the authored prompt +
+    # load_prompt fragments + scoped runtime additions; ``get_identity_prompt``
+    # is the per-instance identity tail. AGENTS.md is deliberately NOT injected
+    # into sub-agents (main-agent steering only), and load_prompt fragments are
+    # already inside the stable prompt — appending again would double-inject.
+    stable_prompt = agent_config.get_stable_system_prompt()
+    identity = agent_config.get_identity_prompt()
+
+    # Model-family prep (e.g. claude-code): may split off a standing
+    # system_prompt part, or touch the user prompt on the first message.
+    prepared = prepare_prompt_for_model(
+        effective_model_name,
+        stable_prompt,
+        user_prompt,
+        prepend_system_to_user=is_new_session,  # Only prepend on first message
+    )
+
+    # Per-invocation volatile suffix -> dynamic instruction, kept out of the
+    # Anthropic cache breakpoint. ``identity`` already leads with a blank line,
+    # so the rendered order (stable + identity + nesting) is unchanged.
+    volatile_suffix = f"{identity}\n\n{_subagent_identity_prompt(agent_name)}"
+
+    def _volatile_instructions() -> str:
+        return volatile_suffix
+
+    instruction_items = [prepared.instructions, _volatile_instructions]
+    return prepared, instruction_items
+
+
 def _contains_cancellation(exc: BaseException) -> bool:
     """True if ``exc`` is a cancellation, including one nested in a group.
 
@@ -409,27 +480,18 @@ async def _invoke_agent_impl(
                     conversation_scope=get_conversation_root_id(),
                 )
 
-            # Create a temporary agent instance to avoid interfering with current agent state
-            instructions = agent_config.get_full_system_prompt()
-            instructions += f"\n\n{_subagent_identity_prompt(agent_name)}"
-
-            # AGENTS.md deliberately NOT injected into sub-agents: those are
-            # user-facing steering for the MAIN agent and would create recursion
-            # traps (e.g. "always invoke xyz" makes xyz invoke itself).
-
-            # NOTE: load_prompt fragments are already baked into get_full_system_prompt
-            # via BaseAgent — appending again would double-inject them.
-            from code_puppy.model_utils import prepare_prompt_for_model
-
-            # Model-family prep (e.g. claude-code): may split off a standing
-            # system_prompt part, or touch the user prompt on the first message.
-            prepared = prepare_prompt_for_model(
+            # Create a temporary agent instance to avoid interfering with
+            # current agent state. Split the prompt into a cacheable static
+            # prefix and a per-invocation volatile suffix (identity + nesting)
+            # so the Anthropic cache breakpoint stays on the stable prefix
+            # instead of a per-call cache key. See build_subagent_instructions.
+            prepared, instructions = build_subagent_instructions(
+                agent_config,
+                agent_name,
                 effective_model_name,
-                instructions,
                 prompt,
-                prepend_system_to_user=is_new_session,  # Only prepend on first message
+                is_new_session,
             )
-            instructions = prepared.instructions
             prompt = prepared.user_prompt
 
             model_settings = make_model_settings(
