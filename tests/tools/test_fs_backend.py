@@ -365,6 +365,23 @@ def test_grep_backend_flags_truncation_only_beyond_budget(backend):
     assert exact.truncated is False
 
 
+def test_backend_grep_continues_after_truncated_page(backend):
+    from code_puppy.tools.file_operations import _grep
+
+    backend.write_text_file("/ws/many.txt", "MATCH\n" * 51)
+
+    first = _grep(None, "MATCH", "/ws")
+    second = _grep(None, "MATCH", "/ws", offset=first.next_offset)
+
+    assert len(first.matches) == 50
+    assert first.truncated is True
+    assert first.next_offset == 50
+    assert len(second.matches) == 1
+    assert second.matches[0].line_number == 51
+    assert second.truncated is False
+    assert second.next_offset is None
+
+
 def test_grep_unknown_type_errors(backend):
     from code_puppy.tools.file_operations import _grep
 

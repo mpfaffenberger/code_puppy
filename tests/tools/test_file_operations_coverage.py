@@ -299,6 +299,24 @@ class TestGrepFunction:
         # Nothing from the multi-word pattern leaked out as a bare path argument.
         assert "class" not in invoked_cmd and "ResourceLimits" not in invoked_cmd
 
+    @patch("shutil.which", return_value="rg")
+    @patch("subprocess.run")
+    def test_grep_uses_stable_order_for_pagination(
+        self, mock_run, _mock_which, tmp_path
+    ):
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=1, stdout="", stderr=""
+        )
+
+        result = _grep(None, "target", str(tmp_path), offset=50)
+
+        assert result.error is None
+        invoked_cmd = mock_run.call_args[0][0]
+        sort_index = invoked_cmd.index("--sort")
+        assert invoked_cmd[sort_index + 1] == "path"
+        max_count_index = invoked_cmd.index("--max-count")
+        assert invoked_cmd[max_count_index + 1] == "101"
+
     def test_grep_rejects_output_format_flags(self, tmp_path):
         """Flags incompatible with JSON match parsing produce a clear error."""
         for flags in ("-l foo", "--files", "-c foo", "--count foo", "-i -l foo"):
