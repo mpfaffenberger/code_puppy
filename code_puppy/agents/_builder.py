@@ -266,6 +266,9 @@ def _iter_autostart_targets(manager: Any, agent_name: str):
         if config is None:
             _warn_missing_server(agent_name, server_name)
             continue
+        suppressed = getattr(manager, "is_autostart_suppressed", None)
+        if suppressed is not None and suppressed(config.id) is True:
+            continue
         try:
             status = manager.get_server_status(config.id)
             state = status.get("state")

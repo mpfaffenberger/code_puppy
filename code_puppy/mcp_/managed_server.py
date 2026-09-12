@@ -368,11 +368,21 @@ class ManagedMCPServer:
             headers = (
                 _expand_env_vars(config["headers"]) if config.get("headers") else None
             )
+            from code_puppy.mcp_.http_auth import http_auth
+
+            url = _expand_env_vars(config["url"])
+            auth = http_auth(config, url, headers)
+            auth_kwargs = {"auth": auth} if auth is not None else {}
             transport = StreamableHttpTransport(
-                url=_expand_env_vars(config["url"]),
+                url=url,
                 headers=headers,
+                **auth_kwargs,
             )
-            self._toolset = MCPToolset(transport, **self._toolset_kwargs(config))
+            http_config = dict(config)
+            if auth is not None:
+                # The first connection includes interactive browser authorization.
+                http_config.setdefault("timeout", 330)
+            self._toolset = MCPToolset(transport, **self._toolset_kwargs(http_config))
 
         else:
             raise ValueError(f"Unsupported server type: {server_type}")

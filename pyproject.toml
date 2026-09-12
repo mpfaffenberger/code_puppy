@@ -16,6 +16,8 @@ dependencies = [
     "anyio>=4.7.0",
     "typer>=0.12.0",
     "mcp>=1.9.4",
+    # FastMCP's OAuth callback server explicitly uses Uvicorn websockets-sansio.
+    "websockets>=14.0",
     "httpx[http2]>=0.24.1",
     "httpx2>=2.7",
     "requests>=2.28.0",
@@ -107,6 +109,10 @@ omit = ["code_puppy/main.py"]
 
 [tool.uv]
 python-preference = "only-managed"
+
+[tool.uv.sources]
+# Local development until the post-install MCP binding plugin is released.
+code-puppy-core-plugins = { path = "../code_puppy_core_plugins", editable = true }
 
 [dependency-groups]
 dev = [

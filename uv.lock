@@ -432,6 +432,7 @@ dependencies = [
     { name = "ripgrep", marker = "sys_platform != 'android'" },
     { name = "termflow-md" },
     { name = "typer" },
+    { name = "websockets" },
 ]
 
 [package.optional-dependencies]
@@ -465,7 +466,7 @@ requires-dist = [
     { name = "azure-identity", specifier = ">=1.15.0" },
     { name = "boto3", specifier = ">=1.43.9" },
     { name = "boto3", marker = "extra == 'bedrock'", specifier = ">=1.35.0" },
-    { name = "code-puppy-core-plugins", specifier = ">=0.0.50" },
+    { name = "code-puppy-core-plugins", editable = "../code_puppy_core_plugins" },
     { name = "dbos", marker = "extra == 'durable'", specifier = ">=2.11.0" },
     { name = "httpx", extras = ["http2"], specifier = ">=0.24.1" },
     { name = "httpx2", specifier = ">=2.7" },
@@ -491,6 +492,7 @@ requires-dist = [
     { name = "ripgrep", marker = "sys_platform != 'android'", specifier = "==14.1.0" },
     { name = "termflow-md", specifier = ">=0.9.2" },
     { name = "typer", specifier = ">=0.12.0" },
+    { name = "websockets", specifier = ">=14.0" },
 ]
 provides-extras = ["bedrock", "durable", "computer-use"]
 
@@ -507,14 +509,26 @@ dev = [
 [[package]]
 name = "code-puppy-core-plugins"
 version = "0.0.50"
-source = { registry = "https://pypi.org/simple" }
+source = { editable = "../code_puppy_core_plugins" }
 dependencies = [
     { name = "httpx" },
     { name = "pydantic-ai-slim", extra = ["anthropic", "mcp", "openai"] },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/88/4d/7fd921980ce3376c0c77e8512cc151ac4cd476f0018fb8099a80f85d7e43/code_puppy_core_plugins-0.0.50.tar.gz", hash = "sha256:5cda0d9704b0fea118502eb9ef86b3b5d7fb2353fe51fc2c00398af97f738813", size = 561575, upload-time = "2026-09-11T15:47:06.387Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/c6/9b/1ded55d07de430c79015fb20e7a78e58b43bd3ce5d675ac5cd7b27e0992f/code_puppy_core_plugins-0.0.50-py3-none-any.whl", hash = "sha256:bf36618042905ead5357a4a6d87d1f3c236423eacf4a7128c19c5612050f450a", size = 760517, upload-time = "2026-09-11T15:47:05.246Z" },
+
+[package.metadata]
+requires-dist = [
+    { name = "httpx", specifier = ">=0.24.1,<1" },
+    { name = "pydantic-ai-slim", extras = ["openai", "anthropic", "mcp"], specifier = ">=2.35.0,<3" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pexpect", specifier = ">=4.9.0" },
+    { name = "prompt-toolkit", specifier = ">=3.0.0,<4" },
+    { name = "pytest", specifier = ">=8.3.4" },
+    { name = "pytest-asyncio", specifier = ">=0.23.1" },
+    { name = "pytest-cov", specifier = ">=6.1.1" },
+    { name = "ruff", specifier = ">=0.15,<0.16" },
 ]
 
 [[package]]
