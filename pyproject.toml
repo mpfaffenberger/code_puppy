@@ -110,10 +110,6 @@ omit = ["code_puppy/main.py"]
 [tool.uv]
 python-preference = "only-managed"
 
-[tool.uv.sources]
-# Local development until the post-install MCP binding plugin is released.
-code-puppy-core-plugins = { path = "../code_puppy_core_plugins", editable = true }
-
 [dependency-groups]
 dev = [
     "pytest>=8.3.4",
