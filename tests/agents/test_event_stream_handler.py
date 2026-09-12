@@ -899,3 +899,87 @@ class TestSubAgentSuppression:
         assert events_consumed == 10
         # But nothing was printed
         console.print.assert_not_called()
+
+
+class TestHeadlessToolProgressSuppression:
+    """Headless (``-p``) runs must never emit the tool-progress counter.
+
+    Regression: the counter repaints itself with a bare ``\\r``, which only
+    overwrites on a real terminal. Redirected into a file or CI log, every
+    repaint became its own line, flooding the transcript with
+    ``Calling <tool>... N token(s)`` rows.
+    """
+
+    @pytest.fixture
+    def mock_ctx(self):
+        """Create a mock RunContext."""
+        return MagicMock(spec=RunContext)
+
+    def test_headless_suppresses_even_in_high_output_mode(self, monkeypatch):
+        from code_puppy.agents.event_stream_handler import _suppress_tool_progress
+
+        monkeypatch.setattr(
+            "code_puppy.agents.event_stream_handler.get_headless_mode", lambda: True
+        )
+        monkeypatch.setattr(
+            "code_puppy.agents.event_stream_handler.get_output_level", lambda: "high"
+        )
+
+        assert _suppress_tool_progress() is True
+
+    @pytest.mark.parametrize(
+        ("headless", "level", "expected"),
+        [
+            (False, "normal", False),
+            (False, "high", False),
+            (False, "low", True),
+            (True, "normal", True),
+            (True, "low", True),
+        ],
+    )
+    def test_suppression_matrix(self, monkeypatch, headless, level, expected):
+        from code_puppy.agents.event_stream_handler import _suppress_tool_progress
+
+        monkeypatch.setattr(
+            "code_puppy.agents.event_stream_handler.get_headless_mode",
+            lambda: headless,
+        )
+        monkeypatch.setattr(
+            "code_puppy.agents.event_stream_handler.get_output_level", lambda: level
+        )
+
+        assert _suppress_tool_progress() is expected
+
+    @pytest.mark.asyncio
+    async def test_headless_run_never_prints_calling_lines(self, mock_ctx, monkeypatch):
+        """The user-visible regression: no ``Calling ... token(s)`` in output."""
+        monkeypatch.setattr(
+            "code_puppy.agents.event_stream_handler.get_headless_mode", lambda: True
+        )
+        monkeypatch.setattr(
+            "code_puppy.agents.event_stream_handler.get_output_level",
+            lambda: "normal",
+        )
+
+        # Capture real text rather than asserting on call counts.
+        output = StringIO()
+        set_streaming_console(Console(file=output, width=80))
+
+        tool_part = ToolCallPart(
+            tool_call_id="tool_1", tool_name="create_file", args={}
+        )
+
+        async def mock_events():
+            yield PartStartEvent(index=0, part=tool_part)
+            # Several deltas -> several counter repaints when interactive.
+            for _ in range(5):
+                yield PartDeltaEvent(
+                    index=0, delta=ToolCallPartDelta(tool_name_delta="create_file")
+                )
+            yield PartEndEvent(index=0, part=tool_part, next_part_kind=None)
+
+        await event_stream_handler(mock_ctx, mock_events())
+
+        rendered = output.getvalue()
+        assert "Calling" not in rendered
+        assert "token(s)" not in rendered

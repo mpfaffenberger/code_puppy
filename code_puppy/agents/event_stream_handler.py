@@ -27,6 +27,7 @@ from code_puppy.agents.smooth_stream import (
 )
 from code_puppy.config import (
     get_banner_color,
+    get_headless_mode,
     get_output_level,
     get_subagent_verbose,
     get_suppress_thinking_messages,
@@ -126,7 +127,14 @@ def _suppress_tool_progress() -> bool:
 
     In ``low`` mode, the shell-start peek in the RichConsoleRenderer is
     sufficient; the streaming token counter is noise.
+
+    Headless runs (``-p``) always suppress it as well. The counter repaints
+    itself with a bare ``\\r``, which only overwrites on a real terminal --
+    redirected into a file or CI log every repaint becomes its own line, so
+    a single tool call emits a wall of ``Calling <tool>... N token(s)`` rows.
     """
+    if get_headless_mode():
+        return True
     return get_output_level() == "low"
 
 
