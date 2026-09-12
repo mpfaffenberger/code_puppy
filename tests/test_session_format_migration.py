@@ -104,9 +104,10 @@ class TestGoldenFixtureMigration:
 
         _assert_golden_history(history)
         assert (tmp_path / "mysess.json").exists()
-        # Original pickle archived, never deleted.
-        assert not (tmp_path / "mysess.pkl").exists()
-        assert (tmp_path / "pre_v2_backup" / "mysess.pkl").exists()
+        # Original pickle stays put -- never deleted, never moved -- so an
+        # older code_puppy version can still find it after a downgrade.
+        assert (tmp_path / "mysess.pkl").exists()
+        assert not (tmp_path / "pre_v2_backup").exists()
 
     def test_migration_repoints_meta_sidecar(self, tmp_path):
         pkl_path = tmp_path / "named.pkl"
@@ -269,11 +270,11 @@ class TestStartupSweep:
 
         sfm.sweep_legacy_pickle_sessions()
 
-        # Good file migrated + archived; bad file quarantined; both kept.
+        # Good file migrated, original left in place; bad file quarantined.
         assert (autosaves / "good.json").exists()
-        assert (autosaves / "pre_v2_backup" / "good.pkl").exists()
+        assert (autosaves / "good.pkl").exists()
+        assert not (autosaves / "pre_v2_backup" / "good.pkl").exists()
         assert (autosaves / "pre_v2_backup" / "failed" / "bad.pkl").exists()
-        assert not (autosaves / "good.pkl").exists()
         assert not (autosaves / "bad.pkl").exists()
         assert (config / ".session_format_v2_migrated").exists()
 
@@ -444,14 +445,16 @@ class TestJsonRoundTrip:
         _assert_golden_history(history)
         assert (tmp_path / "legacy-session.json").exists()
 
-        # Save-back writes the shared JSON envelope, no pickle.
+        # Save-back writes the shared JSON envelope. The legacy pickle from
+        # the lazy migration above is intentionally left in place (never
+        # moved/deleted) so an older code_puppy version can still read it.
         agent_tools._save_session_history(
             session_id="legacy-session",
             message_history=history,
             agent_name="tester",
             initial_prompt="hello",
         )
-        assert not (tmp_path / "legacy-session.pkl").exists()
+        assert (tmp_path / "legacy-session.pkl").exists()
         assert agent_tools._load_session_history("legacy-session") == history
 
 
