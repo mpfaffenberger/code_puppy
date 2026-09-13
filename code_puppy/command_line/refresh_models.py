@@ -2,7 +2,9 @@
 
 ``/add_model`` stamps ``max_output_tokens`` (and ``context_length``) on new
 entries, but anything added before that -- or written by hand -- carries no
-output cap and silently falls back to the 15% heuristic. ``/refresh_models``
+output cap. Model resolution itself consults models.dev before falling back to
+the 15% heuristic, so this command is no longer load-bearing for correctness --
+it just writes the limits down so they survive offline. ``/refresh_models``
 re-reads models.dev and patches those limits in place.
 
 Rules -- the guiding one being *never blast anything models.dev can't vouch
@@ -21,14 +23,18 @@ for*:
 * The file is not rewritten at all when nothing changed.
 """
 
-from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
 from code_puppy import atomic_json
-from code_puppy.command_line.add_model_menu import extra_model_key
 from code_puppy.config import EXTRA_MODELS_FILE, MAX_OUTPUT_TOKENS_SETTING
-from code_puppy.models_dev_parser import ModelInfo, ModelsDevRegistry
+from code_puppy.models_dev_parser import (
+    LimitMatchKind,
+    ModelLimits,
+    ModelsDevRegistry,
+    index_limits,
+    match_limits,
+)
 
 
 @dataclass
@@ -42,14 +48,8 @@ class RefreshReport:
 
 
 @dataclass(frozen=True)
-class _Limits:
-    max_output: int
-    context_length: int
-
-
-@dataclass(frozen=True)
 class _Match:
-    limits: _Limits
+    limits: ModelLimits
     exact: bool  # True = /add_model key match, False = name-only guess
 
 
@@ -57,37 +57,22 @@ class _NothingToWrite(Exception):
     """Abort the locked transaction without rewriting the file."""
 
 
-def _index_catalog(
-    models: List[ModelInfo],
-) -> tuple[Dict[str, _Limits], Dict[str, List[_Limits]]]:
-    """Index models.dev by ``/add_model`` key and by bare model id."""
-    by_key: Dict[str, _Limits] = {}
-    by_name: Dict[str, List[_Limits]] = defaultdict(list)
-    for model in models:
-        limits = _Limits(model.max_output, model.context_length)
-        by_key[extra_model_key(model.provider_id, model.model_id)] = limits
-        by_name[model.model_id].append(limits)
-    return by_key, by_name
-
-
 def _resolve_match(
     key: str,
     entry: dict,
-    by_key: Dict[str, _Limits],
-    by_name: Dict[str, List[_Limits]],
+    by_key: Dict[str, ModelLimits],
+    by_name: Dict[str, List[ModelLimits]],
     report: RefreshReport,
 ) -> Optional[_Match]:
     """Find the models.dev match for one entry, recording misses on ``report``."""
-    if key in by_key:
-        return _Match(by_key[key], exact=True)
-    candidates = by_name.get(str(entry.get("name", "")), [])
-    if not candidates:
-        report.unmatched.append(key)
+    match = match_limits(by_key, by_name, key, str(entry.get("name", "")))
+    if match.limits is None:
+        if match.kind is LimitMatchKind.AMBIGUOUS:
+            report.ambiguous.append(key)
+        else:
+            report.unmatched.append(key)
         return None
-    if len({c.max_output for c in candidates}) > 1:
-        report.ambiguous.append(key)
-        return None
-    return _Match(candidates[0], exact=False)
+    return _Match(match.limits, exact=match.kind is LimitMatchKind.EXACT)
 
 
 def _apply_match(entry: dict, match: _Match) -> bool:
@@ -115,7 +100,7 @@ def refresh_extra_models(
     Raises whatever ``atomic_json.mutate_json`` raises on a corrupt file;
     the command layer turns that into a user-facing error.
     """
-    by_key, by_name = _index_catalog((registry or ModelsDevRegistry()).get_models())
+    by_key, by_name = index_limits((registry or ModelsDevRegistry()).get_models())
     report = RefreshReport()
 
     def _mutate(current):

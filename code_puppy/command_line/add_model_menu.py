@@ -23,7 +23,12 @@ from code_puppy.config import (
 )
 from code_puppy.i18n import t
 from code_puppy.messaging import emit_error, emit_info, emit_warning
-from code_puppy.models_dev_parser import ModelInfo, ModelsDevRegistry, ProviderInfo
+from code_puppy.models_dev_parser import (
+    ModelInfo,
+    ModelsDevRegistry,
+    ProviderInfo,
+    extra_model_key,
+)
 from code_puppy.provider_credentials import (
     credential_display,
     save_credential,
@@ -221,11 +226,6 @@ def build_model_config(model: ModelInfo, provider: ProviderInfo) -> dict:
         config["supported_settings"] = ["temperature", "seed", "top_p"]
 
     return config
-
-
-def extra_model_key(provider_id: str, model_id: str) -> str:
-    """The ``extra_models.json`` key ``/add_model`` assigns to a catalog model."""
-    return f"{provider_id}-{model_id}".replace("/", "-").replace(":", "-")
 
 
 def add_model_to_extra_config(model: ModelInfo, provider: ProviderInfo) -> bool:

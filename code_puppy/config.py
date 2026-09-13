@@ -509,6 +509,53 @@ def _coerce_positive_int(value: Any) -> Optional[int]:
     return parsed if parsed > 0 else None
 
 
+def _models_dev_output_tokens(
+    model_name: str, model_config: dict[str, Any]
+) -> Optional[int]:
+    """Authoritative output cap for one catalog entry, per models.dev.
+
+    The last stop before the 15% heuristic. Hand-written entries -- and every
+    model added before ``/add_model`` started stamping limits -- carry no
+    ``max_output_tokens``, and a guessed cap is actively dangerous for
+    adaptive-thinking models: their reasoning shares the output budget, so
+    guessing low leaves them unable to emit even one tool call. (Opus 5 really
+    does support 128000 output tokens; the heuristic handed it 19200 and it
+    hard-failed mid-thought, having produced no tool call at all.)
+
+    Args:
+        model_name: Catalog key, reused as a provider-scoped lookup key.
+        model_config: Catalog entry; its ``name`` is the bare model id.
+
+    Returns:
+        The cap when models.dev vouches for it, else ``None`` so the caller
+        falls through to the heuristic. Never raises, and never guesses: an
+        ambiguous or unknown model yields ``None``.
+    """
+    name = str(model_config.get("name") or "")
+    if not name:
+        return None
+    try:
+        from code_puppy.models_dev_parser import (
+            get_registry,
+            index_limits,
+            match_limits,
+        )
+
+        registry = get_registry()
+        if registry is None:
+            return None
+        by_key, by_name = index_limits(registry.get_models())
+        # Mirrors extra_model_key() over a "provider/model" alias so the
+        # provider-scoped match applies whenever we can identify the provider.
+        key = model_name.replace("/", "-").replace(":", "-")
+        match = match_limits(by_key, by_name, key, name)
+        if match.limits is None:
+            return None
+        return _coerce_positive_int(match.limits.max_output)
+    except Exception:
+        return None
+
+
 def get_model_max_output_tokens(
     model_name: Optional[str] = None,
     models_config: Optional[dict[str, Any]] = None,
@@ -521,7 +568,10 @@ def get_model_max_output_tokens(
     2. ``max_output_tokens`` in the model's catalog entry
        (``models.json`` / ``extra_models.json``; ``/add_model`` fills this
        from models.dev's ``limit.output``).
-    3. Heuristic: 15% of ``context_length``, clamped to [2048, 65536].
+    3. ``limit.output`` for that model id from models.dev, so entries that
+       predate ``/add_model`` stamping limits (or were written by hand) still
+       get a real cap rather than a guess.
+    4. Heuristic: 15% of ``context_length``, clamped to [2048, 65536].
 
     Args:
         model_name: Model key; defaults to the current global model.
@@ -548,6 +598,9 @@ def get_model_max_output_tokens(
         )
         if catalog_value is not None:
             return catalog_value
+        dev_value = _models_dev_output_tokens(model_name, model_config)
+        if dev_value is not None:
+            return dev_value
         context_length = int(model_config.get("context_length", context_length))
     except Exception:
         pass
