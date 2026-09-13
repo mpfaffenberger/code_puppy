@@ -15,9 +15,12 @@ comprehensive type safety throughout the implementation.
 from __future__ import annotations
 
 import json
+import threading
+from collections import defaultdict
 from dataclasses import dataclass, field
+from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import httpx
 
@@ -110,6 +113,77 @@ class ModelInfo:
     def supports_capability(self, capability: str) -> bool:
         """Check if model supports a specific capability."""
         return getattr(self, capability, False) is True
+
+
+@dataclass(frozen=True, slots=True)
+class ModelLimits:
+    """Output/context limits models.dev publishes for one model entry."""
+
+    max_output: int = 0
+    context_length: int = 0
+
+
+class LimitMatchKind(str, Enum):
+    """How confidently a catalog entry was matched against models.dev."""
+
+    #: ``/add_model``-style key match -- models.dev is authoritative.
+    EXACT = "exact"
+    #: Bare-name match where every offering provider agrees on the output cap.
+    NAME = "name"
+    #: No models.dev model carries that id.
+    UNMATCHED = "unmatched"
+    #: Several providers offer the id but disagree on the output cap.
+    AMBIGUOUS = "ambiguous"
+
+
+@dataclass(frozen=True, slots=True)
+class LimitMatch:
+    """Result of resolving one catalog entry against a models.dev index."""
+
+    limits: Optional[ModelLimits]
+    kind: LimitMatchKind
+
+
+def extra_model_key(provider_id: str, model_id: str) -> str:
+    """The ``extra_models.json`` key ``/add_model`` assigns to a catalog model."""
+    return f"{provider_id}-{model_id}".replace("/", "-").replace(":", "-")
+
+
+def index_limits(
+    models: Iterable[ModelInfo],
+) -> Tuple[Dict[str, ModelLimits], Dict[str, List[ModelLimits]]]:
+    """Index models.dev limits by ``/add_model`` key and by bare model id."""
+    by_key: Dict[str, ModelLimits] = {}
+    by_name: Dict[str, List[ModelLimits]] = defaultdict(list)
+    for model in models:
+        limits = ModelLimits(model.max_output, model.context_length)
+        by_key[extra_model_key(model.provider_id, model.model_id)] = limits
+        by_name[model.model_id].append(limits)
+    return by_key, by_name
+
+
+def match_limits(
+    by_key: Dict[str, ModelLimits],
+    by_name: Dict[str, List[ModelLimits]],
+    key: str,
+    name: str,
+) -> LimitMatch:
+    """Resolve one catalog entry against a models.dev index.
+
+    Provider-scoped keys win outright; a bare-name match is only accepted when
+    every provider offering that model id agrees on the output cap. Providers
+    genuinely disagree -- ``github-copilot`` publishes half the output cap that
+    ``anthropic`` does for the same model -- so a split vote is reported as
+    ambiguous rather than guessed at.
+    """
+    if key in by_key:
+        return LimitMatch(by_key[key], LimitMatchKind.EXACT)
+    candidates = by_name.get(name, [])
+    if not candidates:
+        return LimitMatch(None, LimitMatchKind.UNMATCHED)
+    if len({candidate.max_output for candidate in candidates}) > 1:
+        return LimitMatch(None, LimitMatchKind.AMBIGUOUS)
+    return LimitMatch(candidates[0], LimitMatchKind.NAME)
 
 
 class ModelsDevRegistry:
@@ -459,3 +533,41 @@ class ModelsDevRegistry:
             Filtered list of models meeting context requirement
         """
         return [m for m in models if m.context_length >= min_context_length]
+
+
+_REGISTRY: Optional[ModelsDevRegistry] = None
+_REGISTRY_ATTEMPTED = False
+_REGISTRY_LOCK = threading.Lock()
+
+
+def get_registry() -> Optional[ModelsDevRegistry]:
+    """Process-wide cached models.dev registry.
+
+    Building a registry hits the network (falling back to the bundled
+    snapshot), so the model-resolution path must never do it on every call.
+    The first caller pays that cost once; everyone after reuses the instance.
+
+    Returns:
+        The shared registry, or ``None`` when no data source could be loaded.
+        Callers must read ``None`` as "limits unknown", never as an error --
+        this is best-effort enrichment, not a hard dependency.
+    """
+    global _REGISTRY, _REGISTRY_ATTEMPTED
+    with _REGISTRY_LOCK:
+        if not _REGISTRY_ATTEMPTED:
+            _REGISTRY_ATTEMPTED = True
+            try:
+                _REGISTRY = ModelsDevRegistry()
+            except Exception:
+                # Offline, no bundled snapshot, malformed JSON -- all mean the
+                # same thing here: we cannot vouch for any limits.
+                _REGISTRY = None
+        return _REGISTRY
+
+
+def reset_registry_cache() -> None:
+    """Drop the cached registry (for tests and explicit catalogue refreshes)."""
+    global _REGISTRY, _REGISTRY_ATTEMPTED
+    with _REGISTRY_LOCK:
+        _REGISTRY = None
+        _REGISTRY_ATTEMPTED = False

@@ -204,6 +204,24 @@ def isolate_global_state_between_tests(tmp_path_factory):
         pass  # Best effort cleanup
 
 
+@pytest.fixture(autouse=True)
+def isolate_models_dev_lookup(monkeypatch):
+    """Keep the model-resolution models.dev lookup off the network.
+
+    ``config.get_model_max_output_tokens`` consults models.dev before falling
+    back to its heuristic, and building a registry fetches over HTTP. Unit
+    tests must stay hermetic and fast, so the cached registry is pinned to
+    ``None`` -- which the resolver reads as "limits unknown" -- unless a test
+    installs a fake one itself.
+    """
+    from code_puppy import models_dev_parser
+
+    models_dev_parser.reset_registry_cache()
+    monkeypatch.setattr(models_dev_parser, "get_registry", lambda: None)
+    yield
+    models_dev_parser.reset_registry_cache()
+
+
 @pytest.fixture
 def mock_cleanup():
     """Provide a MagicMock that has been called once to satisfy tests expecting a cleanup call.
