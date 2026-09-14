@@ -32,6 +32,7 @@ CLAUDE_CODE_ALIASES: Dict[str, str] = {
     "Grep": "grep",
     # File system — write
     "Edit": "replace_in_file",
+    "edit": "replace_in_file",
     "Write": "create_file",  # Write = full overwrite
     # File system — delete
     "Delete": "delete_file",
@@ -73,7 +74,7 @@ GEMINI_ALIASES: Dict[str, str] = {
 # Run the Codex MCP server, inspect tools/list, and add entries here.
 # ---------------------------------------------------------------------------
 CODEX_ALIASES: Dict[str, str] = {
-    # Add Codex → code_puppy tool mappings here
+    "apply_patch": "apply_patch",
 }
 
 

@@ -54,6 +54,11 @@ class TestMCPCompleter:
         # "list" is intentionally not offered: bare /mcp already does that.
         assert "list" not in names
 
+    def test_trust_is_offered(self):
+        """Shipped routable but uncompletable, so users concluded it did not exist."""
+        names = [c.text for c in self._get_completions("/mcp ")]
+        assert "trust" in names
+
     @patch.object(
         MCPCompleter, "_get_server_names", return_value=["server-a", "server-b"]
     )
@@ -98,3 +103,59 @@ class TestMCPCompleter:
             return_value=None,
         ):
             assert self.completer._get_server_names() == []
+
+
+# Bare `/mcp` already runs the list dashboard, so `list` is deliberately
+# uncompletable.
+COMPLETION_EXEMPT_SUBCOMMANDS = {"list"}
+
+# Hardcoded rather than derived from `server_subcommands` -- deriving it would
+# make the assertion below tautological.
+SERVER_ARG_SUBCOMMANDS = {
+    "start",
+    "stop",
+    "restart",
+    "status",
+    "logs",
+    "edit",
+    "remove",
+}
+
+
+class TestCompletionMatchesRoutingTable:
+    """Pins the completer to the handler's routing table.
+
+    Production code deliberately does not import the handler to stay in sync:
+    `MCPCommandBase.__init__` calls `get_mcp_manager()`, so that would drag MCP
+    runtime into building a passive completion list. The lists stay
+    independent and these tests enforce the invariant instead.
+    """
+
+    def _handler_subcommands(self):
+        with patch("code_puppy.command_line.mcp.base.get_mcp_manager"):
+            from code_puppy.command_line.mcp.handler import MCPCommandHandler
+
+            return set(MCPCommandHandler()._commands)
+
+    def test_completion_set_equals_routing_set(self):
+        completion = set(MCPCompleter().all_subcommands)
+        routed = self._handler_subcommands()
+
+        assert completion == routed - COMPLETION_EXEMPT_SUBCOMMANDS
+
+    def test_exempt_subcommands_are_actually_routed(self):
+        """Stops drift being silenced by exempting a command that no longer exists."""
+        assert COMPLETION_EXEMPT_SUBCOMMANDS <= self._handler_subcommands()
+
+    def test_server_bucket_holds_exactly_the_server_arg_commands(self):
+        """Bucket membership decides whether `/mcp <cmd> <TAB>` offers server
+        names, and the merged-dict check above cannot see it."""
+        assert set(MCPCompleter().server_subcommands) == SERVER_ARG_SUBCOMMANDS
+
+    def test_subcommand_buckets_do_not_overlap(self):
+        """`general` wins the merge, so an overlap would silently drop the
+        server-argument behaviour."""
+        completer = MCPCompleter()
+        assert not (
+            set(completer.server_subcommands) & set(completer.general_subcommands)
+        )

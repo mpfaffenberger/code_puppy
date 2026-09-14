@@ -18,6 +18,7 @@ from code_puppy.messaging.pause_controller import (
     get_pause_controller,
     reset_pause_controller,
 )
+from code_puppy.steer_metadata import STEER_METADATA
 
 
 # =============================================================================
@@ -284,6 +285,7 @@ def test_steer_queued_mid_run_is_injected_via_history_processor():
     assert isinstance(msgs[0], ModelRequest)
     assert isinstance(msgs[0].parts[0], UserPromptPart)
     assert msgs[0].parts[0].content == "change direction"
+    assert msgs[0].metadata == STEER_METADATA
 
 
 def test_steer_processor_is_wired_into_builder_after_compaction():

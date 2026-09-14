@@ -113,6 +113,54 @@ def test_code_puppy_prompt_omits_web_retriever_guidance():
     assert "simple one-shot HTTP request" not in prompt
 
 
+def test_code_puppy_prompt_requires_autonomous_task_completion():
+    """Routine next steps must not be bounced back to the user for approval."""
+    from code_puppy.agents.agent_code_puppy import CodePuppyAgent
+
+    prompt = " ".join(CodePuppyAgent().get_system_prompt().split())
+
+    assert "Complete the requested task autonomously" in prompt
+    assert "Do not ask for routine permission" in prompt
+    assert "an irreversible action requiring approval" in prompt
+
+
+def test_code_puppy_prompt_reflects_low_agency(monkeypatch):
+    """LOW agency swaps the relentless bullets for step-at-a-time check-ins."""
+    from code_puppy.agents import agent_code_puppy
+
+    monkeypatch.setattr(agent_code_puppy, "get_agency_level", lambda: "low")
+    prompt = " ".join(agent_code_puppy.CodePuppyAgent().get_system_prompt().split())
+
+    assert "LOW agency" in prompt
+    assert "ask the user before continuing" in prompt
+    assert "Complete the requested task autonomously" not in prompt
+    assert "Be as agentic as possible" not in prompt
+
+
+def test_code_puppy_prompt_reflects_medium_agency(monkeypatch):
+    """MEDIUM agency proceeds on routine work but checks in at milestones."""
+    from code_puppy.agents import agent_code_puppy
+
+    monkeypatch.setattr(agent_code_puppy, "get_agency_level", lambda: "medium")
+    prompt = " ".join(agent_code_puppy.CodePuppyAgent().get_system_prompt().split())
+
+    assert "MEDIUM agency" in prompt
+    assert "check in at major milestones" in prompt
+    assert "Be as agentic as possible" not in prompt
+
+
+def test_code_puppy_prompt_reflects_high_agency(monkeypatch):
+    """HIGH agency keeps autonomy but drops the background-gating relentlessness."""
+    from code_puppy.agents import agent_code_puppy
+
+    monkeypatch.setattr(agent_code_puppy, "get_agency_level", lambda: "high")
+    prompt = " ".join(agent_code_puppy.CodePuppyAgent().get_system_prompt().split())
+
+    assert "Complete the requested task autonomously" in prompt
+    assert "Continue autonomously unless user input is definitively required" in prompt
+    assert "Be as agentic as possible" not in prompt
+
+
 def test_planning_agent_routes_scraping_but_allows_direct_curl():
     """Keep the same scraping/fetch boundary in planning guidance."""
     from code_puppy.agents.agent_planning import PlanningAgent
@@ -590,7 +638,9 @@ def test_fire_stream_event_import_error():
     """Cover ImportError branch in _fire_stream_event."""
     from code_puppy.agents.event_stream_handler import _fire_stream_event
 
-    with patch("code_puppy.callbacks.on_stream_event", side_effect=ImportError):
+    with patch(
+        "code_puppy.callbacks.on_stream_event", new=MagicMock(side_effect=ImportError)
+    ):
         _fire_stream_event("test", {})  # Should not raise
 
 
@@ -598,7 +648,10 @@ def test_fire_stream_event_exception():
     """Cover Exception branch in _fire_stream_event."""
     from code_puppy.agents.event_stream_handler import _fire_stream_event
 
-    with patch("code_puppy.callbacks.on_stream_event", side_effect=Exception("boom")):
+    with patch(
+        "code_puppy.callbacks.on_stream_event",
+        new=MagicMock(side_effect=Exception("boom")),
+    ):
         _fire_stream_event("test", {})  # Should not raise
 
 

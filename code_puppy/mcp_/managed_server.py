@@ -21,6 +21,7 @@ from pydantic_ai.toolsets import AbstractToolset
 from code_puppy.http_utils import create_async_client, get_cert_bundle_path
 from code_puppy.mcp_.blocking_startup import BlockingStdioToolset
 from code_puppy.mcp_.tool_arg_coercion import coerce_tool_args
+from code_puppy.mcp_.toolset_utils import tool_input_schema
 
 
 def _expand_env_vars(value: Any) -> Any:
@@ -139,7 +140,7 @@ class ServerConfig:
 async def _input_schema_for_tool(
     call_tool: CallToolFunc, name: str
 ) -> Optional[Dict[str, Any]]:
-    """Best-effort lookup of an MCP tool's JSON inputSchema.
+    """Best-effort lookup of an MCP tool's JSON input_schema.
 
     ``call_tool`` is pydantic-ai's ``MCPToolset.direct_call_tool`` — either
     the bound method itself or a ``functools.partial`` around it — so
@@ -161,7 +162,7 @@ async def _input_schema_for_tool(
         return None
     for tool in tools:
         if getattr(tool, "name", None) == name:
-            return getattr(tool, "inputSchema", None)
+            return tool_input_schema(tool)
     return None
 
 
@@ -269,10 +270,19 @@ class ManagedMCPServer:
         'optional'. Pinned off to preserve the direct-call semantics our
         timeout/stderr-capture/blocking-startup plumbing was built against;
         servers that *require* tasks still get them regardless of this flag.
+
+        ``tool_error_behavior="failed"``: a failing MCP tool must not end the
+        session. The default ``"retry"`` exhausts the retry budget and then
+        raises ``UnexpectedModelBehavior``, which is not an ``McpError`` and
+        so reaches the generic handler in ``run_agent_task`` and aborts the
+        run. ``"failed"`` hands the model a failed tool result instead, like
+        a native tool returning an error string. Bound repeated failures with
+        ``UsageLimits`` at the run level.
         """
         kwargs: Dict[str, Any] = {
             "process_tool_call": process_tool_call,
             "prefer_tasks": False,
+            "tool_error_behavior": "failed",
         }
         if "timeout" in config:
             kwargs["init_timeout"] = config["timeout"]
@@ -359,11 +369,21 @@ class ManagedMCPServer:
             headers = (
                 _expand_env_vars(config["headers"]) if config.get("headers") else None
             )
+            from code_puppy.mcp_.http_auth import http_auth
+
+            url = _expand_env_vars(config["url"])
+            auth = http_auth(config, url, headers)
+            auth_kwargs = {"auth": auth} if auth is not None else {}
             transport = StreamableHttpTransport(
-                url=_expand_env_vars(config["url"]),
+                url=url,
                 headers=headers,
+                **auth_kwargs,
             )
-            self._toolset = MCPToolset(transport, **self._toolset_kwargs(config))
+            http_config = dict(config)
+            if auth is not None:
+                # The first connection includes interactive browser authorization.
+                http_config.setdefault("timeout", 330)
+            self._toolset = MCPToolset(transport, **self._toolset_kwargs(http_config))
 
         else:
             raise ValueError(f"Unsupported server type: {server_type}")

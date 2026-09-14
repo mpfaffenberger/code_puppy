@@ -59,7 +59,7 @@ class TestCodePuppyAgentTools:
         agent = CodePuppyAgent()
         tools = agent.get_available_tools()
         assert "create_file" in tools
-        assert "replace_in_file" in tools
+        assert "edit" in tools
         assert "delete_snippet" in tools
         assert "invoke_agent" in tools
 
@@ -75,6 +75,16 @@ class TestCodePuppyAgentTools:
         assert "list_available_models" not in tools
         assert "model_name" not in prompt
         assert "invoke_agent_with_model" not in prompt
+
+    def test_prompt_waits_for_gating_background_processes(self, monkeypatch):
+        """The relentless background vigil is EXTREME-agency wording."""
+        from code_puppy.agents import agent_code_puppy
+
+        monkeypatch.setattr(agent_code_puppy, "get_agency_level", lambda: "extreme")
+        prompt = agent_code_puppy.CodePuppyAgent().get_system_prompt()
+
+        assert "do not stop and force the user to reprompt you" in prompt
+        assert "wait 60 seconds and check its progress" in prompt
 
 
 # =============================================================================

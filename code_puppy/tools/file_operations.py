@@ -5,7 +5,7 @@ import re
 import shutil
 import subprocess
 import tempfile
-from typing import List
+from typing import Callable, List, Tuple
 
 from pydantic import BaseModel, conint
 from pydantic_ai import RunContext
@@ -57,10 +57,15 @@ class MatchInfo(BaseModel):
 class GrepOutput(BaseModel):
     matches: List[MatchInfo]
     error: str | None = None
+    # True when the search hit the match budget and more matches exist. A
+    # capped result that can't say so is indistinguishable from a complete
+    # one, and callers build completeness claims on top of grep.
+    truncated: bool = False
 
 
-# Upper bound on -A/-B/-C context rows returned alongside the (up to 50)
-# matches, so a wide context value can't grow the result without limit.
+# Upper bound on -A/-B/-C context rows returned alongside the (up to
+# get_grep_max_matches()) matches, so a wide context value can't grow the
+# result without limit.
 # Context never evicts a real match: once this budget is full we keep scanning
 # for matches and simply stop collecting further context.
 _MAX_GREP_CONTEXT_ROWS = 200
@@ -161,6 +166,32 @@ def would_match_directory(pattern: str, directory: str) -> bool:
     return False
 
 
+def _relative_ignore_predicates(root: str) -> Tuple[Callable[[str], bool], ...]:
+    """``(skip_dir, skip_file)`` predicates that match ignore patterns to *root*.
+
+    The ignore patterns exist to prune directories *inside* the searched tree
+    (``node_modules``, ``.git``, ``tmp``). Matched against an absolute path they also
+    hit the root's own ancestors, so a root under ``/tmp`` matched ``**/tmp/**`` and
+    every single entry was skipped -- silently, with no error. Both backend traversals
+    (``grep`` and recursive ``list_files``) need the same rule, so it is defined once.
+
+    Relative matching keeps the original intent: a ``tmp/`` *below* the root is still
+    pruned, only the ancestors stop counting as grounds for a total veto.
+    """
+    from code_puppy.tools.common import should_ignore_dir_path, should_ignore_path
+
+    def _relative_to_root(path: str) -> str:
+        try:
+            return os.path.relpath(path, root)
+        except ValueError:  # different drive on Windows
+            return path
+
+    return (
+        lambda p: should_ignore_dir_path(_relative_to_root(p)),
+        lambda p: should_ignore_path(_relative_to_root(p)),
+    )
+
+
 def _list_entries_via_backend(directory: str, recursive: bool) -> List["ListedFile"]:
     """Build ``ListedFile`` results from the installed filesystem backend.
 
@@ -169,8 +200,6 @@ def _list_entries_via_backend(directory: str, recursive: bool) -> List["ListedFi
     ``grep`` see), rather than the local ripgrep path used when no backend is
     installed. Honors the same ignore rules as the local path.
     """
-    from code_puppy.tools.common import should_ignore_dir_path, should_ignore_path
-
     results: List[ListedFile] = []
 
     def _rel(full: str) -> str:
@@ -179,10 +208,11 @@ def _list_entries_via_backend(directory: str, recursive: bool) -> List["ListedFi
         return full
 
     if recursive:
+        skip_dir, skip_file = _relative_ignore_predicates(directory)
         for full, entry in fs_access.walk(
             directory,
-            skip_dir=should_ignore_dir_path,
-            skip_file=should_ignore_path,
+            skip_dir=skip_dir,
+            skip_file=skip_file,
         ):
             rel = _rel(full)
             if not rel:
@@ -1073,11 +1103,14 @@ def _emit_grep_result(
     directory: str,
     matches: List["MatchInfo"],
     error_message: str | None,
+    *,
+    truncated: bool = False,
 ) -> "GrepOutput":
     """Emit the structured grep result to the UI and return the tool output.
 
     Shared by the local (ripgrep) and backend (composed) grep paths so the UI
     behavior is identical regardless of where the search actually ran.
+    ``truncated`` flags that the match budget was hit with more left unseen.
     """
     from code_puppy.config import get_grep_output_verbose
 
@@ -1099,9 +1132,21 @@ def _emit_grep_result(
         total_matches=len(real_matches),
         files_searched=unique_files,
         verbose=get_grep_output_verbose(),
+        truncated=truncated,
     )
     get_message_bus().emit(grep_result_msg)
-    return GrepOutput(matches=matches, error=error_message)
+    return GrepOutput(matches=matches, error=error_message, truncated=truncated)
+
+
+def _missing_directory_error(directory: str, *, exists: bool) -> str:
+    """Error text for a bad grep target, shared by both grep paths.
+
+    Both the local-ripgrep and backend paths need to say the same thing; neither may
+    fall back to "no matches", which is indistinguishable from an empty search.
+    """
+    if not exists:
+        return f"Error: Directory '{directory}' does not exist"
+    return f"Error: '{directory}' is not a directory"
 
 
 def _grep_via_backend(directory: str, search_string: str) -> "GrepOutput":
@@ -1117,15 +1162,11 @@ def _grep_via_backend(directory: str, search_string: str) -> "GrepOutput":
     cap and binary files (NUL in the first chunk) are skipped, matching
     ripgrep's defaults.
     """
-    from code_puppy.tools.common import should_ignore_dir_path, should_ignore_path
-
     # Missing/non-directory target = error (matches local ripgrep, not silent
     # zero matches); ``walk`` itself tolerates a bad root.
     if not fs_access.is_dir(directory):
-        error_msg = (
-            f"Error: Directory '{directory}' does not exist"
-            if not fs_access.exists(directory)
-            else f"Error: '{directory}' is not a directory"
+        error_msg = _missing_directory_error(
+            directory, exists=fs_access.exists(directory)
         )
         return _emit_grep_result(search_string, directory, [], error_msg)
 
@@ -1133,10 +1174,17 @@ def _grep_via_backend(directory: str, search_string: str) -> "GrepOutput":
     if error is not None:
         return _emit_grep_result(search_string, directory, [], error)
 
+    skip_dir, skip_file = _relative_ignore_predicates(directory)
+
+    from code_puppy.config import get_grep_max_matches
+
+    max_matches = get_grep_max_matches()
     max_filesize = 5 * 1024 * 1024  # mirror ripgrep --max-filesize 5M
     matches: List[MatchInfo] = []
     for full, entry in fs_access.walk(
-        directory, skip_dir=should_ignore_dir_path, skip_file=should_ignore_path
+        directory,
+        skip_dir=skip_dir,
+        skip_file=skip_file,
     ):
         if entry.is_dir:
             continue
@@ -1152,17 +1200,21 @@ def _grep_via_backend(directory: str, search_string: str) -> "GrepOutput":
         if "\x00" in text[:8192]:  # cheap binary sniff, like ripgrep
             continue
         for line_number, line in enumerate(text.splitlines(), start=1):
-            if pattern.search(line):
-                matches.append(
-                    MatchInfo(
-                        file_path=full,
-                        line_number=line_number,
-                        line_content=_sanitize_string(line.strip()),
-                    )
+            if not pattern.search(line):
+                continue
+            # Same total budget as the ripgrep path. Only a match *beyond* the
+            # budget proves there was more, so exactly-at-cap is not truncated.
+            if len(matches) >= max_matches:
+                return _emit_grep_result(
+                    search_string, directory, matches, None, truncated=True
                 )
-                # Cap total matches to mirror the local path's 50-match limit.
-                if len(matches) >= 50:
-                    return _emit_grep_result(search_string, directory, matches, None)
+            matches.append(
+                MatchInfo(
+                    file_path=full,
+                    line_number=line_number,
+                    line_content=_sanitize_string(line.strip()),
+                )
+            )
     return _emit_grep_result(search_string, directory, matches, None)
 
 
@@ -1195,8 +1247,21 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
     if get_filesystem_backend() is not None:
         return _grep_via_backend(directory, search_string)
 
+    from code_puppy.config import get_grep_max_matches
+
+    max_matches = get_grep_max_matches()
     matches: List[MatchInfo] = []
     error_message: str | None = None
+    truncated = False
+
+    # ripgrep runs with cwd=directory below, so a bad target would surface as a
+    # FileNotFoundError from the spawn and get misreported as "ripgrep not found".
+    # Name the real problem, and agree with the backend path's wording.
+    if not os.path.isdir(directory):
+        return GrepOutput(
+            matches=[],
+            error=_missing_directory_error(directory, exists=os.path.exists(directory)),
+        )
 
     # Create a temporary ignore file with our ignore patterns
     ignore_file = None
@@ -1229,7 +1294,18 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
         if args_error is not None:
             return GrepOutput(matches=[], error=args_error)
 
-        cmd = [rg_path, "--json", "--max-count", "50", "--max-filesize", "5M"]
+        # --max-count is ripgrep's *per-file* cap; the total cap lives in the
+        # JSON consumer below. Ask for one past the budget so a single file
+        # holding more than the budget still yields the extra match that
+        # proves truncation, instead of looking like exactly-at-cap.
+        cmd = [
+            rg_path,
+            "--json",
+            "--max-count",
+            str(max_matches + 1),
+            "--max-filesize",
+            "5M",
+        ]
         # rg's type filters are additive, so the default all-types selection
         # must not dilute an explicit -t/--type from the search string.
         if not _carries_type_filter(rg_args):
@@ -1248,7 +1324,14 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
 
         cmd.extend(["--ignore-file", ignore_file])
         cmd.extend(rg_args)
-        cmd.append(directory)
+        # Search '.' with cwd=directory rather than passing the absolute path.
+        # ripgrep matches --ignore-file patterns against the paths it walks, so an
+        # absolute root lets one of the root's *ancestors* veto the whole search:
+        # rooted under /tmp, the '**/tmp/**' pattern ignored every file and grep
+        # returned zero matches with no error at all (every pytest tmp_path on
+        # Linux, and any project parked in /tmp, ~/.cache or node_modules).
+        # Relative to the root, 'tmp' only prunes a tmp directory *inside* it.
+        cmd.append(".")
         # Use encoding with error handling to handle files with invalid UTF-8
         result = subprocess.run(
             cmd,
@@ -1257,6 +1340,7 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
             timeout=30,
             encoding="utf-8",
             errors="replace",  # Replace invalid chars instead of crashing
+            cwd=directory,
         )
 
         if result.returncode not in (0, 1):
@@ -1286,6 +1370,9 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
                     file_path = (
                         path_data.get("text", "") if path_data.get("text") else ""
                     )
+                    if file_path:
+                        # rg searched '.' from cwd=directory; report absolute paths.
+                        file_path = os.path.normpath(os.path.join(directory, file_path))
                     line_number = data.get("line_number", None)
                     line_content = (
                         data.get("lines", {}).get("text", "")
@@ -1303,7 +1390,7 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
                             line_content=_sanitize_string(line_content.strip()),
                             is_context=is_context,
                         )
-                        # Context rides along without consuming the 50-match
+                        # Context rides along without consuming the match
                         # budget, but is itself capped so a wide -A/-B/-C can't
                         # grow the result without bound. Real matches are never
                         # evicted: once the context budget is full we keep
@@ -1312,11 +1399,14 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
                             if context_row_count >= _MAX_GREP_CONTEXT_ROWS:
                                 continue
                             context_row_count += 1
-                        matches.append(match_info)
-                        if not is_context:
+                        elif real_match_count >= max_matches:
+                            # A real match past the budget is the proof there
+                            # was more; exactly-at-cap stays un-truncated.
+                            truncated = True
+                            break
+                        else:
                             real_match_count += 1
-                            if real_match_count >= 50:
-                                break
+                        matches.append(match_info)
             except json.JSONDecodeError:
                 # Skip lines that aren't valid JSON
                 continue
@@ -1335,7 +1425,9 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
             os.unlink(ignore_file)
 
     # Build structured GrepMatch objects for the UI
-    return _emit_grep_result(search_string, directory, matches, error_message)
+    return _emit_grep_result(
+        search_string, directory, matches, error_message, truncated=truncated
+    )
 
 
 def register_list_files(agent):
@@ -1433,5 +1525,10 @@ def register_grep(agent):
         Output-format flags (-l, -c, --files, --count, --json, -q) are not
         supported and return an error. To search for a pattern that itself
         starts with '-', use: -e '-pattern'
+
+        Results are capped at a fixed match budget (50 by default). When the
+        result has truncated=True there were MORE matches than shown: do not
+        treat the list as complete -- narrow the search (a tighter pattern,
+        -t/--type, or -g globs) and search again until truncated is False.
         """
         return _grep(context, search_string, directory)

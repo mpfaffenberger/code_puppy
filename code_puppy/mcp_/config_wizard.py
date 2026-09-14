@@ -235,6 +235,10 @@ class MCPConfigWizard:
 
         config = {"type": "http", "url": url, "timeout": 30}
 
+        if confirm_ask(t("mcp.oauth.prompt"), default=False):
+            config["auth"] = "oauth"
+            config["timeout"] = 330
+
         # Headers (optional)
         if confirm_ask("Add custom headers?", default=False):
             headers = self.prompt_headers(group_id)
@@ -242,11 +246,13 @@ class MCPConfigWizard:
                 config["headers"] = headers
 
         # Timeout
-        timeout_str = prompt_ask("Request timeout (seconds)", default="30")
+        timeout_str = prompt_ask(
+            "Request timeout (seconds)", default=str(config["timeout"])
+        )
         try:
             config["timeout"] = int(timeout_str)
         except ValueError:
-            config["timeout"] = 30
+            pass
 
         return config
 

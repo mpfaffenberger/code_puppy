@@ -78,8 +78,15 @@ def should_autotrigger(text: str, cursor: int) -> bool:
     """
     if text.lstrip().startswith("/"):
         return True
-    word = text[:cursor].split()[-1] if text[:cursor].split() else ""
-    return "@" in word
+    # Only inspect the last word before the cursor. Splitting the entire
+    # pasted prompt twice on every keystroke allocates thousands of strings.
+    end = max(0, min(cursor, len(text)))
+    while end and text[end - 1].isspace():
+        end -= 1
+    start = end
+    while start and not text[start - 1].isspace():
+        start -= 1
+    return "@" in text[start:end]
 
 
 @dataclass
@@ -152,10 +159,15 @@ class CompletionEngine:
             if self._suppressed:
                 return
             was_open = self._open
+            # Existing items describe the PREVIOUS buffer, not this edit.
+            # Invalidate immediately, before the debounce/executor window:
+            # accepting an old anchor here leaves freshly typed suffixes.
+            self._seq += 1
+            self._anchor = -1
+            # Keep the previous rows visible during refresh. The invalid
+            # anchor prevents acceptance without closing/reopening the UI.
         if was_open or should_autotrigger(text, cursor):
-            self._schedule_query(text, cursor, open_menu=was_open or True)
-        elif self.is_open():
-            self.close()
+            self._schedule_query(text, cursor, open_menu=True)
 
     def on_tab(self, text: str, cursor: int) -> bool:
         """Tab: cycle the selection when open, else force-open.
@@ -187,7 +199,7 @@ class CompletionEngine:
         into the buffer.
         """
         with self._lock:
-            if not (self._open and self._items):
+            if not (self._open and self._items) or self._anchor < 0:
                 return False
             index = max(0, self._selected)
             item = self._items[index]
@@ -240,11 +252,27 @@ class CompletionEngine:
         if loop is None or loop.is_closed():
             return
         try:
-            loop.call_soon_threadsafe(
-                lambda: loop.create_task(self._query_task(seq, text, cursor, delay))
-            )
+            loop.call_soon_threadsafe(self._arm_query, seq, text, cursor, delay)
         except RuntimeError:
             pass
+
+    def _arm_query(self, seq: int, text: str, cursor: int, delay: float) -> None:
+        """Loop-thread debounce: one timer, not one sleeping task per edit."""
+        with self._lock:
+            if seq != self._seq:
+                return
+        if self._debounce_handle is not None:
+            self._debounce_handle.cancel()
+        self._debounce_handle = self._loop.call_later(
+            delay, self._launch_query, seq, text, cursor
+        )
+
+    def _launch_query(self, seq: int, text: str, cursor: int) -> None:
+        self._debounce_handle = None
+        with self._lock:
+            if seq != self._seq:
+                return
+        self._loop.create_task(self._query_task(seq, text, cursor, 0.0))
 
     async def _query_task(self, seq: int, text: str, cursor: int, delay: float) -> None:
         if delay:

@@ -4,18 +4,20 @@ build-backend = "hatchling.build"
 
 [project]
 name = "code-puppy"
-version = "0.0.792"
+version = "0.0.838"
 description = "Code generation agent"
 readme = "README.md"
 requires-python = ">=3.11,<3.15"
 dependencies = [
-    "code-puppy-core-plugins>=0.0.27",
+    "code-puppy-core-plugins>=0.0.50",
     "logfire>=4.0",
     "pydantic-ai-slim[openai,anthropic,mcp]==2.35.0",
     "pydantic-ai-harness==0.23.0",
     "anyio>=4.7.0",
     "typer>=0.12.0",
     "mcp>=1.9.4",
+    # FastMCP's OAuth callback server explicitly uses Uvicorn websockets-sansio.
+    "websockets>=14.0",
     "httpx[http2]>=0.24.1",
     "httpx2>=2.7",
     "requests>=2.28.0",
@@ -29,7 +31,7 @@ dependencies = [
     "openai>=2.45.0",
     "ripgrep==14.1.0; sys_platform != 'android'",
     "playwright>=1.40.0; sys_platform != 'android'",
-    "termflow-md>=0.9.0",
+    "termflow-md>=0.9.2",
     "Pillow>=10.0.0",
     "azure-identity>=1.15.0",
     "anthropic>=1.0.0,<2",

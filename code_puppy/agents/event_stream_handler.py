@@ -27,6 +27,7 @@ from code_puppy.agents.smooth_stream import (
 )
 from code_puppy.config import (
     get_banner_color,
+    get_headless_mode,
     get_output_level,
     get_subagent_verbose,
     get_suppress_thinking_messages,
@@ -51,9 +52,13 @@ def _fire_stream_event(event_type: str, event_data: Any) -> None:
         agent_session_id = get_session_context()
 
         # Use create_task to fire callback without blocking
-        asyncio.create_task(
-            callbacks.on_stream_event(event_type, event_data, agent_session_id)
-        )
+        coroutine = callbacks.on_stream_event(event_type, event_data, agent_session_id)
+        try:
+            asyncio.create_task(coroutine)
+        except BaseException:
+            # Submission failed: no task owns this coroutine. Preserve cancellation.
+            coroutine.close()
+            raise
     except ImportError:
         logger.debug("callbacks or messaging module not available for stream event")
     except Exception as e:
@@ -122,7 +127,14 @@ def _suppress_tool_progress() -> bool:
 
     In ``low`` mode, the shell-start peek in the RichConsoleRenderer is
     sufficient; the streaming token counter is noise.
+
+    Headless runs (``-p``) always suppress it as well. The counter repaints
+    itself with a bare ``\\r``, which only overwrites on a real terminal --
+    redirected into a file or CI log every repaint becomes its own line, so
+    a single tool call emits a wall of ``Calling <tool>... N token(s)`` rows.
     """
+    if get_headless_mode():
+        return True
     return get_output_level() == "low"
 
 
@@ -216,6 +228,18 @@ async def event_stream_handler(
             highlighter=on_termflow_highlighter(Highlighter()),
         )
 
+    def _render_text_content(index: int, content: str) -> None:
+        """Feed text through Termflow one complete line at a time."""
+        buffer = termflow_line_buffers[index] + content
+        parser = termflow_parsers[index]
+        renderer = termflow_renderers[index]
+
+        while "\n" in buffer:
+            line, buffer = buffer.split("\n", 1)
+            renderer.render_all(parser.parse_line(line))
+
+        termflow_line_buffers[index] = buffer
+
     # Smooth-stream state per thinking part: index → smoother (steady drain)
     # or ``thinking_direct`` when smoothing is off (print deltas immediately).
     thinking_smoothers: dict[int, ThinkingStreamSmoother] = {}
@@ -250,6 +274,20 @@ async def event_stream_handler(
             smoother.feed(text)
         else:
             console.print(f"[dim]{escape(text)}[/dim]", end="")
+
+    async def _finish_text_part(index: int) -> None:
+        """Flush one text part, including streams missing ``PartEndEvent``."""
+        parser = termflow_parsers.pop(index, None)
+        renderer = termflow_renderers.pop(index, None)
+        if parser is not None and renderer is not None:
+            remaining = termflow_line_buffers.pop(index, "")
+            if remaining.strip():
+                renderer.render_all(parser.parse_line(remaining))
+            renderer.render_all(parser.finalize())
+
+        writer = termflow_writers.pop(index, None)
+        if writer is not None:
+            await writer.close()
 
     async def _print_thinking_banner() -> None:
         """Print the THINKING banner on a fresh line."""
@@ -368,7 +406,7 @@ async def event_stream_handler(
                     if part.content and part.content.strip():
                         await _print_response_banner()
                         banner_printed.add(event.index)
-                        termflow_line_buffers[event.index] = part.content
+                        _render_text_content(event.index, part.content)
                 elif isinstance(part, ToolCallPart):
                     streaming_parts.add(event.index)
                     tool_parts.add(event.index)
@@ -404,22 +442,7 @@ async def event_stream_handler(
                                     await _print_response_banner()
                                     banner_printed.add(event.index)
 
-                                # Add content to line buffer
-                                termflow_line_buffers[event.index] += (
-                                    delta.content_delta
-                                )
-
-                                # Process complete lines
-                                parser = termflow_parsers[event.index]
-                                renderer = termflow_renderers[event.index]
-                                buffer = termflow_line_buffers[event.index]
-
-                                while "\n" in buffer:
-                                    line, buffer = buffer.split("\n", 1)
-                                    events_to_render = parser.parse_line(line)
-                                    renderer.render_all(events_to_render)
-
-                                termflow_line_buffers[event.index] = buffer
+                                _render_text_content(event.index, delta.content_delta)
                             else:
                                 # Stream thinking parts smoothly (dim) via a
                                 # rate-limited buffer; gate on output level /
@@ -481,33 +504,8 @@ async def event_stream_handler(
                 )
 
                 if event.index in streaming_parts:
-                    # For text parts, finalize termflow rendering
                     if event.index in text_parts:
-                        # Render any remaining buffered content
-                        if event.index in termflow_parsers:
-                            parser = termflow_parsers[event.index]
-                            renderer = termflow_renderers[event.index]
-                            remaining = termflow_line_buffers.get(event.index, "")
-
-                            # Parse and render any remaining partial line
-                            if remaining.strip():
-                                events_to_render = parser.parse_line(remaining)
-                                renderer.render_all(events_to_render)
-
-                            # Finalize the parser to close any open blocks
-                            final_events = parser.finalize()
-                            renderer.render_all(final_events)
-
-                            # Clean up termflow state
-                            del termflow_parsers[event.index]
-                            del termflow_renderers[event.index]
-                            del termflow_line_buffers[event.index]
-
-                        # Drain any smooth typewriter writer to completion so the
-                        # full response has finished printing before we move on.
-                        writer = termflow_writers.pop(event.index, None)
-                        if writer is not None:
-                            await writer.close()
+                        await _finish_text_part(event.index)
                     # For tool parts, clear the chunk counter line
                     elif event.index in tool_parts:
                         # Erase the \r-repainted chunk-counter line entirely;
@@ -561,6 +559,11 @@ async def event_stream_handler(
         # background drain tasks that keep typing into the terminal. Abort them.
         _abort_all_drainers()
         raise
+
+    # Providers can end without PartEndEvent. Finalize those parsers too;
+    # otherwise an unterminated fence or partial line disappears.
+    for index in list(text_parts):
+        await _finish_text_part(index)
 
     # Drain any smoothers/writers that didn't see a PartEndEvent (e.g. the
     # stream ended abruptly) so we never lose buffered text or orphan tasks.

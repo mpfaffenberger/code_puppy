@@ -14,7 +14,7 @@ exposes no *synchronous* tool-listing API (``list_tools()`` is async and
 performs I/O; token estimation must stay sync + side-effect-free).
 """
 
-from typing import Any, Iterator, List, Optional, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 
 def unwrap_toolset(toolset: Any) -> Any:
@@ -51,6 +51,22 @@ def toolset_prefix(toolset: Any) -> Optional[str]:
     return legacy or None
 
 
+def tool_input_schema(mcp_tool: Any) -> Optional[Dict[str, Any]]:
+    """Return a tool's JSON input schema across MCP SDK v1 and v2.
+
+    MCP SDK v1 exposes ``Tool.inputSchema``; SDK v2 renamed the field to
+    ``Tool.input_schema`` and *deprecates* the old name (reading it emits a
+    ``FastMCPDeprecationWarning`` — fastmcp installs a warn-once bridging
+    property in ``fastmcp/_compat.py``). Prefer the new snake_case attribute
+    and fall back to camelCase for older SDKs, so importers stay quiet on
+    both.
+    """
+    schema = getattr(mcp_tool, "input_schema", None)
+    if schema is not None:
+        return schema
+    return getattr(mcp_tool, "inputSchema", None)
+
+
 def toolset_is_running(toolset: Any) -> bool:
     """Whether the leaf toolset currently holds an open server session."""
     return bool(getattr(unwrap_toolset(toolset), "is_running", False))
@@ -73,5 +89,5 @@ def iter_cached_tool_defs(toolset: Any) -> Iterator[Tuple[str, str, Any]]:
         name = getattr(mcp_tool, "name", "") or ""
         full_name = f"{prefix}_{name}" if prefix and name else name
         description = getattr(mcp_tool, "description", "") or ""
-        schema = getattr(mcp_tool, "inputSchema", None)
+        schema = tool_input_schema(mcp_tool)
         yield full_name, description, schema

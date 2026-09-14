@@ -136,6 +136,14 @@ class TestBuildModelConfig:
         )
         assert config["context_length"] == 42000
 
+    def test_max_output_tokens_carried_from_models_dev(self):
+        config = amm.build_model_config(make_model(max_output=64000), make_provider())
+        assert config["max_output_tokens"] == 64000
+
+    def test_max_output_tokens_omitted_when_unknown(self):
+        config = amm.build_model_config(make_model(max_output=0), make_provider())
+        assert "max_output_tokens" not in config
+
 
 class TestExtraModelsWrite:
     def test_adds_then_reports_duplicate(self, tmp_path):

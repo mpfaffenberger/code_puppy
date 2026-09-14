@@ -517,6 +517,40 @@ class TestMakeHistoryProcessor:
             await make_history_processor(agent)(_ctx(), [_user_msg("yes")])
         assert len(agent._message_history) == 1
 
+    async def test_repeated_user_prompt_is_not_dropped_as_duplicate(self):
+        """A second "yes" answering a different question must survive.
+
+        Hashes are timestamp-independent, so a repeated short prompt hashes
+        identically to the earlier one. Treating that as a duplicate dropped
+        the turn, and the trailing-ModelResponse pop then removed the previous
+        assistant answer as well, so the model lost both sides of the exchange.
+        """
+        agent = _FakeAgent(model_max=1_000_000)
+        agent._message_history = [_user_msg("yes"), _assistant_text("Deleting it now.")]
+        incoming = [
+            _user_msg("yes"),
+            _assistant_text("Deleting it now."),
+            _user_msg("yes"),
+        ]
+        with patch.object(_compaction, "get_compaction_threshold", return_value=0.95):
+            result = await make_history_processor(agent)(_ctx(), incoming)
+
+        user_turns = [m for m in result if isinstance(m, ModelRequest)]
+        assert len(user_turns) == 2, "the second 'yes' was dropped"
+        assert any(isinstance(m, ModelResponse) for m in result), (
+            "the earlier assistant answer was destroyed by the trailing pop"
+        )
+
+    async def test_resent_history_with_no_new_turn_still_dedupes(self):
+        """Guard the other direction: an identical resend must not grow history."""
+        agent = _FakeAgent(model_max=1_000_000)
+        agent._message_history = [_user_msg("yes"), _assistant_text("done")]
+        with patch.object(_compaction, "get_compaction_threshold", return_value=0.95):
+            await make_history_processor(agent)(
+                _ctx(), [_user_msg("yes"), _assistant_text("done")]
+            )
+        assert len(agent._message_history) == 1  # trailing response popped
+
     async def test_strips_trailing_model_responses(self):
         agent = _FakeAgent(model_max=1_000_000)
         msgs = [_user_msg("q"), _assistant_text("a"), _assistant_text("trailing")]

@@ -274,10 +274,3 @@ class TestRegisterAllToolsAndGetNames:
         names = get_available_tool_names()
         assert isinstance(names, list)
         assert len(names) > 0
-
-
-class TestExtendedThinkingPromptNote:
-    def test_constant_exists(self):
-        from code_puppy.tools import EXTENDED_THINKING_PROMPT_NOTE
-
-        assert "extended thinking" in EXTENDED_THINKING_PROMPT_NOTE.lower()

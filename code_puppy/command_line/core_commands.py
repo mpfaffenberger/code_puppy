@@ -15,7 +15,7 @@ from code_puppy.command_line.model_picker_completion import (
 from code_puppy.command_line.utils import make_directory_table
 from code_puppy.config import finalize_autosave_session
 from code_puppy.i18n import t
-from code_puppy.messaging import emit_error, emit_info
+from code_puppy.messaging import emit_error, emit_info, emit_warning
 from code_puppy.tools.tools_content import tools_content
 
 
@@ -534,6 +534,42 @@ def handle_add_model_command(command: str) -> bool:
         return False
     finally:
         set_awaiting_user_input(False)
+
+
+@register_command(
+    name="refresh_models",
+    description="Backfill max_output_tokens/context_length in extra_models.json from models.dev",
+    usage="/refresh_models",
+    category="core",
+)
+def handle_refresh_models_command(command: str) -> bool:
+    """Re-sync output/context limits of extra_models.json entries with models.dev."""
+    from code_puppy.command_line.refresh_models import refresh_extra_models
+
+    try:
+        report = refresh_extra_models()
+    except Exception as e:
+        emit_error(t("cmd.refresh_models.failed", error=e))
+        return False
+
+    emit_info(
+        t(
+            "cmd.refresh_models.summary",
+            updated=len(report.updated),
+            unchanged=len(report.unchanged),
+        )
+    )
+    for model_key in report.updated:
+        emit_info(t("cmd.refresh_models.updated", model_key=model_key))
+    if report.unmatched:
+        emit_warning(
+            t("cmd.refresh_models.unmatched", models=", ".join(report.unmatched))
+        )
+    if report.ambiguous:
+        emit_warning(
+            t("cmd.refresh_models.ambiguous", models=", ".join(report.ambiguous))
+        )
+    return True
 
 
 @register_command(
