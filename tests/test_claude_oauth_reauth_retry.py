@@ -44,11 +44,12 @@ async def test_cloudflare_400_refresh_failure_runs_oauth_callback_and_retries():
         ) as mock_send,
         patch.object(
             ClaudeCacheAsyncClient,
-            "_refresh_claude_oauth_token",
+            "_refresh_claude_oauth_token_async",
             return_value=None,
         ),
     ):
         client = ClaudeCacheAsyncClient(
+            apply_claude_code_prefix=True,
             oauth_reauthentication_callback=reauth_callback,
         )
         request = httpx2.Request(
@@ -89,11 +90,12 @@ async def test_auth_retry_does_not_run_oauth_callback_when_refresh_succeeds():
         ),
         patch.object(
             ClaudeCacheAsyncClient,
-            "_refresh_claude_oauth_token",
+            "_refresh_claude_oauth_token_async",
             return_value="refreshed_token",
         ),
     ):
         client = ClaudeCacheAsyncClient(
+            apply_claude_code_prefix=True,
             oauth_reauthentication_callback=reauth_callback,
         )
         request = httpx2.Request(

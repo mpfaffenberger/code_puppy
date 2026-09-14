@@ -3,34 +3,63 @@ import sys
 
 from code_puppy.callbacks import on_register_agent_tools, on_register_tools
 from code_puppy.messaging import emit_warning
-from code_puppy.tools.agent_tools import register_list_agents
-from code_puppy.tools.subagent_invocation import (
-    register_invoke_agent,
-    register_invoke_agent_with_model,
-)
-from code_puppy.tools.ask_user_question import register_ask_user_question
+from code_puppy.tools._lazy import lazy_registration
 
-from code_puppy.tools.command_runner import (
-    register_agent_run_shell_command,
-    register_agent_share_your_reasoning,
+register_list_agents = lazy_registration(
+    "code_puppy.tools.agent_tools", "register_list_agents"
 )
-from code_puppy.tools.display import (
-    display_non_streamed_result as display_non_streamed_result,
+register_invoke_agent = lazy_registration(
+    "code_puppy.tools.subagent_invocation", "register_invoke_agent"
 )
-from code_puppy.tools.file_modifications import (
-    register_create_file,
-    register_delete_file,
-    register_delete_snippet,
-    register_edit_file,
-    register_replace_in_file,
+register_invoke_agent_with_model = lazy_registration(
+    "code_puppy.tools.subagent_invocation", "register_invoke_agent_with_model"
 )
-from code_puppy.tools.file_operations import (
-    register_grep,
-    register_list_files,
-    register_read_file,
+register_ask_user_question = lazy_registration(
+    "code_puppy.tools.ask_user_question", "register_ask_user_question"
 )
-from code_puppy.tools.image_tools import register_load_image
-from code_puppy.tools.model_tools import register_list_available_models
+register_agent_run_shell_command = lazy_registration(
+    "code_puppy.tools.command_runner", "register_agent_run_shell_command"
+)
+register_agent_share_your_reasoning = lazy_registration(
+    "code_puppy.tools.command_runner", "register_agent_share_your_reasoning"
+)
+display_non_streamed_result = lazy_registration(
+    "code_puppy.tools.display", "display_non_streamed_result"
+)
+register_create_file = lazy_registration(
+    "code_puppy.tools.file_modifications", "register_create_file"
+)
+register_delete_file = lazy_registration(
+    "code_puppy.tools.file_modifications", "register_delete_file"
+)
+register_delete_snippet = lazy_registration(
+    "code_puppy.tools.file_modifications", "register_delete_snippet"
+)
+register_edit_file = lazy_registration(
+    "code_puppy.tools.file_modifications", "register_edit_file"
+)
+register_claude_edit = lazy_registration(
+    "code_puppy.tools.file_modifications", "register_claude_edit"
+)
+register_replace_in_file = lazy_registration(
+    "code_puppy.tools.file_modifications", "register_replace_in_file"
+)
+register_apply_patch = lazy_registration(
+    "code_puppy.tools.apply_patch", "register_apply_patch"
+)
+register_grep = lazy_registration("code_puppy.tools.file_operations", "register_grep")
+register_list_files = lazy_registration(
+    "code_puppy.tools.file_operations", "register_list_files"
+)
+register_read_file = lazy_registration(
+    "code_puppy.tools.file_operations", "register_read_file"
+)
+register_load_image = lazy_registration(
+    "code_puppy.tools.image_tools", "register_load_image"
+)
+register_list_available_models = lazy_registration(
+    "code_puppy.tools.model_tools", "register_list_available_models"
+)
 
 # Map of tool names to their individual registration functions
 TOOL_REGISTRY = {
@@ -45,10 +74,12 @@ TOOL_REGISTRY = {
     "grep": register_grep,
     # File Modifications
     "edit_file": register_edit_file,  # DEPRECATED: auto-expanded to create_file, replace_in_file, delete_snippet
+    "edit": register_claude_edit,
     "create_file": register_create_file,
     "replace_in_file": register_replace_in_file,
     "delete_snippet": register_delete_snippet,
     "delete_file": register_delete_file,
+    "apply_patch": register_apply_patch,
     # Command Runner
     "agent_run_shell_command": register_agent_run_shell_command,
     "agent_share_your_reasoning": register_agent_share_your_reasoning,
@@ -64,7 +95,7 @@ def _load_browser_tool_registry() -> dict[str, object]:
     if sys.platform == "android":
         return {}
 
-    from code_puppy.tools.browser.tool_registry import BROWSER_TOOL_REGISTRY
+    from code_puppy.tools._browser_registry import BROWSER_TOOL_REGISTRY
 
     return BROWSER_TOOL_REGISTRY
 
@@ -76,6 +107,31 @@ TOOL_REGISTRY.update(_load_browser_tool_registry())
 TOOL_EXPANSIONS: dict[str, list[str]] = {
     "edit_file": ["create_file", "replace_in_file", "delete_snippet"],
 }
+
+# File-writing tools that Codex-style models receive through one native patch
+# envelope. The legacy names remain available to custom agents and configs.
+_FILE_MUTATION_TOOLS = frozenset(
+    {"edit", "replace_in_file", "create_file", "delete_snippet", "delete_file"}
+)
+
+
+def should_use_codex_patch(model_name: str | None) -> bool:
+    """Return whether a model should receive the Codex patch interface.
+
+    This deliberately uses Code Puppy's model aliases rather than a broad
+    provider substring. The built-in Codex/OpenAI Responses aliases are named
+    ``codex-*`` / ``chatgpt-*`` or ``gpt-5*``; GPT-4 and generic OpenAI
+    Chat-Completions models keep the granular tools.
+    """
+    if not model_name:
+        return False
+    normalized = model_name.lower()
+    return (
+        "codex" in normalized
+        or normalized.startswith("chatgpt-")
+        or normalized.startswith("gpt-5")
+    )
+
 
 # Legacy tool names we silently ignore. Truly removed tools only — working
 # aliases belong in TOOL_REGISTRY.
@@ -126,16 +182,6 @@ def _load_plugin_tools() -> None:
     except Exception:
         # Don't let plugin failures break core functionality
         pass
-
-
-# System-prompt note for extended thinking when share_your_reasoning is removed:
-# encourages native thinking blocks between tool calls.
-EXTENDED_THINKING_PROMPT_NOTE = (
-    "\n\nIMPORTANT: You have extended thinking enabled. "
-    "Always think between tool calls or waves of tool calls "
-    "(if running parallel tools). Use your thinking blocks to reason "
-    "about the results before deciding on next steps."
-)
 
 
 def has_extended_thinking_active(model_name: str | None = None) -> bool:
@@ -239,6 +285,21 @@ def register_tools_for_agent(
                 expanded_tools.append(tool_name)
                 seen.add(tool_name)
     tool_names = expanded_tools
+
+    use_codex_patch = should_use_codex_patch(model_name)
+    selected_tools: list[str] = []
+    for tool_name in tool_names:
+        if use_codex_patch and tool_name in _FILE_MUTATION_TOOLS:
+            if "apply_patch" not in selected_tools:
+                selected_tools.append("apply_patch")
+            continue
+        # ``edit`` is the Claude/OpenCode-facing name. Keep the old
+        # replace_in_file name as a registry/config compatibility alias.
+        if not use_codex_patch and tool_name == "replace_in_file":
+            tool_name = "edit"
+        if tool_name not in selected_tools:
+            selected_tools.append(tool_name)
+    tool_names = selected_tools
 
     for tool_name in tool_names:
         # Handle UC tools (prefixed with "uc:")

@@ -117,18 +117,6 @@ def _install_project_plugin_finder() -> None:
 
 PLUGIN_ENTRY_POINT_GROUP = "code_puppy.plugins"
 
-# shell_safety implements the safety_permission_level threshold. Skip it only
-# when the user opted into high/critical autonomy; the default (medium) must
-# load it or the setting is a no-op.
-_SHELL_SAFETY_SKIP_LEVELS = frozenset({"high", "critical"})
-
-
-def _skip_shell_safety_plugin() -> bool:
-    from code_puppy.config import get_safety_permission_level
-
-    return get_safety_permission_level() in _SHELL_SAFETY_SKIP_LEVELS
-
-
 # Track if plugins have already been loaded to prevent duplicate registration
 _PLUGINS_LOADED = False
 
@@ -153,9 +141,6 @@ def _load_installed_plugins() -> list[str]:
     )
     for entry_point in discovered:
         plugin_name = entry_point.name
-        if plugin_name == "shell_safety" and _skip_shell_safety_plugin():
-            logger.debug("Skipping shell_safety plugin due to safety permission level")
-            continue
         try:
             set_loading_context(plugin_name)
             entry_point.load()
@@ -183,9 +168,6 @@ def _load_builtin_plugins(
     the same plugin is both installed through an entry point and still present
     in an older core checkout.
     """
-    # Import safety permission check for shell_safety plugin
-    from code_puppy.config import get_safety_permission_level
-
     loaded = []
     skip_names = set(skip_names or ())
 
@@ -198,13 +180,6 @@ def _load_builtin_plugins(
                 continue
 
             if callbacks_file.exists():
-                if plugin_name == "shell_safety" and _skip_shell_safety_plugin():
-                    logger.debug(
-                        "Skipping shell_safety plugin - safety_permission_level is %s",
-                        get_safety_permission_level(),
-                    )
-                    continue
-
                 try:
                     module_name = f"code_puppy.plugins.{plugin_name}.register_callbacks"
                     set_loading_context(plugin_name)

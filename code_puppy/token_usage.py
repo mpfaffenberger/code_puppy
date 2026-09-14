@@ -237,7 +237,7 @@ def _resolved_system_prompt(agent) -> str:
             user_prompt="",
             prepend_system_to_user=False,
         )
-        return prepared.instructions or system_prompt
+        return prepared.system_text or system_prompt
     except Exception:
         return system_prompt
 

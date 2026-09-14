@@ -340,7 +340,10 @@ async def wait_for_idle_submission() -> str:
         q = _idle_queue
     if q is None:
         raise EOFError  # persistent UI gone -> treat as end of input
-    item = await q.get()
+    from code_puppy.agent_completion_inbox import wait_for_completion_or_input
+    from code_puppy.agents.agent_manager import get_current_agent
+
+    item = await wait_for_completion_or_input(get_current_agent(), q)
     if item is _EOF:
         raise EOFError
     return item

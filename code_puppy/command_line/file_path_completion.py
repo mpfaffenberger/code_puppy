@@ -1,24 +1,17 @@
-"""Fuzzy ``@file`` completion for the prompt.
+"""Ranked @file completion with bounded literal directory navigation.
 
-Style cribbed from `pi`'s coding-agent: when the user types ``@query`` (no
-slashes), we fuzzy-rank against a project-wide file index built with ripgrep
-(``rg --files``), using a tiny tiered scorer. When the query *does* look like
-a path (``@dir/``, ``@./x``, ``@~/x``, ``@/abs/x``), we keep the original
-glob-based directory-navigation behavior — that's strictly better for "drill
-into this folder" than fuzzy.
-
-Fallback chain so nothing ever feels broken:
-    1. directory-nav prefixes  -> glob (original behavior)
-    2. fuzzy hits from index   -> ranked, top 20
-    3. no fuzzy hits           -> glob in cwd (covers fresh sessions before
-       the background index has populated)
+Queries without slashes search a periodically refreshed ripgrep snapshot.
+Explicit paths use scandir and literal prefix matching (not glob expansion).
+Both paths return at most 20 candidates; quotes preserve filename spaces.
 """
 
 from __future__ import annotations
 
-import glob
+import heapq
 import os
-from typing import Iterable, List, Tuple
+from typing import Iterable, List
+
+from code_puppy.file_completion_tokens import active_reference, quote_path
 
 from termflow.tui.completion import Completer, Completion, Document
 
@@ -58,10 +51,7 @@ def _ensure_index_for_cwd() -> None:
     Cheap to call every keystroke — :func:`file_index.reindex` no-ops if a
     build is already in flight, and returns immediately when not blocking.
     """
-    snap = file_index.get_index()
-    cwd = os.path.abspath(os.getcwd())
-    if snap.root != cwd:
-        file_index.reindex(cwd, blocking=False)
+    file_index.reindex(os.path.abspath(os.getcwd()), blocking=False)
 
 
 # -------------------------------------------------------------- fuzzy results
@@ -71,34 +61,25 @@ def _fuzzy_completions(query: str, start_position: int) -> List[Completion]:
     """Pi-style ranked completions from the in-memory file index."""
     _ensure_index_for_cwd()
     snap = file_index.get_index()
-    if not snap.paths:
+    if snap.root != os.path.abspath(os.getcwd()) or not snap.paths:
         return []
 
     q_lower = query.lower()
-    scored: List[Tuple[int, str, str]] = []  # (-score, path, basename)
-    for path, path_lower, basename_lower in zip(
-        snap.paths, snap.lowered, snap.basenames_lower
-    ):
-        s = _score(basename_lower, path_lower, q_lower)
-        if s > 0:
-            # Negate score so a normal ascending sort gives us best-first.
-            scored.append((-s, path, os.path.basename(path)))
-
-    if not scored:
-        return []
-
-    # Stable secondary sort on path keeps deterministic ordering for ties.
-    scored.sort()
-    top = scored[:MAX_FUZZY_RESULTS]
+    candidates = (
+        (-score, path)
+        for path, lower, base in zip(snap.paths, snap.lowered, snap.basenames_lower)
+        if (score := _score(base, lower, q_lower)) > 0
+    )
+    top = heapq.nsmallest(MAX_FUZZY_RESULTS, candidates)
 
     return [
         Completion(
             path,
             start_position=start_position,
-            display=basename,
+            display=os.path.basename(path),
             display_meta=path,  # show full relpath so users see disambiguation
         )
-        for _neg_score, path, basename in top
+        for _neg_score, path in top
     ]
 
 
@@ -108,52 +89,31 @@ def _fuzzy_completions(query: str, start_position: int) -> List[Completion]:
 def _glob_completions(
     text_after_symbol: str, start_position: int
 ) -> Iterable[Completion]:
-    """Original directory-navigation completion. Untouched semantics."""
+    """Literal prefix navigation with bounded selection, including ~/partial."""
+    expanded = os.path.expanduser(text_after_symbol)
+    directory, prefix = os.path.split(expanded)
     try:
-        pattern = text_after_symbol + "*"
-        if not pattern.strip("*") or pattern.strip("*").endswith("/"):
-            base_path = pattern.strip("*")
-            if not base_path:
-                base_path = "."
-            if base_path.startswith("~"):
-                base_path = os.path.expanduser(base_path)
-            if os.path.isdir(base_path):
-                paths = [
-                    os.path.join(base_path, f)
-                    for f in os.listdir(base_path)
-                    if not f.startswith(".") or text_after_symbol.endswith(".")
-                ]
-            else:
-                paths = []
-        else:
-            paths = glob.glob(pattern)
-            if not pattern.startswith(".") and not pattern.startswith("*/."):
-                paths = [p for p in paths if not os.path.basename(p).startswith(".")]
-        paths.sort()
-        for path in paths:
-            is_dir = os.path.isdir(path)
-            display = os.path.basename(path)
-            if os.path.isabs(path):
-                display_path = path
-            else:
-                if text_after_symbol.startswith("/"):
-                    display_path = os.path.abspath(path)
-                elif text_after_symbol.startswith("~"):
-                    home = os.path.expanduser("~")
-                    if path.startswith(home):
-                        display_path = "~" + path[len(home) :]
-                    else:
-                        display_path = path
-                else:
-                    display_path = path
-            display_meta = "Directory" if is_dir else "File"
-            yield Completion(
-                display_path,
-                start_position=start_position,
-                display=display,
-                display_meta=display_meta,
+        with os.scandir(directory or ".") as entries:
+            paths = heapq.nsmallest(
+                MAX_FUZZY_RESULTS,
+                (
+                    entry.name
+                    for entry in entries
+                    if entry.name.startswith(prefix)
+                    and (not entry.name.startswith(".") or prefix.startswith("."))
+                ),
             )
-    except (PermissionError, FileNotFoundError, OSError):
+        original_directory = os.path.dirname(text_after_symbol)
+        for name in paths:
+            path = os.path.join(original_directory, name)
+            actual = os.path.join(directory, name)
+            yield Completion(
+                path,
+                start_position=start_position,
+                display=name,
+                display_meta="Directory" if os.path.isdir(actual) else "File",
+            )
+    except (OSError, ValueError):
         return
 
 
@@ -203,21 +163,22 @@ class FilePathCompleter(Completer):
         # mixing in project files.
         if text_before_cursor.lstrip().startswith("/fork @"):
             return
-        if self.symbol not in text_before_cursor:
+        reference = active_reference(text_before_cursor, self.symbol)
+        if reference is None:
             return
-        symbol_pos = text_before_cursor.rfind(self.symbol)
-        query = text_before_cursor[symbol_pos + len(self.symbol) :]
-        start_position = -len(query)
-
+        query, raw_length = reference
+        start_position = -raw_length
+        _ensure_index_for_cwd()
         if _looks_like_path_navigation(query):
-            yield from _glob_completions(query, start_position)
-            return
-
-        fuzzy = _fuzzy_completions(query, start_position)
-        if fuzzy:
-            yield from fuzzy
-            return
-
-        # Index empty (cold start / no rg / outside a project) — fall back to
-        # glob in cwd so the prompt always feels responsive.
-        yield from _glob_completions(query, start_position)
+            results = _glob_completions(query, start_position)
+        else:
+            results = _fuzzy_completions(query, start_position) or _glob_completions(
+                query, start_position
+            )
+        for result in results:
+            yield Completion(
+                quote_path(result.text),
+                start_position=start_position,
+                display=result.display,
+                display_meta=result.display_meta,
+            )
