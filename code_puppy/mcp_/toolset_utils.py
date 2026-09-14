@@ -14,7 +14,7 @@ exposes no *synchronous* tool-listing API (``list_tools()`` is async and
 performs I/O; token estimation must stay sync + side-effect-free).
 """
 
-from typing import Any, Iterator, List, Optional, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 
 def unwrap_toolset(toolset: Any) -> Any:
@@ -51,13 +51,15 @@ def toolset_prefix(toolset: Any) -> Optional[str]:
     return legacy or None
 
 
-def tool_input_schema(mcp_tool: Any) -> Optional[Any]:
+def tool_input_schema(mcp_tool: Any) -> Optional[Dict[str, Any]]:
     """Return a tool's JSON input schema across MCP SDK v1 and v2.
 
     MCP SDK v1 exposes ``Tool.inputSchema``; SDK v2 renamed the field to
     ``Tool.input_schema`` and *deprecates* the old name (reading it emits a
-    ``FastMCPDeprecationWarning``). Prefer the new snake_case attribute and
-    fall back to camelCase for older SDKs, so importers stay quiet on both.
+    ``FastMCPDeprecationWarning`` — fastmcp installs a warn-once bridging
+    property in ``fastmcp/_compat.py``). Prefer the new snake_case attribute
+    and fall back to camelCase for older SDKs, so importers stay quiet on
+    both.
     """
     schema = getattr(mcp_tool, "input_schema", None)
     if schema is not None:

@@ -140,7 +140,7 @@ class ServerConfig:
 async def _input_schema_for_tool(
     call_tool: CallToolFunc, name: str
 ) -> Optional[Dict[str, Any]]:
-    """Best-effort lookup of an MCP tool's JSON inputSchema.
+    """Best-effort lookup of an MCP tool's JSON input_schema.
 
     ``call_tool`` is pydantic-ai's ``MCPToolset.direct_call_tool`` — either
     the bound method itself or a ``functools.partial`` around it — so

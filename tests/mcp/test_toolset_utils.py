@@ -6,7 +6,6 @@ importer reads the deprecated camelCase attribute.
 """
 
 from types import SimpleNamespace
-from unittest.mock import Mock
 
 from code_puppy.mcp_.toolset_utils import tool_input_schema
 
@@ -48,10 +47,19 @@ def test_explicit_none_schema_falls_through_to_legacy():
 def test_does_not_touch_deprecated_field_when_new_present():
     """Reading the deprecated attribute is what triggers the warning.
 
-    A ``Mock`` explodes on any attribute access, so if the helper wrongly
-    probed ``inputSchema`` first (or in addition), this would raise or fail.
+    fastmcp's SDK v2 bridge installs a warn-once ``inputSchema`` property on
+    ``mcp.types.Tool`` (``fastmcp/_compat.py``), so *any* read of the
+    camelCase name emits ``FastMCPDeprecationWarning``. Make the deprecated
+    attribute actively hostile: if the helper probes it first — or in
+    addition — the property raises and this test fails.
     """
     schema = {"type": "object"}
-    mock_tool = Mock()
-    mock_tool.input_schema = schema
-    assert tool_input_schema(mock_tool) == schema
+
+    class StrictTool:
+        input_schema = schema
+
+        @property
+        def inputSchema(self):  # camelCase mirrors the SDK's field name
+            raise AssertionError("deprecated `inputSchema` was read")
+
+    assert tool_input_schema(StrictTool()) == schema
