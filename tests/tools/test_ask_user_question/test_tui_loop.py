@@ -37,7 +37,11 @@ def make_questions(count: int = 1, multi: bool = False) -> list[Question]:
     ]
 
 
-def drive(questions: list[Question], keys: list[str], timeout_seconds: int = 300):
+def drive(
+    questions: list[Question],
+    keys: list[str],
+    timeout_seconds: int | None = None,
+):
     """Run the TUI headlessly on a key script. Returns (result, output)."""
     state = QuestionUIState(questions)
     state.timeout_seconds = timeout_seconds
@@ -156,6 +160,24 @@ class TestCancellation:
 
 
 class TestTimeout:
+    def test_default_waits_after_more_than_five_minutes_of_inactivity(self):
+        state = QuestionUIState(make_questions(1))
+        state.last_activity_time -= 301
+        script = iter(["", "enter", "enter"])
+        tui = QuestionTUI(
+            state,
+            key_source=lambda: next(script),
+            output=StringIO(),
+            size=lambda: (100, 30),
+            use_alt_screen=False,
+        )
+
+        answers, cancelled, timed_out = tui.run()
+
+        assert state.get_time_remaining() is None
+        assert not cancelled and not timed_out
+        assert answers[0].selected_options == ["Alpha 0"]
+
     def test_poll_tick_after_timeout_returns_timed_out(self):
         (answers, cancelled, timed_out), _ = drive(
             make_questions(1), [""], timeout_seconds=0
