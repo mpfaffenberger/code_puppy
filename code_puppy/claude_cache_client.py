@@ -24,6 +24,7 @@ from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 import httpx2
 
 from .claude_oauth_transport import ClaudeOAuthTransport
+from .http_retry import describe_exception
 
 logger = logging.getLogger(__name__)
 
@@ -441,7 +442,9 @@ class ClaudeCacheAsyncClient(ClaudeOAuthTransport, httpx2.AsyncClient):
             if status_code is None:
                 logger.warning(
                     "HTTP connection error: %s. Retrying in %.1fs (attempt %d/%d)",
-                    last_exception,
+                    describe_exception(last_exception)
+                    if last_exception is not None
+                    else "unknown connection error",
                     wait_time,
                     attempt + 1,
                     MAX_RETRIES,
