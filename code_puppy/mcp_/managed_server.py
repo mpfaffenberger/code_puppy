@@ -21,6 +21,7 @@ from pydantic_ai.toolsets import AbstractToolset
 from code_puppy.http_utils import create_async_client, get_cert_bundle_path
 from code_puppy.mcp_.blocking_startup import BlockingStdioToolset
 from code_puppy.mcp_.tool_arg_coercion import coerce_tool_args
+from code_puppy.mcp_.toolset_utils import tool_input_schema
 
 
 def _expand_env_vars(value: Any) -> Any:
@@ -139,7 +140,7 @@ class ServerConfig:
 async def _input_schema_for_tool(
     call_tool: CallToolFunc, name: str
 ) -> Optional[Dict[str, Any]]:
-    """Best-effort lookup of an MCP tool's JSON inputSchema.
+    """Best-effort lookup of an MCP tool's JSON input_schema.
 
     ``call_tool`` is pydantic-ai's ``MCPToolset.direct_call_tool`` — either
     the bound method itself or a ``functools.partial`` around it — so
@@ -161,7 +162,7 @@ async def _input_schema_for_tool(
         return None
     for tool in tools:
         if getattr(tool, "name", None) == name:
-            return getattr(tool, "inputSchema", None)
+            return tool_input_schema(tool)
     return None
 
 

@@ -45,8 +45,9 @@ def coerce_tool_args(
     Args:
         tool_args: The raw arguments emitted for the tool call.
         input_schema: The tool's JSON Schema (typically
-            ``ToolDefinition.parameters_json_schema`` / ``mcp_tool.inputSchema``).
-            May be ``None`` or malformed; in that case args are returned as-is.
+            ``ToolDefinition.parameters_json_schema`` / ``mcp_tool.input_schema``
+            via the SDK v1/v2 compat helper). May be ``None`` or malformed; in
+            that case args are returned as-is.
 
     Returns:
         A new dict with coerced values where possible. The input is never mutated.
