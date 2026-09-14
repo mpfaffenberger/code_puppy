@@ -82,12 +82,26 @@ class SmoothTermflowWriter(SmoothWriter):
         )
 
 
+def _is_interactive_target(target: TextIO) -> bool:
+    """Only a human watching a terminal benefits from typewriter pacing.
+
+    Pipes, files, CI logs and headless ``-p`` captures just pay the drain
+    tail (~1s per text part with the default catch-up window) for nothing.
+    """
+    try:
+        return bool(target.isatty())
+    except Exception:
+        return False
+
+
 def make_thinking_smoother(console: Console) -> Optional[ThinkingStreamSmoother]:
     """Build a thinking smoother honoring the user's config toggle.
 
-    Returns ``None`` when smoothing is disabled, so callers fall back to
-    printing deltas directly.
+    Returns ``None`` when smoothing is disabled or the console isn't a
+    terminal, so callers fall back to printing deltas directly.
     """
+    if not _is_interactive_target(console.file):
+        return None
     try:
         from code_puppy.config import get_smooth_thinking_stream
 
@@ -101,9 +115,11 @@ def make_thinking_smoother(console: Console) -> Optional[ThinkingStreamSmoother]
 def make_smooth_termflow_writer(target: TextIO) -> Optional[SmoothTermflowWriter]:
     """Build a smooth termflow writer honoring the user's config toggle.
 
-    Returns ``None`` when response smoothing is disabled, so callers fall
-    back to writing straight to ``target``.
+    Returns ``None`` when response smoothing is disabled or ``target``
+    isn't a terminal, so callers fall back to writing straight to ``target``.
     """
+    if not _is_interactive_target(target):
+        return None
     try:
         from code_puppy.config import get_smooth_response_stream
 

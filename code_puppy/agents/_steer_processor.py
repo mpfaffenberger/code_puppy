@@ -27,6 +27,7 @@ from pydantic_ai.messages import ModelMessage, ModelRequest, UserPromptPart
 from code_puppy.command_line.attachments import resolve_steer_content
 from code_puppy.messaging import emit_info
 from code_puppy.messaging.pause_controller import get_pause_controller
+from code_puppy.steer_metadata import STEER_METADATA
 
 
 def make_steer_history_processor(agent: Any) -> Callable[..., List[ModelMessage]]:
@@ -38,11 +39,16 @@ def make_steer_history_processor(agent: Any) -> Callable[..., List[ModelMessage]
     """
 
     def steer_history_processor(messages: List[ModelMessage]) -> List[ModelMessage]:
+        from code_puppy.agent_completion_inbox import pop_completion
+
         # Drain ONLY ``now``-mode steers; the between-turns loop in
         # ``_runtime._do_run`` owns ``queue``-mode ones — draining both
         # here would double-inject.
         pending = get_pause_controller().drain_pending_steer_now()
-        if not pending:
+        completions = []
+        while (completion := pop_completion(agent)) is not None:
+            completions.append(completion)
+        if not pending and not completions:
             return messages
 
         # CRITICAL: carry the in-effect instructions onto the injected request.
@@ -60,10 +66,17 @@ def make_steer_history_processor(agent: Any) -> Callable[..., List[ModelMessage]
             None,
         )
 
-        # One user message per steer (each shows as a discrete turn — clearer
-        # than concatenating). Attachments resolve just like the main prompt
-        # path, so steering with a pasted screenshot Just Works.
+        # Keep each steer separate so providers can preserve its boundary.
+        # Attachments use the main prompt resolution path.
         injected: List[ModelMessage] = []
+        for completion in completions:
+            injected.append(
+                ModelRequest(
+                    parts=[UserPromptPart(content=completion)],
+                    instructions=last_instructions,
+                    metadata=dict(STEER_METADATA),
+                )
+            )
         for steer_text in pending:
             content, preview_text = resolve_steer_content(steer_text)
             n_extras = len(content) - 1 if isinstance(content, list) else 0
@@ -74,11 +87,11 @@ def make_steer_history_processor(agent: Any) -> Callable[..., List[ModelMessage]
                 ModelRequest(
                     parts=[UserPromptPart(content=content)],
                     instructions=last_instructions,
+                    metadata=dict(STEER_METADATA),
                 )
             )
 
-        # Append AFTER existing messages; pydantic-ai passes them on this
-        # exact call, so the very next response answers the steer.
+        # Append after history so the next model call applies the steer.
         new_messages = list(messages) + injected
 
         # Mirror into agent._message_history so the steer persists across the

@@ -16,10 +16,19 @@ import os
 from typing import Callable, List, Optional, Tuple
 
 from code_puppy import atomic_json
-from code_puppy.config import EXTRA_MODELS_FILE, set_config_value
+from code_puppy.config import (
+    EXTRA_MODELS_FILE,
+    MAX_OUTPUT_TOKENS_SETTING,
+    set_config_value,
+)
 from code_puppy.i18n import t
 from code_puppy.messaging import emit_error, emit_info, emit_warning
-from code_puppy.models_dev_parser import ModelInfo, ModelsDevRegistry, ProviderInfo
+from code_puppy.models_dev_parser import (
+    ModelInfo,
+    ModelsDevRegistry,
+    ProviderInfo,
+    extra_model_key,
+)
 from code_puppy.provider_credentials import (
     credential_display,
     save_credential,
@@ -192,6 +201,10 @@ def build_model_config(model: ModelInfo, provider: ProviderInfo) -> dict:
 
     if model.context_length and model.context_length > 0:
         config["context_length"] = model.context_length
+    # models.dev ``limit.output`` -> the default ``max_tokens`` for this model
+    # (see config.get_model_max_output_tokens).
+    if model.max_output and model.max_output > 0:
+        config[MAX_OUTPUT_TOKENS_SETTING] = model.max_output
 
     if model_type == "anthropic":
         config["supported_settings"] = [
@@ -217,7 +230,7 @@ def build_model_config(model: ModelInfo, provider: ProviderInfo) -> dict:
 
 def add_model_to_extra_config(model: ModelInfo, provider: ProviderInfo) -> bool:
     """Add a model to extra_models.json (locked, atomic read-modify-write)."""
-    model_key = f"{provider.id}-{model.model_id}".replace("/", "-").replace(":", "-")
+    model_key = extra_model_key(provider.id, model.model_id)
     already_present = False
 
     def _mutate(current):

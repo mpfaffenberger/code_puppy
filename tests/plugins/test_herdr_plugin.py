@@ -39,6 +39,8 @@ class FakeClient:
         self.activity: list[tuple[str, str | None, bool]] = []
         self.sessions: list[tuple[str, str]] = []
         self.metadata: list[dict] = []
+        self.metadata_meta: list[tuple[str | None, bool]] = []
+        self.tab_labels: list[tuple[str | None, str | None]] = []
         self.closed = False
 
     def report_state(
@@ -50,8 +52,12 @@ class FakeClient:
     def report_session(self, agent_session_id, session_path=None):
         self.sessions.append((agent_session_id, session_path))
 
-    def report_metadata(self, tokens):
+    def report_metadata(self, tokens=None, *, title=None, clear_title=False):
         self.metadata.append(tokens)
+        self.metadata_meta.append((title, clear_title))
+
+    def set_tab_label(self, label=None, expected=None):
+        self.tab_labels.append((label, expected))
 
     def release_and_close(self, timeout_s=1.0):
         self.closed = True
@@ -159,7 +165,17 @@ def test_reporter_turn_end_resets_depth():
     r = HerdrReporter(fake)
     r.on_run_start()
     r.on_run_start()
-    r.on_turn_end()  # turn boundary forces idle regardless of depth
+    with (
+        patch(
+            "code_puppy_core_plugins.herdr.reporter.sources.current_tokens_payload",
+            return_value=None,
+        ),
+        patch(
+            "code_puppy_core_plugins.herdr.reporter.sources.current_session_title",
+            return_value=None,
+        ),
+    ):
+        r.on_turn_end()  # turn boundary forces idle regardless of depth
     assert _states(fake)[-1] == IDLE
 
 
@@ -278,9 +294,15 @@ def test_reporter_skips_metadata_when_payload_unavailable():
     """No usage -> no metadata report (pane keeps last good values / TTL)."""
     fake = FakeClient()
     r = HerdrReporter(fake)
-    with patch(
-        "code_puppy_core_plugins.herdr.reporter.sources.current_tokens_payload",
-        return_value=None,
+    with (
+        patch(
+            "code_puppy_core_plugins.herdr.reporter.sources.current_tokens_payload",
+            return_value=None,
+        ),
+        patch(
+            "code_puppy_core_plugins.herdr.reporter.sources.current_session_title",
+            return_value=None,
+        ),
     ):
         r.on_run_start()
         r.on_turn_end()
@@ -297,9 +319,15 @@ def test_reporter_metadata_computed_outside_lock():
         observed["locked"] = r._lock.locked()
         return {"context": "1%", "tokens": "1k/200k"}
 
-    with patch(
-        "code_puppy_core_plugins.herdr.reporter.sources.current_tokens_payload",
-        side_effect=_probe,
+    with (
+        patch(
+            "code_puppy_core_plugins.herdr.reporter.sources.current_tokens_payload",
+            side_effect=_probe,
+        ),
+        patch(
+            "code_puppy_core_plugins.herdr.reporter.sources.current_session_title",
+            return_value=None,
+        ),
     ):
         r.on_turn_end()
     assert observed["locked"] is False
