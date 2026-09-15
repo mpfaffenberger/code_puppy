@@ -238,10 +238,6 @@ def test_main_agent_builder_passes_agent_model_settings():
         patch("code_puppy.agents._builder.load_mcp_servers", return_value=[]),
         patch("code_puppy.agents._builder.make_model_settings") as make_settings,
         patch(
-            "code_puppy.agents._builder.make_history_processor",
-            return_value=MagicMock(),
-        ),
-        patch(
             "code_puppy.agents._builder.make_steer_history_processor",
             return_value=MagicMock(),
         ),
