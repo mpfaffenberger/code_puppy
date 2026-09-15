@@ -8,6 +8,7 @@ import pytest
 from code_puppy.agents._builder import build_pydantic_agent
 from code_puppy.agents.json_agent import JSONAgent
 from code_puppy.model_factory import ModelFactory, make_model_settings
+from code_puppy.model_utils import PreparedPrompt
 
 
 def _json_agent_config(**overrides):
@@ -230,7 +231,9 @@ def test_main_agent_builder_passes_agent_model_settings():
         ),
         patch(
             "code_puppy.agents._builder._assemble_instructions",
-            return_value="instructions",
+            return_value=PreparedPrompt(
+                instructions="instructions", user_prompt="", is_claude_code=False
+            ),
         ),
         patch("code_puppy.agents._builder.load_mcp_servers", return_value=[]),
         patch("code_puppy.agents._builder.make_model_settings") as make_settings,

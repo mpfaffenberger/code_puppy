@@ -257,7 +257,7 @@ class BaseAgent(ABC):
                 user_prompt="",
                 prepend_system_to_user=False,
             )
-            resolved = prepared.instructions or system_prompt
+            resolved = prepared.system_text or system_prompt
         except Exception:
             resolved = system_prompt
 

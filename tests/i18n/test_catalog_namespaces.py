@@ -28,6 +28,7 @@ _NAMESPACES = {
     "cmd": (("cmd.",), 32),
     "cfg": (("cfg.",), 20),
     "mcp.wizard": (("mcp.wizard.",), 39),
+    "mcp.install_wizard": (("mcp.install_wizard.",), 31),
     "oauth": (
         (
             "oauth.server.",
@@ -55,6 +56,7 @@ _NAMESPACES = {
         ),
         35,
     ),
+    "tools.common.approval": (("tools.common.approval.",), 12),
 }
 
 _PREFIXES = [prefixes for prefixes, _ in _NAMESPACES.values()]

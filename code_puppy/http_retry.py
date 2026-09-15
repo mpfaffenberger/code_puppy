@@ -30,6 +30,28 @@ except ImportError:  # pragma: no cover - fallback when messaging is unavailable
         pass
 
 
+def describe_exception(exc: BaseException) -> str:
+    """Return a descriptive string for an exception, falling back gracefully.
+
+    Many httpx/httpcore connection exceptions (ConnectError, ReadTimeout, etc.)
+    have an empty string representation (str(e) == ""). This helper inspects
+    str(exc), then any chained __cause__ or __context__, and finally falls back
+    to repr(exc) or the exception class name so error logs are never blank.
+    """
+    message = str(exc).strip()
+    if message:
+        return message
+
+    for chained in (exc.__cause__, exc.__context__):
+        if chained is None:
+            continue
+        chained_message = str(chained).strip()
+        if chained_message:
+            return f"{type(exc).__name__}: {chained_message}"
+
+    return repr(exc).strip() or type(exc).__name__
+
+
 class RetryingSendMixin:
     """Adds rate-limit handling (429) and retries to an httpx-family ``AsyncClient``.
 
@@ -119,7 +141,7 @@ class RetryingSendMixin:
                 wait_time = 1.0 * (2**attempt)
                 if attempt < self.max_retries:
                     emit_warning(
-                        f"HTTP connection error: {e}. Retrying in {wait_time}s..."
+                        f"HTTP connection error: {describe_exception(e)}. Retrying in {wait_time}s..."
                     )
                     await asyncio.sleep(wait_time)
                 else:

@@ -264,19 +264,54 @@ def reset_windows_terminal_full() -> None:
     flush_windows_keyboard_buffer()
 
 
-def reset_unix_terminal() -> None:
-    """Reset Unix/Linux/macOS terminal to sane state.
+#: Escape codes undoing every visual mode we could have left enabled:
+#: DECSTR soft reset, attributes off, cursor visible, alternate screen off.
+#: Deliberately NOT the full RIS (``\\x1bc``) that ``reset(1)`` sends -- that
+#: clears the screen, wiping the output the user just asked for.
+_UNIX_TERMINAL_RESET = "\x1b[!p\x1b[0m\x1b[?25h\x1b[?1049l"
 
-    Uses the `reset` command to restore terminal sanity.
-    Silently fails if the command isn't available.
+
+def reset_unix_terminal() -> None:
+    """Restore a sane Unix terminal state on exit.
+
+    Historically shelled out to ``reset(1)``, but ``reset``/``tset`` sleeps a
+    full second by design (a settling delay for hardware terminals), and with
+    output captured its escape sequences never reached the terminal anyway --
+    a one-second no-op on every exit. Instead: ``stty sane`` restores cooked
+    input instantly, and a handful of escape codes undo the visual modes we
+    could have left on. Skipped entirely when not attached to a terminal.
     """
     if platform.system() == "Windows":
         return
 
+    stderr_tty = _is_tty(sys.stderr)
+    if not stderr_tty and not _is_tty(sys.stdout):
+        return  # Piped/redirected: nothing to reset, don't touch anything.
+
     try:
-        subprocess.run(["reset"], check=True, capture_output=True)
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        pass  # Silently fail if reset command isn't available
+        # stty operates on its stdin; inherit ours so it reaches the tty.
+        subprocess.run(["stty", "sane"], check=True, capture_output=True, timeout=2)
+    except (
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+        FileNotFoundError,
+    ):
+        pass  # Best effort -- stdin may be a pipe, stty may be missing.
+
+    stream = sys.stderr if stderr_tty else sys.stdout
+    try:
+        stream.write(_UNIX_TERMINAL_RESET + _MOUSE_TRACKING_OFF)
+        stream.flush()
+    except Exception:
+        pass  # Never let a cleanup helper crash the exit path.
+
+
+def _is_tty(stream) -> bool:
+    """Best-effort ``isatty`` that treats broken streams as non-terminals."""
+    try:
+        return bool(stream.isatty())
+    except Exception:
+        return False
 
 
 #: Disable all xterm mouse-tracking modes + bracketed paste (1000/1002/1003,

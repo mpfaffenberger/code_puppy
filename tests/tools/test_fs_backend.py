@@ -349,6 +349,22 @@ def test_grep_unsupported_flag_errors_loudly(backend):
     assert out.error is not None and "-z" in out.error
 
 
+def test_grep_backend_flags_truncation_only_beyond_budget(backend):
+    """Backend path mirrors ripgrep: over budget -> truncated, at budget -> not."""
+    from code_puppy.config import GREP_MAX_MATCHES_DEFAULT
+    from code_puppy.tools.file_operations import _grep
+
+    backend.write_text_file("/ws/many.py", "HIT\n" * (GREP_MAX_MATCHES_DEFAULT + 1))
+    over = _grep(None, "HIT", "/ws")
+    assert len(over.matches) == GREP_MAX_MATCHES_DEFAULT
+    assert over.truncated is True
+
+    backend.write_text_file("/ws/many.py", "HIT\n" * GREP_MAX_MATCHES_DEFAULT)
+    exact = _grep(None, "HIT", "/ws")
+    assert len(exact.matches) == GREP_MAX_MATCHES_DEFAULT
+    assert exact.truncated is False
+
+
 def test_grep_unknown_type_errors(backend):
     from code_puppy.tools.file_operations import _grep
 

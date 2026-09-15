@@ -47,120 +47,6 @@ from code_puppy.tools.file_permission_state import (
 )
 
 
-# --- Claude Code Edit-tool parity helpers -----------------------------------
-# Ported 1:1 from Claude Code's FileEditTool (leaked source: utils.ts /
-# FileEditTool.ts validateInput). Claude cannot emit curly quotes, so the
-# harness matches old_string against a quote-normalized view of the file and
-# then re-applies the file's typography to new_string.
-
-_LEFT_SINGLE_CURLY_QUOTE = "\u2018"
-_RIGHT_SINGLE_CURLY_QUOTE = "\u2019"
-_LEFT_DOUBLE_CURLY_QUOTE = "\u201c"
-_RIGHT_DOUBLE_CURLY_QUOTE = "\u201d"
-
-
-def _normalize_quotes(text: str) -> str:
-    """Convert curly quotes to straight quotes (Claude Code normalizeQuotes)."""
-    return (
-        text.replace(_LEFT_SINGLE_CURLY_QUOTE, "'")
-        .replace(_RIGHT_SINGLE_CURLY_QUOTE, "'")
-        .replace(_LEFT_DOUBLE_CURLY_QUOTE, '"')
-        .replace(_RIGHT_DOUBLE_CURLY_QUOTE, '"')
-    )
-
-
-def _find_actual_string(file_content: str, search_string: str) -> str | None:
-    """Find the actual substring of ``file_content`` matching ``search_string``.
-
-    Exact match first, then a curly-quote-normalized match that returns the
-    file's own bytes (Claude Code findActualString).
-    """
-    if search_string in file_content:
-        return search_string
-    normalized_search = _normalize_quotes(search_string)
-    normalized_file = _normalize_quotes(file_content)
-    search_index = normalized_file.find(normalized_search)
-    if search_index != -1:
-        return file_content[search_index : search_index + len(search_string)]
-    return None
-
-
-def _is_opening_context(chars: list[str], index: int) -> bool:
-    if index == 0:
-        return True
-    prev = chars[index - 1]
-    return prev in (" ", "\t", "\n", "\r", "(", "[", "{", "\u2014", "\u2013")
-
-
-def _apply_curly_double_quotes(text: str) -> str:
-    chars = list(text)
-    result: list[str] = []
-    for i, ch in enumerate(chars):
-        if ch == '"':
-            result.append(
-                _LEFT_DOUBLE_CURLY_QUOTE
-                if _is_opening_context(chars, i)
-                else _RIGHT_DOUBLE_CURLY_QUOTE
-            )
-        else:
-            result.append(ch)
-    return "".join(result)
-
-
-def _apply_curly_single_quotes(text: str) -> str:
-    chars = list(text)
-    result: list[str] = []
-    for i, ch in enumerate(chars):
-        if ch == "'":
-            prev = chars[i - 1] if i > 0 else None
-            nxt = chars[i + 1] if i < len(chars) - 1 else None
-            # An apostrophe between two letters is a contraction, not a quote.
-            if (
-                prev is not None
-                and nxt is not None
-                and prev.isalpha()
-                and nxt.isalpha()
-            ):
-                result.append(_RIGHT_SINGLE_CURLY_QUOTE)
-            else:
-                result.append(
-                    _LEFT_SINGLE_CURLY_QUOTE
-                    if _is_opening_context(chars, i)
-                    else _RIGHT_SINGLE_CURLY_QUOTE
-                )
-        else:
-            result.append(ch)
-    return "".join(result)
-
-
-def _preserve_quote_style(
-    old_string: str, actual_old_string: str, new_string: str
-) -> str:
-    """Re-apply the file's curly-quote typography to ``new_string``.
-
-    Only active when ``old_string`` matched via quote normalization
-    (Claude Code preserveQuoteStyle).
-    """
-    if old_string == actual_old_string:
-        return new_string
-    has_double = (
-        _LEFT_DOUBLE_CURLY_QUOTE in actual_old_string
-        or _RIGHT_DOUBLE_CURLY_QUOTE in actual_old_string
-    )
-    has_single = (
-        _LEFT_SINGLE_CURLY_QUOTE in actual_old_string
-        or _RIGHT_SINGLE_CURLY_QUOTE in actual_old_string
-    )
-    if not has_double and not has_single:
-        return new_string
-    result = new_string
-    if has_double:
-        result = _apply_curly_double_quotes(result)
-    if has_single:
-        result = _apply_curly_single_quotes(result)
-    return result
-
-
 def _split_existing(path: Path) -> tuple[Path, tuple[str, ...]]:
     """Deepest existing ancestor of *path*, plus the missing trailing names."""
     missing: list[str] = []
@@ -452,14 +338,18 @@ def _delete_snippet_from_file(
 def apply_replacements_to_content(
     content: str, replacements: List[Dict[str, Any]]
 ) -> Dict[str, Any]:
-    """Apply Claude Code-parity replacements to ``content`` (pure, no I/O).
+    """Apply targeted replacements to ``content`` (pure, no I/O).
 
-    Returns ``{"content": new_content}`` on success or ``{"error": message}``
-    using Claude Code's verbatim FileEditTool error strings. This is the
-    single source of truth for replacement semantics: the ``edit`` /
-    ``replace_in_file`` tools and permission-preview rendering (e.g. the
+    Returns ``{"content": new_content}`` on success or ``{"error": message}``.
+    This is the single source of truth for replacement semantics: the
+    ``replace_in_file`` tool and permission-preview rendering (e.g. the
     ``file_permission_handler`` core plugin) must all go through it so a
     preview always shows exactly what the engine will do.
+
+    Matching is exact. A no-op, an unmatched ``old_str``, or an ambiguous
+    ``old_str`` (multiple hits without ``replace_all``) is refused rather
+    than guessed at -- a silent wrong-location edit is worse than an error
+    the model can correct.
     """
     modified = content
     for rep in replacements:
@@ -467,43 +357,30 @@ def apply_replacements_to_content(
         new_snippet = rep.get("new_str", "")
         replace_all = bool(rep.get("replace_all", False))
 
-        # Claude Code FileEditTool.validateInput parity: refuse no-op
-        # edits, unmatched strings, and ambiguous matches instead of
-        # guessing (silent wrong-location edits) or fuzzy-matching.
         if old_snippet == new_snippet:
             return {
                 "error": (
-                    "No changes to make: old_string and new_string are "
-                    "exactly the same."
+                    "No changes to make: old_str and new_str are exactly the same."
                 )
             }
-
-        actual_old = _find_actual_string(modified, old_snippet) if old_snippet else None
-        if actual_old is None:
+        if not old_snippet or old_snippet not in modified:
             return {
-                "error": (
-                    f"String to replace not found in file.\nString: {old_snippet}"
-                )
+                "error": f"String to replace not found in file.\nString: {old_snippet}"
             }
 
-        matches = modified.count(actual_old)
+        matches = modified.count(old_snippet)
         if matches > 1 and not replace_all:
             return {
                 "error": (
-                    f"Found {matches} matches of the string to replace, "
-                    "but replace_all is false. To replace all occurrences, "
-                    "set replace_all to true. To replace only one "
-                    "occurrence, please provide more context to uniquely "
-                    "identify the instance.\n"
-                    f"String: {old_snippet}"
+                    f"Found {matches} matches of the string to replace, but "
+                    "replace_all is false. To replace all occurrences, set "
+                    "replace_all to true. To replace only one occurrence, "
+                    "provide more surrounding context to uniquely identify "
+                    f"the instance.\nString: {old_snippet}"
                 )
             }
 
-        actual_new = _preserve_quote_style(old_snippet, actual_old, new_snippet)
-        if replace_all:
-            modified = modified.replace(actual_old, actual_new)
-        else:
-            modified = modified.replace(actual_old, actual_new, 1)
+        modified = modified.replace(old_snippet, new_snippet, -1 if replace_all else 1)
 
     return {"content": modified}
 
@@ -511,7 +388,7 @@ def apply_replacements_to_content(
 def _replace_in_file(
     context: RunContext | None,
     path: str,
-    replacements: List[Dict[str, str]],
+    replacements: List[Dict[str, Any]],
     message_group: str | None = None,
 ) -> Dict[str, Any]:
     UndoManager().record_change(path, "replace_in_file")
@@ -527,8 +404,7 @@ def _replace_in_file(
 
         engine_result = apply_replacements_to_content(original, replacements)
         if "error" in engine_result:
-            return {"error": engine_result["error"], "diff": ""}
-
+            return {**engine_result, "diff": ""}
         modified = engine_result["content"]
 
         if modified == original:
@@ -697,7 +573,7 @@ def write_to_file(
 def replace_in_file(
     context: RunContext,
     path: str,
-    replacements: List[Dict[str, str]],
+    replacements: List[Dict[str, Any]],
     message_group: str | None = None,
 ) -> Dict[str, Any]:
     refused = _refuse_user_plugin_tree(path)
@@ -789,7 +665,7 @@ async def write_to_file_async(
 async def replace_in_file_async(
     context: RunContext,
     path: str,
-    replacements: List[Dict[str, str]],
+    replacements: List[Dict[str, Any]],
     message_group: str | None = None,
 ) -> Dict[str, Any]:
     """Async permission-aware variant of ``replace_in_file``."""
@@ -1246,13 +1122,14 @@ _REPLACEMENT_ITEM_SCHEMA = {
     "properties": {
         "old_str": {"type": "string"},
         "new_str": {"type": "string"},
+        "replace_all": {"type": "boolean", "default": False},
     },
     "required": ["old_str", "new_str"],
 }
 
 # Type alias used by the tool signature.  The Annotated + WithJsonSchema
 # tells Pydantic to emit _REPLACEMENT_ITEM_SCHEMA inline instead of a $ref.
-InlineReplacement = Annotated[Dict[str, str], WithJsonSchema(_REPLACEMENT_ITEM_SCHEMA)]
+InlineReplacement = Annotated[Dict[str, Any], WithJsonSchema(_REPLACEMENT_ITEM_SCHEMA)]
 
 
 def _try_json_repair(v: Any) -> Any:
@@ -1291,10 +1168,11 @@ RepairableReplacementsList = Annotated[
 ]
 
 
-def _register_targeted_edit(agent, exposed_name: str):
-    """Register the targeted replacement implementation under a public name."""
+def register_replace_in_file(agent):
+    """Register the replace_in_file tool for targeted text replacements."""
 
-    async def targeted_edit(
+    @agent.tool
+    async def replace_in_file(
         context: RunContext,
         file_path: str,
         replacements: RepairableReplacementsList,
@@ -1302,13 +1180,15 @@ def _register_targeted_edit(agent, exposed_name: str):
         """Apply targeted text replacements to an existing file.
 
         Each replacement specifies an old_str to find and a new_str to replace it with.
+        old_str must match exactly and uniquely; if it occurs more than once, either
+        add surrounding context or set replace_all=true on that replacement.
         Replacements are applied sequentially. Prefer this over full file rewrites.
         """
         group_id = generate_group_id("replace_in_file", file_path)
         try:
             # Validate up front so a malformed payload returns a clean error
             # instead of tearing down the whole agent run via pydantic_ai.
-            normalized: List[Dict[str, str]] = []
+            normalized: List[Dict[str, Any]] = []
             for idx, raw in enumerate(replacements):
                 # Per-item json_repair: some models stringify each replacement
                 # individually — heal before strict validation.
@@ -1362,82 +1242,11 @@ def _register_targeted_edit(agent, exposed_name: str):
         except Exception as exc:
             # Last line of defense — never let this tool crash the agent run.
             _log_error(
-                f"Unhandled exception in {exposed_name}",
+                "Unhandled exception in replace_in_file",
                 exc,
                 message_group=group_id,
             )
-            return {"error": f"{exposed_name} failed: {exc}"}
-
-    targeted_edit.__name__ = exposed_name
-    return agent.tool(targeted_edit)
-
-
-def register_claude_edit(agent):
-    """Register the Claude Code-compatible ``edit`` tool.
-
-    Schema is 1:1 with the tool Claude models are trained on
-    (``Edit``: file_path, old_string, new_string, replace_all) so the model
-    can emit its native edit dialect without translation.
-    """
-
-    @agent.tool
-    async def edit(
-        context: RunContext,
-        file_path: str,
-        old_string: str,
-        new_string: str,
-        replace_all: bool = False,
-    ) -> Dict[str, Any]:
-        """Performs exact string replacements in files.
-
-        The edit will FAIL if `old_string` is not unique in the file. Either
-        provide a larger string with more surrounding context to make it
-        unique or use `replace_all` to change every instance of `old_string`.
-        Use `replace_all` for replacing and renaming strings across the file.
-        """
-        group_id = generate_group_id("edit", file_path)
-        try:
-            normalized = [
-                {
-                    "old_str": old_string,
-                    "new_str": new_string,
-                    "replace_all": bool(replace_all),
-                }
-            ]
-            result = await _replace_in_file_helper(
-                context, file_path, normalized, message_group=group_id
-            )
-            if "diff" in result:
-                del result["diff"]
-
-            # Trigger legacy edit_file callbacks for backward compatibility
-            payload = ReplacementsPayload(
-                file_path=file_path,
-                replacements=[Replacement(old_str=old_string, new_str=new_string)],
-            )
-            enhanced_results = on_edit_file(context, result, payload)
-            if enhanced_results:
-                for enhanced_result in enhanced_results:
-                    if enhanced_result is not None:
-                        result = enhanced_result
-                        break
-
-            return result
-        except Exception as exc:
-            # Last line of defense — never let this tool crash the agent run.
-            _log_error(
-                "Unhandled exception in edit",
-                exc,
-                message_group=group_id,
-            )
-            return {"error": f"edit failed: {exc}"}
-
-    return edit
-
-
-def register_replace_in_file(agent):
-    """Register the legacy ``replace_in_file`` compatibility tool."""
-    return _register_targeted_edit(agent, "replace_in_file")
+            return {"error": f"replace_in_file failed: {exc}"}
 
 
 def register_delete_snippet(agent):

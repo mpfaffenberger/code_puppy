@@ -124,7 +124,7 @@ class TestDefaultVersionMismatchBehavior:
         """Test that update message is shown when versions differ."""
         mock_fetch.return_value = "2.0.0"
 
-        default_version_mismatch_behavior("1.0.0")
+        default_version_mismatch_behavior("1.0.0").join()
 
         # Should emit current version info
         mock_emit_info.assert_any_call("Current version: 1.0.0")
@@ -146,7 +146,7 @@ class TestDefaultVersionMismatchBehavior:
         """Test that current version is still shown when versions match."""
         mock_fetch.return_value = "1.0.0"
 
-        default_version_mismatch_behavior("1.0.0")
+        default_version_mismatch_behavior("1.0.0").join()
 
         # Should emit current version info
         mock_emit_info.assert_called_once_with("Current version: 1.0.0")
@@ -165,7 +165,7 @@ class TestDefaultVersionMismatchBehavior:
         """Test behavior when fetch_latest_version returns None."""
         mock_fetch.return_value = None
 
-        default_version_mismatch_behavior("1.0.0")
+        default_version_mismatch_behavior("1.0.0").join()
 
         # Should still emit current version info even when fetch fails
         mock_emit_info.assert_called_once_with("Current version: 1.0.0")
@@ -184,7 +184,7 @@ class TestDefaultVersionMismatchBehavior:
         """Test the exact content of update messages."""
         mock_fetch.return_value = "2.5.0"
 
-        default_version_mismatch_behavior("2.0.0")
+        default_version_mismatch_behavior("2.0.0").join()
 
         # Check warning contains new version info
         warning_calls = [str(call) for call in mock_emit_warning.call_args_list]
@@ -202,7 +202,7 @@ class TestDefaultVersionMismatchBehavior:
         mock_fetch.return_value = "1.0.0"
 
         # This should not raise an exception
-        default_version_mismatch_behavior(None)
+        default_version_mismatch_behavior(None).join()
 
         # Should emit warning about unknown version
         mock_emit_warning.assert_any_call(

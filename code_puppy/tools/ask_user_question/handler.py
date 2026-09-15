@@ -69,7 +69,7 @@ def is_interactive() -> bool:
 
 def ask_user_question(
     questions: list[Question | dict[str, Any]],
-    timeout: int = DEFAULT_TIMEOUT_SECONDS,
+    timeout: int | None = DEFAULT_TIMEOUT_SECONDS,
 ) -> AskUserQuestionOutput:
     """
     Ask the user one or more interactive multiple-choice questions.
@@ -83,7 +83,8 @@ def ask_user_question(
             - header (str): Short label (max 60 chars)
             - multi_select (bool, optional): Allow multiple selections
             - options (list): 2-6 options, each with label and optional description
-        timeout: Inactivity timeout in seconds (default: 300)
+        timeout: Optional inactivity timeout in seconds. By default, the tool waits
+            until the user answers or cancels.
 
     Returns:
         AskUserQuestionOutput containing:
@@ -146,6 +147,10 @@ def ask_user_question(
         )
 
         if timed_out:
+            if timeout is None:
+                return AskUserQuestionOutput.error_response(
+                    "Interaction ended as timed out, but no timeout was configured"
+                )
             return AskUserQuestionOutput.timeout_response(timeout)
 
         if cancelled:
@@ -161,7 +166,7 @@ def ask_user_question(
 
 
 def _run_interactive_picker(
-    questions: list[Question], timeout: int
+    questions: list[Question], timeout: int | None
 ) -> tuple[list[QuestionAnswer], bool, bool]:
     """Run the interactive TUI, handling async context detection.
 
