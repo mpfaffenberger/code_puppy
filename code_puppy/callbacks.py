@@ -80,6 +80,7 @@ PhaseType = Literal[
     "git_branch_provider",
     "feature_capability",
     "transform_model_messages",
+    "error_logged",
 ]
 CallbackFunc = Callable[..., Any]
 
@@ -171,6 +172,7 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "git_branch_provider": [],
     "feature_capability": [],
     "transform_model_messages": [],
+    "error_logged": [],
 }
 
 logger = logging.getLogger(__name__)
@@ -714,6 +716,50 @@ def on_file_permission(
         preview,
         message_group,
         operation_data,
+    )
+
+
+def on_error_logged(
+    error: Exception,
+    *,
+    context: Optional[str] = None,
+    include_traceback: bool = True,
+) -> List[Any]:
+    """Fired whenever ``error_logging.log_error()`` records an exception.
+
+    Observers only. Code Puppy itself does nothing with the results -- the
+    phase exists so an out-of-tree plugin can *observe* errors that were
+    written to the local error log (for example, to forward them to an
+    internal error-reporting service in a corporate distribution).
+
+    Core ships **no** subscriber and performs **no** network I/O here. With no
+    plugin registered this is a dictionary lookup that returns ``[]``, so the
+    zero-telemetry guarantee in the README is preserved by construction.
+
+    Deliberately **synchronous**: ``log_error()`` is called from arbitrary
+    contexts, including exception handlers on the way out of the process,
+    where no event loop is guaranteed to exist. ``agent_exception`` is *not* a
+    substitute -- it is async, it fires for recovered errors, and it does not
+    cover every ``log_error()`` call site.
+
+    Note this is **not** fired by ``log_error_message()``. That function
+    records non-exception forensic events (including telemetry's own
+    failures), and hooking it would let a reporting plugin generate reports
+    about its own reporting.
+
+    Args:
+        error: The exception that was logged.
+        context: Optional context string describing where the error occurred.
+        include_traceback: Whether the caller logged a full traceback.
+
+    Returns:
+        Results from each subscriber; empty when nothing is registered.
+    """
+    return _trigger_callbacks_sync(
+        "error_logged",
+        error,
+        context=context,
+        include_traceback=include_traceback,
     )
 
 
