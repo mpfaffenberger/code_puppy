@@ -53,15 +53,6 @@ def test_parametrized_cfg_keys_interpolate():
     assert "boom" in translate.t("cfg.unpin.failed", agent="coder", error="boom")
 
 
-def test_colors_usage_renders_as_literal_placeholder():
-    """{{color_type}} must render as the literal text {color_type}, never substituted."""
-    translate.set_locale("en-US")
-    rendered = translate.t("cfg.colors.usage")
-    assert "{color_type}" in rendered, (
-        f"Expected literal {{color_type}} in output, got: {rendered!r}"
-    )
-
-
 def test_no_leftover_placeholder_for_supplied_params():
     translate.set_locale("en-US")
     src = catalog.load_catalog("en-US")

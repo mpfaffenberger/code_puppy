@@ -140,11 +140,9 @@ def handle_set_command(command: str) -> bool:
         emit_success(t("cfg.set.yolo_config_unchanged"))
     else:
         emit_success(t("cfg.set.success", key=key, value=display))
-    # Restart notices (warning) and the reload-success/failure signal
-    # are independent: a restart-required key like ``enable_dbos``
-    # should still report whether the live agent reload happened. The
-    # original ``/set`` always emitted "Agent reloaded with updated
-    # config" alongside the restart notice; preserve that contract.
+    # Restart notice and reload-success/failure signal are independent (e.g.
+    # ``enable_dbos`` must still report whether the live reload happened);
+    # preserve the old /set contract of emitting both.
     if result.warning:
         emit_warning(result.warning)
     if result.reload_error:
@@ -185,9 +183,8 @@ def _launch_interactive_set_menu() -> None:
         emitter = _LEVEL_EMITTERS.get(level, emit_info)
         emitter(message)
 
-    # Coalesce all agent reloads into a single one at the end, but only
-    # when the user actually changed something. Failures here mirror the
-    # behaviour of the per-key path: warn, don't crash.
+    # Coalesce reloads into one at the end, but only when something changed;
+    # failures mirror the per-key path: warn, don't crash.
     if result.changed_settings:
         from code_puppy.agents import get_current_agent
 
@@ -478,181 +475,3 @@ def handle_unpin_command(command: str) -> bool:
     except Exception as e:
         emit_error(t("cfg.unpin.failed", agent=agent_name, error=e))
         return True
-
-
-@register_command(
-    name="diff",
-    description="Configure diff highlighting colors (additions, deletions)",
-    usage="/diff",
-    category="config",
-)
-def handle_diff_command(command: str) -> bool:
-    """Configure diff highlighting colors."""
-    import asyncio
-    import concurrent.futures
-
-    from code_puppy.command_line.diff_menu import interactive_diff_picker
-    from code_puppy.config import (
-        set_diff_addition_color,
-        set_diff_deletion_color,
-    )
-    from code_puppy.messaging import emit_error
-
-    # Show interactive picker for diff configuration
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        future = executor.submit(lambda: asyncio.run(interactive_diff_picker()))
-        result = future.result(timeout=300)  # 5 min timeout
-
-    if result:
-        # Apply the changes silently (no console output)
-        try:
-            set_diff_addition_color(result["add_color"])
-            set_diff_deletion_color(result["del_color"])
-        except Exception as e:
-            emit_error(t("cfg.diff.apply_failed", error=e))
-    return True
-
-
-@register_command(
-    name="colors",
-    description="Configure banner colors for tool outputs (THINKING, SHELL COMMAND, etc.)",
-    usage="/colors",
-    category="config",
-)
-def handle_colors_command(command: str) -> bool:
-    """Configure banner colors via interactive TUI."""
-    import asyncio
-    import concurrent.futures
-
-    from code_puppy.command_line.colors_menu import interactive_colors_picker
-    from code_puppy.config import set_banner_color
-    from code_puppy.messaging import emit_error, emit_success
-
-    # Show interactive picker for banner color configuration
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        future = executor.submit(lambda: asyncio.run(interactive_colors_picker()))
-        result = future.result(timeout=300)  # 5 min timeout
-
-    if result:
-        # Apply the changes
-        try:
-            for banner_name, color in result.items():
-                set_banner_color(banner_name, color)
-            emit_success(t("cfg.colors.saved"))
-        except Exception as e:
-            emit_error(t("cfg.colors.apply_failed", error=e))
-    return True
-
-
-# ============================================================================
-# UTILITY FUNCTIONS
-# ============================================================================
-
-
-def _show_color_options(color_type: str):
-    # ============================================================================
-    # UTILITY FUNCTIONS
-    # ============================================================================
-
-    """Show available Rich color options organized by category."""
-    from rich.text import Text
-
-    from code_puppy.messaging import emit_info
-
-    # Standard Rich colors organized by category
-    color_categories = {
-        "Basic Colors": [
-            ("black", "⚫"),
-            ("red", "🔴"),
-            ("green", "🟢"),
-            ("yellow", "🟡"),
-            ("blue", "🔵"),
-            ("magenta", "🟣"),
-            ("cyan", "🔷"),
-            ("white", "⚪"),
-        ],
-        "Bright Colors": [
-            ("bright_black", "⚫"),
-            ("bright_red", "🔴"),
-            ("bright_green", "🟢"),
-            ("bright_yellow", "🟡"),
-            ("bright_blue", "🔵"),
-            ("bright_magenta", "🟣"),
-            ("bright_cyan", "🔷"),
-            ("bright_white", "⚪"),
-        ],
-        "Special Colors": [
-            ("orange1", "🟠"),
-            ("orange3", "🟠"),
-            ("orange4", "🟠"),
-            ("deep_sky_blue1", "🔷"),
-            ("deep_sky_blue2", "🔷"),
-            ("deep_sky_blue3", "🔷"),
-            ("deep_sky_blue4", "🔷"),
-            ("turquoise2", "🔷"),
-            ("turquoise4", "🔷"),
-            ("steel_blue1", "🔷"),
-            ("steel_blue3", "🔷"),
-            ("chartreuse1", "🟢"),
-            ("chartreuse2", "🟢"),
-            ("chartreuse3", "🟢"),
-            ("chartreuse4", "🟢"),
-            ("gold1", "🟡"),
-            ("gold3", "🟡"),
-            ("rosy_brown", "🔴"),
-            ("indian_red", "🔴"),
-        ],
-    }
-
-    # Suggested colors for each type
-    if color_type == "additions":
-        suggestions = [
-            ("green", "🟢"),
-            ("bright_green", "🟢"),
-            ("chartreuse1", "🟢"),
-            ("green3", "🟢"),
-            ("sea_green1", "🟢"),
-        ]
-        emit_info(
-            Text.from_markup(
-                "[bold white on green]🎨 Recommended Colors for Additions:[/bold white on green]"
-            )
-        )
-        for color, emoji in suggestions:
-            emit_info(
-                Text.from_markup(
-                    f"  [cyan]{color:<16}[/cyan] [white on {color}]■■■■■■■■■■[/white on {color}] {emoji}"
-                )
-            )
-    elif color_type == "deletions":
-        suggestions = [
-            ("orange1", "🟠"),
-            ("red", "🔴"),
-            ("bright_red", "🔴"),
-            ("indian_red", "🔴"),
-            ("dark_red", "🔴"),
-        ]
-        emit_info(
-            Text.from_markup(
-                "[bold white on orange1]🎨 Recommended Colors for Deletions:[/bold white on orange1]"
-            )
-        )
-        for color, emoji in suggestions:
-            emit_info(
-                Text.from_markup(
-                    f"  [cyan]{color:<16}[/cyan] [white on {color}]■■■■■■■■■■[/white on {color}] {emoji}"
-                )
-            )
-
-    emit_info("\n" + t("cfg.colors.all_available"))
-    for category, colors in color_categories.items():
-        emit_info(f"\n{category}:")
-        # Display in columns for better readability
-        for i in range(0, len(colors), 4):
-            row = colors[i : i + 4]
-            row_text = "  ".join([f"[{color}]■[/{color}] {color}" for color, _ in row])
-            emit_info(Text.from_markup(f"  {row_text}"))
-
-    emit_info("\n" + t("cfg.colors.usage"))
-    emit_info(t("cfg.colors.white_text_note"))
-    emit_info(t("cfg.colors.hex_note"))
