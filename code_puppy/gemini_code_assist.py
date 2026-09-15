@@ -51,14 +51,17 @@ class GeminiCodeAssistModel(Model):
         api_base_url: str = "https://cloudcode-pa.googleapis.com",
         api_version: str = "v1internal",
     ):
+        # v2 Model.__init__ wires settings/profile state and pricing preload.
+        super().__init__()
         self._model_name = model_name
         self.access_token = access_token
         self.project_id = project_id
         self.api_base_url = api_base_url
         self.api_version = api_version
 
+    @property
     def model_name(self) -> str:
-        """Return the model name."""
+        """Return the model name (v2 Model ABC: a property, not a method)."""
         return self._model_name
 
     @property
@@ -98,6 +101,7 @@ class GeminiCodeAssistModel(Model):
         messages: list[ModelMessage],
         model_settings: ModelSettings | None,
         model_request_parameters: ModelRequestParameters,
+        run_context: Any | None = None,
     ) -> AsyncIterator[StreamedResponse]:
         """Make a streaming request to the Code Assist API."""
         request_body = self._build_request(
@@ -372,14 +376,21 @@ class StreamedResponse:
 
         return parts
 
+    @property
     def usage(self) -> RequestUsage:
-        """Get usage statistics."""
+        """Usage statistics (v2 StreamedResponse contract: a property)."""
         return self._usage or RequestUsage()
 
+    @property
     def model_name(self) -> str:
-        """Get the model name."""
+        """Model name (v2 StreamedResponse contract: a property)."""
         return self._model_name
 
+    @property
     def timestamp(self) -> datetime:
-        """Get the response timestamp."""
+        """Response timestamp (v2 StreamedResponse contract: a property)."""
         return self._timestamp
+
+    async def close_stream(self) -> None:
+        """Close the underlying httpx stream (v2 cancellation contract)."""
+        await self._response.aclose()

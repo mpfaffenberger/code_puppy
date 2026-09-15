@@ -12,9 +12,10 @@ Agent Skills are reusable, modular capabilities that extend Code Puppy's functio
 2. [Installing Skills](#installing-skills)
 3. [Using the /skills TUI Menu](#using-the-skills-tui-menu)
 4. [How Skills Work](#how-skills-work)
-5. [Creating Your Own Skills](#creating-your-own-skills)
-6. [Configuration Options](#configuration-options)
-7. [Security Considerations](#security-considerations)
+5. [Skill Namespaces (Large Catalogs)](#skill-namespaces-large-catalogs)
+6. [Creating Your Own Skills](#creating-your-own-skills)
+7. [Configuration Options](#configuration-options)
+8. [Security Considerations](#security-considerations)
 
 ---
 
@@ -231,6 +232,116 @@ activate_skill(skill_name="docker")
 
 ---
 
+## Skill Namespaces (Large Catalogs)
+
+Everything above describes the default behavior: a flat list of every
+enabled skill's name + description gets injected into the system
+prompt, and the agent picks one with `list_or_search_skills` /
+`activate_skill`. That works fine for a handful of skills. It stops
+working well somewhere in the dozens-to-hundreds range - flat lists
+that size burn a lot of context, and models (especially smaller/faster
+ones) get worse at picking the right item the longer the list gets.
+
+The **namespace_skill_search** builtin plugin fixes this by grouping
+skills into **namespaces** and replacing the flat list with a compact
+directory - the same shape OpenAI ships for large tool catalogs
+(tool_search + namespace grouping) and Anthropic ships for large MCP
+tool sets (Tool Search Tool), reimplemented here in a model-agnostic
+way so it behaves identically on Claude, GPT, Gemini, or any other
+provider wired through Code Puppy's ModelFactory.
+
+### What changes automatically
+
+This plugin is builtin and on by default - you don't need to install or
+configure anything. The first time Code Puppy starts with it present:
+
+1. Every enabled skill gets grouped into a **namespace**, derived from
+   its first `tags:` entry in `SKILL.md` (untagged skills land in a
+   `General` namespace). No changes to your existing `SKILL.md` files
+   are required.
+2. The system prompt gets a short **namespace directory** instead of
+   one line per skill - a handful of lines like:
+
+   ```text
+   ## Skill Namespaces
+   47 skills available across 8 namespaces. Individual skills are NOT
+   listed here - browse or search instead.
+
+   - **finance** (12): variance-analysis, gl-daily, +10 more
+   - **devops** (9): docker, kubernetes, terraform
+   - **General** (3): my-custom-skill, ...
+   ```
+
+3. The old per-skill flat list (`frontmatter_in_system_prompt`) is
+   turned **off** automatically, so you don't end up paying for both
+   the old list and the new directory at once. This is a one-time,
+   persisted change - see [Turning it off](#turning-it-off) below if
+   you want the flat list back.
+
+### The browse_skill_namespace tool
+
+Agents get one new tool with three modes, matching the three things you
+actually need to do at this scale:
+
+| Call | Mode | What it returns |
+|------|------|------------------|
+| `browse_skill_namespace()` | Directory | Every namespace name + skill count (same content as the prompt block) |
+| `browse_skill_namespace(namespace='finance')` | Namespace | Every skill inside that one namespace |
+| `browse_skill_namespace(query='variance')` | Search | Keyword search across name/description/tags, across **all** namespaces at once |
+
+You can also combine `namespace=` and `query=` to search within one
+namespace. The normal flow is: browse the directory, drill into (or
+search within) the namespace that looks relevant, then call
+`activate_skill(name)` on whatever you find - exactly like you would
+after `list_or_search_skills`. `list_or_search_skills` still exists and
+still works; `browse_skill_namespace` is additive, not a replacement.
+
+**Example:**
+
+```python
+# 1. See what domains exist
+browse_skill_namespace()
+# -> directory mode: namespaces=['finance', 'devops', 'General'], total_skills=47
+
+# 2. Drill into the relevant one
+browse_skill_namespace(namespace='finance')
+# -> namespace mode: skills=[{name: 'variance-analysis', ...}, ...], total_skills=12
+
+# 3. Or skip straight to a keyword search across everything
+browse_skill_namespace(query='variance')
+# -> search mode: skills=[{name: 'variance-analysis', namespace: 'finance', ...}]
+
+# 4. Load the one you want
+activate_skill(skill_name='variance-analysis')
+```
+
+### Namespace sizing
+
+If any single namespace grows past ~10 skills, the directory block
+flags it as an `oversized namespace` - a visible nudge (not an
+enforced limit; skill tags aren't this plugin's to rewrite) that it
+might be worth splitting that tag into more specific ones. If two
+skills anywhere end up with the exact same name, the directory also
+adds a note flagging the collision, since `activate_skill(name)` can't
+disambiguate between them on its own.
+
+### Turning it off
+
+If you'd rather go back to the flat per-skill list:
+
+```
+/plugins disable namespace_skill_search
+/skills frontmatter on
+```
+
+The first command stops the plugin from running at all (no namespace
+directory, no `browse_skill_namespace` tool). The second restores the
+original flat list - it won't come back on its own just from disabling
+the plugin, since the earlier flip is a persisted config change, not
+something tied to the plugin being active.
+
+---
+
 ## Creating Your Own Skills
 
 Creating a skill is straightforward. You need a directory with at least one file: `SKILL.md`.
@@ -315,11 +426,22 @@ This skill includes:
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `name` | string | ✅ Yes | Unique skill identifier (kebab-case recommended) |
-| `description` | string | ✅ Yes | Brief description of what the skill does |
-| `version` | string | ❌ No | Semantic version (e.g., "1.0.0") |
-| `author` | string | ❌ No | Author name or email |
-| `tags` | list | ❌ No | List of keywords for categorization |
+| `name` | string | Yes | Unique skill identifier (kebab-case recommended) |
+| `description` | string | Yes | Brief description of what the skill does |
+| `version` | string | No | Semantic version (e.g., "1.0.0") |
+| `author` | string | No | Author name or email |
+| `tags` | list | No | List of keywords for categorization. **The first tag also determines the skill's namespace** — see below. |
+
+> **Namespace tip:** if `namespace_skill_search` is enabled (the default —
+> see [Skill Namespaces (Large Catalogs)](#skill-namespaces-large-catalogs)),
+> your skill's **first** `tags:` entry becomes its namespace, grouping it
+> with every other skill that shares that first tag. An untagged skill
+> falls into a generic `General` namespace alongside every other untagged
+> skill. Put your most specific, meaningful category **first** —
+> e.g. `docker` before `devops` for a Docker-specific skill — rather than
+> leading with a broad tag that dumps unrelated skills into the same
+> bucket. Namespace matching is case-insensitive, so `docker`/`Docker`/
+> `DOCKER` all land in one namespace regardless of casing.
 
 ### Frontmatter Examples
 

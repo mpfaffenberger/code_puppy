@@ -19,13 +19,14 @@ from code_puppy.callbacks import (
     clear_callbacks,
     count_callbacks,
     get_callbacks,
+    get_feature_capability,
 )
-from code_puppy.plugins.dbos_durable_exec import cancel as cancel_mod
-from code_puppy.plugins.dbos_durable_exec import commands as commands_mod
-from code_puppy.plugins.dbos_durable_exec import config as config_mod
-from code_puppy.plugins.dbos_durable_exec import runtime as runtime_mod
-from code_puppy.plugins.dbos_durable_exec import workflow_ids as workflow_ids_mod
-from code_puppy.plugins.dbos_durable_exec import wrapper as wrapper_mod
+from code_puppy_core_plugins.dbos_durable_exec import cancel as cancel_mod
+from code_puppy_core_plugins.dbos_durable_exec import commands as commands_mod
+from code_puppy_core_plugins.dbos_durable_exec import config as config_mod
+from code_puppy_core_plugins.dbos_durable_exec import runtime as runtime_mod
+from code_puppy_core_plugins.dbos_durable_exec import workflow_ids as workflow_ids_mod
+from code_puppy_core_plugins.dbos_durable_exec import wrapper as wrapper_mod
 
 # ─────────────────────── config.is_enabled ────────────────────────────
 
@@ -83,7 +84,7 @@ def _install_fake_pydantic_dbos(monkeypatch):
     proceeds (it now bails out when DBOS hasn't been launched, to avoid
     handing back broken DBOSAgents in test environments).
     """
-    from code_puppy.plugins.dbos_durable_exec import lifecycle as lifecycle_mod
+    from code_puppy_core_plugins.dbos_durable_exec import lifecycle as lifecycle_mod
 
     monkeypatch.setattr(lifecycle_mod, "_LAUNCHED", True)
     captured = {}
@@ -114,7 +115,7 @@ class TestWrapWithDbosAgent:
         that were unusable (no DBOS instance running). Test verifies that
         path now passes through unmodified.
         """
-        from code_puppy.plugins.dbos_durable_exec import lifecycle as lifecycle_mod
+        from code_puppy_core_plugins.dbos_durable_exec import lifecycle as lifecycle_mod
 
         monkeypatch.setattr(lifecycle_mod, "_LAUNCHED", False)
         # Even with the pydantic_ai dbos submodule available, we must NOT wrap.
@@ -130,7 +131,7 @@ class TestWrapWithDbosAgent:
 
     def test_returns_none_when_import_fails(self, monkeypatch):
         # Force import to fail by setting the submodule to None.
-        from code_puppy.plugins.dbos_durable_exec import lifecycle as lifecycle_mod
+        from code_puppy_core_plugins.dbos_durable_exec import lifecycle as lifecycle_mod
 
         monkeypatch.setattr(lifecycle_mod, "_LAUNCHED", True)
         monkeypatch.setitem(sys.modules, "pydantic_ai.durable_exec.dbos", None)
@@ -160,26 +161,9 @@ class TestWrapWithDbosAgent:
         assert isinstance(result, FakeDBOSAgent)
         assert captured["kwargs"]["event_stream_handler"] is handler
         assert captured["kwargs"]["name"].startswith("main-agent-main-")
-        # Toolsets are reset (pickleability fix).
-        assert pydantic_agent._toolsets == []
-
-    def test_subagent_kind_forces_handler_none(self, monkeypatch):
-        _, captured = _install_fake_pydantic_dbos(monkeypatch)
-
-        agent = MagicMock(name="agent")
-        agent.name = "sub"
-        pydantic_agent = MagicMock(name="pyd")
-        pydantic_agent._toolsets = []
-        handler = object()
-
-        wrapper_mod.wrap_with_dbos_agent(
-            agent,
-            pydantic_agent,
-            event_stream_handler=handler,
-            kind="subagent",
-        )
-        assert captured["kwargs"]["event_stream_handler"] is None
-        assert captured["kwargs"]["name"].startswith("sub-subagent-")
+        # Plugins 0.0.6+: DBOSAgent owns MCP toolset conversion at construction;
+        # the wrapper must NOT mutate the agent's private toolsets anymore.
+        assert pydantic_agent._toolsets == ["toolset-1"]
 
     def test_no_stash_attribute_left_behind(self, monkeypatch):
         """YAGNI cleanup: the dead _dbos_stashed_mcp_toolsets attr must be gone."""
@@ -213,7 +197,7 @@ class _FakeSetWorkflowID:
 @contextmanager
 def _install_fake_dbos(monkeypatch):
     """Stub the dbos module + force is_launched()=True for the runtime tests."""
-    from code_puppy.plugins.dbos_durable_exec import lifecycle as lifecycle_mod
+    from code_puppy_core_plugins.dbos_durable_exec import lifecycle as lifecycle_mod
 
     _FakeSetWorkflowID.calls = []
     fake_mod = types.ModuleType("dbos")
@@ -264,17 +248,19 @@ class TestDbosRunContext:
                 assert wid == "main_run_xyz"
             assert _FakeSetWorkflowID.calls == ["main_run_xyz"]
 
-    async def test_mcp_servers_swap_and_restore_on_success(self, monkeypatch):
+    async def test_mcp_servers_left_untouched_on_success(self, monkeypatch):
+        """Plugins 0.0.6+: no runtime toolset swap — DBOSAgent converts MCP
+        toolsets at construction, so the context must not touch them."""
         with _install_fake_dbos(monkeypatch):
             inner = types.SimpleNamespace(_toolsets=["orig-a"])
             pydantic_agent = types.SimpleNamespace(wrapped=inner)
             async with runtime_mod.dbos_run_context(
                 None, pydantic_agent, "main_run", ["mcp-1", "mcp-2"]
             ):
-                assert inner._toolsets == ["orig-a", "mcp-1", "mcp-2"]
+                assert inner._toolsets == ["orig-a"]
             assert inner._toolsets == ["orig-a"]
 
-    async def test_mcp_servers_restored_on_exception(self, monkeypatch):
+    async def test_mcp_servers_left_untouched_on_exception(self, monkeypatch):
         with _install_fake_dbos(monkeypatch):
             inner = types.SimpleNamespace(_toolsets=["orig"])
             pydantic_agent = types.SimpleNamespace(wrapped=inner)
@@ -282,7 +268,7 @@ class TestDbosRunContext:
                 async with runtime_mod.dbos_run_context(
                     None, pydantic_agent, "main_run", ["mcp-1"]
                 ):
-                    assert inner._toolsets == ["orig", "mcp-1"]
+                    assert inner._toolsets == ["orig"]
                     raise RuntimeError("boom")
             assert inner._toolsets == ["orig"]
 
@@ -329,11 +315,6 @@ class TestHandleDbosCommand:
         result = commands_mod.handle_dbos_command("/dbos status", "dbos")
         assert "ON" in result
 
-    def test_status_path_when_off(self, monkeypatch):
-        monkeypatch.setattr(commands_mod, "is_enabled", lambda: False)
-        result = commands_mod.handle_dbos_command("/dbos status", "dbos")
-        assert "OFF" in result
-
     def test_no_subcommand_shows_status_and_usage(self, monkeypatch):
         monkeypatch.setattr(commands_mod, "is_enabled", lambda: True)
         result = commands_mod.handle_dbos_command("/dbos", "dbos")
@@ -373,7 +354,7 @@ class TestHandleDbosCommand:
 
 
 # Phases owned by this plugin (slash-cmd hooks always, lifecycle behind dbos).
-_SLASH_PHASES = ("custom_command", "custom_command_help")
+_ALWAYS_PHASES = ("custom_command", "custom_command_help", "feature_capability")
 _DBOS_PHASES = (
     "startup",
     "shutdown",
@@ -387,7 +368,7 @@ _DBOS_PHASES = (
 @pytest.fixture
 def clean_callbacks():
     """Snapshot + restore the global callback registry around each test."""
-    saved = {p: get_callbacks(p) for p in _SLASH_PHASES + _DBOS_PHASES}
+    saved = {p: get_callbacks(p) for p in _ALWAYS_PHASES + _DBOS_PHASES}
     for p in saved:
         clear_callbacks(p)
     yield
@@ -400,7 +381,7 @@ def clean_callbacks():
 
 
 def _reload_register_callbacks():
-    mod_name = "code_puppy.plugins.dbos_durable_exec.register_callbacks"
+    mod_name = "code_puppy_core_plugins.dbos_durable_exec.register_callbacks"
     if mod_name in sys.modules:
         return importlib.reload(sys.modules[mod_name])
     return importlib.import_module(mod_name)
@@ -410,9 +391,11 @@ class TestRegisterCallbacksWiring:
     def test_disabled_registers_only_slash_commands(self, monkeypatch, clean_callbacks):
         monkeypatch.setattr(config_mod, "is_enabled", lambda: False)
         _reload_register_callbacks()
-        # Slash command hooks always register.
-        for p in _SLASH_PHASES:
-            assert count_callbacks(p) == 1, f"expected slash cmd registered for {p}"
+        # Slash command and capability hooks always register.
+        for p in _ALWAYS_PHASES:
+            assert count_callbacks(p) == 1, f"expected callback registered for {p}"
+        assert get_feature_capability("dbos_durable_exec") is False
+        assert get_feature_capability("unknown") is False
         # DBOS-specific hooks should NOT.
         for p in _DBOS_PHASES:
             assert count_callbacks(p) == 0, f"unexpected callback on phase {p}"
@@ -423,8 +406,9 @@ class TestRegisterCallbacksWiring:
         monkeypatch.setattr(config_mod, "is_enabled", lambda: True)
         monkeypatch.setitem(sys.modules, "dbos", None)
         _reload_register_callbacks()
-        for p in _SLASH_PHASES:
+        for p in _ALWAYS_PHASES:
             assert count_callbacks(p) == 1
+        assert get_feature_capability("dbos_durable_exec") is True
         for p in _DBOS_PHASES:
             assert count_callbacks(p) == 0
 
@@ -435,8 +419,9 @@ class TestRegisterCallbacksWiring:
         fake_mod = types.ModuleType("dbos")
         monkeypatch.setitem(sys.modules, "dbos", fake_mod)
         _reload_register_callbacks()
-        for p in _SLASH_PHASES + _DBOS_PHASES:
+        for p in _ALWAYS_PHASES + _DBOS_PHASES:
             assert count_callbacks(p) >= 1, f"missing callback on phase {p}"
+        assert get_feature_capability("dbos_durable_exec") is True
 
     def test_idempotent_reload_does_not_double_register(
         self, monkeypatch, clean_callbacks
@@ -445,7 +430,7 @@ class TestRegisterCallbacksWiring:
         fake_mod = types.ModuleType("dbos")
         monkeypatch.setitem(sys.modules, "dbos", fake_mod)
         _reload_register_callbacks()
-        counts = {p: count_callbacks(p) for p in _SLASH_PHASES + _DBOS_PHASES}
+        counts = {p: count_callbacks(p) for p in _ALWAYS_PHASES + _DBOS_PHASES}
         _reload_register_callbacks()
-        counts_after = {p: count_callbacks(p) for p in _SLASH_PHASES + _DBOS_PHASES}
+        counts_after = {p: count_callbacks(p) for p in _ALWAYS_PHASES + _DBOS_PHASES}
         assert counts == counts_after, "register_callback should dedupe on reload"

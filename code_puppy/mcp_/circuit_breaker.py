@@ -70,11 +70,8 @@ class CircuitBreaker:
         self._failure_count = 0
         self._success_count = 0
         self._last_failure_time = None
-        # NOTE: We use threading.Lock (not asyncio.Lock) because this lock is shared
-        # between synchronous callers (record_success/record_failure) and async callers
-        # (_on_success/_on_failure called from call()). This is safe because the critical
-        # sections are very short and CPU-bound only (counter increments, state transitions)
-        # — no I/O or awaits occur while the lock is held, so event loop blocking is negligible.
+        # NOTE: threading.Lock (not asyncio) — shared by sync and async callers;
+        # safe: critical sections are short CPU-bound increments, no I/O/awaits.
         self._sync_lock = threading.Lock()
         self._half_open_in_flight = False
 

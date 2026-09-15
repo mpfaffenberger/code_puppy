@@ -6,7 +6,7 @@ from unittest.mock import patch
 import pytest
 
 from code_puppy import config
-from code_puppy.plugins.yolo_cli import register_callbacks as yolo_cli
+from code_puppy_core_plugins.yolo_cli import register_callbacks as yolo_cli
 
 
 @pytest.fixture(autouse=True)

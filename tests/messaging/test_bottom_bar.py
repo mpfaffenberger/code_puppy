@@ -124,8 +124,11 @@ def test_start_establishes_region(bar, tty):
     # 24-row terminal, empty status (hidden): scrollable region rows 1..22.
     assert "\n" * RESERVED_ROWS in out
     assert "\x1b[1;22r" in out
-    # Cursor parked INSIDE the region (bottom of scrollable area).
-    assert "\x1b[22;1H" in out
+    # CURSOR CONTRACT: the newline push is walked back (CUU by the same
+    # count), the writer position is saved, DECSTBM homes, and the writer
+    # position is restored — output resumes where it left off instead of
+    # teleporting to the region bottom.
+    assert f"\x1b[{RESERVED_ROWS}A\x1b7\x1b[1;22r\x1b8" in out
     assert bar.is_active() is True
 
 
@@ -186,8 +189,9 @@ def test_set_status_materializes_row_below_prompt(bar, tty):
     bar.set_status("tokens: 1234")
     out = written(tty)
     # First non-empty status: the row materializes on the BOTTOM row --
-    # the region scrolls up one line and shrinks (reserved 2 -> 3).
-    assert "\x1b[1S" in out
+    # an LF push (scrolls only if the content needs it) and the region
+    # shrinks (reserved 2 -> 3).
+    assert "\n\x1b[1A" in out
     assert "\x1b[1;21r" in out
     assert "\x1b[24;1H\x1b[2K\x1b[2mtokens: 1234\x1b[22m" in out  # dim chrome
 
@@ -264,7 +268,7 @@ def test_status_suffix_alone_materializes_row(bar, tty):
     drain(tty)
     bar.set_status_suffix(" (1 queued)")
     out = written(tty)
-    assert "\x1b[1S" in out  # row materialized (reserved 2 -> 3)
+    assert "\n\x1b[1A" in out  # row materialized (reserved 2 -> 3)
     assert "(1 queued)" in out
     drain(tty)
     bar.set_status_suffix("")
@@ -281,8 +285,13 @@ def test_reserved_grow_preserves_transcript_cursor(bar, tty):
     drain(tty)
     bar.set_status("tokens: 1")  # status row materializes: reserved 2 -> 3
     out = written(tty)
-    # Save -> scroll -> DECSTBM -> restore -> follow content up one row.
-    assert "\x1b7\x1b[1S\x1b[1;21r\x1b8\x1b[1A" in out
+    # LF push + CUU walk-back (scroll-count invariant, lands on the
+    # writer's row) -> save -> DECSTBM -> restore. No blind CSI S: the
+    # push scrolls only as much as the content actually needs, so a
+    # short transcript no longer creeps toward the top of the screen
+    # on every popup/status/panel grow.
+    assert "\n\x1b[1A\x1b7\x1b[1;21r\x1b8" in out
+    assert "\x1b[1S" not in out
     # No blind park at the new region bottom.
     assert "\x1b[21;1H" not in out
 
@@ -367,14 +376,15 @@ def test_panel_grow_scrolls_then_shrinks_region(bar, tty):
     drain(tty)
     bar.set_panel_lines(["agent one", "agent two"])
     out = written(tty)
-    # Content scrolled up 2 lines so the new reserved rows start blank.
-    assert "\x1b[2S" in out
+    # LF push blanks the new reserved rows, scrolling only if content
+    # actually reaches the region bottom; CUU walks back to the writer.
+    assert "\n\n\x1b[2A" in out
+    assert "\x1b[2S" not in out
     # Region shrinks: 24 rows - (2 base + 2 panel) = 1..20.
     assert "\x1b[1;20r" in out
-    # Cursor restored to the transcript position and moved up with the
-    # scrolled content (2 rows) — never blind-parked at ``top;1``, which
-    # used to overwrite half-typed streaming lines.
-    assert "\x1b7\x1b[2S\x1b[1;20r\x1b8\x1b[2A" in out
+    # Cursor restored to the transcript position — never blind-parked at
+    # ``top;1`` (it overwrote half-typed streaming lines).
+    assert "\n\n\x1b[2A\x1b7\x1b[1;20r\x1b8" in out
     assert "\x1b[20;1H" not in out
     # Panel rows painted at rows 22-23 (above the prompt row 24).
     assert "\x1b[22;1H\x1b[2K\x1b[2magent one\x1b[22m" in out
@@ -574,6 +584,108 @@ def test_popup_slack_reclaimed_one_row_per_output(bar, tty):
     drain(tty)
     bar.notify_transcript_output()  # no slack left: no writes at all
     assert written(tty) == ""
+
+
+def test_teardown_restores_writer_cursor(bar, tty):
+    """Teardown (stop/suspend) hands the cursor back where the writer
+    left it — parking at the band top teleported suspended-mode output
+    (shell commands, credential prompts, post-menu flushes) to the
+    bottom of the screen whenever the transcript hadn't filled it."""
+    bar.start()
+    drain(tty)
+    bar.stop()
+    out = written(tty)
+    save, restore = out.index("\x1b7"), out.index("\x1b8")
+    assert save < out.index("\x1b[r") < restore
+    # Restore comes after the band rows (23-24) are cleared, and there
+    # is no absolute park left after it.
+    assert restore > out.index("\x1b[24;1H\x1b[2K")
+    assert "\x1b[23;1H" not in out[restore:]
+
+
+def test_resume_establish_restores_writer_cursor(bar, tty):
+    """The post-menu rebuild walks the newline push back (CUU by the
+    reserved count), then saves/restores the writer position around
+    DECSTBM — flushed output resumes adjacent to the transcript tail
+    instead of teleporting to the region bottom."""
+    bar.start()
+    drain(tty)
+    with bar.suspended():
+        pass
+    out = written(tty)
+    assert "\n" * RESERVED_ROWS + f"\x1b[{RESERVED_ROWS}A\x1b7\x1b[1;22r\x1b8" in out
+    # No blind park at the region bottom in the establish sequence.
+    assert "\x1b[1;22r\x1b[22;1H" not in out
+
+
+def test_establish_parks_deterministically_on_guard_platform(tty):
+    """Windows (transcript-guard sim active): the sim is promised the
+    cursor sits at (top, 1) after every establish, so the deterministic
+    park is kept there."""
+    bar = BottomBar(stream=tty, get_size=lambda: (80, 24))
+    bar._guard_scroll_fix = True
+    bar.start()
+    out = written(tty)
+    assert "\x1b[1;22r\x1b[22;1H" in out
+
+
+def test_suspend_resume_preserves_popup_slack(bar, tty):
+    """A same-geometry suspend/resume (TUI menu in the alt screen) must
+    NOT shed pending popup slack: dropping it shrinks the reserved band
+    and re-parks the transcript cursor below where output actually
+    ended, scrolling a slack-sized blank gap into the transcript on
+    every /model-style picker run."""
+    bar.start()
+    bar.set_prompt_text("> ", "hi", 2)
+    bar.set_popup_lines(["/one", "/two"], selected=0)
+    bar.set_popup_lines([])  # close -> slack 2, prompt parked at 22
+    drain(tty)
+    with bar.suspended():
+        pass  # picker ran in the alt screen; primary untouched
+    out = written(tty)
+    # Region comes back at the SLACK-INCLUSIVE size (1..20, not 1..22):
+    # transcript cursor parks adjacent to where output left off.
+    assert "\x1b[1;20r" in out
+    assert "\x1b[22;1H\x1b[2K> hi" in out  # prompt still at 22
+    assert "\x1b[1;22r" not in out
+    drain(tty)
+    bar.notify_transcript_output()  # lazy reclaim still walks it down
+    out = written(tty)
+    assert "\x1b[1;21r" in out
+
+
+def test_resize_during_suspend_sheds_popup_slack(tty):
+    """Geometry changed while suspended: row positions are invalid, so
+    the resume rebuild sheds the slack like any other re-establish."""
+    size = [(80, 24)]
+    bar = BottomBar(stream=tty, get_size=lambda: size[0])
+    bar.start()
+    bar.set_prompt_text("> ", "hi", 2)
+    bar.set_popup_lines(["/one", "/two"], selected=0)
+    bar.set_popup_lines([])  # close -> slack 2
+    drain(tty)
+    with bar.suspended():
+        size[0] = (80, 30)  # terminal resized under the menu
+    out = written(tty)
+    assert "\x1b[1;28r" in out  # slack-free region at the new height
+    drain(tty)
+    bar.notify_transcript_output()  # no slack left: no writes at all
+    assert written(tty) == ""
+
+
+def test_stop_start_cycle_sheds_popup_slack(bar, tty):
+    """A full stop/start (not a suspend) is a fresh screen: stale slack
+    from the previous life must not inflate the new reserved band."""
+    bar.start()
+    bar.set_prompt_text("> ", "hi", 2)
+    bar.set_popup_lines(["/one", "/two"], selected=0)
+    bar.set_popup_lines([])  # close -> slack 2
+    bar.stop()
+    drain(tty)
+    bar.start()
+    out = written(tty)
+    assert "\x1b[1;22r" in out  # base region, no slack rows reserved
+    assert "\x1b[1;20r" not in out
 
 
 def test_popup_reopen_reuses_slack_without_scrolling(bar, tty):

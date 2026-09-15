@@ -1,71 +1,56 @@
-"""Cache helpers for Claude Code / Anthropic.
+"""OAuth-aware HTTP transport for Claude Code and Anthropic models.
 
-ClaudeCacheAsyncClient: httpx client that tries to patch /v1/messages bodies.
+Prompt caching is configured through pydantic-ai's native
+``AnthropicModelSettings``. This client deliberately does not rewrite cache
+markers; it only owns transport concerns that cannot be expressed there:
+OAuth refresh/retry, Claude Code tool-name prefixing, request headers, URL
+parameters, and the Opus summarized-thinking compatibility transform.
 
-We now also expose `patch_anthropic_client_messages` which monkey-patches
-AsyncAnthropic.messages.create() so we can inject cache_control BEFORE
-serialization, avoiding httpx/Pydantic internals.
-
-This module also handles:
-- Tool name prefixing/unprefixing for Claude Code OAuth compatibility
-- Header transformations (anthropic-beta, user-agent)
-- URL modifications (adding ?beta=true query param)
+Built on ``httpx2`` (not ``httpx``): every consumer of this client hands it
+to ``anthropic.AsyncAnthropic``, and the Anthropic SDK moved to httpx2 in
+its 1.0 release (pydantic-ai >= 2.35 followed). The rest of Code Puppy
+(OpenAI providers, http_utils) still rides classic httpx.
 """
 
 from __future__ import annotations
 
 import asyncio
-import base64
 import json
 import logging
 import time
 from typing import Any, Callable, MutableMapping
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
-import httpx
+import httpx2
+
+from .claude_oauth_transport import ClaudeOAuthTransport
+from .http_retry import describe_exception
 
 logger = logging.getLogger(__name__)
 
-# Refresh token if it's older than the configured max age (seconds)
+# Refresh tokens before the OAuth subscription's one-hour age limit.
 TOKEN_MAX_AGE_SECONDS = 3600
 
-# Retry configuration
+# Retry transient provider failures without duplicating SDK behavior.
 RETRY_STATUS_CODES = (429, 500, 502, 503, 504)
 MAX_RETRIES = 5
 
-# Tool name prefix for Claude Code OAuth compatibility
-# Tools are prefixed on outgoing requests and unprefixed on incoming responses
+# Claude Code requires this namespace for outgoing tool names.
 TOOL_PREFIX = "cp_"
 
-# User-Agent to send with Claude Code OAuth requests
-CLAUDE_CLI_USER_AGENT = "claude-cli/2.1.2 (external, cli)"
+CLAUDE_CLI_USER_AGENT = "claude-cli/2.1.251 (external, cli)"
 
-# Extended (1 hour) prompt-cache TTL. Claude Code OAuth sessions get this for
-# free, so claude-code-* models always request it. API-key / third-party
-# Anthropic models keep the default 5-minute TTL (no ``ttl`` field at all).
-CACHE_TTL_1H = "1h"
+# The Claude Code OAuth endpoint fingerprints this exact string as the FIRST
+# system block; requests that lead with anything else get rejected. Mirrors
+# CLAUDE_CODE_INSTRUCTIONS in the claude_code_oauth plugin's prompt_handler.
+CLAUDE_CODE_SYSTEM_PROMPT = "You are Claude Code, Anthropic's official CLI for Claude."
 
-# Beta flag Anthropic requires before honoring a 1-hour cache TTL.
-EXTENDED_CACHE_TTL_BETA = "extended-cache-ttl-2025-04-11"
-
-
-def _cache_marker(ttl: str | None) -> dict[str, str]:
-    """Build a cache_control marker, optionally with an explicit TTL.
-
-    ``ttl=None`` yields the plain ``{"type": "ephemeral"}`` marker (Anthropic
-    defaults it to 5 minutes). Single source of truth for BOTH injection
-    paths (wire body and SDK payload) so they can never drift.
-    """
-    marker: dict[str, str] = {"type": "ephemeral"}
-    if ttl:
-        marker["ttl"] = ttl
-    return marker
+# Beta flag required for ``thinking.display: "updates"`` (Fable 5.1 progress
+# updates surfaced as text while reasoning stays hidden).
+THINKING_DISPLAY_UPDATES_BETA = "thinking-display-updates-2026-08-18"
 
 
 def _model_requires_thinking_summary(model_name):
-    # Anthropic's Opus 4.7+ / Fable 5 families reject adaptive-thinking
-    # requests unless 'display: summarized' is present alongside
-    # 'type: adaptive'. Delegate to model_utils — single source of truth.
     if not model_name:
         return False
     from code_puppy.model_utils import should_use_anthropic_thinking_summary
@@ -73,11 +58,15 @@ def _model_requires_thinking_summary(model_name):
     return should_use_anthropic_thinking_summary(model_name)
 
 
+def _model_supports_thinking_updates(model_name):
+    if not model_name:
+        return False
+    from code_puppy.model_utils import should_use_anthropic_thinking_updates
+
+    return should_use_anthropic_thinking_updates(model_name)
+
+
 def _enforce_thinking_display_summary(payload):
-    # Belt-and-suspenders wire-level enforcement of thinking.display='summary'
-    # for Opus 4.7 payloads. Mutates payload in place; returns True if a
-    # change was made. No-ops on non-matching models or payloads without a
-    # thinking dict.
     if not isinstance(payload, dict):
         return False
     if not _model_requires_thinking_summary(payload.get("model")):
@@ -85,28 +74,26 @@ def _enforce_thinking_display_summary(payload):
     thinking = payload.get("thinking")
     if not isinstance(thinking, dict):
         return False
-    if thinking.get("display") == "summarized":
+    display = thinking.get("display")
+    if display == "summarized":
+        return False
+    if display == "updates" and _model_supports_thinking_updates(payload.get("model")):
+        # Fable 5.1 legitimately asked for progress updates; don't clobber
+        # it back to summarized (which would drown status lines in reasoning).
         return False
     thinking["display"] = "summarized"
     return True
 
 
-try:
-    from anthropic import AsyncAnthropic
-except ImportError:  # pragma: no cover - optional dep
-    AsyncAnthropic = None  # type: ignore
-
-
-class ClaudeCacheAsyncClient(httpx.AsyncClient):
+class ClaudeCacheAsyncClient(ClaudeOAuthTransport, httpx2.AsyncClient):
     """Async HTTP client with Claude Code OAuth transformations.
 
     Handles:
-    - Cache control injection for prompt caching
     - Tool name prefixing on outgoing requests
-    - Tool name unprefixing on incoming streaming responses
     - Header transformations (anthropic-beta, user-agent)
     - URL modifications (adding ?beta=true)
-    - Proactive token refresh
+    - Proactive token refresh and auth-error recovery
+    - Retryable transport/status failures
     """
 
     def __init__(
@@ -115,151 +102,23 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
         oauth_reauthentication_callback: Callable[[], str | None] | None = None,
         token_update_callback: Callable[[str], None] | None = None,
         apply_claude_code_prefix: bool = False,
-        cache_ttl: str | None = None,
+        oauth_token_provider: Callable | None = None,
+        oauth_refresh_callback: Callable | None = None,
+        oauth_origin: str = "https://api.anthropic.com",
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
         self._oauth_reauthentication_callback = oauth_reauthentication_callback
         self._token_update_callback = token_update_callback
-        # Explicit prompt-cache TTL (e.g. "1h") for injected cache markers.
-        # None means "let Anthropic default" (currently 5 minutes).
-        self._cache_ttl = cache_ttl
-        # The ``cp_`` tool-name prefix is a Claude Code OAuth quirk. Only the
-        # claude_code_oauth plugin should enable it; custom_anthropic and
-        # Anthropic-vanilla models keep tool names verbatim.
         self._apply_claude_code_prefix = apply_claude_code_prefix
-
-    def set_token_update_callback(self, callback: Callable[[str], None] | None) -> None:
-        self._token_update_callback = callback
-
-    def _notify_token_recovered(self, access_token: str) -> None:
-        if not self._token_update_callback:
-            return
-        try:
-            self._token_update_callback(access_token)
-        except Exception as exc:
-            logger.debug("Token update callback failed: %s", exc)
-
-    def _get_jwt_age_seconds(self, token: str | None) -> float | None:
-        """Decode a JWT and return its age in seconds.
-
-        Returns None if the token can't be decoded or has no timestamp claims.
-        Uses 'iat' (issued at) if available, otherwise calculates from 'exp'.
-        """
-        if not token:
-            return None
-
-        try:
-            # JWT format: header.payload.signature
-            # We only need the payload (second part)
-            parts = token.split(".")
-            if len(parts) != 3:
-                return None
-
-            # Decode the payload (base64url encoded)
-            payload_b64 = parts[1]
-            # Add padding if needed (base64url doesn't require padding)
-            padding = 4 - len(payload_b64) % 4
-            if padding != 4:
-                payload_b64 += "=" * padding
-
-            payload_bytes = base64.urlsafe_b64decode(payload_b64)
-            payload = json.loads(payload_bytes.decode("utf-8"))
-
-            now = time.time()
-
-            # Prefer 'iat' (issued at) claim if available
-            if "iat" in payload:
-                iat = float(payload["iat"])
-                age = now - iat
-                return age
-
-            # Fall back to calculating from 'exp' claim
-            # Assume tokens are typically valid for TOKEN_MAX_AGE_SECONDS
-            if "exp" in payload:
-                exp = float(payload["exp"])
-                # If exp is in the future, calculate how long until expiry
-                # and assume the token was issued TOKEN_MAX_AGE_SECONDS before expiry
-                time_until_exp = exp - now
-                # If token has less than TOKEN_MAX_AGE_SECONDS left, it's "old"
-                age = TOKEN_MAX_AGE_SECONDS - time_until_exp
-                return max(0, age)
-
-            return None
-        except Exception as exc:
-            logger.debug("Failed to decode JWT age: %s", exc)
-            return None
-
-    def _extract_bearer_token(self, request: httpx.Request) -> str | None:
-        """Extract the bearer token from request headers."""
-        auth_header = request.headers.get("Authorization") or request.headers.get(
-            "authorization"
-        )
-        if auth_header and auth_header.lower().startswith("bearer "):
-            return auth_header[7:]  # Strip "Bearer " prefix
-        return None
-
-    def _should_refresh_token(self, request: httpx.Request) -> bool:
-        """Check if the token should be refreshed (within the max-age window).
-
-        Uses two strategies:
-        1. Decode JWT to check token age (if possible)
-        2. Fall back to stored expires_at from token file
-
-        Returns True if token expires within TOKEN_MAX_AGE_SECONDS.
-        """
-        token = self._extract_bearer_token(request)
-        if not token:
-            return False
-
-        # Strategy 1: Try to decode JWT age
-        age = self._get_jwt_age_seconds(token)
-        if age is not None:
-            should_refresh = age >= TOKEN_MAX_AGE_SECONDS
-            if should_refresh:
-                logger.info(
-                    "JWT token is %.1f seconds old (>= %d), will refresh proactively",
-                    age,
-                    TOKEN_MAX_AGE_SECONDS,
-                )
-            return should_refresh
-
-        # Strategy 2: Fall back to stored expires_at from token file
-        should_refresh = self._check_stored_token_expiry()
-        if should_refresh:
-            logger.info(
-                "Stored token expires within %d seconds, will refresh proactively",
-                TOKEN_MAX_AGE_SECONDS,
-            )
-        return should_refresh
-
-    @staticmethod
-    def _check_stored_token_expiry() -> bool:
-        """Check if the stored token expires within TOKEN_MAX_AGE_SECONDS.
-
-        This is a fallback for when JWT decoding fails or isn't available.
-        Uses the expires_at timestamp from the stored token file.
-        """
-        try:
-            from code_puppy.plugins.claude_code_oauth.utils import (
-                is_token_expired,
-                load_stored_tokens,
-            )
-
-            tokens = load_stored_tokens()
-            if not tokens:
-                return False
-
-            # is_token_expired already uses the configured refresh buffer window
-            return is_token_expired(tokens)
-        except Exception as exc:
-            logger.debug("Error checking stored token expiry: %s", exc)
-            return False
+        self._oauth_token_provider = oauth_token_provider
+        self._oauth_refresh_callback = oauth_refresh_callback
+        self._oauth_origin = httpx2.URL(oauth_origin)
+        self._oauth_enabled = apply_claude_code_prefix
 
     @staticmethod
     def _prefix_tool_names(body: bytes) -> bytes | None:
         """Prefix all tool names in the request body with TOOL_PREFIX.
-
         This is required for Claude Code OAuth compatibility - tools must be
         prefixed on outgoing requests and unprefixed on incoming responses.
         """
@@ -267,14 +126,11 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
             data = json.loads(body.decode("utf-8"))
         except Exception:
             return None
-
         if not isinstance(data, dict):
             return None
-
         tools = data.get("tools")
         if not isinstance(tools, list) or not tools:
             return None
-
         modified = False
         for tool in tools:
             if isinstance(tool, dict) and "name" in tool:
@@ -282,104 +138,161 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
                 if name and not name.startswith(TOOL_PREFIX):
                     tool["name"] = f"{TOOL_PREFIX}{name}"
                     modified = True
-
         if not modified:
             return None
-
         return json.dumps(data).encode("utf-8")
+
+    @staticmethod
+    def _ensure_claude_code_system_prompt(body: bytes) -> bytes | None:
+        """Guarantee the first system block is the Claude Code instruction.
+
+        The main agent path already leads with it (the claude_code_oauth
+        plugin's ``prepare_model_prompt`` hook), but internally-built agents
+        — e.g. pydantic-ai-harness's ``SummarizingCompaction`` summarizer —
+        ship their own instructions and never pass through that hook. The
+        OAuth endpoint fingerprints the first system block, so enforce the
+        invariant here, the one choke point every claude-code request
+        crosses. A pre-existing system prompt is demoted to the second
+        block, never dropped. Returns None when the body is already fine.
+        """
+        try:
+            data = json.loads(body.decode("utf-8"))
+        except Exception:
+            return None
+        if not isinstance(data, dict):
+            return None
+        system = data.get("system")
+        if isinstance(system, str):
+            if system == CLAUDE_CODE_SYSTEM_PROMPT:
+                return None
+            system = system.removeprefix(CLAUDE_CODE_SYSTEM_PROMPT)
+            blocks: list[Any] = [{"type": "text", "text": CLAUDE_CODE_SYSTEM_PROMPT}]
+            if system:
+                blocks.append({"type": "text", "text": system})
+            data["system"] = blocks
+        elif isinstance(system, list):
+            first = system[0] if system else None
+            text = first.get("text") if isinstance(first, dict) else None
+            if text == CLAUDE_CODE_SYSTEM_PROMPT:
+                return None
+            # Compaction adds a SystemPromptPart that the SDK joins to the
+            # signature. A matching prefix is not a standalone identity block.
+            # Keep metadata (including cache_control) on the remainder so its
+            # cache boundary still follows all the original content.
+            if isinstance(text, str) and text.startswith(CLAUDE_CODE_SYSTEM_PROMPT):
+                system = [
+                    {**first, "text": text.removeprefix(CLAUDE_CODE_SYSTEM_PROMPT)},
+                    *system[1:],
+                ]
+            data["system"] = [
+                {"type": "text", "text": CLAUDE_CODE_SYSTEM_PROMPT},
+                *system,
+            ]
+        elif system is None:
+            data["system"] = CLAUDE_CODE_SYSTEM_PROMPT
+        else:
+            return None
+        return json.dumps(data).encode("utf-8")
+
+    @staticmethod
+    def _enforce_thinking_display_summary_body(body: bytes) -> bytes | None:
+        """Return a rewritten body when summarized thinking is required."""
+        try:
+            payload = json.loads(body.decode("utf-8"))
+        except Exception:
+            return None
+        if not isinstance(payload, dict) or not _enforce_thinking_display_summary(
+            payload
+        ):
+            return None
+        return json.dumps(payload).encode("utf-8")
 
     @staticmethod
     def _transform_headers_for_claude_code(
         headers: MutableMapping[str, str],
-        cache_ttl: str | None = None,
     ) -> None:
         """Transform headers for Claude Code OAuth compatibility.
-
         - Sets user-agent to claude-cli
         - Merges anthropic-beta headers appropriately
         - Removes x-api-key (using Bearer auth instead)
-        - Adds the extended-cache-ttl beta when a 1h cache TTL is requested
         """
-        # Set user-agent
         headers["user-agent"] = CLAUDE_CLI_USER_AGENT
-
-        # Handle anthropic-beta header — merge required betas with any
-        # extras already present (e.g. context-1m-2025-08-07).
         incoming_beta = headers.get("anthropic-beta", "")
         incoming_betas = [b.strip() for b in incoming_beta.split(",") if b.strip()]
-
-        # Always-required betas for Claude Code OAuth
         required_betas = [
             "oauth-2025-04-20",
             "interleaved-thinking-2025-05-14",
         ]
         if "claude-code-20250219" in incoming_betas:
             required_betas.append("claude-code-20250219")
-        if cache_ttl == CACHE_TTL_1H:
-            required_betas.append(EXTENDED_CACHE_TTL_BETA)
-
-        # Merge: start with required, then append any extras from the
-        # incoming headers that aren't already in the required set.
         merged = list(required_betas)
         required_set = set(required_betas)
         for beta in incoming_betas:
             if beta not in required_set:
                 merged.append(beta)
-
         headers["anthropic-beta"] = ",".join(merged)
-
-        # Remove x-api-key if present (we use Bearer auth)
         for key in ["x-api-key", "X-API-Key", "X-Api-Key"]:
             if key in headers:
                 del headers[key]
 
     @staticmethod
-    def _add_beta_query_param(url: httpx.URL) -> httpx.URL:
+    def _ensure_thinking_updates_beta(
+        headers: MutableMapping[str, str], body_bytes: bytes | None
+    ) -> bool:
+        """Add the updates-display beta flag when the body requests it.
+
+        ``thinking.display: "updates"`` (Fable 5.1 progress updates) is
+        rejected without the ``thinking-display-updates-2026-08-18`` beta
+        header. Deciding here — off the final request body — keeps header and
+        body consistent across every transport that rides this client
+        (anthropic, custom_anthropic, claude_code OAuth).
+
+        Returns True when the header was modified.
+        """
+        if not body_bytes:
+            return False
+        try:
+            payload = json.loads(body_bytes.decode("utf-8"))
+        except Exception:
+            return False
+        thinking = payload.get("thinking") if isinstance(payload, dict) else None
+        if not (isinstance(thinking, dict) and thinking.get("display") == "updates"):
+            return False
+        existing = [
+            b.strip() for b in headers.get("anthropic-beta", "").split(",") if b.strip()
+        ]
+        if THINKING_DISPLAY_UPDATES_BETA in existing:
+            return False
+        existing.append(THINKING_DISPLAY_UPDATES_BETA)
+        headers["anthropic-beta"] = ",".join(existing)
+        return True
+
+    @staticmethod
+    def _add_beta_query_param(url: httpx2.URL) -> httpx2.URL:
         """Add ?beta=true query parameter to the URL if not already present."""
-        # Parse the URL
         parsed = urlparse(str(url))
         query_params = parse_qs(parsed.query)
-
-        # Only add if not already present
         if "beta" not in query_params:
             query_params["beta"] = ["true"]
-            # Rebuild query string
             new_query = urlencode(query_params, doseq=True)
-            # Rebuild URL
             new_parsed = parsed._replace(query=new_query)
-            return httpx.URL(urlunparse(new_parsed))
-
+            return httpx2.URL(urlunparse(new_parsed))
         return url
 
     async def send(
-        self, request: httpx.Request, *args: Any, **kwargs: Any
-    ) -> httpx.Response:  # type: ignore[override]
+        self, request: httpx2.Request, *args: Any, **kwargs: Any
+    ) -> httpx2.Response:  # type: ignore[override]
         is_messages_endpoint = request.url.path.endswith("/v1/messages")
-
-        # Proactive token refresh: check JWT age before every request
-        if not request.extensions.get("claude_oauth_proactive_refresh_attempted"):
-            try:
-                if self._should_refresh_token(request):
-                    refreshed_token = self._refresh_claude_oauth_token()
-                    if refreshed_token:
-                        logger.info("Proactively refreshed token before request")
-                        # Rebuild request with new token
-                        headers = dict(request.headers)
-                        self._update_auth_headers(headers, refreshed_token)
-                        body_bytes = self._extract_body_bytes(request)
-                        request = self.build_request(
-                            method=request.method,
-                            url=request.url,
-                            headers=headers,
-                            content=body_bytes,
-                        )
-                        request.extensions[
-                            "claude_oauth_proactive_refresh_attempted"
-                        ] = True
-            except Exception as exc:
-                logger.debug("Error during proactive token refresh check: %s", exc)
-
-        # Apply Claude Code OAuth transformations for /v1/messages
+        oauth_request = self._is_oauth_request(request)
+        if self._oauth_enabled and not oauth_request:
+            raise ValueError(
+                "Claude OAuth credentials may only be sent to their configured HTTPS origin"
+            )
+        if oauth_request:
+            # httpx follows redirects internally, bypassing our origin guard.
+            # OAuth API requests must not delegate credential routing to it.
+            kwargs["follow_redirects"] = False
+            await self._prepare_oauth_request(request)
         if is_messages_endpoint:
             try:
                 body_bytes = self._extract_body_bytes(request)
@@ -387,33 +300,29 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
                 url = request.url
                 body_modified = False
                 headers_modified = False
-
-                # 1. Transform headers for Claude Code OAuth
-                self._transform_headers_for_claude_code(headers, self._cache_ttl)
+                self._transform_headers_for_claude_code(headers)
                 headers_modified = True
-
-                # 2. Add ?beta=true query param
                 url = self._add_beta_query_param(url)
-
-                # 3. Prefix tool names in request body (claude_code OAuth only).
-                # The ``cp_`` prefix is required by Anthropic's Claude Code OAuth
-                # endpoint, but vanilla Anthropic / custom_anthropic endpoints
-                # don't expect it — so this is opt-in via the constructor flag.
                 if body_bytes and self._apply_claude_code_prefix:
                     prefixed_body = self._prefix_tool_names(body_bytes)
                     if prefixed_body is not None:
                         body_bytes = prefixed_body
                         body_modified = True
-
-                    # 4. Inject cache_control
-                    cached_body = self._inject_cache_control(
-                        body_bytes, self._cache_ttl
-                    )
-                    if cached_body is not None:
-                        body_bytes = cached_body
+                    system_body = self._ensure_claude_code_system_prompt(body_bytes)
+                    if system_body is not None:
+                        body_bytes = system_body
                         body_modified = True
-
-                # Rebuild request if anything changed
+                if body_bytes:
+                    summarized_body = self._enforce_thinking_display_summary_body(
+                        body_bytes
+                    )
+                    if summarized_body is not None:
+                        body_bytes = summarized_body
+                        body_modified = True
+                # After body transforms settle: updates-display requests
+                # (Fable 5.1) must carry the matching beta header.
+                if self._ensure_thinking_updates_beta(headers, body_bytes):
+                    headers_modified = True
                 if body_modified or headers_modified or url != request.url:
                     try:
                         rebuilt = self.build_request(
@@ -422,62 +331,43 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
                             headers=headers,
                             content=body_bytes,
                         )
-
-                        # Copy core internals so httpx uses the modified body/stream
                         if hasattr(rebuilt, "_content"):
                             request._content = rebuilt._content  # type: ignore[attr-defined]
                         if hasattr(rebuilt, "stream"):
                             request.stream = rebuilt.stream
                         if hasattr(rebuilt, "extensions"):
-                            # Preserve caller-owned flags (notably oauth retry guards)
-                            # when httpx gives the rebuilt request fresh extensions.
                             request.extensions = {
                                 **rebuilt.extensions,
                                 **request.extensions,
                             }
-
-                        # Update URL
                         request.url = url
-
-                        # Update headers
                         for key, value in headers.items():
                             request.headers[key] = value
-
-                        # Ensure Content-Length matches the new body
                         if body_bytes:
                             request.headers["Content-Length"] = str(len(body_bytes))
-
                     except Exception as exc:
                         logger.debug("Error rebuilding request: %s", exc)
-
             except Exception as exc:
                 logger.debug("Error in Claude Code transformations: %s", exc)
-
-        # Send the request with retry logic for transient errors
         response = await self._send_with_retries(request, *args, **kwargs)
-
-        # NOTE: Tool name unprefixing is now handled at the pydantic-ai level
-        # in pydantic_patches.py rather than wrapping the HTTP response stream.
-        # The response wrapper caused zlib decompression errors due to httpx
-        # response lifecycle issues.
-
-        # Handle auth errors with token refresh
         try:
-            if response.status_code in (400, 401, 403) and not request.extensions.get(
-                "claude_oauth_refresh_attempted"
+            if (
+                oauth_request
+                and response.status_code in (400, 401, 403)
+                and not request.extensions.get("claude_oauth_refresh_attempted")
             ):
                 is_auth_error = response.status_code in (401, 403)
-
                 if response.status_code == 400:
                     is_auth_error = await self._is_cloudflare_html_error(response)
                     if is_auth_error:
                         logger.info(
                             "Detected Cloudflare 400 error (likely auth-related), attempting token refresh"
                         )
-
                 if is_auth_error:
                     recovered_token = (
-                        self._recover_claude_oauth_token_after_auth_error()
+                        await self._recover_claude_oauth_token_after_auth_error_async(
+                            self._extract_bearer_token(request)
+                        )
                     )
                     if recovered_token:
                         logger.info("Token recovered successfully, retrying request")
@@ -490,6 +380,7 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
                             url=request.url,
                             headers=headers,
                             content=body_bytes,
+                            extensions=dict(request.extensions),
                         )
                         retry_request.extensions["claude_oauth_refresh_attempted"] = (
                             True
@@ -503,381 +394,118 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
                         )
         except Exception as exc:
             logger.debug("Error during token refresh attempt: %s", exc)
-
         return response
 
     async def _send_with_retries(
-        self, request: httpx.Request, *args: Any, **kwargs: Any
-    ) -> httpx.Response:
-        """Send request with automatic retries for rate limits and server errors.
-
-        Retries on:
-        - 429 (rate limit) - respects Retry-After header
-        - 500, 502, 503, 504 (server errors) - exponential backoff
-        - Connection errors (ConnectError, ReadTimeout, PoolTimeout)
-        """
-        last_response = None
-        last_exception = None
-
+        self, request: httpx2.Request, *args: Any, **kwargs: Any
+    ) -> httpx2.Response:
+        """Retry rate limits, server failures, and transient connections."""
+        last_response: httpx2.Response | None = None
+        last_exception: Exception | None = None
         for attempt in range(MAX_RETRIES + 1):
+            status_code: int | None = None
             try:
                 response = await super().send(request, *args, **kwargs)
                 last_response = response
-
-                # Check for retryable status
-                if response.status_code not in RETRY_STATUS_CODES:
+                if (
+                    response.status_code not in RETRY_STATUS_CODES
+                    or attempt >= MAX_RETRIES
+                ):
                     return response
-
-                # Don't retry if this is the last attempt
-                if attempt >= MAX_RETRIES:
-                    return response
-
-                # Close response before retrying
+                status_code = response.status_code
+                await self._record_retryable_response(response)
                 await response.aclose()
-
-                # Calculate wait time with exponential backoff
-                wait_time = 1.0 * (2**attempt)  # 1s, 2s, 4s, 8s, 16s
-
-                # For 429, respect Retry-After header if present
-                if response.status_code == 429:
-                    retry_after = response.headers.get("Retry-After")
-                    if retry_after:
-                        try:
-                            wait_time = float(retry_after)
-                        except ValueError:
-                            # Try parsing http-date format
-                            try:
-                                from email.utils import parsedate_to_datetime
-
-                                date = parsedate_to_datetime(retry_after)
-                                wait_time = max(0, date.timestamp() - time.time())
-                            except Exception:
-                                pass
-
-                # Cap wait time between 0.5s and 60s
-                wait_time = max(0.5, min(wait_time, 60.0))
-
-                logger.info(
-                    "HTTP %d received, retrying in %.1fs (attempt %d/%d)",
-                    response.status_code,
-                    wait_time,
-                    attempt + 1,
-                    MAX_RETRIES,
-                )
-                await asyncio.sleep(wait_time)
-
-            except (httpx.ConnectError, httpx.ReadTimeout, httpx.PoolTimeout) as exc:
+            except (httpx2.ConnectError, httpx2.ReadTimeout, httpx2.PoolTimeout) as exc:
                 last_exception = exc
-
-                # Don't retry if this is the last attempt
                 if attempt >= MAX_RETRIES:
                     raise
+            except Exception:
+                raise
+            wait_time = float(2**attempt)
+            if status_code == 429:
+                retry_after = response.headers.get("Retry-After")
+                if retry_after:
+                    try:
+                        wait_time = float(retry_after)
+                    except ValueError:
+                        try:
+                            from email.utils import parsedate_to_datetime
 
-                wait_time = 1.0 * (2**attempt)
-                wait_time = max(0.5, min(wait_time, 60.0))
-
+                            wait_time = max(
+                                0,
+                                parsedate_to_datetime(retry_after).timestamp()
+                                - time.time(),
+                            )
+                        except Exception:
+                            pass
+            wait_time = max(0.5, min(wait_time, 60.0))
+            if status_code is None:
                 logger.warning(
                     "HTTP connection error: %s. Retrying in %.1fs (attempt %d/%d)",
-                    exc,
+                    describe_exception(last_exception)
+                    if last_exception is not None
+                    else "unknown connection error",
                     wait_time,
                     attempt + 1,
                     MAX_RETRIES,
                 )
-                await asyncio.sleep(wait_time)
-
-            except Exception:
-                # Don't retry on other exceptions (e.g., validation errors)
-                raise
-
-        # Return last response if we have one
+            else:
+                logger.info(
+                    "HTTP %d received, retrying in %.1fs (attempt %d/%d)",
+                    status_code,
+                    wait_time,
+                    attempt + 1,
+                    MAX_RETRIES,
+                )
+            await asyncio.sleep(wait_time)
         if last_response is not None:
             return last_response
-
-        # Re-raise last exception if we have one
         if last_exception is not None:
             raise last_exception
-
-        # This shouldn't happen, but just in case
         raise RuntimeError("Retry loop completed without response or exception")
 
     @staticmethod
-    def _extract_body_bytes(request: httpx.Request) -> bytes | None:
-        # Try public content first
+    async def _record_retryable_response(response: httpx2.Response) -> None:
+        """Persist why the provider pushed back, so 429s are diagnosable.
+
+        Rate-limit bodies carry the error type (per-minute limit vs usage
+        cap vs overload) and the ``anthropic-ratelimit-*`` headers say which
+        bucket tripped. Without this the error log only ever said "429".
+        """
+        try:
+            body = await response.aread()
+            try:
+                err = json.loads(body).get("error") or {}
+                detail = f"{err.get('type')}: {err.get('message')}"
+            except Exception:
+                detail = body[:200].decode("utf-8", "replace")
+            limits = {
+                k: v
+                for k, v in response.headers.items()
+                if k.lower().startswith("anthropic-ratelimit")
+                or k.lower() == "retry-after"
+            }
+            from code_puppy.error_logging import log_error_message
+
+            log_error_message(
+                f"HTTP {response.status_code} from {response.url.path}: {detail[:300]}",
+                context=f"claude transport retry; limits={limits}",
+            )
+        except Exception as exc:
+            logger.debug("Could not record retryable response: %s", exc)
+
+    @staticmethod
+    def _extract_body_bytes(request: httpx2.Request) -> bytes | None:
         try:
             content = request.content
             if content:
                 return content
         except Exception:
             pass
-
-        # Fallback to private attr if necessary
         try:
             content = getattr(request, "_content", None)
             if content:
                 return content
         except Exception:
             pass
-
         return None
-
-    @staticmethod
-    def _update_auth_headers(
-        headers: MutableMapping[str, str], access_token: str
-    ) -> None:
-        bearer_value = f"Bearer {access_token}"
-        if "Authorization" in headers or "authorization" in headers:
-            headers["Authorization"] = bearer_value
-        elif "x-api-key" in headers or "X-API-Key" in headers:
-            headers["x-api-key"] = access_token
-        else:
-            headers["Authorization"] = bearer_value
-
-    @staticmethod
-    async def _is_cloudflare_html_error(response: httpx.Response) -> bool:
-        """Check if this is a Cloudflare HTML error response.
-
-        Cloudflare often returns HTML error pages with status 400 when
-        there are authentication issues.
-        """
-        # Check content type
-        content_type = response.headers.get("content-type", "")
-        if "text/html" not in content_type.lower():
-            return False
-
-        # Check if body contains Cloudflare markers
-        try:
-            # For async httpx, we need to read the body first
-            if not hasattr(response, "_content") or not response._content:
-                try:
-                    await response.aread()
-                except Exception as read_exc:
-                    logger.debug("Failed to read response body: %s", read_exc)
-                    return False
-
-            # Now we can safely access the content
-            if hasattr(response, "_content") and response._content:
-                body = response._content.decode("utf-8", errors="ignore")
-            else:
-                # Fallback to text property (should work after aread)
-                try:
-                    body = response.text
-                except Exception:
-                    return False
-
-            # Look for Cloudflare and 400 Bad Request markers
-            body_lower = body.lower()
-            return "cloudflare" in body_lower and "400 bad request" in body_lower
-        except Exception as exc:
-            logger.debug("Error checking for Cloudflare error: %s", exc)
-            return False
-
-    def _recover_claude_oauth_token_after_auth_error(self) -> str | None:
-        """Recover an OAuth token after the API rejected the current one.
-
-        First tries a refresh-token exchange. If that fails, an optional
-        provider-specific callback may run a full interactive OAuth flow.
-        """
-        refreshed_token = self._refresh_claude_oauth_token()
-        if refreshed_token:
-            return refreshed_token
-
-        if not self._oauth_reauthentication_callback:
-            return None
-
-        try:
-            reauthenticated_token = self._oauth_reauthentication_callback()
-        except Exception as exc:
-            logger.error("Exception during OAuth reauthentication: %s", exc)
-            return None
-
-        if not reauthenticated_token:
-            logger.warning("OAuth reauthentication returned no token")
-            return None
-
-        self._update_auth_headers(self.headers, reauthenticated_token)
-        self._notify_token_recovered(reauthenticated_token)
-        return reauthenticated_token
-
-    def _refresh_claude_oauth_token(self) -> str | None:
-        try:
-            from code_puppy.plugins.claude_code_oauth.utils import refresh_access_token
-
-            logger.info("Attempting to refresh Claude Code OAuth token...")
-            refreshed_token = refresh_access_token(force=True)
-            if refreshed_token:
-                self._update_auth_headers(self.headers, refreshed_token)
-                self._notify_token_recovered(refreshed_token)
-                logger.info("Successfully refreshed Claude Code OAuth token")
-            else:
-                logger.warning("Token refresh returned None")
-            return refreshed_token
-        except Exception as exc:
-            logger.error("Exception during token refresh: %s", exc)
-            return None
-
-    @staticmethod
-    def _inject_cache_control(body: bytes, ttl: str | None = None) -> bytes | None:
-        try:
-            data = json.loads(body.decode("utf-8"))
-        except Exception:
-            return None
-
-        if not isinstance(data, dict):
-            return None
-
-        modified = False
-
-        # Anthropic supports up to 4 cache breakpoints.  We place them on
-        # the three most impactful, stable prefixes so that content which
-        # doesn't change between turns is independently cached:
-        #   1. System prompt  – static across the whole session
-        #   2. Tool definitions – static across the whole session
-        #   3. Last message    – caches the growing conversation prefix
-
-        # 1. System prompt
-        system = data.get("system")
-        if isinstance(system, list) and system:
-            last_sys = system[-1]
-            if isinstance(last_sys, dict) and "cache_control" not in last_sys:
-                last_sys["cache_control"] = _cache_marker(ttl)
-                modified = True
-        elif isinstance(system, str) and system:
-            # Convert bare string to content-block list so we can attach
-            # cache_control (the Anthropic API accepts both formats).
-            data["system"] = [
-                {"type": "text", "text": system, "cache_control": _cache_marker(ttl)}
-            ]
-            modified = True
-
-        # 2. Tool definitions
-        tools = data.get("tools")
-        if isinstance(tools, list) and tools:
-            last_tool = tools[-1]
-            if isinstance(last_tool, dict) and "cache_control" not in last_tool:
-                last_tool["cache_control"] = _cache_marker(ttl)
-                modified = True
-
-        # 3. Last message content block
-        messages = data.get("messages")
-        if isinstance(messages, list) and messages:
-            last = messages[-1]
-            if isinstance(last, dict):
-                content = last.get("content")
-                if isinstance(content, list) and content:
-                    last_block = content[-1]
-                    if (
-                        isinstance(last_block, dict)
-                        and "cache_control" not in last_block
-                    ):
-                        last_block["cache_control"] = _cache_marker(ttl)
-                        modified = True
-
-        # 4. Opus 4.7 adaptive-thinking requires display=summarized on the
-        # thinking dict. Enforce at the wire level so the request can't go
-        # out without it, regardless of upstream settings construction.
-        if _enforce_thinking_display_summary(data):
-            modified = True
-
-        if not modified:
-            return None
-
-        return json.dumps(data).encode("utf-8")
-
-
-def _inject_cache_control_in_payload(
-    payload: dict[str, Any], ttl: str | None = None
-) -> None:
-    """In-place cache_control injection on Anthropic messages.create payload.
-
-    Places up to three cache breakpoints (Anthropic allows 4) on the most
-    valuable, stable prefixes:
-      1. System prompt  – never changes between turns
-      2. Tool defs      – never changes between turns
-      3. Last message   – caches the growing conversation prefix
-    """
-
-    # 1. System prompt
-    system = payload.get("system")
-    if isinstance(system, list) and system:
-        last_sys = system[-1]
-        if isinstance(last_sys, dict) and "cache_control" not in last_sys:
-            last_sys["cache_control"] = _cache_marker(ttl)
-    elif isinstance(system, str) and system:
-        payload["system"] = [
-            {"type": "text", "text": system, "cache_control": _cache_marker(ttl)}
-        ]
-
-    # 2. Tool definitions
-    tools = payload.get("tools")
-    if isinstance(tools, list) and tools:
-        last_tool = tools[-1]
-        if isinstance(last_tool, dict) and "cache_control" not in last_tool:
-            last_tool["cache_control"] = _cache_marker(ttl)
-
-    # 3. Last message content block
-    messages = payload.get("messages")
-    if isinstance(messages, list) and messages:
-        last = messages[-1]
-        if isinstance(last, dict):
-            content = last.get("content")
-            if isinstance(content, list) and content:
-                last_block = content[-1]
-                if isinstance(last_block, dict) and "cache_control" not in last_block:
-                    last_block["cache_control"] = _cache_marker(ttl)
-
-    # 4. Opus 4.7 adaptive-thinking requires display=summarized on the
-    # thinking dict. Enforce here as well so the AsyncAnthropic client
-    # patch path matches the raw httpx path.
-    _enforce_thinking_display_summary(payload)
-
-
-def _make_cache_wrapper(
-    original_create: Callable[..., Any], ttl: str | None = None
-) -> Callable[..., Any]:
-    """Create a wrapped version of messages.create that injects cache_control."""
-
-    async def wrapped_create(*args: Any, **kwargs: Any):
-        if kwargs:
-            _inject_cache_control_in_payload(kwargs, ttl)
-        elif args:
-            maybe_payload = args[-1]
-            if isinstance(maybe_payload, dict):
-                _inject_cache_control_in_payload(maybe_payload, ttl)
-
-        return await original_create(*args, **kwargs)
-
-    return wrapped_create
-
-
-def patch_anthropic_client_messages(client: Any, cache_ttl: str | None = None) -> None:
-    """Monkey-patch AsyncAnthropic messages.create to inject cache_control.
-
-    Patches both client.messages.create AND client.beta.messages.create
-    since pydantic-ai uses the beta endpoint.
-
-    ``cache_ttl`` (e.g. "1h") is stamped on every injected marker; ``None``
-    keeps Anthropic's default 5-minute TTL.
-    """
-
-    if AsyncAnthropic is None or not isinstance(client, AsyncAnthropic):  # type: ignore[arg-type]
-        return
-
-    # Patch client.messages.create
-    try:
-        messages_obj = getattr(client, "messages", None)
-        if messages_obj is not None:
-            messages_obj.create = _make_cache_wrapper(messages_obj.create, cache_ttl)  # type: ignore[assignment]
-    except Exception:  # pragma: no cover - defensive
-        pass
-
-    # Patch client.beta.messages.create (used by pydantic-ai)
-    try:
-        beta_obj = getattr(client, "beta", None)
-        if beta_obj is not None:
-            beta_messages_obj = getattr(beta_obj, "messages", None)
-            if beta_messages_obj is not None:
-                beta_messages_obj.create = _make_cache_wrapper(
-                    beta_messages_obj.create, cache_ttl
-                )  # type: ignore[assignment]
-    except Exception:  # pragma: no cover - defensive
-        pass

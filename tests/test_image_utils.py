@@ -111,9 +111,8 @@ class TestResizeImageIfNeeded:
 
         # Create a very wide image
         img = Image.new("RGB", (10000, 10000))
-        # Passing a very large budget means no resize needed — we want to test
-        # the cap, so use a moderately large image and simulate via direct call.
-        # Instead, test that a resized result respects the cap.
+        # Large budget = no resize; to test the cap, use a moderately large image
+        # and assert the resized result respects it.
         result = _resize_image_if_needed(img, 100)
         assert result.width <= MAX_IMAGE_DIMENSION
         assert result.height <= MAX_IMAGE_DIMENSION

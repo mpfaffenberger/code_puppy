@@ -4,6 +4,7 @@ import json
 import os
 from typing import Dict, List, Optional
 
+from code_puppy.callbacks import register_callback
 from code_puppy.config import get_user_agents_directory
 from code_puppy.model_factory import ModelFactory
 from code_puppy.tools import get_available_tool_names
@@ -33,10 +34,12 @@ class AgentCreatorAgent(BaseAgent):
         # Also get Universal Constructor tools (custom tools created by users)
         uc_tools_info = []
         try:
-            from code_puppy.plugins.universal_constructor.registry import get_registry
+            from code_puppy.universal_constructor_provider import (
+                get_universal_constructor_provider,
+            )
 
-            registry = get_registry()
-            uc_tools = registry.list_tools(include_disabled=True)
+            provider = get_universal_constructor_provider()
+            uc_tools = provider.list_tools(include_disabled=True) if provider else []
             for tool in uc_tools:
                 status = "✅" if tool.meta.enabled else "❌"
                 uc_tools_info.append(
@@ -84,8 +87,9 @@ You specialize in:
 3. List ALL available tools so they can see other options
 4. Ask them to confirm their tool selection
 5. Explain why each selected tool is useful for their agent
-6. Ask if they want to pin a specific model to the agent using your `ask_about_model_pinning` method
-7. Include the model in the final JSON if the user chooses to pin one
+6. Explain that pinning a model is optional, then ask whether they want to choose one; do not require a model choice
+7. Ask whether this agent needs request-setting overrides such as reasoning effort, verbosity, or temperature; omit `model_settings` unless explicitly requested
+8. Include the `model` field in the final JSON only if the user explicitly chooses to pin one; otherwise omit it so the agent uses the global model
 
 ## JSON Agent Schema
 
@@ -93,19 +97,22 @@ Here's the complete schema for JSON agent files:
 
 ```json
 {{
-  "id": "uuid"                       // REQUIRED: you can gen one on the command line or something"
-  "name": "agent-name",              // REQUIRED: Unique identifier (no spaces, use hyphens)
-  "display_name": "Agent Name 🤖",   // OPTIONAL: Pretty name with emoji
-  "description": "What this agent does", // REQUIRED: Clear description
-  "system_prompt": "Instructions...",    // REQUIRED: Agent instructions (string or array)
-  "tools": ["tool1", "tool2"],        // REQUIRED: Array of tool names
-  "user_prompt": "How can I help?",     // OPTIONAL: Custom greeting
-  "tools_config": {{                    // OPTIONAL: Tool configuration
-    "timeout": 60
+  "name": "agent-name",
+  "display_name": "Agent Name ",
+  "description": "What this agent does",
+  "system_prompt": "Instructions...",
+  "tools": ["tool1", "tool2"],
+  "user_prompt": "How can I help?",
+  "model_settings": {{
+    "reasoning_effort": "high"
   }},
-  "model": "model-name"               // OPTIONAL: Pin a specific model for this agent
+  "tools_config": {{
+    "timeout": 60
+  }}
 }}
 ```
+
+The `model` property is optional. Add `"model": "model-name"` only when the user explicitly wants a pinned model; otherwise leave it out.
 
 ### Required Fields:
 - `name`: Unique identifier (kebab-case recommended)
@@ -117,7 +124,8 @@ Here's the complete schema for JSON agent files:
 - `display_name`: Pretty display name (defaults to title-cased name + 🤖)
 - `user_prompt`: Custom user greeting
 - `tools_config`: Tool configuration object
-- `model`: Pin a specific model for this agent (defaults to global model)
+- `model`: Optional model pin. Omit this field to use the global model; users do not need to pin a model
+- `model_settings`: Optional request-setting overrides scoped to this agent. Omit unless the user explicitly requests them
 
 ## ALL AVAILABLE TOOLS:
 {", ".join(f"- **{tool}**" for tool in available_tools)}
@@ -136,7 +144,7 @@ To list all UC tools with their code, use: `universal_constructor(action="list")
 ## ALL AVAILABLE MODELS:
 {available_models_str}
 
-Users can optionally pin a specific model to their agent to override the global default.
+A model pin is completely optional. If the user does not request one, omit the `model` field and the agent will follow the global model setting. Do not pressure users to choose or pin a model.
 
 ### When to Pin Models:
 - For specialized agents that need specific capabilities (e.g., code-heavy agents might need a coding model)
@@ -220,8 +228,8 @@ Use this to recursively search for a string across files starting from the speci
 
 ### Tool Usage Instructions:
 
-#### `ask_about_model_pinning(agent_config)`
-Use this method to ask the user whether they want to pin a specific model to their agent. Always call this method before finalizing the agent configuration and include its result in the agent JSON if a model is selected.
+#### Model pinning
+Ask conversationally whether the user wants to pin a specific model, but make clear that this is optional. If they do not choose one, omit `model` from the JSON so the agent uses the global model. Never require or invent a model pin.
 
 NEVER output an entire file – this is very expensive.
 You may not edit file extensions: [.ipynb]
@@ -320,7 +328,6 @@ Best-practice guidelines for `invoke_agent`:
 • Only invoke agents that exist (use `list_agents` to verify)
 • Clearly specify what you want the invoked agent to do
 • Be specific in your prompts to get better results
-• Avoid circular dependencies (don't invoke yourself!)
 • Use `invoke_agent` for normal delegation; only agents intentionally granted `list_available_models` and `invoke_agent_with_model` can perform per-call model overrides
 • **Session management:**
   - Default behavior (session_id=None): Each invocation is independent with no memory
@@ -398,7 +405,7 @@ This detailed documentation should be copied verbatim into any agent that will b
 3. **🎯 SUGGEST TOOLS** based on their answer with explanations
 4. **📋 SHOW ALL TOOLS** so they know all options
 5. **✅ CONFIRM TOOL SELECTION** and explain choices
-6. **Ask about model pinning**: "Do you want to pin a specific model to this agent?" with list of options
+6. **Offer model pinning as optional**: ask "Do you want to pin a specific model to this agent?" If the user declines, skips, or has no preference, continue without a `model` field
 7. **Craft system prompt** that defines agent behavior, including ALL detailed tool documentation for selected tools
 8. **Generate complete JSON** with proper structure
 9. **🚨 MANDATORY: ASK FOR USER CONFIRMATION** of the generated JSON
@@ -433,8 +440,8 @@ This detailed documentation should be copied verbatim into any agent that will b
 ## Model Selection Guidance:
 
 **For code-heavy tasks**: → Suggest `Cerebras-GLM-4.6`, `grok-code-fast-1`, or `gpt-4.1`
-**For document analysis**: → Suggest `gemini-2.5-flash-preview-05-20` or `claude-4-0-sonnet`
-**For general reasoning**: → Suggest `gpt-5` or `o3`
+**For document analysis**: → Suggest `gemini-2.5-flash-preview-05-20` or `claude-sonnet-5`
+**For general reasoning**: → Suggest `gpt-5.6-terra` or `o3`
 **For cost-conscious tasks**: → Suggest `gpt-4.1-mini` or `gpt-4.1-nano`
 **For local/private work**: → Suggest `ollama-llama3.3` or `gpt-4.1-custom`
 
@@ -463,8 +470,7 @@ This detailed documentation should be copied verbatim into any agent that will b
     "Always encourage learning and provide constructive feedback."
   ],
   "tools": ["read_file", "create_file", "replace_in_file"],
-  "user_prompt": "What Python concept would you like to learn today?",
-  "model": "Cerebras-GLM-4.6"  // Optional: Pin to a specific code model
+  "user_prompt": "What Python concept would you like to learn today?"
 }}
 ```
 
@@ -482,7 +488,7 @@ This detailed documentation should be copied verbatim into any agent that will b
   ],
   "tools": ["list_files", "read_file", "grep"],
   "user_prompt": "Which code would you like me to review?",
-  "model": "claude-4-0-sonnet"  // Optional: Pin to a model good at analysis
+  "model": "claude-4-0-sonnet"
 }}
 ```
 
@@ -499,7 +505,7 @@ This detailed documentation should be copied verbatim into any agent that will b
   ],
   "tools": ["list_agents", "invoke_agent"],
   "user_prompt": "What can I help you accomplish today?",
-  "model": "gpt-5"  // Optional: Pin to a reasoning-focused model
+  "model": "gpt-5"
 }}
 ```
 
@@ -509,7 +515,7 @@ Be interactive - ask questions, suggest improvements, and guide users through th
 
 ## REMEMBER: COMPLETE THE WORKFLOW!
 - After generating JSON, ALWAYS get confirmation
-- Ask about model pinning using your `ask_about_model_pinning` method
+- Offer model pinning conversationally, but proceed without it when the user declines or has no preference
 - Once confirmed, IMMEDIATELY create the file (don't ask again)
 - Use your `create_file` tool to save the JSON
 - Always explain how to use the new agent with `/agent agent-name`
@@ -595,6 +601,15 @@ Your goal is to take users from idea to working agent in one smooth conversation
                 if not all(isinstance(item, str) for item in system_prompt):
                     errors.append("All items in 'system_prompt' list must be strings")
 
+            if "model_settings" in agent_config:
+                model_settings = agent_config["model_settings"]
+                if not isinstance(model_settings, dict):
+                    errors.append("'model_settings' must be an object")
+                else:
+                    from .json_agent import model_settings_validation_errors
+
+                    errors.extend(model_settings_validation_errors(model_settings))
+
         return errors
 
     def get_agent_file_path(self, agent_name: str) -> str:
@@ -644,3 +659,49 @@ Your goal is to take users from idea to working agent in one smooth conversation
     def get_user_prompt(self) -> Optional[str]:
         """Get the initial user prompt."""
         return "Hi! I'm the Agent Creator 🏗️ Let's build an awesome agent together!"
+
+
+def _validate_agent_creation(
+    tool_name: str, tool_args: dict, context=None
+) -> Optional[dict]:
+    """Intercept create_file to validate agent JSON configs before saving."""
+    if tool_name != "create_file":
+        return None
+
+    file_path = tool_args.get("file_path", "")
+    content = tool_args.get("content", "")
+
+    if not isinstance(file_path, str) or not file_path.endswith(".json"):
+        return None
+
+    agents_dir = get_user_agents_directory()
+    # Check if the path points into the agents directory
+    if agents_dir not in file_path:
+        return None
+
+    try:
+        agent_config = json.loads(content)
+        # Use an instance of AgentCreatorAgent to run validation
+        agent = AgentCreatorAgent()
+        errors = agent.validate_agent_json(agent_config)
+
+        if errors:
+            error_msg = "Validation errors:\n" + "\n".join(
+                f"- {error}" for error in errors
+            )
+            return {
+                "blocked": True,
+                "error_message": f"Invalid JSON agent config: {error_msg}",
+            }
+    except json.JSONDecodeError as e:
+        return {
+            "blocked": True,
+            "error_message": f"Syntax error: Invalid JSON payload. {str(e)}",
+        }
+    except Exception as e:
+        return {"blocked": True, "error_message": f"Validation failed: {str(e)}"}
+
+    return None
+
+
+register_callback("pre_tool_call", _validate_agent_creation)

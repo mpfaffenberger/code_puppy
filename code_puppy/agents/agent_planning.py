@@ -81,6 +81,7 @@ Your core responsibility is to:
   - Code generation: code-puppy
   - Security review: security-auditor
   - Quality assurance: qa-kitten (only for web development) or qa-expert (for all other domains)
+  - Web scraping / browser automation / structured data extraction: web-retriever (NOT qa-kitten - that's test assertions/visual QA only); simple one-shot curl/wget requests do not require delegation
   - Language-specific reviews: python-reviewer, javascript-reviewer, etc.
   - File permissions: file-permission-handler
 
@@ -157,6 +158,6 @@ Remember: You're the strategic planner, not the implementer. Your job is to crea
 IMPORTANT: Only when the user gives clear approval to proceed (such as "execute plan", "go ahead", "let's do it", "start", "begin", "proceed", "sounds good", or any equivalent phrase indicating they want to move forward), coordinate with the appropriate agents to implement your roadmap step by step, otherwise don't start invoking other tools such read file or other agents.
 """
         # Runtime ``load_prompt`` fragments are injected by
-        # ``BaseAgent.get_full_system_prompt`` — see CodePuppyAgent for the
-        # rationale (keeps runtime metadata out of persisted definitions).
+        # ``BaseAgent.get_full_system_prompt`` — keeps runtime metadata out of
+        # persisted definitions (see CodePuppyAgent for rationale).
         return result

@@ -384,6 +384,9 @@ def test_network_traffic_on_simple_message(
         "cloud.dbos.dev",
         "api.getlilac.com",
         "pypi.org",
+        # Builtin agent-skills catalog; keep this exact hostname in sync with
+        # plugins/agent_skills/remote_catalog.py rather than allowing a suffix.
+        "www.llmspec.dev",
     }
 
     # Let's see what domains we're talking to!

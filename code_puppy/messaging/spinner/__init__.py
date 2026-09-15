@@ -62,8 +62,8 @@ def _compact_count(n: int) -> str:
 def _codex_usage_suffix() -> str:
     """Return cached Codex limits only while a Codex OAuth model is active."""
     try:
+        from code_puppy.callbacks import get_usage_status
         from code_puppy.config import get_global_model_name
-        from code_puppy.plugins.chatgpt_oauth.usage import get_usage_status
 
         if not (get_global_model_name() or "").startswith("codex-"):
             return ""

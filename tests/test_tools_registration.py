@@ -2,6 +2,8 @@
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from code_puppy.tools import (
     REMOVED_LEGACY_TOOLS,
     TOOL_REGISTRY,
@@ -60,9 +62,8 @@ class TestToolRegistration:
         # Test registering file operations tools
         register_tools_for_agent(mock_agent, ["list_files", "read_file"])
 
-        # The mock agent should have had registration functions called
-        # (We can't easily test the exact behavior since it depends on decorators)
-        # But we can test that no exceptions were raised
+        # Can't assert exact registration behavior (decorator-driven) — just that
+        # nothing raised.
         assert True  # If we get here, no exception was raised
 
     def test_register_tools_invalid_tool(self):
@@ -109,6 +110,72 @@ class TestToolRegistration:
         assert True
 
 
+_FILE_TOOL_NAMES = {
+    "create_file",
+    "replace_in_file",
+    "delete_snippet",
+    "delete_file",
+    "edit",
+    "apply_patch",
+}
+
+
+class _CapturingAgent:
+    """Minimal stand-in recording the tool names pydantic-ai would see."""
+
+    def __init__(self):
+        self.names: list[str] = []
+
+    def tool(self, fn=None, **_kwargs):
+        if fn is None:
+            return lambda f: self.tool(f)
+        self.names.append(fn.__name__)
+        return fn
+
+    @property
+    def file_tools(self) -> list[str]:
+        """Only the file-editing surface; plugin ``register_agent_tools``
+        hooks left behind by other tests may add unrelated names."""
+        return [n for n in self.names if n in _FILE_TOOL_NAMES]
+
+
+class TestRetiredProviderEditors:
+    """``edit`` / ``apply_patch`` are gone; every model gets the granular tools."""
+
+    @pytest.mark.parametrize(
+        "model_name",
+        ["codex-gpt-5.4", "chatgpt-gpt-5", "claude-code-claude-opus-4-7", "qwen-q4"],
+    )
+    def test_every_model_gets_the_same_file_tools(self, model_name):
+        agent = _CapturingAgent()
+        register_tools_for_agent(
+            agent, ["create_file", "replace_in_file"], model_name=model_name
+        )
+        # Plugin hooks left behind by other tests may add unrelated tools;
+        # only the file-editing surface matters here.
+        file_tools = [
+            n
+            for n in agent.names
+            if n in {"create_file", "replace_in_file", "edit", "apply_patch"}
+        ]
+        assert file_tools == ["create_file", "replace_in_file"]
+
+    def test_retired_names_are_not_registrable(self):
+        assert "edit" not in TOOL_REGISTRY
+        assert "apply_patch" not in TOOL_REGISTRY
+
+    def test_retired_names_alias_to_granular_tools(self):
+        """Agent configs written during the provider-editor era keep working."""
+        agent = _CapturingAgent()
+        register_tools_for_agent(agent, ["edit", "apply_patch"], model_name="qwen-q4")
+        assert agent.file_tools == [
+            "replace_in_file",
+            "create_file",
+            "delete_snippet",
+            "delete_file",
+        ]
+
+
 class TestRemovedReasoningToolBehavior:
     """Test that the retired reasoning tool is hidden from agent-facing use."""
 
@@ -123,47 +190,25 @@ class TestRemovedReasoningToolBehavior:
         assert has_extended_thinking_active("gemini-2.5-pro") is False
         assert has_extended_thinking_active("o3-mini") is False
 
+    @pytest.mark.parametrize(
+        "model,setting,expected",
+        [
+            ("claude-sonnet-4-20250514", {"extended_thinking": "enabled"}, True),
+            ("claude-sonnet-4-20250514", {"extended_thinking": "adaptive"}, True),
+            ("claude-sonnet-4-20250514", {"extended_thinking": "off"}, False),
+            ("claude-sonnet-4-20250514", {"extended_thinking": True}, True),
+            ("claude-sonnet-4-20250514", {"extended_thinking": False}, False),
+            ("anthropic-claude-sonnet", {"extended_thinking": "enabled"}, True),
+            ("claude-sonnet-4-20250514", {}, True),
+        ],
+    )
     @patch("code_puppy.config.get_effective_model_settings")
-    def testhas_extended_thinking_active_claude_enabled(self, mock_settings):
-        """Returns True for Claude models with extended_thinking='enabled'."""
-        mock_settings.return_value = {"extended_thinking": "enabled"}
-        assert has_extended_thinking_active("claude-sonnet-4-20250514") is True
-
-    @patch("code_puppy.config.get_effective_model_settings")
-    def testhas_extended_thinking_active_claude_adaptive(self, mock_settings):
-        """Returns True for Claude models with extended_thinking='adaptive'."""
-        mock_settings.return_value = {"extended_thinking": "adaptive"}
-        assert has_extended_thinking_active("claude-sonnet-4-20250514") is True
-
-    @patch("code_puppy.config.get_effective_model_settings")
-    def testhas_extended_thinking_active_claude_off(self, mock_settings):
-        """Returns False for Claude models with extended_thinking='off'."""
-        mock_settings.return_value = {"extended_thinking": "off"}
-        assert has_extended_thinking_active("claude-sonnet-4-20250514") is False
-
-    @patch("code_puppy.config.get_effective_model_settings")
-    def testhas_extended_thinking_active_legacy_bool_true(self, mock_settings):
-        """Returns True for legacy boolean True (backwards compat)."""
-        mock_settings.return_value = {"extended_thinking": True}
-        assert has_extended_thinking_active("claude-sonnet-4-20250514") is True
-
-    @patch("code_puppy.config.get_effective_model_settings")
-    def testhas_extended_thinking_active_legacy_bool_false(self, mock_settings):
-        """Returns False for legacy boolean False (backwards compat)."""
-        mock_settings.return_value = {"extended_thinking": False}
-        assert has_extended_thinking_active("claude-sonnet-4-20250514") is False
-
-    @patch("code_puppy.config.get_effective_model_settings")
-    def testhas_extended_thinking_active_anthropic_prefix(self, mock_settings):
-        """Also works for 'anthropic-' prefixed model names."""
-        mock_settings.return_value = {"extended_thinking": "enabled"}
-        assert has_extended_thinking_active("anthropic-claude-sonnet") is True
-
-    @patch("code_puppy.config.get_effective_model_settings")
-    def test_has_extended_thinking_default_is_enabled(self, mock_settings):
-        """When no extended_thinking setting exists, defaults to 'enabled'."""
-        mock_settings.return_value = {}  # No extended_thinking key
-        assert has_extended_thinking_active("claude-sonnet-4-20250514") is True
+    def test_has_extended_thinking_active(
+        self, mock_settings, model, setting, expected
+    ):
+        """Claude extended_thinking resolves per setting; defaults to enabled."""
+        mock_settings.return_value = setting
+        assert has_extended_thinking_active(model) is expected
 
     def test_legacy_reasoning_tool_remains_in_registry_for_custom_agents(self):
         """Custom JSON agents can still request the legacy reasoning tool."""

@@ -110,9 +110,8 @@ def _move_pair(
     dest_pickle = dest_dir / pickle_src.name
     sidecar_src = _sidecar_for(pickle_src)
     dest_sidecar = _sidecar_for(dest_pickle)
-    # Asymmetric-collision guard: a prior interrupted sweep could have
-    # moved only the sidecar OR only the pickle. Either kind of dest
-    # entity blocks the move so we never silently overwrite half a pair.
+    # Asymmetric-collision guard: an interrupted sweep may have moved only the
+    # sidecar OR pickle — block if either exists to avoid overwriting half a pair.
     if dest_pickle.exists() or dest_sidecar.exists():
         return False, (
             f"Skipped sweep of {pickle_src} -- name already exists in "
@@ -188,9 +187,8 @@ def sweep_contexts_to_autosaves() -> None:
             )
 
     except Exception as exc:  # pragma: no cover - defensive
-        # Sweep MUST NOT crash the app. Worst case: legacy files stay
-        # put, user sees them missing from the picker, and the sentinel
-        # may or may not be touched. Next launch retries.
+        # Sweep must never crash the app: worst case legacy files stay put
+        # (maybe missing from picker) and the next launch retries.
         try:
             from code_puppy.error_logging import log_error_message
 

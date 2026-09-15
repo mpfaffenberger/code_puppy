@@ -16,12 +16,15 @@ from __future__ import annotations
 from typing import Tuple
 
 from code_puppy.command_line.set_menu_schema import Setting, SettingsCategory
+from code_puppy.callbacks import get_feature_capability
 from code_puppy.command_line.set_menu_shims import (
     get_disable_mcp_servers_effective,
     get_goal_max_iterations_effective,
     get_max_pause_seconds_effective,
 )
 from code_puppy.config import (
+    AGENCY_LEVELS,
+    get_agency_level,
     get_allow_recursion,
     get_auto_save_session,
     get_compaction_strategy,
@@ -36,6 +39,7 @@ from code_puppy.config import (
     get_frontend_emitter_max_recent_events,
     get_frontend_emitter_queue_size,
     get_global_model_name,
+    get_grep_max_matches,
     get_grep_output_verbose,
     get_http2,
     get_max_hook_retries,
@@ -43,7 +47,6 @@ from code_puppy.config import (
     get_mcp_disabled,
     get_mcp_unbound_warning_silenced,
     get_message_limit,
-    get_openai_reasoning_summary,
     get_output_level,
     get_owner_name,
     get_pack_agents_enabled,
@@ -55,9 +58,10 @@ from code_puppy.config import (
     get_retry_main_strategy,
     get_retry_subagent_max_attempts,
     get_retry_subagent_strategy,
-    get_safety_permission_level,
     get_smooth_response_stream,
     get_smooth_thinking_stream,
+    get_subagent_recursion_limit,
+    get_subagent_recursion_limit_gpt_5_6,
     get_subagent_verbose,
     get_summarization_model_name,
     get_suppress_informational_messages,
@@ -67,7 +71,6 @@ from code_puppy.config import (
     get_yolo_mode,
 )
 from code_puppy.keymap import get_cancel_agent_key
-from code_puppy.plugins.dbos_durable_exec.config import is_enabled as get_dbos_enabled
 
 
 # ---------------------------------------------------------------------------
@@ -134,6 +137,18 @@ _BEHAVIOR = SettingsCategory(
     name="Behavior",
     settings=(
         Setting(
+            key="agency_level",
+            display_name="Agency Level",
+            description=(
+                "How relentlessly the agent proceeds without checking in. "
+                "'low' pauses after every step, 'extreme' never stops. "
+                "Headless -p runs always behave as 'extreme'."
+            ),
+            type_hint="choice",
+            valid_values=AGENCY_LEVELS,
+            effective_getter=get_agency_level,
+        ),
+        Setting(
             key="yolo_mode",
             display_name="YOLO Mode",
             description=(
@@ -158,6 +173,29 @@ _BEHAVIOR = SettingsCategory(
             description="Stream model responses token-by-token.",
             type_hint="bool",
             effective_getter=get_enable_streaming,
+        ),
+        Setting(
+            key="subagent_recursion_limit",
+            display_name="Sub-agent Recursion Limit",
+            description=(
+                "Maximum nested sub-agent depth. The main agent is depth 0; "
+                "directly invoked sub-agents are depth 1. Set to 0 to disable "
+                "sub-agent invocation."
+            ),
+            type_hint="int",
+            effective_getter=get_subagent_recursion_limit,
+        ),
+        Setting(
+            key="subagent_recursion_limit_gpt_5_6",
+            display_name="Sub-agent Recursion Limit (GPT-5.6)",
+            description=(
+                "Overlay cap that applies only when the immediate caller is on a "
+                "GPT-5.6 model. Defaults to 2 to prevent GPT-5.6's runaway-delegation "
+                "pattern. Whichever fires first between this and the generic limit wins. "
+                "Raising it re-opens the runaway-chain risk; do so knowingly."
+            ),
+            type_hint="int",
+            effective_getter=get_subagent_recursion_limit_gpt_5_6,
         ),
         Setting(
             key="subagent_verbose",
@@ -203,6 +241,17 @@ _BEHAVIOR = SettingsCategory(
             ),
             type_hint="bool",
             effective_getter=get_grep_output_verbose,
+        ),
+        Setting(
+            key="grep_max_matches",
+            display_name="Grep Match Budget",
+            description=(
+                "Maximum matches a single grep call returns. Results past "
+                "the budget are dropped and the tool reports truncated=True. "
+                "Default 50; minimum 1."
+            ),
+            type_hint="int",
+            effective_getter=get_grep_max_matches,
         ),
     ),
 )
@@ -265,21 +314,6 @@ _COMPACTION = SettingsCategory(
 )
 
 
-_OPENAI = SettingsCategory(
-    name="OpenAI",
-    settings=(
-        Setting(
-            key="openai_reasoning_summary",
-            display_name="Reasoning Summary",
-            description="Style of reasoning summary shown to the user.",
-            type_hint="choice",
-            valid_values=("auto", "concise", "detailed"),
-            effective_getter=get_openai_reasoning_summary,
-        ),
-    ),
-)
-
-
 _FEATURES = SettingsCategory(
     name="Features",
     settings=(
@@ -304,7 +338,7 @@ _FEATURES = SettingsCategory(
             display_name="DBOS Durable Execution",
             description="Enable DBOS durable execution plugin.",
             type_hint="bool",
-            effective_getter=get_dbos_enabled,
+            effective_getter=lambda: get_feature_capability("dbos_durable_exec"),
             requires_restart=True,
         ),
         Setting(
@@ -494,18 +528,6 @@ _SAFETY = SettingsCategory(
     name="Safety",
     settings=(
         Setting(
-            key="safety_permission_level",
-            display_name="Permission Level",
-            description=(
-                "Risk threshold for tool execution. Lower thresholds prompt "
-                "for more operations; 'critical' only prompts on the most "
-                "dangerous actions."
-            ),
-            type_hint="choice",
-            valid_values=("none", "low", "medium", "high", "critical"),
-            effective_getter=get_safety_permission_level,
-        ),
-        Setting(
             key="disable_dangerous_command_guard",
             display_name="Disable Dangerous Command Guard",
             description=(
@@ -629,7 +651,6 @@ SETTINGS_CATEGORIES: Tuple[SettingsCategory, ...] = (
     _SESSION,
     _COMPACTION,
     _OUTPUT,
-    _OPENAI,
     _FEATURES,
     _MCP,
     _GOAL,

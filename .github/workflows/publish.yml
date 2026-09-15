@@ -11,6 +11,13 @@ on:
     branches:
       - main
 
+# Serialize publishes: two back-to-back pushes once raced, both bumped to the
+# same patch version, and the loser stranded git a version behind PyPI.
+# Queue (never cancel) so every push still gets released, one at a time.
+concurrency:
+  group: pypi-publish
+  cancel-in-progress: false
+
 jobs:
   test:
     runs-on: ${{ matrix.os }}
@@ -42,22 +49,22 @@ jobs:
       - name: Install pexpect for integration tests
         run: uv pip install pexpect>=4.9.0
 
-      - name: Provision CI model (lilac synthetic GLM-5.1)
+      - name: Provision CI model (lilac synthetic GLM-5.2)
         # models.json ships empty. CI gets its model from extra_models.json,
         # exactly like a real user would after running /add_model.
         run: |
           mkdir -p "$HOME/.code_puppy"
           cat > "$HOME/.code_puppy/extra_models.json" <<'JSON'
           {
-            "lilac-zai-org-glm-5.1": {
+            "lilac-zai-org-glm-5.2": {
               "type": "custom_openai",
               "provider": "lilac",
-              "name": "zai-org/glm-5.1",
+              "name": "zai-org/glm-5.2",
               "custom_endpoint": {
                 "url": "https://api.getlilac.com/v1",
                 "api_key": "$LILAC_API_KEY"
               },
-              "context_length": 202800,
+              "context_length": 524288,
               "supported_settings": ["temperature", "seed", "top_p"]
             }
           }
@@ -143,7 +150,10 @@ jobs:
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
-        run: uv run twine upload --verbose dist/*
+        # --skip-existing: if a version already reached PyPI from a run that
+        # died before pushing its bump commit, warn instead of failing so the
+        # bump+tag still land and the next run moves past the collision.
+        run: uv run twine upload --verbose --skip-existing dist/*
 
       - name: Push version bump and tag to GitHub
         if: ${{ success() }}
@@ -155,6 +165,26 @@ jobs:
           git add .
           git commit -m "chore: bump version [ci skip]" || echo "No changes to commit"
           TAG="v${{ steps.version.outputs.version }}"
-          git tag -a "$TAG" -m "Release $TAG"
-          git push
-          git push origin "$TAG"
+
+          # main can advance between our checkout and this push (a human or
+          # another branch landing a commit while we bump). The bare `git
+          # push` used to fail the whole publish with "fetch first". Rebase
+          # onto the latest main and retry instead of going red.
+          for attempt in 1 2 3 4 5; do
+            if ! git pull --rebase origin main 2>/dev/null; then
+              echo "rebase conflicted/running; aborting and retrying"
+              git rebase --abort 2>/dev/null || true
+              sleep 5
+              continue
+            fi
+            git tag -f -a "$TAG" -m "Release $TAG"
+            if git push origin main; then
+              git push origin "$TAG" || echo "tag $TAG already exists remotely (fine)"
+              echo "Pushed version bump and tag $TAG"
+              exit 0
+            fi
+            echo "Push rejected (attempt $attempt/5); retrying..."
+            sleep 5
+          done
+          echo "Giving up pushing version bump after 5 attempts"
+          exit 1

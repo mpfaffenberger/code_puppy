@@ -1,13 +1,12 @@
 # agent_tools.py
 import hashlib
 import json
-import pickle
 import re
 from datetime import datetime
 from pathlib import Path
 from typing import List
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from pydantic_ai import RunContext
 from pydantic_ai.messages import ModelMessage
@@ -124,13 +123,13 @@ def _save_session_history(
 
     sessions_dir = _get_subagent_sessions_dir()
 
-    # Save pickle file with message history (atomic: write a temp file then
-    # replace, so a crash mid-write can't corrupt an existing session pickle)
-    pkl_path = sessions_dir / f"{session_id}.pkl"
-    tmp_pkl = pkl_path.with_suffix(".tmp")
-    with open(tmp_pkl, "wb") as f:
-        pickle.dump(message_history, f)
-    tmp_pkl.replace(pkl_path)
+    # Save the versioned JSON envelope (atomic write via session_storage so
+    # a crash mid-write can't corrupt an existing session file). Shares the
+    # exact serialization used by the main session store -- no drift.
+    from code_puppy.session_storage import build_envelope, write_envelope_file
+
+    json_path = sessions_dir / f"{session_id}.json"
+    write_envelope_file(json_path, build_envelope(message_history))
 
     # Save or update txt file with metadata
     txt_path = sessions_dir / f"{session_id}.txt"
@@ -171,18 +170,36 @@ def _load_session_history(session_id: str) -> List[ModelMessage]:
     # Validate session_id format before loading
     _validate_session_id(session_id)
 
+    from code_puppy.session_storage import decode_envelope, read_envelope_file
+
     sessions_dir = _get_subagent_sessions_dir()
+    json_path = sessions_dir / f"{session_id}.json"
     pkl_path = sessions_dir / f"{session_id}.pkl"
 
-    if not pkl_path.exists():
-        return []
+    if json_path.exists():
+        try:
+            return decode_envelope(read_envelope_file(json_path))
+        except Exception:
+            # Corrupted or incompatible session file: start fresh.
+            return []
 
-    try:
-        with open(pkl_path, "rb") as f:
-            return pickle.load(f)
-    except Exception:
-        # If pickle is corrupted or incompatible, return empty history
-        return []
+    if pkl_path.exists():
+        # Legacy pre-JSON sub-agent session: lazy-migrate it in place.
+        from code_puppy.session_format_migration import (
+            archive_legacy_pickle,
+            migrate_pickle_file,
+        )
+
+        result = migrate_pickle_file(pkl_path)
+        if not result.success:
+            return []
+        archive_legacy_pickle(pkl_path)
+        try:
+            return decode_envelope(read_envelope_file(json_path))
+        except Exception:
+            return []
+
+    return []
 
 
 class AgentInfo(BaseModel):
@@ -208,6 +225,33 @@ class AgentInvokeOutput(BaseModel):
     session_id: str | None = None
     model_name: str | None = None
     error: str | None = None
+
+
+class SubagentRequestUsage(BaseModel):
+    """Billable token buckets for one model call."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    model_name: str | None = None
+    input_tokens: int | None = None
+    cache_read_input_tokens: int | None = None
+    cache_creation_input_tokens: int | None = None
+    output_tokens: int | None = None
+
+
+class AgentInvokeWithModelOutput(AgentInvokeOutput):
+    """Usage output; ``input_tokens`` excludes cache."""
+
+    input_tokens: int | None = None
+    cache_read_input_tokens: int | None = None
+    cache_creation_input_tokens: int | None = None
+    output_tokens: int | None = None
+    num_requests: int | None = None
+    per_request_usage: list[SubagentRequestUsage] | None = None
+    final_context_tokens: int | None = None
+    start_time: str | None = None
+    end_time: str | None = None
+    duration_ms: float | None = None
 
 
 def register_list_agents(agent):
@@ -266,9 +310,8 @@ def register_list_agents(agent):
     return list_agents
 
 
-# Backward-compatible exports for callers that import invocation tools from
-# code_puppy.tools.agent_tools. The implementation lives in the focused
-# subagent_invocation module so this file stays below the puppy bloat line.
+# Backward-compatible re-exports: invocation tools live in subagent_invocation
+# so this file stays below the bloat line.
 from code_puppy.tools.subagent_invocation import (  # noqa: E402
     _active_subagent_tasks,
     register_invoke_agent,
@@ -278,7 +321,9 @@ from code_puppy.tools.subagent_invocation import (  # noqa: E402
 __all__ = [
     "AgentInfo",
     "AgentInvokeOutput",
+    "AgentInvokeWithModelOutput",
     "ListAgentsOutput",
+    "SubagentRequestUsage",
     "_active_subagent_tasks",
     "_generate_session_hash_suffix",
     "_get_subagent_sessions_dir",

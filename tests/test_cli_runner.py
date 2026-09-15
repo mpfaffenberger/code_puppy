@@ -195,7 +195,7 @@ class TestVersionHandling:
 
 
 class TestLogoDisplay:
-    """Test CODE PUPPY logo display."""
+    """Test platform-aware logo display."""
 
     def test_logo_not_displayed_in_prompt_only_mode(self):
         """Test that logo is skipped in prompt-only mode (-p flag)."""
@@ -338,6 +338,50 @@ class TestPortAvailability:
         result = find_available_port()
         assert result is not None
 
+    def test_port_base_argparse_default_is_none(self):
+        """--port-base defaults to None so cli_runner can fall back to config.
+
+        If this ever flips to a hardcoded value, the env-var / puppy.cfg
+        precedence chain silently breaks.
+        """
+        import argparse
+
+        parser = argparse.ArgumentParser()
+        # Mirror production: type=str (not int) so bad input is validated
+        # gracefully in resolve_port_base rather than argparse-exiting.
+        parser.add_argument("--port-base", type=str, default=None)
+        args = parser.parse_args([])
+        assert args.port_base is None
+        args = parser.parse_args(["--port-base", "9100"])
+        assert args.port_base == "9100"
+
+    def test_port_base_cli_wins_over_config(self):
+        """resolve_port_base must honor a valid CLI value over env/cfg."""
+        from code_puppy.config import resolve_port_base
+
+        with patch("code_puppy.config.get_value", return_value="9500"):
+            with patch.dict("os.environ", {"CODE_PUPPY_PORT_BASE": "9700"}):
+                assert resolve_port_base(cli_value="9100") == 9100
+                assert resolve_port_base(cli_value=None) == 9700  # falls to env
+
+    def test_bad_cli_port_base_does_not_crash(self):
+        """Garbage --port-base must be skipped, not raise SystemExit.
+
+        This is the whole point of type=str + resolve_port_base --
+        argparse type=int would hard-exit before we could recover.
+        """
+        from code_puppy.config import DEFAULT_PORT_BASE, resolve_port_base
+
+        with patch("code_puppy.config.get_value", return_value=None):
+            with patch.dict("os.environ", {}, clear=False):
+                import os
+
+                os.environ.pop("CODE_PUPPY_PORT_BASE", None)
+                assert (
+                    resolve_port_base(cli_value="totally-not-a-port")
+                    == DEFAULT_PORT_BASE
+                )
+
 
 class TestAgentRunning:
     """Test agent execution."""
@@ -378,7 +422,7 @@ class TestResumeFlag:
         )
 
         # Verify the session was saved
-        assert metadata.pickle_path.exists()
+        assert metadata.json_path.exists()
 
         # Load session using the standard load_session function
         loaded_history = load_session(session_name, tmp_path)
@@ -466,16 +510,14 @@ class TestHeadlessSessionPersistence:
                 session_name="mywork",
             )
 
-        assert (tmp_path / "mywork.pkl").exists()
-        # post_autosave hook is reserved for the periodic background save
-        # path (``config.auto_save_session_if_enabled``). The headless
-        # ``-r NAME -p ...`` save-back deliberately does NOT fire it, so
-        # plugins that decorate the auto-save line (e.g. the walmart
-        # token-quota plugin) don't double-print.
+        # Canonical JSON envelope; the legacy pickle twin is gone.
+        assert (tmp_path / "mywork.json").exists()
+        assert not (tmp_path / "mywork.pkl").exists()
+        # post_autosave is reserved for the periodic auto-save path - the headless
+        # ``-r NAME -p`` save-back must NOT fire it (decorator plugins double-print).
         assert fire_cb.call_count == 0
-        # quick-resume pointer must be written after a successful persist so
-        # ``--quick-resume`` can rediscover both auto-generated and ``-r``
-        # headless saves.
+        # Write the quick-resume pointer only after a successful persist, so
+        # ``--quick-resume`` rediscovers both auto-generated and ``-r`` saves.
         mock_qr.assert_called_once_with("mywork")
 
     @pytest.mark.asyncio
@@ -537,7 +579,7 @@ class TestHeadlessSessionPersistence:
         ):
             await execute_single_prompt("hi", self._renderer(), session_name="mywork")
 
-        assert (tmp_path / "mywork.pkl").exists()
+        assert (tmp_path / "mywork.json").exists()
 
     @pytest.mark.asyncio
     async def test_save_back_on_generic_exception(self, tmp_path):
@@ -557,7 +599,7 @@ class TestHeadlessSessionPersistence:
         ):
             await execute_single_prompt("hi", self._renderer(), session_name="mywork")
 
-        assert (tmp_path / "mywork.pkl").exists()
+        assert (tmp_path / "mywork.json").exists()
 
     @pytest.mark.asyncio
     async def test_default_autosave_uses_generated_session_name(self, tmp_path):

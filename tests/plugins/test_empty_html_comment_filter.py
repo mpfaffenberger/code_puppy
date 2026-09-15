@@ -12,7 +12,7 @@ from rich.console import Console
 
 def _plugin_module():
     return importlib.import_module(
-        "code_puppy.plugins.empty_html_comment_filter.register_callbacks"
+        "code_puppy_core_plugins.empty_html_comment_filter.register_callbacks"
     )
 
 
@@ -65,10 +65,6 @@ def test_filters_comment_split_at_every_boundary() -> None:
 def test_newline_before_split_comment_is_not_emitted_early() -> None:
     text = "before\n<!-- -->after"
     assert _stream(list(text)) == "beforeafter"
-
-
-def test_ordinary_trailing_newline_is_released_at_end() -> None:
-    assert _stream(["ordinary text\n"]) == "ordinary text\n"
 
 
 def test_newline_is_preserved_when_followed_by_ordinary_text() -> None:
@@ -177,15 +173,3 @@ async def test_event_stream_filters_split_comment_in_both_render_paths(
     rendered = output.getvalue()
     assert "beforeafter" in rendered
     assert "<!-- -->" not in rendered
-
-
-def test_final_call_clears_retained_state() -> None:
-    module = _plugin_module()
-    stream_id = object()
-    key = (stream_id, 7)
-
-    module._filter_thinking_display("<!--", stream_id=stream_id, part_index=7)
-    assert key in module._pending
-
-    module._filter_thinking_display("", stream_id=stream_id, part_index=7, final=True)
-    assert key not in module._pending

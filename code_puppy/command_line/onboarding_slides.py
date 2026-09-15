@@ -6,6 +6,8 @@ onboarding rather than a hostage situation.
 
 from typing import List, Tuple
 
+from code_puppy.platform_utils import startup_banner_text
+
 SlideContent = list[tuple[str, str]]
 
 MODEL_OPTIONS: List[Tuple[str, str, str]] = [
@@ -43,9 +45,11 @@ def get_gradient_banner() -> SlideContent:
     try:
         import pyfiglet
 
-        banner = pyfiglet.figlet_format("CODE PUPPY", font="ansi_shadow").rstrip()
+        banner = pyfiglet.figlet_format(
+            startup_banner_text(), font="ansi_shadow"
+        ).rstrip()
     except ImportError:
-        banner = "═══ CODE PUPPY  ═══"
+        banner = f"═══ {startup_banner_text()}  ═══"
     return [("class:tui.header", banner)]
 
 

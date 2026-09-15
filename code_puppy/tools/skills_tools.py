@@ -12,6 +12,7 @@ from code_puppy.messaging import (
     SkillListMessage,
     get_message_bus,
 )
+from code_puppy.skill_provider import get_skill_provider
 
 logger = logging.getLogger(__name__)
 
@@ -50,16 +51,17 @@ def register_activate_skill(agent):
         context: RunContext, skill_name: str = ""
     ) -> SkillActivateOutput:
         """Activate a skill by loading its full SKILL.md instructions."""
-        # Import from plugin
-        from code_puppy.plugins.agent_skills.config import get_skills_enabled
-        from code_puppy.plugins.agent_skills.enabled_skills import iter_enabled_skills
-        from code_puppy.plugins.agent_skills.metadata import (
-            get_skill_resources,
-            load_full_skill_content,
-        )
+        provider = get_skill_provider()
+        if provider is None:
+            return SkillActivateOutput(
+                skill_name=skill_name,
+                content="",
+                resources=[],
+                error="Skills integration is unavailable.",
+            )
 
         # Check if skills enabled
-        if not get_skills_enabled():
+        if not provider.is_enabled():
             return SkillActivateOutput(
                 skill_name=skill_name,
                 content="",
@@ -70,14 +72,7 @@ def register_activate_skill(agent):
         # Find skill by name among *enabled* skills only — disabled skills
         # are intentionally invisible to activate_skill.
         try:
-            skill_path = next(
-                (
-                    info.path
-                    for info in iter_enabled_skills()
-                    if info.name == skill_name
-                ),
-                None,
-            )
+            skill_path = provider.find_enabled_skill_path(skill_name)
         except Exception as e:
             logger.error(f"Failed to discover skills: {e}")
             return SkillActivateOutput(
@@ -96,7 +91,7 @@ def register_activate_skill(agent):
             )
 
         # Load full content
-        content = load_full_skill_content(skill_path)
+        content = provider.load_skill_content(skill_path)
         if content is None:
             return SkillActivateOutput(
                 skill_name=skill_name,
@@ -106,7 +101,7 @@ def register_activate_skill(agent):
             )
 
         # Get resource list
-        resource_paths = get_skill_resources(skill_path)
+        resource_paths = provider.get_skill_resources(skill_path)
         resources = [str(p) for p in resource_paths]
 
         # Emit message for UI
@@ -140,17 +135,17 @@ def register_list_or_search_skills(agent):
             query: Optional search term to filter skills by name/description/tags.
                    If None, returns all available skills.
         """
-        # Import from plugin
-        from code_puppy.plugins.agent_skills.config import (
-            get_disabled_skills,
-            get_skills_enabled,
-        )
-        from code_puppy.plugins.agent_skills.enabled_skills import (
-            list_enabled_skill_metadata,
-        )
+        provider = get_skill_provider()
+        if provider is None:
+            return SkillListOutput(
+                skills=[],
+                total_count=0,
+                query=query,
+                error="Skills integration is unavailable.",
+            )
 
         # Check if skills enabled
-        if not get_skills_enabled():
+        if not provider.is_enabled():
             return SkillListOutput(
                 skills=[],
                 total_count=0,
@@ -160,12 +155,12 @@ def register_list_or_search_skills(agent):
 
         # We still need disabled_skills for the SkillEntry.enabled flag below,
         # even though the helper has already filtered them out of the list.
-        disabled_skills = get_disabled_skills()
+        disabled_skills = provider.get_disabled_skill_names()
 
         # Get enabled skills with metadata (disabled skills never get their
-        # frontmatter loaded — that's enforced inside the helper).
+        # frontmatter loaded — that's enforced inside the provider).
         try:
-            metadatas = list_enabled_skill_metadata()
+            skills_list = provider.list_enabled_skills()
         except Exception as e:
             logger.error(f"Failed to discover skills: {e}")
             return SkillListOutput(
@@ -175,21 +170,8 @@ def register_list_or_search_skills(agent):
                 error=f"Failed to discover skills: {e}",
             )
 
-        skills_list = [
-            {
-                "name": m.name,
-                "description": m.description,
-                "path": str(m.path),
-                "tags": m.tags,
-                "version": m.version,
-                "author": m.author,
-            }
-            for m in metadatas
-        ]
-
-        # Filter by query — match if ANY term appears in the skill's name,
-        # description, or tags. Avoids the old bug where the entire query was
-        # treated as one substring (so "code puppy architecture" matched nothing).
+        # Filter: match if ANY term appears in name/description/tags — avoids the
+        # old bug of treating the whole query as one substring.
         if query:
             terms = query.lower().replace("-", " ").replace("_", " ").split()
             skills_list = [

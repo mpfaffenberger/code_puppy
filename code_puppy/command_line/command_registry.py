@@ -112,9 +112,9 @@ def register_command(
         # Register primary name
         _COMMAND_REGISTRY[name] = cmd_info
 
-        # Register all aliases pointing to the same CommandInfo.
-        # Visible aliases are advertised by completions/help; hidden ones are
-        # executable but omitted from both (see prompt_toolkit_completion).
+        # Register all aliases to the same CommandInfo. Visible ones are
+        # advertised by completions/help; hidden ones execute silently
+        # (see prompt_toolkit_completion).
         for alias in aliases or []:
             _COMMAND_REGISTRY[alias] = cmd_info
         for alias in hidden_aliases or []:

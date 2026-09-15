@@ -1,6 +1,6 @@
 """Terminal UI for ask_user_question tool.
 
-Uses prompt_toolkit for a split-panel TUI similar to the /colors command.
+Termflow split-panel TUI (state machine here, event loop in tui_loop).
 Left panel (20%): Question headers/tabs
 Right panel (80%): Current question with options
 
@@ -57,27 +57,34 @@ class QuestionUIState:
         # Track if help overlay is shown
         self.show_help = False
         # Timeout tracking (use monotonic to avoid clock drift/NTP issues)
-        self.timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS
+        self.timeout_seconds: int | None = DEFAULT_TIMEOUT_SECONDS
         self.last_activity_time: float = time.monotonic()
 
     def reset_activity_timer(self) -> None:
         """Reset the activity timer (called on user input)."""
         self.last_activity_time = time.monotonic()
 
-    def get_time_remaining(self) -> int:
-        """Get seconds remaining before timeout."""
+    def get_time_remaining(self) -> int | None:
+        """Get seconds remaining, or ``None`` when no timeout is configured."""
+        if self.timeout_seconds is None:
+            return None
         elapsed = time.monotonic() - self.last_activity_time
         remaining = self.timeout_seconds - elapsed
         return max(0, int(remaining))
 
     def is_timed_out(self) -> bool:
         """Check if the interaction has timed out."""
-        return self.get_time_remaining() <= 0
+        remaining = self.get_time_remaining()
+        return remaining is not None and remaining <= 0
 
     def should_show_timeout_warning(self) -> bool:
         """Check if we should show the timeout warning."""
         remaining = self.get_time_remaining()
-        return remaining <= TIMEOUT_WARNING_SECONDS and remaining > 0
+        return (
+            remaining is not None
+            and remaining <= TIMEOUT_WARNING_SECONDS
+            and remaining > 0
+        )
 
     @property
     def current_question(self) -> Question:
@@ -296,13 +303,14 @@ class QuestionUIState:
 
 async def interactive_question_picker(
     questions: list[Question],
-    timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+    timeout_seconds: int | None = DEFAULT_TIMEOUT_SECONDS,
 ) -> tuple[list[QuestionAnswer], bool, bool]:
     """Show an interactive split-panel TUI for questions.
 
     Args:
         questions: List of validated Question objects
-        timeout_seconds: Inactivity timeout in seconds
+        timeout_seconds: Optional inactivity timeout in seconds. By default, waits
+            until the user answers or cancels.
 
     Returns:
         Tuple of (answers, cancelled, timed_out) where:
@@ -320,27 +328,17 @@ async def interactive_question_picker(
     state.timeout_seconds = timeout_seconds
     set_awaiting_user_input(True)
 
-    # Suspend the agent-runtime key listener (if any) so prompt_toolkit has
-    # exclusive ownership of stdin while the TUI is up. Without this, the
-    # listener's cbreak-mode reader races prompt_toolkit for every keystroke
-    # (arrows / space / enter / Ctrl+S) and roughly half get swallowed,
-    # forcing the user to mash keys multiple times.
-    #
-    # Uses the REFCOUNTED ``suspended_key_listener()`` (not a direct
-    # ``handle.suspend()``/``resume()``): ``tui_loop`` nests its own
-    # ``suspended_run_ui()`` inside this scope, and mixing a raw resume
-    # with the refcount used to wake the listener while an outer
-    # suspension still believed stdin was released.
-    #
-    # Import locally to avoid a hard dependency on the agents package for
-    # callers that import this module standalone (e.g. demo_tui).
+    # Suspend the agent-runtime key listener so the widget owns stdin:
+    # racing readers swallow ~half the keystrokes. Use the REFCOUNTED variant --
+    # tui_loop nests suspended_run_ui() here, and a raw resume would wake the
+    # listener while an outer suspension still held stdin. Local import for standalone callers.
     from code_puppy.agents._key_listeners import suspended_key_listener
 
     try:
         with suspended_key_listener():
             from .tui_loop import run_question_tui
 
-            # prompt_toolkit manages alt screen via full_screen=True
+            # The widget manages raw mode + alt screen itself.
             return await run_question_tui(state)
     finally:
         set_awaiting_user_input(False)

@@ -1,6 +1,6 @@
 from unittest.mock import Mock, patch
 
-from code_puppy.plugins.chatgpt_oauth import usage
+from code_puppy_core_plugins.chatgpt_oauth import usage
 
 
 def test_parse_usage_payload_formats_remaining_percentages():
@@ -31,17 +31,24 @@ def test_refresh_usage_fetches_wham_endpoint_in_background():
     }
     response.raise_for_status.return_value = None
 
-    with patch.object(usage.requests, "get", return_value=response) as get:
-        usage._fetch("token", "account")
+    # _fetch writes a module-level cache; restore prior state so the leak
+    # doesn't pollute later tests (e.g. spinner context formatting).
+    cached_before, fetching_before = usage._cached_usage, usage._fetch_in_progress
+    try:
+        with patch.object(usage.requests, "get", return_value=response) as get:
+            usage._fetch("token", "account")
 
-    assert usage.get_usage_status() == "5h 75% remaining"
-    get.assert_called_once_with(
-        "https://chatgpt.com/backend-api/wham/usage",
-        headers={
-            "Authorization": "Bearer token",
-            "ChatGPT-Account-Id": "account",
-            "Accept": "application/json",
-            "originator": "codex_cli_rs",
-        },
-        timeout=10,
-    )
+        assert usage.get_usage_status() == "5h 75% remaining"
+        get.assert_called_once_with(
+            "https://chatgpt.com/backend-api/wham/usage",
+            headers={
+                "Authorization": "Bearer token",
+                "ChatGPT-Account-Id": "account",
+                "Accept": "application/json",
+                "originator": "codex_cli_rs",
+            },
+            timeout=10,
+        )
+    finally:
+        usage._cached_usage = cached_before
+        usage._fetch_in_progress = fetching_before

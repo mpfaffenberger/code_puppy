@@ -16,19 +16,13 @@ CTRL_J = "\n"
 BACKSPACE_KEYS = ("\x7f", "\x08")
 TAB = "\t"
 CTRL_A = "\x01"  # beginning of (logical) line
-# NOTE: On POSIX, Ctrl+C normally never reaches the editor — the
-# terminal turns it into SIGINT and the REPL's handlers clear/cancel.
-# On Windows we strip ENABLE_PROCESSED_INPUT for the whole session (so
-# Ctrl+C can't become a console-wide event that kills wrapper launchers
-# like uvx.exe), so ^C arrives as this raw byte via the key listener.
+# NOTE: POSIX turns Ctrl+C into SIGINT (REPL handlers clear/cancel); with the
+# Windows processed-input stripped, ^C arrives here as a raw \x03 byte.
 CTRL_C = "\x03"
 CTRL_D = "\x04"
 CTRL_E = "\x05"  # end of (logical) line
-# NOTE: Ctrl+K (\x0b) can be remapped as the cancel-agent hotkey via
-# cancel_agent_key in puppy.cfg. The key listener's priority dispatch
-# swallows it BEFORE the editor in that configuration — kill-to-end
-# simply won't fire there; with the ctrl+c default it reaches us
-# normally on every platform.
+# NOTE: Ctrl+K can be remapped to the cancel key; then the listener swallows it
+# before the editor (kill-to-end won't fire). With the ctrl+c default it reaches us.
 CTRL_K = "\x0b"
 CTRL_R = "\x12"
 CTRL_U = "\x15"
@@ -67,13 +61,9 @@ _CSI_ACTIONS = {
     "1;9B": "down",
     "200~": "paste_start",  # bracketed paste opener (ESC[?2004h mode)
     "12~": "f2",  # F2 (CSI variant)
-    # Modified Enter → newline. Two protocol encodings for each:
-    # CSI-u (kitty-style / iTerm2 "CSI u") and xterm modifyOtherKeys
-    # (armed via CSI >4;1m — see bottom_bar). Plain-\r terminals CANNOT
-    # encode Shift+Enter at all; users there have Ctrl+J / F2 multiline.
-    # On Windows (where the console ignores modifyOtherKeys) the key
-    # listener synthesizes 13;2u itself via GetAsyncKeyState — see
-    # _key_listeners._windows_char_to_seq.
+    # Modified Enter → newline, via CSI-u OR modifyOtherKeys (CSI >4;1m).
+    # Plain-\r terminals can't encode Shift+Enter (use Ctrl+J/F2); Windows
+    # synthesizes 13;2u itself — see _key_listeners._windows_char_to_seq.
     "13;2u": "newline",  # Shift+Enter (CSI-u)
     "13;5u": "newline",  # Ctrl+Enter  (CSI-u)
     "27;2;13~": "newline",  # Shift+Enter (modifyOtherKeys)

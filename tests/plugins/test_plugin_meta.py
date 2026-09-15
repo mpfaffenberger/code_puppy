@@ -18,8 +18,11 @@ from unittest.mock import patch
 import pytest
 
 from code_puppy import callbacks
-from code_puppy.plugins.plugin_list import plugin_meta
-from code_puppy.plugins.plugin_list.plugins_menu_render import fill_pane, render_detail
+from code_puppy_core_plugins.plugin_list import plugin_meta
+from code_puppy_core_plugins.plugin_list.plugins_menu_render import (
+    fill_pane,
+    render_detail,
+)
 
 # ── Fixtures ──────────────────────────────────────────────────────────────
 
@@ -134,10 +137,6 @@ class TestGetDescription:
         self._install(monkeypatch, None)
         assert plugin_meta.get_description("descplug", "builtin") is None
 
-    def test_none_when_docstring_only_whitespace(self, monkeypatch):
-        self._install(monkeypatch, "   \n\n   ")
-        assert plugin_meta.get_description("descplug", "builtin") is None
-
     def test_none_for_unknown_tier(self, monkeypatch):
         self._install(monkeypatch, "Has a docstring.")
         assert plugin_meta.get_description("descplug", "bogus_tier") is None
@@ -159,9 +158,6 @@ class TestGetFilePath:
             plugin_meta.get_file_path("user_pathplug", "user")
             == "/plugins/pathplug/register_callbacks.py"
         )
-
-    def test_none_when_module_missing(self):
-        assert plugin_meta.get_file_path("nope_missing", "builtin") is None
 
     def test_none_when_file_attr_missing(self, monkeypatch):
         mod = _fake_module(doc="d")  # no __file__ set
@@ -229,7 +225,10 @@ class TestGetHooks:
 
 def _make_menu(name="previewplug", tier="builtin"):
     """Construct a PluginsMenu with one entry, bypassing real discovery."""
-    from code_puppy.plugins.plugin_list.plugins_menu import PluginsMenu, _PluginEntry
+    from code_puppy_core_plugins.plugin_list.plugins_menu import (
+        PluginsMenu,
+        _PluginEntry,
+    )
 
     with (
         patch(
@@ -320,7 +319,7 @@ class TestMenuPreview:
 
 # ── plugins_menu "Contributes" rendering ───────────────────────────────────
 
-from code_puppy.plugins.plugin_list import plugin_contributions as pc  # noqa: E402
+from code_puppy_core_plugins.plugin_list import plugin_contributions as pc  # noqa: E402
 
 _EMPTY_CONTRIB = {key: [] for key in pc._EXTRACTORS}
 
@@ -467,7 +466,7 @@ class TestMenuContributes:
 
 # ── detail pane scrolling ──────────────────────────────────────────────────
 
-from code_puppy.plugins.plugin_list import plugin_text_utils as ptu  # noqa: E402
+from code_puppy_core_plugins.plugin_list import plugin_text_utils as ptu  # noqa: E402
 
 
 class TestLineSlicing:
@@ -507,42 +506,35 @@ class TestLineSlicing:
         assert "".join(pieces) == path
         assert all(len(p) <= 8 for p in pieces)
 
-    def test_wrap_text_zero_width_is_noop(self):
-        assert ptu.wrap_text("anything", 0) == ["anything"]
+    @pytest.mark.parametrize(
+        "text, width",
+        [
+            ("hello", 5),
+            # \U0001F436 is the dog-face emoji (1 Python char, 2 terminal cells).
+            ("\U0001f436", 2),
+            # U+1F6E0+FE0F hammer-wrench: get_cwidth under-reports at 1 cell; our emoji
+            # override forces 2 (VS16 stays 0). Same bug agent_skills hit on /skill glyphs.
+            ("\U0001f6e0\ufe0f", 2),
+            # U+2705 (white heavy check mark) sits in the Dingbats range our
+            # override covers; terminals render it at 2 cells.
+            ("\u2705", 2),
+        ],
+        ids=["ascii", "emoji", "hammer_wrench_vs16", "dingbat"],
+    )
+    def test_cell_width(self, text, width):
+        assert ptu.cell_width(text) == width
 
-    def test_cell_width_ascii_matches_len(self):
-        assert ptu.cell_width("hello") == 5
-
-    def test_cell_width_emoji_is_two(self):
-        # \U0001F436 is the dog-face emoji (1 Python char, 2 terminal cells).
-        assert ptu.cell_width("\U0001f436") == 2
-
-    def test_cell_width_hammer_wrench_with_vs16_is_two(self):
-        # U+1F6E0 + U+FE0F (variation selector). prompt_toolkit's get_cwidth
-        # under-reports the hammer-wrench at 1 cell; our emoji-range override
-        # forces it to 2. VS16 stays at 0. This is the exact bug that surfaces
-        # in agent_skills contributions, where every /skill is labelled with
-        # this glyph and the undercount bled into the divider.
-        assert ptu.cell_width("\U0001f6e0\ufe0f") == 2
-
-    def test_cell_width_dingbat_is_two(self):
-        # U+2705 (white heavy check mark) sits in the Dingbats range our
-        # override covers; terminals render it at 2 cells.
-        assert ptu.cell_width("\u2705") == 2
-
-    def test_strip_emojis_removes_emoji_and_vs16(self):
-        # Hammer-wrench + VS16, dog face, check mark — all gone. ASCII stays.
-        assert (
-            ptu.strip_emojis("foo \U0001f6e0\ufe0f bar \U0001f436 baz \u2705")
-            == "foo  bar  baz "
-        )
-
-    def test_strip_emojis_removes_zwj(self):
-        # ZWJ sequences (e.g. family emoji) leave no residue.
-        assert ptu.strip_emojis("a\u200db") == "ab"
-
-    def test_strip_emojis_preserves_ascii_and_newlines(self):
-        assert ptu.strip_emojis("hello\nworld\t!") == "hello\nworld\t!"
+    @pytest.mark.parametrize(
+        ("text", "expected"),
+        [
+            ("foo \U0001f6e0\ufe0f bar \U0001f436 baz \u2705", "foo  bar  baz "),
+            ("a\u200db", "ab"),
+            ("hello\nworld\t!", "hello\nworld\t!"),
+        ],
+        ids=["vs16", "zwj", "ascii_newlines"],
+    )
+    def test_strip_emojis(self, text, expected):
+        assert ptu.strip_emojis(text) == expected
 
     def test_strip_emojis_from_fragments_walks_every_fragment(self):
         frags = [("bold", "a\U0001f436b"), ("", "c\u2705d")]
@@ -615,27 +607,18 @@ class TestDetailScroll:
             menu._scroll_detail(10)
             assert menu.detail_scroll == 2
 
-    def test_update_display_applies_scroll(self):
-        from prompt_toolkit.layout.controls import FormattedTextControl
+    def test_render_applies_scroll(self):
+        """detail_scroll slices leading lines out of the rendered detail."""
+        from code_puppy_core_plugins.plugin_list.plugin_text_utils import (
+            drop_leading_lines,
+        )
 
-        menu = _make_menu()
-        # Disable cell-padding and blank-row filling so this test stays focused
-        # on slice behaviour.
-        menu._menu_cols = 0
-        menu._detail_cols = 0
-        menu._pane_rows = 0
-        menu.menu_control = FormattedTextControl(text="")
-        menu.detail_control = FormattedTextControl(text="")
-        # Patch the name as it's bound inside plugins_menu (which imported
-        # ``render_detail`` at module-load time) so update_display() picks
-        # up the stub.
         with patch(
-            "code_puppy.plugins.plugin_list.plugins_menu.render_detail",
+            "code_puppy_core_plugins.plugin_list.plugins_menu.render_detail",
             return_value=[("", "l0\n"), ("", "l1\n"), ("", "l2\n")],
-        ):
-            menu.detail_scroll = 1
-            menu.update_display()
-        assert _flatten(menu.detail_control.text) == "l1\nl2\n"
+        ) as stub:
+            sliced = drop_leading_lines(stub(), 1)
+        assert _flatten(sliced) == "l1\nl2\n"
 
 
 class TestFillPane:

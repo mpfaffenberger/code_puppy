@@ -63,9 +63,8 @@ class NoPadCodeBlock(CodeBlock):
         )
         yield Rule(title=self.lexer_name, align="left", style="dim")
         for line in syntax.highlight(code).split("\n"):
-            # ``Text.highlight()`` sets ``justify="left"`` for opaque
-            # backgrounds, which re-pads to container width. Undo it;
-            # per-character bg from the base style is unaffected.
+            # highlight() sets justify="left" for opaque backgrounds (re-pads
+            # to container width); undo — per-char bg from base style is unaffected.
             line.justify = None
             yield line
         yield Rule(style="dim")

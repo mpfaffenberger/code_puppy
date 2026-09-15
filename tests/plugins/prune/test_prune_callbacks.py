@@ -1,4 +1,4 @@
-"""Tests for ``code_puppy.plugins.prune.register_callbacks``.
+"""Tests for ``code_puppy_core_plugins.prune.register_callbacks``.
 
 Covers the custom-command dispatcher, helper predicates
 (``_collect_removed_tool_call_ids``, ``_message_has_orphan_tool_return``,
@@ -165,7 +165,7 @@ class TestPerformPrune:
                 {"code_puppy.agents.agent_manager": _agent_manager_module(agent)},
             ),
             patch(
-                "code_puppy.plugins.prune.register_callbacks.emit_warning"
+                "code_puppy_core_plugins.prune.register_callbacks.emit_warning"
             ) as mock_warn,
         ):
             _plugin_module()._perform_prune({1})
@@ -180,7 +180,9 @@ class TestPerformPrune:
                 sys.modules,
                 {"code_puppy.agents.agent_manager": _agent_manager_module(agent)},
             ),
-            patch("code_puppy.plugins.prune.register_callbacks.emit_info") as mock_info,
+            patch(
+                "code_puppy_core_plugins.prune.register_callbacks.emit_info"
+            ) as mock_info,
         ):
             _plugin_module()._perform_prune(set())
         agent.set_message_history.assert_not_called()
@@ -199,7 +201,9 @@ class TestPerformPrune:
                 sys.modules,
                 {"code_puppy.agents.agent_manager": _agent_manager_module(agent)},
             ),
-            patch("code_puppy.plugins.prune.register_callbacks.emit_info") as mock_info,
+            patch(
+                "code_puppy_core_plugins.prune.register_callbacks.emit_info"
+            ) as mock_info,
         ):
             _plugin_module()._perform_prune({0})
         agent.set_message_history.assert_not_called()
@@ -219,7 +223,9 @@ class TestPerformPrune:
                 sys.modules,
                 {"code_puppy.agents.agent_manager": _agent_manager_module(agent)},
             ),
-            patch("code_puppy.plugins.prune.register_callbacks.emit_info") as mock_info,
+            patch(
+                "code_puppy_core_plugins.prune.register_callbacks.emit_info"
+            ) as mock_info,
         ):
             _plugin_module()._perform_prune({0})
         agent.set_message_history.assert_not_called()
@@ -240,8 +246,8 @@ class TestPerformPrune:
                 sys.modules,
                 {"code_puppy.agents.agent_manager": _agent_manager_module(agent)},
             ),
-            patch("code_puppy.plugins.prune.register_callbacks.emit_success"),
-            patch("code_puppy.plugins.prune.register_callbacks.emit_info"),
+            patch("code_puppy_core_plugins.prune.register_callbacks.emit_success"),
+            patch("code_puppy_core_plugins.prune.register_callbacks.emit_info"),
         ):
             _plugin_module()._perform_prune({0})
         agent.set_message_history.assert_called_once()
@@ -269,8 +275,8 @@ class TestPerformPrune:
                 sys.modules,
                 {"code_puppy.agents.agent_manager": _agent_manager_module(agent)},
             ),
-            patch("code_puppy.plugins.prune.register_callbacks.emit_success"),
-            patch("code_puppy.plugins.prune.register_callbacks.emit_info"),
+            patch("code_puppy_core_plugins.prune.register_callbacks.emit_success"),
+            patch("code_puppy_core_plugins.prune.register_callbacks.emit_info"),
         ):
             # Drop the assistant message (index 2). Its tool-return at
             # index 3 should cascade-drop.
@@ -310,8 +316,8 @@ class TestPerformPrune:
                 sys.modules,
                 {"code_puppy.agents.agent_manager": _agent_manager_module(agent)},
             ),
-            patch("code_puppy.plugins.prune.register_callbacks.emit_success"),
-            patch("code_puppy.plugins.prune.register_callbacks.emit_info"),
+            patch("code_puppy_core_plugins.prune.register_callbacks.emit_success"),
+            patch("code_puppy_core_plugins.prune.register_callbacks.emit_info"),
         ):
             _plugin_module()._perform_prune({4})
 
@@ -332,7 +338,7 @@ class TestPerformPrune:
                 {"code_puppy.agents.agent_manager": _agent_manager_module(agent)},
             ),
             patch(
-                "code_puppy.plugins.prune.register_callbacks.emit_error"
+                "code_puppy_core_plugins.prune.register_callbacks.emit_error"
             ) as mock_error,
         ):
             _plugin_module()._perform_prune({1})
@@ -355,7 +361,9 @@ class TestHandlePruneCommand:
                 sys.modules,
                 {"code_puppy.agents.agent_manager": _agent_manager_module(agent)},
             ),
-            patch("code_puppy.plugins.prune.register_callbacks.emit_info") as mock_info,
+            patch(
+                "code_puppy_core_plugins.prune.register_callbacks.emit_info"
+            ) as mock_info,
         ):
             result = _plugin_module()._handle_custom_command("/prune", "prune")
         assert result is True
@@ -375,7 +383,9 @@ class TestHandlePruneCommand:
                 sys.modules,
                 {"code_puppy.agents.agent_manager": _agent_manager_module(agent)},
             ),
-            patch("code_puppy.plugins.prune.register_callbacks.emit_info") as mock_info,
+            patch(
+                "code_puppy_core_plugins.prune.register_callbacks.emit_info"
+            ) as mock_info,
         ):
             result = _plugin_module()._handle_custom_command("/prune", "prune")
         assert result is True
@@ -388,7 +398,7 @@ class TestHandlePruneCommand:
         with (
             patch.dict(sys.modules, {"code_puppy.agents.agent_manager": bad_manager}),
             patch(
-                "code_puppy.plugins.prune.register_callbacks.emit_error"
+                "code_puppy_core_plugins.prune.register_callbacks.emit_error"
             ) as mock_error,
         ):
             result = _plugin_module()._handle_custom_command("/prune", "prune")

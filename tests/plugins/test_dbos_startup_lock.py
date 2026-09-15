@@ -12,19 +12,9 @@ import sys
 import tempfile
 import textwrap
 
-from code_puppy.plugins.dbos_durable_exec.startup_lock import (
+from code_puppy_core_plugins.dbos_durable_exec.startup_lock import (
     enable_sqlite_wal,
     interprocess_lock,
-)
-
-_STARTUP_LOCK_PATH = os.path.join(
-    os.path.dirname(__file__),
-    "..",
-    "..",
-    "code_puppy",
-    "plugins",
-    "dbos_durable_exec",
-    "startup_lock.py",
 )
 
 
@@ -52,16 +42,12 @@ def test_interprocess_lock_serializes_across_processes():
     """Two processes racing for the lock must NOT hold it simultaneously."""
     with tempfile.TemporaryDirectory() as d:
         lock = os.path.join(d, "race.launch.lock")
-        startup_lock_path = os.path.abspath(_STARTUP_LOCK_PATH)
         script = textwrap.dedent(
             f"""
-            import importlib.util, sys, time
-            spec = importlib.util.spec_from_file_location(
-                "startup_lock", {startup_lock_path!r}
-            )
-            m = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(m)
-            with m.interprocess_lock({lock!r}, timeout=10):
+            import sys, time
+            from code_puppy_core_plugins.dbos_durable_exec import startup_lock
+
+            with startup_lock.interprocess_lock({lock!r}, timeout=10):
                 sys.stdout.write(f"ACQ {{time.time():.4f}}\\n")
                 sys.stdout.flush()
                 time.sleep(0.5)

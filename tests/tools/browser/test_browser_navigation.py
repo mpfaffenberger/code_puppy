@@ -12,6 +12,12 @@ from code_puppy.tools.browser.browser_navigation import (
     go_back,
     go_forward,
     navigate_to_url,
+    register_browser_go_back,
+    register_browser_go_forward,
+    register_get_page_info,
+    register_navigate_to_url,
+    register_reload_page,
+    register_wait_for_load_state,
     reload_page,
     wait_for_load_state,
 )
@@ -161,6 +167,25 @@ class TestGetPageInfo:
                 assert result["success"] is False
                 assert "No active browser page" in result["error"]
 
+    @pytest.mark.asyncio
+    async def test_get_page_info_error(self):
+        """Test page info when page.title() raises."""
+        mock_manager = AsyncMock()
+        mock_page = AsyncMock()
+        mock_page.url = "https://broken.example.com"
+        mock_page.title = AsyncMock(side_effect=RuntimeError("title failed"))
+        mock_manager.get_current_page.return_value = mock_page
+
+        with patch(
+            "code_puppy.tools.browser.browser_navigation.get_session_browser_manager",
+            return_value=mock_manager,
+        ):
+            with patch("code_puppy.tools.browser.browser_navigation.emit_info"):
+                result = await get_page_info()
+
+                assert result["success"] is False
+                assert "title failed" in result["error"]
+
 
 class TestGoBack:
     """Test browser back button functionality."""
@@ -297,6 +322,39 @@ class TestWaitForLoadState:
                 assert result["success"] is True
 
 
+_SIMPLE_OPERATIONS = [
+    ("back", go_back, "go_back"),
+    ("forward", go_forward, "go_forward"),
+    ("reload", reload_page, "reload"),
+    ("wait", wait_for_load_state, "wait_for_load_state"),
+]
+
+
+class TestSimpleOperationBranches:
+    """No-page and error branches for the no-arg navigation helpers."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("case", _SIMPLE_OPERATIONS, ids=lambda c: c[0])
+    @pytest.mark.parametrize("kind", ["no_page", "error"], ids=["no-page", "exception"])
+    async def test_failure_branches(self, case, kind):
+        operation, page_method = case[1], case[2]
+        mock_manager = AsyncMock()
+        if kind == "no_page":
+            mock_manager.get_current_page.return_value = None
+        else:
+            mock_page = AsyncMock()
+            getattr(mock_page, page_method).side_effect = RuntimeError("nav failed")
+            mock_manager.get_current_page.return_value = mock_page
+        with patch(
+            "code_puppy.tools.browser.browser_navigation.get_session_browser_manager",
+            return_value=mock_manager,
+        ):
+            with patch("code_puppy.tools.browser.browser_navigation.emit_info"):
+                with patch("code_puppy.tools.browser.browser_navigation.emit_error"):
+                    result = await operation()
+        assert result["success"] is False
+
+
 class TestNavigationIntegration:
     """Integration tests for navigation workflows."""
 
@@ -356,3 +414,31 @@ class TestNavigationIntegration:
                     # Go forward to page 2
                     forward_result = await go_forward()
                     assert forward_result["success"] is True
+
+
+@pytest.mark.parametrize(
+    "register_func",
+    [
+        register_navigate_to_url,
+        register_get_page_info,
+        register_browser_go_back,
+        register_browser_go_forward,
+        register_reload_page,
+        register_wait_for_load_state,
+    ],
+    ids=[
+        "navigate_to_url",
+        "get_page_info",
+        "go_back",
+        "go_forward",
+        "reload_page",
+        "wait_for_load_state",
+    ],
+)
+def test_navigation_tool_registration(register_func):
+    """Every navigation tool must register with the agent."""
+    from unittest.mock import MagicMock
+
+    agent = MagicMock()
+    register_func(agent)
+    agent.tool.assert_called_once()

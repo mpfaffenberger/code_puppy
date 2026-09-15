@@ -19,9 +19,17 @@ def _isolate_plugin_skills(request, monkeypatch):
     if request.node.get_closest_marker("plugin_skills"):
         return
 
-    from code_puppy.plugins.agent_skills import discovery as discovery_module
+    from code_puppy_core_plugins.agent_skills import discovery as discovery_module
 
     monkeypatch.setattr(discovery_module, "_collect_plugin_skills", lambda: [])
+
+
+@pytest.fixture(autouse=True)
+def _reset_claude_refresh_backoff(monkeypatch):
+    """Refresh-failure backoff is process state; keep it from leaking."""
+    from code_puppy_core_plugins.claude_code_oauth import token_store
+
+    monkeypatch.setattr(token_store, "_exchange_blocked_until", 0.0)
 
 
 def pytest_configure(config):

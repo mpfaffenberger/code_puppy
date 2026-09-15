@@ -23,7 +23,8 @@ def tmp_extra_models(tmp_path):
     """Return a path to a temporary extra_models.json and patch get_extra_models_path."""
     p = tmp_path / "extra_models.json"
     with patch(
-        "code_puppy.plugins.aws_bedrock.utils.get_extra_models_path", return_value=p
+        "code_puppy_core_plugins.aws_bedrock.utils.get_extra_models_path",
+        return_value=p,
     ):
         yield p
 
@@ -63,7 +64,7 @@ class TestConfig:
     """Test config.py constants and helpers."""
 
     def test_models_list_has_expected_entries(self):
-        from code_puppy.plugins.aws_bedrock.config import MODELS
+        from code_puppy_core_plugins.aws_bedrock.config import MODELS
 
         keys = [m["base_key"] for m in MODELS]
         assert "bedrock-opus-4-7" in keys
@@ -72,7 +73,7 @@ class TestConfig:
         assert "bedrock-haiku" in keys
 
     def test_models_context_lengths(self):
-        from code_puppy.plugins.aws_bedrock.config import MODELS
+        from code_puppy_core_plugins.aws_bedrock.config import MODELS
 
         by_key = {m["base_key"]: m for m in MODELS}
         assert by_key["bedrock-opus-4-7"]["context_length"] == 1_000_000
@@ -81,13 +82,13 @@ class TestConfig:
         assert by_key["bedrock-haiku"]["context_length"] == 200_000
 
     def test_get_bedrock_region_env_override(self):
-        from code_puppy.plugins.aws_bedrock.config import get_bedrock_region
+        from code_puppy_core_plugins.aws_bedrock.config import get_bedrock_region
 
         with patch.dict("os.environ", {"BEDROCK_REGION": "eu-west-1"}, clear=False):
             assert get_bedrock_region() == "eu-west-1"
 
     def test_get_bedrock_region_aws_region_fallback(self):
-        from code_puppy.plugins.aws_bedrock.config import get_bedrock_region
+        from code_puppy_core_plugins.aws_bedrock.config import get_bedrock_region
 
         env = {"AWS_REGION": "us-west-2"}
         with (
@@ -101,7 +102,7 @@ class TestConfig:
             assert get_bedrock_region() == "us-west-2"
 
     def test_get_bedrock_region_default(self):
-        from code_puppy.plugins.aws_bedrock.config import get_bedrock_region
+        from code_puppy_core_plugins.aws_bedrock.config import get_bedrock_region
 
         with (
             patch.dict(
@@ -110,7 +111,7 @@ class TestConfig:
                 clear=False,
             ),
             patch(
-                "code_puppy.plugins.aws_bedrock.config._detect_region",
+                "code_puppy_core_plugins.aws_bedrock.config._detect_region",
                 return_value=None,
             ),
         ):
@@ -121,13 +122,13 @@ class TestConfig:
             assert get_bedrock_region() == "us-east-1"
 
     def test_get_aws_profile_from_env(self):
-        from code_puppy.plugins.aws_bedrock.config import get_aws_profile
+        from code_puppy_core_plugins.aws_bedrock.config import get_aws_profile
 
         with patch.dict("os.environ", {"AWS_PROFILE": "dev-profile"}, clear=False):
             assert get_aws_profile() == "dev-profile"
 
     def test_get_aws_profile_none_when_unset(self):
-        from code_puppy.plugins.aws_bedrock.config import get_aws_profile
+        from code_puppy_core_plugins.aws_bedrock.config import get_aws_profile
 
         with patch.dict("os.environ", {}, clear=False):
             import os
@@ -145,7 +146,7 @@ class TestBuildModelEntry:
     """Test _build_model_entry helper."""
 
     def test_basic_entry(self):
-        from code_puppy.plugins.aws_bedrock.utils import _build_model_entry
+        from code_puppy_core_plugins.aws_bedrock.utils import _build_model_entry
 
         entry = _build_model_entry(
             model_id="us.anthropic.claude-opus-4-7",
@@ -160,7 +161,7 @@ class TestBuildModelEntry:
         assert "default_effort" not in entry
 
     def test_entry_with_effort(self):
-        from code_puppy.plugins.aws_bedrock.utils import _build_model_entry
+        from code_puppy_core_plugins.aws_bedrock.utils import _build_model_entry
 
         entry = _build_model_entry(
             model_id="us.anthropic.claude-opus-4-7",
@@ -172,7 +173,7 @@ class TestBuildModelEntry:
         assert entry["default_effort"] == "high"
 
     def test_entry_with_aws_overrides(self):
-        from code_puppy.plugins.aws_bedrock.utils import _build_model_entry
+        from code_puppy_core_plugins.aws_bedrock.utils import _build_model_entry
 
         entry = _build_model_entry(
             model_id="us.anthropic.claude-opus-4-7",
@@ -189,7 +190,9 @@ class TestAddBedrockModelsToConfig:
     """Test add_bedrock_models_to_config — variant expansion and persistence."""
 
     def test_adds_all_models_and_variants(self, tmp_extra_models):
-        from code_puppy.plugins.aws_bedrock.utils import add_bedrock_models_to_config
+        from code_puppy_core_plugins.aws_bedrock.utils import (
+            add_bedrock_models_to_config,
+        )
 
         added = add_bedrock_models_to_config(aws_region="us-east-1")
         assert len(added) > 0
@@ -208,7 +211,9 @@ class TestAddBedrockModelsToConfig:
         assert data["bedrock-opus-4-7"]["type"] == "aws_bedrock"
 
     def test_preserves_existing_entries(self, tmp_extra_models):
-        from code_puppy.plugins.aws_bedrock.utils import add_bedrock_models_to_config
+        from code_puppy_core_plugins.aws_bedrock.utils import (
+            add_bedrock_models_to_config,
+        )
 
         # Write a pre-existing model
         existing = {"my-openai-model": {"type": "openai", "name": "gpt-4o"}}
@@ -220,21 +225,60 @@ class TestAddBedrockModelsToConfig:
         assert "bedrock-opus-4-7" in data
 
     def test_returns_empty_on_save_failure(self, tmp_extra_models):
-        from code_puppy.plugins.aws_bedrock.utils import add_bedrock_models_to_config
+        from code_puppy_core_plugins.aws_bedrock.utils import (
+            add_bedrock_models_to_config,
+        )
 
         with patch(
-            "code_puppy.plugins.aws_bedrock.utils.save_extra_models",
-            return_value=False,
+            "code_puppy_core_plugins.aws_bedrock.utils.atomic_json.mutate_json",
+            side_effect=OSError("disk full"),
         ):
             result = add_bedrock_models_to_config()
             assert result == []
+
+    def test_concurrent_calls_do_not_lose_updates(self, tmp_extra_models):
+        """Pins the adversarial-review finding: add/remove used to split the
+        read and write across two unlocked calls, so a concurrent writer to
+        the same extra_models.json (e.g. ollama-setup) could lose an update.
+        add_bedrock_models_to_config now goes through one locked
+        atomic_json.mutate_json transaction, same as the other writers.
+        """
+        import threading
+
+        from code_puppy_core_plugins.aws_bedrock.utils import (
+            add_bedrock_models_to_config,
+        )
+
+        def _add_other_entry(name):
+            from code_puppy import atomic_json
+
+            def _mutate(data):
+                data[name] = {"type": "custom_openai"}
+                return data
+
+            atomic_json.mutate_json(str(tmp_extra_models), _mutate, default={})
+
+        threads = [
+            threading.Thread(target=_add_other_entry, args=(f"other_{i}",))
+            for i in range(8)
+        ]
+        for t in threads:
+            t.start()
+        add_bedrock_models_to_config(aws_region="us-east-1")
+        for t in threads:
+            t.join(timeout=10)
+
+        data = json.loads(tmp_extra_models.read_text())
+        assert "bedrock-opus-4-7" in data
+        for i in range(8):
+            assert f"other_{i}" in data
 
 
 class TestRemoveBedrockModelsFromConfig:
     """Test remove_bedrock_models_from_config."""
 
     def test_removes_only_bedrock_entries(self, extra_models_with_bedrock):
-        from code_puppy.plugins.aws_bedrock.utils import (
+        from code_puppy_core_plugins.aws_bedrock.utils import (
             remove_bedrock_models_from_config,
         )
 
@@ -247,23 +291,14 @@ class TestRemoveBedrockModelsFromConfig:
         assert "some-openai-model" in data
         assert "bedrock-opus-4-7" not in data
 
-    def test_returns_empty_when_nothing_to_remove(self, tmp_extra_models):
-        from code_puppy.plugins.aws_bedrock.utils import (
-            remove_bedrock_models_from_config,
-        )
-
-        tmp_extra_models.write_text(json.dumps({"gpt-4o": {"type": "openai"}}))
-        removed = remove_bedrock_models_from_config()
-        assert removed == []
-
     def test_returns_empty_on_save_failure(self, extra_models_with_bedrock):
-        from code_puppy.plugins.aws_bedrock.utils import (
+        from code_puppy_core_plugins.aws_bedrock.utils import (
             remove_bedrock_models_from_config,
         )
 
         with patch(
-            "code_puppy.plugins.aws_bedrock.utils.save_extra_models",
-            return_value=False,
+            "code_puppy_core_plugins.aws_bedrock.utils.atomic_json.mutate_json",
+            side_effect=OSError("disk full"),
         ):
             result = remove_bedrock_models_from_config()
             assert result == []
@@ -273,7 +308,7 @@ class TestGetBedrockModelsFromConfig:
     """Test get_bedrock_models_from_config."""
 
     def test_filters_bedrock_only(self, extra_models_with_bedrock):
-        from code_puppy.plugins.aws_bedrock.utils import (
+        from code_puppy_core_plugins.aws_bedrock.utils import (
             get_bedrock_models_from_config,
         )
 
@@ -292,7 +327,7 @@ class TestHandleCustomCommand:
     """Test _handle_custom_command dispatch."""
 
     def test_returns_none_for_unknown_command(self):
-        from code_puppy.plugins.aws_bedrock.register_callbacks import (
+        from code_puppy_core_plugins.aws_bedrock.register_callbacks import (
             _handle_custom_command,
         )
 
@@ -300,24 +335,24 @@ class TestHandleCustomCommand:
         assert result is None
 
     def test_returns_true_for_known_command(self):
-        from code_puppy.plugins.aws_bedrock.register_callbacks import (
+        from code_puppy_core_plugins.aws_bedrock.register_callbacks import (
             _handle_custom_command,
         )
 
         with patch(
-            "code_puppy.plugins.aws_bedrock.register_callbacks._handle_bedrock_status"
+            "code_puppy_core_plugins.aws_bedrock.register_callbacks._handle_bedrock_status"
         ):
             result = _handle_custom_command("/bedrock-status", "bedrock-status")
             assert result is True
 
     def test_returns_true_on_handler_error(self):
         """Error path should return True (command was handled, just failed)."""
-        from code_puppy.plugins.aws_bedrock.register_callbacks import (
+        from code_puppy_core_plugins.aws_bedrock.register_callbacks import (
             _handle_custom_command,
         )
 
         with patch(
-            "code_puppy.plugins.aws_bedrock.register_callbacks._handle_bedrock_status",
+            "code_puppy_core_plugins.aws_bedrock.register_callbacks._handle_bedrock_status",
             side_effect=RuntimeError("boom"),
         ):
             result = _handle_custom_command("/bedrock-status", "bedrock-status")
@@ -328,7 +363,7 @@ class TestCustomHelp:
     """Test _custom_help entries."""
 
     def test_help_entries(self):
-        from code_puppy.plugins.aws_bedrock.register_callbacks import _custom_help
+        from code_puppy_core_plugins.aws_bedrock.register_callbacks import _custom_help
 
         entries = _custom_help()
         names = [e[0] for e in entries]
@@ -337,7 +372,7 @@ class TestCustomHelp:
         assert "bedrock-remove" in names
 
     def test_setup_help_not_interactive(self):
-        from code_puppy.plugins.aws_bedrock.register_callbacks import _custom_help
+        from code_puppy_core_plugins.aws_bedrock.register_callbacks import _custom_help
 
         entries = dict(_custom_help())
         assert "interactive" not in entries["bedrock-setup"].lower()
@@ -352,41 +387,39 @@ class TestCustomHelp:
 class TestSupportsAdaptiveThinking:
     """Test the shared supports_adaptive_thinking helper."""
 
-    def test_opus_4_7_by_alias(self):
+    @pytest.mark.parametrize(
+        "alias, actual_model_id, expected",
+        [
+            ("claude-opus-4-7", None, True),
+            ("claude-opus-4-6", None, True),
+            ("claude-sonnet-4-6", None, True),
+            ("claude-opus-5", None, True),
+            ("claude-5-opus", None, True),
+            ("claude-4.5-opus", None, False),
+            ("claude-haiku-4-5", None, False),
+            # The alias doesn't contain the tag, but the actual_model_id does
+            ("bedrock-opus", "us.anthropic.claude-opus-4-7", True),
+            ("gpt-4o", None, False),
+        ],
+        ids=[
+            "opus_4_7_by_alias",
+            "opus_4_6_by_alias",
+            "sonnet_4_6_by_alias",
+            "opus_5_by_alias",
+            "five_opus_by_alias",
+            "opus_4_5_minor_version_not_adaptive",
+            "haiku_not_adaptive",
+            "bedrock_opus_via_actual_model_id",
+            "unknown_model",
+        ],
+    )
+    def test_supports_adaptive_thinking(self, alias, actual_model_id, expected):
         from code_puppy.model_utils import supports_adaptive_thinking
 
-        assert supports_adaptive_thinking("claude-opus-4-7") is True
-
-    def test_opus_4_6_by_alias(self):
-        from code_puppy.model_utils import supports_adaptive_thinking
-
-        assert supports_adaptive_thinking("claude-opus-4-6") is True
-
-    def test_sonnet_4_6_by_alias(self):
-        from code_puppy.model_utils import supports_adaptive_thinking
-
-        assert supports_adaptive_thinking("claude-sonnet-4-6") is True
-
-    def test_haiku_not_adaptive(self):
-        from code_puppy.model_utils import supports_adaptive_thinking
-
-        assert supports_adaptive_thinking("claude-haiku-4-5") is False
-
-    def test_bedrock_opus_via_actual_model_id(self):
-        from code_puppy.model_utils import supports_adaptive_thinking
-
-        # The alias doesn't contain the tag, but the actual_model_id does
         assert (
-            supports_adaptive_thinking(
-                "bedrock-opus", actual_model_id="us.anthropic.claude-opus-4-7"
-            )
-            is True
+            supports_adaptive_thinking(alias, actual_model_id=actual_model_id)
+            is expected
         )
-
-    def test_unknown_model(self):
-        from code_puppy.model_utils import supports_adaptive_thinking
-
-        assert supports_adaptive_thinking("gpt-4o") is False
 
 
 class TestGetDefaultExtendedThinking:
@@ -433,3 +466,25 @@ class TestShouldUseThinkingSummary:
             )
             is True
         )
+
+
+class TestResolveAnthropicThinkingPayload:
+    """Opus 5 must always resolve to the adaptive wire shape."""
+
+    @pytest.mark.parametrize(
+        "mode, expected",
+        [
+            ("enabled", {"type": "adaptive", "display": "summarized"}),
+            ("adaptive", {"type": "adaptive", "display": "summarized"}),
+            ("disabled", None),
+        ],
+        ids=["enabled_coerced_to_adaptive", "adaptive_passthrough", "disabled_omits"],
+    )
+    @pytest.mark.parametrize("alias", ["claude-opus-5", "claude-5-opus"])
+    def test_opus_5_payload(self, alias, mode, expected):
+        from code_puppy.model_utils import resolve_anthropic_thinking_payload
+
+        result = resolve_anthropic_thinking_payload(
+            mode, budget_tokens=1024, model_name=alias, actual_model_id=None
+        )
+        assert result == expected

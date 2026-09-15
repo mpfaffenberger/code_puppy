@@ -34,22 +34,33 @@ jobs:
       - name: Install pexpect for integration tests
         run: uv pip install pexpect>=4.9.0
 
-      - name: Provision CI model (lilac synthetic GLM-5.1)
+      - name: Provision CI model (lilac GLM-5.2 + Kimi K2.6)
         # models.json ships empty. CI gets its model from extra_models.json,
         # exactly like a real user would after running /add_model.
         run: |
           mkdir -p "$HOME/.code_puppy"
           cat > "$HOME/.code_puppy/extra_models.json" <<'JSON'
           {
-            "lilac-zai-org-glm-5.1": {
+            "lilac-zai-org-glm-5.2": {
               "type": "custom_openai",
               "provider": "lilac",
-              "name": "zai-org/glm-5.1",
+              "name": "zai-org/glm-5.2",
               "custom_endpoint": {
                 "url": "https://api.getlilac.com/v1",
                 "api_key": "$LILAC_API_KEY"
               },
-              "context_length": 202800,
+              "context_length": 524288,
+              "supported_settings": ["temperature", "seed", "top_p"]
+            },
+            "lilac-moonshotai-kimi-k2.6": {
+              "type": "custom_openai",
+              "provider": "lilac",
+              "name": "moonshotai/kimi-k2.6",
+              "custom_endpoint": {
+                "url": "https://api.getlilac.com/v1",
+                "api_key": "$LILAC_API_KEY"
+              },
+              "context_length": 262144,
               "supported_settings": ["temperature", "seed", "top_p"]
             }
           }
@@ -96,6 +107,36 @@ jobs:
           echo "Required environment variables are set (using CI fallbacks if secrets not available)"
           uv run pytest tests/ --ignore tests/integration -v --cov=code_puppy --cov-report=term-missing
 
+  # The exec-runner UTF-8 pipe contract is a Windows-only failure mode: child
+  # Pythons attached to a pipe default their stdio to the legacy codepage
+  # (cp1252) and crash on emoji, while macOS/Linux children default to UTF-8 --
+  # so regressions are invisible on the main (macos) test job. The full suite
+  # has pre-existing, unrelated Windows failures, so this job deliberately
+  # scopes to the tests that pin the encoding contract instead of gating CI on
+  # a platform the suite has never run on. Widen it as Windows support grows.
+  windows-encoding:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Setup uv virtual environment
+        run: uv venv
+
+      - name: Install dependencies
+        run: uv pip install -e .
+
+      - name: Run Windows encoding regression tests
+        run: uv run pytest tests/test_windows_encoding.py -v --no-cov
+
   quality:
     runs-on: ubuntu-latest
     steps:
@@ -108,7 +149,9 @@ jobs:
           python-version: '3.13'
 
       - name: Install dev dependencies (ruff)
-        run: pip install ruff
+        # Keep in sync with the ruff pin in pyproject.toml. Unpinned ruff let
+        # 0.16.0 sneak in and change the default rule set (5,901 "new" errors).
+        run: pip install 'ruff>=0.15,<0.16'
 
       - name: Install code_puppy
         run: pip install .

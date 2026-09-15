@@ -6,7 +6,7 @@ import time
 
 import pytest
 
-from code_puppy.plugins.stack_dump import register_callbacks as sd
+from code_puppy_core_plugins.stack_dump import register_callbacks as sd
 
 
 @pytest.fixture(autouse=True)

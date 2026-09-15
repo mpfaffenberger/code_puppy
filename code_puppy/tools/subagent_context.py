@@ -48,8 +48,8 @@ print(is_subagent())  # False
 """
 
 from contextlib import contextmanager
-from contextvars import ContextVar
-from typing import Generator
+from contextvars import ContextVar, Token
+from typing import Generator, Optional
 
 __all__ = [
     "subagent_context",
@@ -57,6 +57,10 @@ __all__ = [
     "get_subagent_name",
     "get_subagent_chain",
     "get_subagent_depth",
+    "get_subagent_model_name",
+    "set_conversation_root_id",
+    "reset_conversation_root_id",
+    "get_conversation_root_id",
 ]
 
 # Track sub-agent depth (0 = main agent, 1+ = sub-agent)
@@ -64,16 +68,28 @@ _subagent_depth: ContextVar[int] = ContextVar("subagent_depth", default=0)
 
 # Track current sub-agent name (None = main agent)
 _subagent_name: ContextVar[str | None] = ContextVar("subagent_name", default=None)
+_subagent_model_name: ContextVar[str | None] = ContextVar(
+    "subagent_model_name", default=None
+)
 
-# Track the full call chain of sub-agent names. Stored as an
-# immutable tuple so each context-manager push is a cheap snapshot. The
-# tuple is empty in the main-agent context and `(deepest_name,)` for a
-# single-level sub-agent. For ``code-puppy -> A -> B`` it is ``("A", "B")``.
+# Full sub-agent name chain as an immutable tuple (cheap per-push snapshot):
+# empty for main agent; ``("A", "B")`` for code-puppy -> A -> B.
 _subagent_chain: ContextVar[tuple[str, ...]] = ContextVar("subagent_chain", default=())
+
+# Identifies the top-level conversation this tree belongs to (ACP session id,
+# or None for the CLI). Deliberately a plain ContextVar, NOT the message-bus's
+# shared, per-task-unsafe session context: it copies into child tasks, so
+# siblings stay independent and nested A→B inherits the SAME root value (stable
+# "once per conversation" dedup). Set by ACP's prompt handler; never subagent_context.
+_conversation_root_id: ContextVar[Optional[str]] = ContextVar(
+    "conversation_root_id", default=None
+)
 
 
 @contextmanager
-def subagent_context(agent_name: str) -> Generator[None, None, None]:
+def subagent_context(
+    agent_name: str, model_name: str | None = None
+) -> Generator[None, None, None]:
     """Context manager for tracking sub-agent execution.
 
     Increments the sub-agent depth and sets the current agent name on entry,
@@ -104,6 +120,7 @@ def subagent_context(agent_name: str) -> Generator[None, None, None]:
     # Set new values and save tokens for restoration
     depth_token = _subagent_depth.set(current_depth + 1)
     name_token = _subagent_name.set(agent_name)
+    model_token = _subagent_model_name.set(model_name)
     chain_token = _subagent_chain.set(current_chain + (agent_name,))
 
     try:
@@ -113,6 +130,7 @@ def subagent_context(agent_name: str) -> Generator[None, None, None]:
         # This ensures the context is restored even if an exception occurs
         _subagent_depth.reset(depth_token)
         _subagent_name.reset(name_token)
+        _subagent_model_name.reset(model_token)
         _subagent_chain.reset(chain_token)
 
 
@@ -146,6 +164,11 @@ def get_subagent_name() -> str | None:
         'code-puppy'
     """
     return _subagent_name.get()
+
+
+def get_subagent_model_name() -> str | None:
+    """Return the model running the current sub-agent."""
+    return _subagent_model_name.get()
 
 
 def get_subagent_depth() -> int:
@@ -189,7 +212,36 @@ def get_subagent_chain() -> tuple[str, ...]:
         ...     get_subagent_chain()
         ('retriever',)
         ...     with subagent_context("terrier"):
-        ...         get_subagent_chain()
+            ...         get_subagent_chain()
         ('retriever', 'terrier')
     """
     return _subagent_chain.get()
+
+
+def set_conversation_root_id(value: Optional[str]) -> Token:
+    """Mark the current asyncio task as belonging to conversation ``value``.
+
+    Call once at the true root of a conversation (e.g. an ACP session's
+    prompt handler) -- NOT inside ``subagent_context``, so nested sub-agent
+    invocations inherit the same root rather than each minting their own.
+
+    Returns a token; pass it to :func:`reset_conversation_root_id` to restore
+    the previous value (typically in a ``finally`` block).
+    """
+    return _conversation_root_id.set(value)
+
+
+def reset_conversation_root_id(token: Token) -> None:
+    """Restore the conversation root id to its value before ``set``."""
+    _conversation_root_id.reset(token)
+
+
+def get_conversation_root_id() -> Optional[str]:
+    """Return the current task's conversation root id, or ``None``.
+
+    ``None`` both for the CLI (which never sets this -- single conversation
+    per process, matching its existing ``/clear``-driven reset model) and
+    for any code path that runs outside a ``set_conversation_root_id``
+    scope.
+    """
+    return _conversation_root_id.get()

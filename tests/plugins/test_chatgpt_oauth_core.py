@@ -16,7 +16,7 @@ from unittest.mock import Mock, patch
 import pytest
 import requests
 
-from code_puppy.plugins.chatgpt_oauth.utils import (
+from code_puppy_core_plugins.chatgpt_oauth.utils import (
     OAuthContext,
     _compute_code_challenge,
     _generate_code_verifier,
@@ -246,7 +246,7 @@ class TestJWTParsing:
 class TestTokenStorage:
     """Test token loading, saving, and retrieval."""
 
-    @patch("code_puppy.plugins.chatgpt_oauth.utils.get_token_storage_path")
+    @patch("code_puppy_core_plugins.chatgpt_oauth.utils.get_token_storage_path")
     def test_save_tokens_success(self, mock_path, sample_token_data, tmp_path):
         """Test tokens are saved successfully."""
         token_file = tmp_path / "tokens.json"
@@ -262,7 +262,7 @@ class TestTokenStorage:
             saved = json.load(f)
         assert saved == sample_token_data
 
-    @patch("code_puppy.plugins.chatgpt_oauth.utils.get_token_storage_path")
+    @patch("code_puppy_core_plugins.chatgpt_oauth.utils.get_token_storage_path")
     def test_save_tokens_file_permissions(self, mock_path, sample_token_data, tmp_path):
         """Test token file has secure permissions (0o600)."""
         token_file = tmp_path / "tokens.json"
@@ -274,13 +274,13 @@ class TestTokenStorage:
         mode = token_file.stat().st_mode & 0o777
         assert mode == 0o600  # User read/write only
 
-    @patch("code_puppy.plugins.chatgpt_oauth.utils.get_token_storage_path")
+    @patch("code_puppy_core_plugins.chatgpt_oauth.utils.get_token_storage_path")
     def test_save_tokens_none_raises_error(self, mock_path):
         """Test save_tokens raises error for None input."""
         with pytest.raises(TypeError):
             save_tokens(None)
 
-    @patch("code_puppy.plugins.chatgpt_oauth.utils.get_token_storage_path")
+    @patch("code_puppy_core_plugins.chatgpt_oauth.utils.get_token_storage_path")
     def test_load_tokens_success(self, mock_path, sample_token_data, tmp_path):
         """Test tokens are loaded successfully."""
         token_file = tmp_path / "tokens.json"
@@ -291,7 +291,7 @@ class TestTokenStorage:
 
         assert loaded == sample_token_data
 
-    @patch("code_puppy.plugins.chatgpt_oauth.utils.get_token_storage_path")
+    @patch("code_puppy_core_plugins.chatgpt_oauth.utils.get_token_storage_path")
     def test_load_tokens_file_not_found(self, mock_path, tmp_path):
         """Test load_tokens returns None when file doesn't exist."""
         token_file = tmp_path / "nonexistent.json"
@@ -301,7 +301,7 @@ class TestTokenStorage:
 
         assert loaded is None
 
-    @patch("code_puppy.plugins.chatgpt_oauth.utils.get_token_storage_path")
+    @patch("code_puppy_core_plugins.chatgpt_oauth.utils.get_token_storage_path")
     def test_load_tokens_invalid_json(self, mock_path, tmp_path):
         """Test load_tokens returns None for invalid JSON."""
         token_file = tmp_path / "tokens.json"
@@ -312,7 +312,7 @@ class TestTokenStorage:
 
         assert loaded is None
 
-    @patch("code_puppy.plugins.chatgpt_oauth.utils.get_token_storage_path")
+    @patch("code_puppy_core_plugins.chatgpt_oauth.utils.get_token_storage_path")
     def test_save_tokens_write_error(self, mock_path, sample_token_data, tmp_path):
         """Test save_tokens handles write errors gracefully."""
         token_file = tmp_path / "tokens.json"
@@ -344,7 +344,7 @@ class TestTokenRefresh:
         encoded = base64.urlsafe_b64encode(payload).decode().rstrip("=")
         return f"header.{encoded}.signature"
 
-    @patch("code_puppy.plugins.chatgpt_oauth.utils.load_stored_tokens")
+    @patch("code_puppy_core_plugins.chatgpt_oauth.utils.load_stored_tokens")
     def test_get_valid_access_token_fresh(self, mock_load):
         """Test fresh token is returned as-is."""
         # Token expiring in 1 hour
@@ -360,8 +360,8 @@ class TestTokenRefresh:
 
         assert result == fresh_token
 
-    @patch("code_puppy.plugins.chatgpt_oauth.utils.refresh_access_token")
-    @patch("code_puppy.plugins.chatgpt_oauth.utils.load_stored_tokens")
+    @patch("code_puppy_core_plugins.chatgpt_oauth.utils.refresh_access_token")
+    @patch("code_puppy_core_plugins.chatgpt_oauth.utils.load_stored_tokens")
     def test_get_valid_access_token_expired(self, mock_load, mock_refresh):
         """Test expired token triggers refresh."""
         # Token expired 1 hour ago
@@ -380,7 +380,7 @@ class TestTokenRefresh:
         assert result == new_token
         mock_refresh.assert_called_once()
 
-    @patch("code_puppy.plugins.chatgpt_oauth.utils.load_stored_tokens")
+    @patch("code_puppy_core_plugins.chatgpt_oauth.utils.load_stored_tokens")
     def test_get_valid_access_token_no_tokens(self, mock_load):
         """Test returns None when no tokens stored."""
         mock_load.return_value = None
@@ -389,9 +389,9 @@ class TestTokenRefresh:
 
         assert result is None
 
-    @patch("code_puppy.plugins.chatgpt_oauth.utils.save_tokens")
+    @patch("code_puppy_core_plugins.chatgpt_oauth.utils.save_tokens")
     @patch("requests.post")
-    @patch("code_puppy.plugins.chatgpt_oauth.utils.load_stored_tokens")
+    @patch("code_puppy_core_plugins.chatgpt_oauth.utils.load_stored_tokens")
     def test_refresh_access_token_success(self, mock_load, mock_post, mock_save):
         """Test successful token refresh."""
         old_tokens = {
@@ -419,7 +419,7 @@ class TestTokenRefresh:
         mock_save.assert_called_once()
 
     @patch("requests.post")
-    @patch("code_puppy.plugins.chatgpt_oauth.utils.load_stored_tokens")
+    @patch("code_puppy_core_plugins.chatgpt_oauth.utils.load_stored_tokens")
     def test_refresh_access_token_no_refresh_token(self, mock_load, mock_post):
         """Test refresh fails when no refresh token available."""
         mock_load.return_value = {"access_token": "token"}
@@ -430,7 +430,7 @@ class TestTokenRefresh:
         mock_post.assert_not_called()
 
     @patch("requests.post")
-    @patch("code_puppy.plugins.chatgpt_oauth.utils.load_stored_tokens")
+    @patch("code_puppy_core_plugins.chatgpt_oauth.utils.load_stored_tokens")
     def test_refresh_access_token_http_error(self, mock_load, mock_post):
         """Test refresh handles HTTP errors."""
         mock_load.return_value = {
@@ -448,7 +448,7 @@ class TestTokenRefresh:
         assert result is None
 
     @patch("requests.post")
-    @patch("code_puppy.plugins.chatgpt_oauth.utils.load_stored_tokens")
+    @patch("code_puppy_core_plugins.chatgpt_oauth.utils.load_stored_tokens")
     def test_refresh_access_token_network_error(self, mock_load, mock_post):
         """Test refresh handles network errors."""
         mock_load.return_value = {

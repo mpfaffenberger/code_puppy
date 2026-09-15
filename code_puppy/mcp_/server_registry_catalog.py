@@ -1117,10 +1117,6 @@ class MCPServerCatalog:
         popular = [s for s in self.servers if s.popular]
         return popular[:limit]
 
-    def get_verified(self) -> List[MCPServerTemplate]:
-        """Get all verified servers."""
-        return [s for s in self.servers if s.verified]
-
 
 # Global catalog instance
 catalog = MCPServerCatalog()

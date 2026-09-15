@@ -15,9 +15,29 @@ from unittest.mock import MagicMock
 
 import pytest
 
-# Config paths are resolved while code_puppy.config is imported, before any
-# fixture can run. Point every XDG category at one session-scoped temp root now
-# so collection, plugin imports, and tests cannot touch the developer's config.
+
+@pytest.fixture(autouse=True)
+def _isolate_shared_provider_credentials(monkeypatch, request):
+    """Provider tests must neither use the OS keyring nor leak across cases."""
+    from code_puppy import shared_credentials
+
+    if request.node.path.name == "test_shared_credentials.py":
+        return
+    values = {}
+    monkeypatch.setattr(shared_credentials, "get", lambda key: values.get(key.upper()))
+
+    def save(key, value):
+        if not value.strip():
+            raise ValueError("Empty test credential")
+        values[key.upper()] = value.strip()
+        monkeypatch.setenv(key.upper(), value.strip())
+
+    monkeypatch.setattr(shared_credentials, "save", save)
+    return values
+
+
+# Config paths resolve at import time, before fixtures run - point every XDG category
+# at one session-scoped temp root so collection/tests never touch the dev's config.
 _XDG_TEMP_DIR = tempfile.TemporaryDirectory(prefix="code_puppy_pytest_xdg_")
 _XDG_ENV_VARS = (
     "XDG_CONFIG_HOME",
@@ -68,9 +88,9 @@ def _ensure_builtin_plugin_callback_registrations() -> None:
     registrations, so restore the key builtin registrations explicitly.
     ``register_callback`` deduplicates, making this safe to call per test.
     """
-    from code_puppy.plugins.azure_foundry import register_callbacks as foundry
-    from code_puppy.plugins.claude_code_hooks import register_callbacks as hooks
-    from code_puppy.plugins.universal_constructor import register_callbacks as uc
+    from code_puppy_core_plugins.azure_foundry import register_callbacks as foundry
+    from code_puppy_core_plugins.claude_code_hooks import register_callbacks as hooks
+    from code_puppy_core_plugins.universal_constructor import register_callbacks as uc
 
     cp_callbacks.register_callback("custom_command_help", foundry._custom_help)
     cp_callbacks.register_callback("custom_command", foundry._handle_custom_command)
@@ -125,8 +145,13 @@ def isolate_global_state_between_tests(tmp_path_factory):
     # Save original config path and callback registry.
     original_config_file = cp_config.CONFIG_FILE
     original_config_dir = cp_config.CONFIG_DIR
+    original_data_dir = cp_config.DATA_DIR
     original_history_file = cp_config.COMMAND_HISTORY_FILE
     original_callbacks = deepcopy(cp_callbacks._callbacks)
+    # The fail-closed policy set is keyed by (phase, callback) and lives
+    # beside the registry; restoring one without the other would hand the
+    # next test callbacks whose security policy silently went missing.
+    original_fail_closed = set(cp_callbacks._fail_closed_callbacks)
 
     # Create a completely separate temp directory for config isolation
     # (not using tmp_path which tests may use for their own purposes).
@@ -139,6 +164,7 @@ def isolate_global_state_between_tests(tmp_path_factory):
     # defaults, not the local developer's personal settings.
     cp_config.CONFIG_FILE = temp_config_file
     cp_config.CONFIG_DIR = temp_config_dir
+    cp_config.DATA_DIR = os.path.join(temp_config_dir, "data")
     # The persistent editor's HistoryStore resolves this at construction:
     # never let tests read/append the developer's REAL command history.
     cp_config.COMMAND_HISTORY_FILE = os.path.join(
@@ -158,9 +184,12 @@ def isolate_global_state_between_tests(tmp_path_factory):
     # Restore original config paths and callback registrations.
     cp_config.CONFIG_FILE = original_config_file
     cp_config.CONFIG_DIR = original_config_dir
+    cp_config.DATA_DIR = original_data_dir
     cp_config.COMMAND_HISTORY_FILE = original_history_file
     cp_callbacks._callbacks.clear()
     cp_callbacks._callbacks.update(original_callbacks)
+    cp_callbacks._fail_closed_callbacks.clear()
+    cp_callbacks._fail_closed_callbacks.update(original_fail_closed)
     _ensure_builtin_plugin_callback_registrations()
 
     # Clear cache again after test.
@@ -173,6 +202,24 @@ def isolate_global_state_between_tests(tmp_path_factory):
         shutil.rmtree(config_temp_dir)
     except Exception:
         pass  # Best effort cleanup
+
+
+@pytest.fixture(autouse=True)
+def isolate_models_dev_lookup(monkeypatch):
+    """Keep the model-resolution models.dev lookup off the network.
+
+    ``config.get_model_max_output_tokens`` consults models.dev before falling
+    back to its heuristic, and building a registry fetches over HTTP. Unit
+    tests must stay hermetic and fast, so the cached registry is pinned to
+    ``None`` -- which the resolver reads as "limits unknown" -- unless a test
+    installs a fake one itself.
+    """
+    from code_puppy import models_dev_parser
+
+    models_dev_parser.reset_registry_cache()
+    monkeypatch.setattr(models_dev_parser, "get_registry", lambda: None)
+    yield
+    models_dev_parser.reset_registry_cache()
 
 
 @pytest.fixture

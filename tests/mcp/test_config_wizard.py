@@ -343,17 +343,38 @@ class TestPromptServerType:
         result = wizard.prompt_server_type()
         assert result == "stdio"
 
-    @patch("code_puppy.mcp_.config_wizard.emit_info")
     @patch("code_puppy.mcp_.config_wizard.emit_error")
+    @patch("code_puppy.mcp_.config_wizard.emit_info")
     @patch("code_puppy.mcp_.config_wizard.prompt_ask")
     def test_prompt_server_type_invalid(
-        self, mock_prompt, mock_error, mock_info, wizard
+        self, mock_prompt, mock_info, mock_error, wizard
     ):
-        """Test invalid type selection."""
-        mock_prompt.side_effect = ["invalid", "stdio"]
+        """Regression: a bad choice must RE-PROMPT, not cancel the wizard.
+
+        ``prompt_server_type`` calls ``prompt_ask`` WITHOUT ``choices=`` and
+        does its own validation, so a typo comes back as the raw string.
+        The wizard must emit the invalid-choice error and loop until it gets
+        a valid type (or ``None`` -> EOF -> real cancel).
+        """
+        mock_prompt.side_effect = ["not-a-real-type", "stdio"]
         result = wizard.prompt_server_type()
         assert result == "stdio"
-        mock_error.assert_called()
+        # Wizard must have re-prompted once past the typo.
+        assert mock_prompt.call_count == 2
+        # And it must have surfaced the invalid-choice error to the user.
+        mock_error.assert_called_once()
+
+    @patch("code_puppy.mcp_.config_wizard.emit_info")
+    @patch("code_puppy.mcp_.config_wizard.prompt_ask")
+    def test_prompt_server_type_eof_cancels(self, mock_prompt, mock_info, wizard):
+        """``prompt_ask`` returning ``None`` still tears the wizard down.
+
+        That's the EOF / Ctrl-D path -- the ONLY case that should propagate
+        as a cancel now that invalid choices loop instead of returning None.
+        """
+        mock_prompt.return_value = None
+        result = wizard.prompt_server_type()
+        assert result is None
 
 
 class TestPromptSSEConfig:

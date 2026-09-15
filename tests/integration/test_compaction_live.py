@@ -1,7 +1,7 @@
 """Live integration tests for message-history compaction.
 
 Drives a REAL ``CodePuppyAgent`` through ``run_with_mcp`` with a pre-populated
-~180k-token message history, pinned to ``firepass-kimi-k2p5-turbo`` (262k ctx window).
+~180k-token message history, pinned to ``LILAC_MODEL`` (Kimi K2.6, 262k ctx window).
 Compaction MUST fire, the run MUST complete, and history MUST shrink.
 
 This is the kind of test that would have caught the Phase 4 signature bug
@@ -36,8 +36,9 @@ from pydantic_ai.messages import (
 # -- Gate on SYN_API_KEY ------------------------------------------------------
 
 
-# The lilac-hosted GLM-5.1 model (200k+ ctx window) we drive these tests with.
-LILAC_MODEL = "lilac-zai-org-glm-5.1"
+# The lilac-hosted Kimi K2.6 model (262k ctx window) we drive these tests with.
+# (Was GLM-5.1 until Lilac retired it — see /v1/models for the current catalog.)
+LILAC_MODEL = "lilac-moonshotai-kimi-k2.6"
 
 
 # Fake CI placeholder values — not real API keys
@@ -156,7 +157,7 @@ def _build_huge_history(
       - Alternating user prompts, tool_call/tool_return pairs, assistant text
       - Every tool_call has its matching tool_return (no orphans)
       - Payloads distributed so each individual message is well under the
-        50k-token filter_huge_messages cutoff
+        50k-token per-part clamp budget (see _output_limits.py)
 
     Returns a history that will come in close to but not exceeding the target.
     """
@@ -240,6 +241,32 @@ def _build_huge_history(
     return msgs
 
 
+def _spy_summarizing_compaction(monkeypatch) -> dict:
+    """Instrument the harness ``SummarizingCompaction.compact`` method.
+
+    Returns a dict updated in place: ``count`` (attempts), ``succeeded``
+    (at least one attempt returned without raising), ``error_type`` (name of
+    the last exception raised, if any).
+    """
+    from pydantic_ai_harness.compaction import SummarizingCompaction
+
+    calls = {"count": 0, "succeeded": False, "error_type": None}
+    orig_compact = SummarizingCompaction.compact
+
+    async def spy_compact(self, messages, ctx):
+        calls["count"] += 1
+        try:
+            result = await orig_compact(self, messages, ctx)
+        except Exception as e:
+            calls["error_type"] = type(e).__name__
+            raise
+        calls["succeeded"] = True
+        return result
+
+    monkeypatch.setattr(SummarizingCompaction, "compact", spy_compact)
+    return calls
+
+
 def _count_orphan_tool_ids(messages: List[ModelMessage]) -> tuple[Set[str], Set[str]]:
     """Return (call_ids_without_return, return_ids_without_call)."""
     calls: Set[str] = set()
@@ -267,14 +294,13 @@ def huge_history() -> List[ModelMessage]:
 
 @pytest.fixture
 def pinned_code_puppy_agent(monkeypatch):
-    """Fresh CodePuppyAgent pinned to lilac-zai-org-glm-5.1.
+    """Fresh CodePuppyAgent pinned to ``LILAC_MODEL``.
 
     Uses monkeypatch to override the global model getter so we don't touch
     the user's on-disk config during the test run.
     """
     from code_puppy import config as cp_config
-    from code_puppy import summarization_agent as _sum_mod
-    from code_puppy.agents import _builder, _runtime
+    from code_puppy.agents import _builder, _compaction, _runtime
     from code_puppy.agents import base_agent as _base_agent_mod
     from code_puppy.agents.agent_code_puppy import CodePuppyAgent
 
@@ -301,10 +327,9 @@ def pinned_code_puppy_agent(monkeypatch):
         if hasattr(mod, "get_agent_pinned_model"):
             monkeypatch.setattr(mod, "get_agent_pinned_model", lambda _n: test_model)
 
-    # Summarization sub-agent has its own model resolver — patch it at the
-    # dedicated summarization_model hook (the cleaner post-refactor path).
+    # The summarizer model resolves through _compaction's config import.
     monkeypatch.setattr(
-        _sum_mod,
+        _compaction,
         "get_summarization_model_name",
         lambda: test_model,
     )
@@ -409,12 +434,13 @@ async def test_live_compaction_summarization_strategy(
 
     Exercises the full real-world path: history_processor closure →
     compact() → summarize() → summarization sub-agent makes a REAL LLM call →
-    compacted history handed back to pydantic-ai → GLM-5.1 answers the prompt.
+    compacted history handed back to pydantic-ai → the lilac model answers the prompt.
 
     This test validates TWO acceptable outcomes:
-      1. ✨ Summarization succeeds: history shrinks dramatically.
-      2. 🛟 Summarization fails (e.g., 429 rate limit): graceful degradation —
-         original history preserved, users run still completes successfully.
+      1.  Summarization succeeds: history shrinks dramatically.
+      2.  Summarization fails (e.g., 429 rate limit): FallbackCompaction
+         advances to SlidingWindowCompaction — history still shrinks and the
+         run completes successfully.
 
     Both are correct behavior. What would be WRONG:
       - Run crashes
@@ -429,17 +455,7 @@ async def test_live_compaction_summarization_strategy(
     monkeypatch.setattr(_compaction, "get_protected_token_count", lambda: 20_000)
 
     # Spy: did summarization actually get attempted?
-    summarize_calls = {"count": 0, "succeeded": False, "error": None}
-    orig_summarize = _compaction.summarize
-
-    def spy_summarize(*a, **kw):
-        summarize_calls["count"] += 1
-        result, dropped = orig_summarize(*a, **kw)
-        # If dropped is non-empty, summarization succeeded and emitted new summary msgs
-        summarize_calls["succeeded"] = len(dropped) > 0
-        return result, dropped
-
-    monkeypatch.setattr(_compaction, "summarize", spy_summarize)
+    summarize_calls = _spy_summarizing_compaction(monkeypatch)
 
     agent = pinned_code_puppy_agent
     agent.set_message_history(list(huge_history))
@@ -463,10 +479,11 @@ async def test_live_compaction_summarization_strategy(
         f"succeeded={summarize_calls['succeeded']}"
     )
 
-    # -- CORE INVARIANT: summarize() MUST have been attempted ----------------
+    # -- CORE INVARIANT: summarization MUST have been attempted --------------
     # If this fails, compaction isnt routing to the summarization path at all.
     assert summarize_calls["count"] >= 1, (
-        "summarize() was never called — compact() didnt route to summarization"
+        "SummarizingCompaction was never driven — the FallbackCompaction chain "
+        "didnt route to summarization"
     )
 
     # -- Integrity invariants (must hold in both success and failure paths) --
@@ -484,16 +501,15 @@ async def test_live_compaction_summarization_strategy(
         assert after_len < before_len, "Summarization ran but didnt reduce msgs"
         assert after_tokens < before_tokens, "Summarization ran but didnt reduce tokens"
 
-    # -- Path B: summarization failed → verify graceful degradation ----------
+    # -- Path B: summarization failed → sliding-window fallback --------------
     else:
         print(
-            "[path] 🛟 summarization failed gracefully "
-            "(likely rate-limit or LLM error). Run still completed — correct fallback."
+            "[path]  summarization failed (likely rate-limit or LLM error). "
+            "FallbackCompaction slid the window instead — correct fallback."
         )
-        # Main-agent run should still have added at least 1-2 new msgs
-        # (user prompt + assistant response).
-        assert after_len >= before_len, (
-            "History shrank on failure path — expected graceful preservation"
+        assert after_tokens < before_tokens, (
+            "Summarization failed but the sliding-window fallback did not "
+            "shrink the history — the FallbackCompaction chain is broken"
         )
 
 
@@ -564,16 +580,7 @@ async def test_live_orphan_tool_call_does_not_block_compaction(
     monkeypatch.setattr(_compaction, "get_compaction_threshold", lambda: 0.5)
     monkeypatch.setattr(_compaction, "get_protected_token_count", lambda: 20_000)
 
-    summarize_calls = {"count": 0, "succeeded": False}
-    orig_summarize = _compaction.summarize
-
-    def spy_summarize(*a, **kw):
-        summarize_calls["count"] += 1
-        result, dropped = orig_summarize(*a, **kw)
-        summarize_calls["succeeded"] = len(dropped) > 0
-        return result, dropped
-
-    monkeypatch.setattr(_compaction, "summarize", spy_summarize)
+    summarize_calls = _spy_summarizing_compaction(monkeypatch)
 
     # Build the usual 180k history, then inject an orphan tool_call
     history = _build_huge_history(target_tokens=200_000)
@@ -612,7 +619,8 @@ async def test_live_orphan_tool_call_does_not_block_compaction(
     # CORE REGRESSION ASSERTIONS:
     # 1. Summarization must have been attempted (not deferred forever)
     assert summarize_calls["count"] >= 1, (
-        "summarize() was never called — orphan blocked compaction (the bug is back)"
+        "SummarizingCompaction was never driven — orphan blocked compaction "
+        "(the bug is back)"
     )
 
     # 2. The orphan must no longer be in the compacted history

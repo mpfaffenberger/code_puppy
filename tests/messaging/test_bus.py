@@ -44,19 +44,20 @@ def bus():
 # =========================================================================
 
 
-def test_emit_buffers_when_no_renderer(bus):
+@pytest.mark.parametrize(
+    "active,expected_qsize,expected_buffer",
+    [(False, 0, 1), (True, 1, 0)],
+    ids=["no_renderer", "renderer_active"],
+)
+def test_emit_buffers_or_queues_by_renderer_state(
+    bus, active, expected_qsize, expected_buffer
+):
+    if active:
+        bus.mark_renderer_active()
     msg = TextMessage(level=MessageLevel.INFO, text="hello")
     bus.emit(msg)
-    assert len(bus._startup_buffer) == 1
-    assert bus.outgoing_qsize == 0
-
-
-def test_emit_goes_to_queue_when_renderer_active(bus):
-    bus.mark_renderer_active()
-    msg = TextMessage(level=MessageLevel.INFO, text="hello")
-    bus.emit(msg)
-    assert bus.outgoing_qsize == 1
-    assert len(bus._startup_buffer) == 0
+    assert bus.outgoing_qsize == expected_qsize
+    assert len(bus._startup_buffer) == expected_buffer
 
 
 def test_emit_drops_oldest_when_full(bus):

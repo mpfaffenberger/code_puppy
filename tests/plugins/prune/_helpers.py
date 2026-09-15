@@ -36,7 +36,7 @@ except ImportError:  # pragma: no cover
 
 
 def _plugin_module():
-    return importlib.import_module("code_puppy.plugins.prune.register_callbacks")
+    return importlib.import_module("code_puppy_core_plugins.prune.register_callbacks")
 
 
 def _agent_manager_module(agent: MagicMock) -> SimpleNamespace:
@@ -115,8 +115,8 @@ def _menu_with_history():
     Imported lazily so this helpers module stays free of plugin-import side
     effects at collection time.
     """
-    from code_puppy.plugins.prune.prune_menu import PruneMenu
-    from code_puppy.plugins.prune.prune_model import build_message_entries
+    from code_puppy_core_plugins.prune.prune_menu import PruneMenu
+    from code_puppy_core_plugins.prune.prune_model import build_message_entries
 
     history = [
         _system_msg(),

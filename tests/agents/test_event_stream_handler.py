@@ -11,7 +11,7 @@ Covers:
 
 import contextlib
 from io import StringIO
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 from pydantic_ai import PartDeltaEvent, PartEndEvent, PartStartEvent, RunContext
@@ -112,29 +112,16 @@ class TestEventStreamHandler:
         await event_stream_handler(mock_ctx, empty_stream())
 
     @pytest.mark.asyncio
-    async def test_handles_thinking_part_start_event(self, mock_ctx):
-        """Test handling PartStartEvent for ThinkingPart."""
-        thinking_part = ThinkingPart(content="I am thinking...")
-        event = PartStartEvent(index=0, part=thinking_part)
-
-        async def event_stream():
-            yield event
-
-        console = MagicMock(spec=Console)
-        set_streaming_console(console)
-
-        with contextlib.nullcontext():
-            with contextlib.nullcontext():
-                await event_stream_handler(mock_ctx, event_stream())
-
-        # Console should have printed something
-        assert console.print.called
-
-    @pytest.mark.asyncio
-    async def test_handles_text_part_start_event(self, mock_ctx):
-        """Test handling PartStartEvent for TextPart."""
-        text_part = TextPart(content="Hello world")
-        event = PartStartEvent(index=0, part=text_part)
+    @pytest.mark.parametrize(
+        "part",
+        [
+            pytest.param(ThinkingPart(content="I am thinking..."), id="thinking_part"),
+            pytest.param(TextPart(content="Hello world"), id="text_part"),
+        ],
+    )
+    async def test_handles_part_start_event(self, mock_ctx, part):
+        """Test handling PartStartEvent for ThinkingPart / TextPart."""
+        event = PartStartEvent(index=0, part=part)
 
         async def event_stream():
             yield event
@@ -218,6 +205,39 @@ class TestEventStreamHandler:
         assert console.print.called
 
     @pytest.mark.asyncio
+    async def test_multiline_initial_text_is_parsed_line_by_line(self, mock_ctx):
+        """A complete provider response must not become one Markdown line."""
+        text_part = TextPart(content="### Heading\n\nbody tail")
+        events = (
+            PartStartEvent(index=0, part=text_part),
+            PartEndEvent(index=0, part=text_part, next_part_kind=None),
+        )
+
+        async def event_stream():
+            for event in events:
+                yield event
+
+        console = MagicMock(spec=Console, width=80)
+        console.file = StringIO()
+        set_streaming_console(console)
+
+        with (
+            patch("termflow.Parser") as parser_cls,
+            patch("termflow.Renderer"),
+        ):
+            parser = parser_cls.return_value
+            parser.parse_line.return_value = []
+            parser.finalize.return_value = []
+            await event_stream_handler(mock_ctx, event_stream())
+
+        assert parser.parse_line.call_args_list == [
+            call("### Heading"),
+            call(""),
+            call("body tail"),
+        ]
+        parser.finalize.assert_called_once_with()
+
+    @pytest.mark.asyncio
     async def test_handles_thinking_part_delta_event(self, mock_ctx):
         """Test handling PartDeltaEvent for ThinkingPartDelta."""
         thinking_part = ThinkingPart(content="")
@@ -244,12 +264,19 @@ class TestEventStreamHandler:
         assert console.print.called
 
     @pytest.mark.asyncio
-    async def test_handles_text_part_delta_event(self, mock_ctx):
-        """Test handling PartDeltaEvent for TextPartDelta."""
-        text_part = TextPart(content="")
-        start_event = PartStartEvent(index=0, part=text_part)
-        delta = TextPartDelta(content_delta="Hello ")
-        delta_event = PartDeltaEvent(index=0, delta=delta)
+    @pytest.mark.parametrize(
+        "delta_content",
+        [
+            pytest.param("Hello ", id="plain"),
+            pytest.param("Line 1\nLine 2", id="newlines"),
+        ],
+    )
+    async def test_handles_text_part_delta_event(self, mock_ctx, delta_content):
+        """Test handling PartDeltaEvent for TextPartDelta (plain + newlines)."""
+        start_event = PartStartEvent(index=0, part=TextPart(content=""))
+        delta_event = PartDeltaEvent(
+            index=0, delta=TextPartDelta(content_delta=delta_content)
+        )
 
         async def event_stream():
             yield start_event
@@ -402,9 +429,8 @@ class TestEventStreamHandler:
                     with patch("termflow.Renderer"):
                         await event_stream_handler(mock_ctx, event_stream())
 
-        # The function checks: if next_kind not in ("text", "thinking", "tool-call")
-        # So if next is "text", it should NOT call resume
-        # finalize should have been called for cleanup
+        # next_kind "text" is not a continuation kind, so resume must NOT be called;
+        # finalize should already have run for cleanup.
         assert mock_parser.finalize.called
 
     @pytest.mark.asyncio
@@ -444,13 +470,12 @@ class TestEventStreamHandler:
         # Handler should process multiple deltas without error
 
     @pytest.mark.asyncio
-    async def test_streaming_with_newlines_in_text(self, mock_ctx):
-        """Test that newlines are handled correctly in text streaming."""
-        text_part = TextPart(content="")
-        start_event = PartStartEvent(index=0, part=text_part)
-        # Content with newline
-        delta = TextPartDelta(content_delta="Line 1\nLine 2")
-        delta_event = PartDeltaEvent(index=0, delta=delta)
+    async def test_finalizes_text_when_stream_ends_without_part_end(self, mock_ctx):
+        """An abrupt provider EOF must not drop buffered Markdown."""
+        start_event = PartStartEvent(index=0, part=TextPart(content=""))
+        delta_event = PartDeltaEvent(
+            index=0, delta=TextPartDelta(content_delta="```python\nprint(1)")
+        )
 
         async def event_stream():
             yield start_event
@@ -460,22 +485,54 @@ class TestEventStreamHandler:
         console.file = StringIO()
         set_streaming_console(console)
 
-        with contextlib.nullcontext():
-            with contextlib.nullcontext():
-                with patch(
-                    "code_puppy.agents.event_stream_handler.get_banner_color",
-                    return_value="blue",
-                ):
-                    with patch("termflow.Parser") as mock_parser_cls:
-                        mock_parser = MagicMock()
-                        mock_parser.parse_line.return_value = []
-                        mock_parser.finalize.return_value = []
-                        mock_parser_cls.return_value = mock_parser
+        with (
+            patch(
+                "code_puppy.agents.event_stream_handler.get_banner_color",
+                return_value="blue",
+            ),
+            patch("termflow.Parser") as parser_cls,
+            patch("termflow.Renderer"),
+        ):
+            parser = parser_cls.return_value
+            parser.parse_line.return_value = []
+            parser.finalize.return_value = []
+            await event_stream_handler(mock_ctx, event_stream())
 
-                        with patch("termflow.Renderer"):
-                            await event_stream_handler(mock_ctx, event_stream())
+        assert parser.parse_line.call_args_list == [
+            call("```python"),
+            call("print(1)"),
+        ]
+        parser.finalize.assert_called_once_with()
 
-        # Handler should process newlines in text without error
+    @pytest.mark.asyncio
+    async def test_skips_whitespace_only_text_tail(self, mock_ctx):
+        """Whitespace-only trailing buffers must not create Markdown content."""
+        start_event = PartStartEvent(index=0, part=TextPart(content=""))
+        delta_event = PartDeltaEvent(index=0, delta=TextPartDelta(content_delta="   "))
+
+        async def event_stream():
+            yield start_event
+            yield delta_event
+
+        console = MagicMock(spec=Console, width=80)
+        console.file = StringIO()
+        set_streaming_console(console)
+
+        with (
+            patch(
+                "code_puppy.agents.event_stream_handler.get_banner_color",
+                return_value="blue",
+            ),
+            patch("termflow.Parser") as parser_cls,
+            patch("termflow.Renderer"),
+        ):
+            parser = parser_cls.return_value
+            parser.parse_line.return_value = []
+            parser.finalize.return_value = []
+            await event_stream_handler(mock_ctx, event_stream())
+
+        parser.parse_line.assert_not_called()
+        parser.finalize.assert_called_once_with()
 
     @pytest.mark.asyncio
     async def test_streaming_ignores_delta_for_unknown_part_index(self, mock_ctx):
@@ -842,3 +899,87 @@ class TestSubAgentSuppression:
         assert events_consumed == 10
         # But nothing was printed
         console.print.assert_not_called()
+
+
+class TestHeadlessToolProgressSuppression:
+    """Headless (``-p``) runs must never emit the tool-progress counter.
+
+    Regression: the counter repaints itself with a bare ``\\r``, which only
+    overwrites on a real terminal. Redirected into a file or CI log, every
+    repaint became its own line, flooding the transcript with
+    ``Calling <tool>... N token(s)`` rows.
+    """
+
+    @pytest.fixture
+    def mock_ctx(self):
+        """Create a mock RunContext."""
+        return MagicMock(spec=RunContext)
+
+    def test_headless_suppresses_even_in_high_output_mode(self, monkeypatch):
+        from code_puppy.agents.event_stream_handler import _suppress_tool_progress
+
+        monkeypatch.setattr(
+            "code_puppy.agents.event_stream_handler.get_headless_mode", lambda: True
+        )
+        monkeypatch.setattr(
+            "code_puppy.agents.event_stream_handler.get_output_level", lambda: "high"
+        )
+
+        assert _suppress_tool_progress() is True
+
+    @pytest.mark.parametrize(
+        ("headless", "level", "expected"),
+        [
+            (False, "normal", False),
+            (False, "high", False),
+            (False, "low", True),
+            (True, "normal", True),
+            (True, "low", True),
+        ],
+    )
+    def test_suppression_matrix(self, monkeypatch, headless, level, expected):
+        from code_puppy.agents.event_stream_handler import _suppress_tool_progress
+
+        monkeypatch.setattr(
+            "code_puppy.agents.event_stream_handler.get_headless_mode",
+            lambda: headless,
+        )
+        monkeypatch.setattr(
+            "code_puppy.agents.event_stream_handler.get_output_level", lambda: level
+        )
+
+        assert _suppress_tool_progress() is expected
+
+    @pytest.mark.asyncio
+    async def test_headless_run_never_prints_calling_lines(self, mock_ctx, monkeypatch):
+        """The user-visible regression: no ``Calling ... token(s)`` in output."""
+        monkeypatch.setattr(
+            "code_puppy.agents.event_stream_handler.get_headless_mode", lambda: True
+        )
+        monkeypatch.setattr(
+            "code_puppy.agents.event_stream_handler.get_output_level",
+            lambda: "normal",
+        )
+
+        # Capture real text rather than asserting on call counts.
+        output = StringIO()
+        set_streaming_console(Console(file=output, width=80))
+
+        tool_part = ToolCallPart(
+            tool_call_id="tool_1", tool_name="create_file", args={}
+        )
+
+        async def mock_events():
+            yield PartStartEvent(index=0, part=tool_part)
+            # Several deltas -> several counter repaints when interactive.
+            for _ in range(5):
+                yield PartDeltaEvent(
+                    index=0, delta=ToolCallPartDelta(tool_name_delta="create_file")
+                )
+            yield PartEndEvent(index=0, part=tool_part, next_part_kind=None)
+
+        await event_stream_handler(mock_ctx, mock_events())
+
+        rendered = output.getvalue()
+        assert "Calling" not in rendered
+        assert "token(s)" not in rendered

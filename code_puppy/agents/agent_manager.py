@@ -5,6 +5,7 @@ import json
 import os
 import pkgutil
 import re
+import sys
 import threading
 import uuid
 from pathlib import Path
@@ -15,6 +16,7 @@ from pydantic_ai.messages import ModelMessage
 from code_puppy.agents.base_agent import BaseAgent
 from code_puppy.agents.json_agent import JSONAgent, discover_json_agents
 from code_puppy.callbacks import on_agent_reload, on_register_agents
+from code_puppy.i18n import t
 from code_puppy.messaging import emit_success, emit_warning
 from code_puppy.tools.common import atomic_write_text
 
@@ -28,15 +30,23 @@ _SESSION_AGENTS_CACHE: dict[str, str] = {}
 _SESSION_FILE_LOADED: bool = False
 _SESSION_LOCK = threading.Lock()
 
-# Serializes _discover_agents(): it clears + repopulates the shared registry,
-# so concurrent passes must not interleave. RLock so plugin callbacks fired
-# during discovery may safely re-enter agent-manager APIs on the same thread.
+# Serializes _discover_agents() (clears + repopulates the registry) so passes
+# can't interleave. RLock so plugin callbacks may re-enter on the same thread.
 _DISCOVERY_LOCK = threading.RLock()
 
-# JSON-agent names we've already warned about being shadowed by builtin
-# Python agents. Discovery runs constantly; warn once per process, not once
-# per pass.
+# JSON-agent names already warned about being shadowed by builtin Python
+# agents — warn once per process, not per discovery pass.
 _WARNED_JSON_SHADOWED: set = set()
+
+_PLAYWRIGHT_AGENT_MODULES = {"agent_qa_kitten", "agent_web_retriever"}
+
+
+def _builtin_agent_modules_to_skip() -> set[str]:
+    """Return builtin agent modules unavailable on the current platform."""
+    modules = {"base_agent", "json_agent", "agent_manager"}
+    if sys.platform == "android":
+        modules.update(_PLAYWRIGHT_AGENT_MODULES)
+    return modules
 
 
 # Session persistence file path
@@ -254,12 +264,10 @@ def _discover_agents_locked(message_group_id: Optional[str] = None):
     import code_puppy.agents as agents_package
 
     # Iterate through all modules in the agents package
+    skip_modules = _builtin_agent_modules_to_skip()
+
     for _, modname, _ in pkgutil.iter_modules(agents_package.__path__):
-        if modname.startswith("_") or modname in [
-            "base_agent",
-            "json_agent",
-            "agent_manager",
-        ]:
+        if modname.startswith("_") or modname in skip_modules:
             continue
 
         try:
@@ -281,7 +289,11 @@ def _discover_agents_locked(message_group_id: Optional[str] = None):
         except Exception as e:
             # Skip problematic modules
             emit_warning(
-                f"Warning: Could not load agent module {modname}: {e}",
+                t(
+                    "agent_manager.discovery.module_load_failed",
+                    modname=modname,
+                    error=e,
+                ),
                 message_group=message_group_id,
             )
             continue
@@ -323,14 +335,22 @@ def _discover_agents_locked(message_group_id: Optional[str] = None):
 
                 except Exception as e:
                     emit_warning(
-                        f"Warning: Could not load agent {subpkg_name}.{modname}: {e}",
+                        t(
+                            "agent_manager.discovery.agent_load_failed",
+                            agent=f"{subpkg_name}.{modname}",
+                            error=e,
+                        ),
                         message_group=message_group_id,
                     )
                     continue
 
         except Exception as e:
             emit_warning(
-                f"Warning: Could not load agent sub-package {subpkg_name}: {e}",
+                t(
+                    "agent_manager.discovery.subpackage_load_failed",
+                    subpackage=subpkg_name,
+                    error=e,
+                ),
                 message_group=message_group_id,
             )
             continue
@@ -344,13 +364,15 @@ def _discover_agents_locked(message_group_id: Optional[str] = None):
         for agent_name, json_path in json_agents.items():
             existing = _AGENT_REGISTRY.get(agent_name)
             if isinstance(existing, type):
-                # Genuine collision with a builtin Python agent class.
-                # Warn once per process — discovery re-runs on every agent
-                # load, and repeating the same warning is pure noise.
+                # Genuine collision with a builtin Python agent class; warn
+                # once per process (discovery re-runs and would repeat it).
                 if agent_name not in _WARNED_JSON_SHADOWED:
                     _WARNED_JSON_SHADOWED.add(agent_name)
                     emit_warning(
-                        f"JSON agent '{agent_name}' skipped: builtin Python agent with the same name takes precedence.",
+                        t(
+                            "agent_manager.discovery.json_shadowed",
+                            agent_name=agent_name,
+                        ),
                         message_group=message_group_id,
                     )
                 continue
@@ -358,7 +380,7 @@ def _discover_agents_locked(message_group_id: Optional[str] = None):
 
     except Exception as e:
         emit_warning(
-            f"Warning: Could not discover JSON agents: {e}",
+            t("agent_manager.discovery.json_discovery_failed", error=e),
             message_group=message_group_id,
         )
 
@@ -390,7 +412,7 @@ def _discover_agents_locked(message_group_id: Optional[str] = None):
 
     except Exception as e:
         emit_warning(
-            f"Warning: Could not load plugin agents: {e}",
+            t("agent_manager.discovery.plugin_load_failed", error=e),
             message_group=message_group_id,
         )
 
@@ -678,7 +700,7 @@ def clone_agent(agent_name: str) -> Optional[str]:
 
     agent_ref = _AGENT_REGISTRY.get(agent_name)
     if agent_ref is None:
-        emit_warning(f"Agent '{agent_name}' not found for cloning.")
+        emit_warning(t("agent_manager.clone.source_not_found", agent_name=agent_name))
         return None
 
     from ..config import get_agent_pinned_model, get_user_agents_directory
@@ -720,11 +742,10 @@ def clone_agent(agent_name: str) -> Optional[str]:
                     agent_instance.display_name, clone_index
                 ),
                 "description": agent_instance.description,
-                # Persist the AUTHORED prompt only. ``get_full_system_prompt``
-                # would bake in runtime ``load_prompt`` fragments (live
-                # timestamp/CWD, kennel memory, ...) and the instance identity
-                # ID — all of which must be (re)injected fresh at runtime, not
-                # frozen into a static clone definition.
+                # Persist ONLY the authored prompt: get_full_system_prompt would
+                # bake in runtime load_prompt fragments (live timestamp/CWD,
+                # kennel memory) and the identity ID — all of which must be
+                # re-injected fresh at runtime, not frozen into a clone.
                 "system_prompt": agent_instance.get_system_prompt(),
                 "tools": _filter_available_tools(agent_instance.get_available_tools()),
             }
@@ -737,15 +758,21 @@ def clone_agent(agent_name: str) -> Optional[str]:
             if tools_config is not None:
                 clone_config["tools_config"] = tools_config
 
+            model_settings_overrides = agent_instance.get_model_settings_overrides()
+            if model_settings_overrides:
+                clone_config["model_settings"] = model_settings_overrides
+
             pinned_model = get_agent_pinned_model(agent_instance.name)
             if pinned_model:
                 clone_config["model"] = pinned_model
     except Exception as exc:
-        emit_warning(f"Failed to build clone for '{agent_name}': {exc}")
+        emit_warning(
+            t("agent_manager.clone.build_failed", agent_name=agent_name, error=exc)
+        )
         return None
 
     if clone_path.exists():
-        emit_warning(f"Clone target '{clone_name}' already exists.")
+        emit_warning(t("agent_manager.clone.target_exists", clone_name=clone_name))
         return None
 
     try:
@@ -753,10 +780,18 @@ def clone_agent(agent_name: str) -> Optional[str]:
             str(clone_path),
             json.dumps(clone_config, indent=2, ensure_ascii=False),
         )
-        emit_success(f"Cloned '{agent_name}' to '{clone_name}'.")
+        emit_success(
+            t(
+                "agent_manager.clone.success",
+                agent_name=agent_name,
+                clone_name=clone_name,
+            )
+        )
         return clone_name
     except Exception as exc:
-        emit_warning(f"Failed to write clone file '{clone_path}': {exc}")
+        emit_warning(
+            t("agent_manager.clone.write_failed", clone_path=clone_path, error=exc)
+        )
         return None
 
 
@@ -773,40 +808,40 @@ def delete_clone_agent(agent_name: str) -> bool:
     _discover_agents(message_group_id=message_group_id)
 
     if not is_clone_agent_name(agent_name):
-        emit_warning(f"Agent '{agent_name}' is not a clone.")
+        emit_warning(t("agent_manager.delete.not_clone", agent_name=agent_name))
         return False
 
     if get_current_agent_name() == agent_name:
-        emit_warning("Cannot delete the active agent. Switch agents first.")
+        emit_warning(t("agent_manager.delete.active_agent"))
         return False
 
     agent_ref = _AGENT_REGISTRY.get(agent_name)
     if agent_ref is None:
-        emit_warning(f"Clone '{agent_name}' not found.")
+        emit_warning(t("agent_manager.delete.not_found", agent_name=agent_name))
         return False
 
     if not isinstance(agent_ref, str):
-        emit_warning(f"Clone '{agent_name}' is not a JSON agent.")
+        emit_warning(t("agent_manager.delete.not_json", agent_name=agent_name))
         return False
 
     clone_path = Path(agent_ref)
     if not clone_path.exists():
-        emit_warning(f"Clone file for '{agent_name}' does not exist.")
+        emit_warning(t("agent_manager.delete.file_not_found", agent_name=agent_name))
         return False
 
     from ..config import get_user_agents_directory
 
     agents_dir = Path(get_user_agents_directory()).resolve()
     if clone_path.resolve().parent != agents_dir:
-        emit_warning(f"Refusing to delete non-user clone '{agent_name}'.")
+        emit_warning(t("agent_manager.delete.non_user", agent_name=agent_name))
         return False
 
     try:
         clone_path.unlink()
-        emit_success(f"Deleted clone '{agent_name}'.")
+        emit_success(t("agent_manager.delete.success", agent_name=agent_name))
         _AGENT_REGISTRY.pop(agent_name, None)
         _AGENT_HISTORIES.pop(agent_name, None)
         return True
     except Exception as exc:
-        emit_warning(f"Failed to delete clone '{agent_name}': {exc}")
+        emit_warning(t("agent_manager.delete.failed", agent_name=agent_name, error=exc))
         return False

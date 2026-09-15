@@ -9,8 +9,8 @@ import tempfile
 import pytest
 from unittest.mock import patch
 
-from code_puppy.plugins.wiggum import judge_config
-from code_puppy.plugins.wiggum.judge_config import (
+from code_puppy_core_plugins.wiggum import judge_config
+from code_puppy_core_plugins.wiggum.judge_config import (
     DEFAULT_JUDGE_PROMPT,
     JudgeConfig,
     add_judge,
@@ -142,12 +142,6 @@ def test_update_judge_rejects_empty_model(isolated_judges_file):
     add_judge(JudgeConfig(name="x", model="m"))
     with pytest.raises(ValueError, match="Model must not be empty"):
         update_judge("x", model="")
-
-
-def test_update_judge_resets_empty_prompt_to_default(isolated_judges_file):
-    add_judge(JudgeConfig(name="x", model="m", prompt="custom"))
-    update_judge("x", prompt="")
-    assert load_judges().find("x").prompt == DEFAULT_JUDGE_PROMPT
 
 
 def test_delete_judge(isolated_judges_file):

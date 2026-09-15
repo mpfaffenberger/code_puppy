@@ -27,6 +27,7 @@ from code_puppy.agents.smooth_stream import (
 )
 from code_puppy.config import (
     get_banner_color,
+    get_headless_mode,
     get_output_level,
     get_subagent_verbose,
     get_suppress_thinking_messages,
@@ -51,9 +52,13 @@ def _fire_stream_event(event_type: str, event_data: Any) -> None:
         agent_session_id = get_session_context()
 
         # Use create_task to fire callback without blocking
-        asyncio.create_task(
-            callbacks.on_stream_event(event_type, event_data, agent_session_id)
-        )
+        coroutine = callbacks.on_stream_event(event_type, event_data, agent_session_id)
+        try:
+            asyncio.create_task(coroutine)
+        except BaseException:
+            # Submission failed: no task owns this coroutine. Preserve cancellation.
+            coroutine.close()
+            raise
     except ImportError:
         logger.debug("callbacks or messaging module not available for stream event")
     except Exception as e:
@@ -122,7 +127,14 @@ def _suppress_tool_progress() -> bool:
 
     In ``low`` mode, the shell-start peek in the RichConsoleRenderer is
     sufficient; the streaming token counter is noise.
+
+    Headless runs (``-p``) always suppress it as well. The counter repaints
+    itself with a bare ``\\r``, which only overwrites on a real terminal --
+    redirected into a file or CI log every repaint becomes its own line, so
+    a single tool call emits a wall of ``Calling <tool>... N token(s)`` rows.
     """
+    if get_headless_mode():
+        return True
     return get_output_level() == "low"
 
 
@@ -145,9 +157,8 @@ async def event_stream_handler(
             pass  # Just consume events without rendering
         return
 
-    # NOTE: TTFT / gen-speed timing is handled by callback hooks
-    # (agent_run_start + stream_event + agent_run_end). This handler
-    # stays focused on rendering.
+    # NOTE: TTFT/gen-speed timing lives in callback hooks (agent_run_start +
+    # stream_event + agent_run_end); this handler only renders.
 
     from termflow import Parser as TermflowParser
     from termflow import Renderer as TermflowRenderer
@@ -217,9 +228,20 @@ async def event_stream_handler(
             highlighter=on_termflow_highlighter(Highlighter()),
         )
 
-    # Smooth-stream state for thinking parts. Each index maps to a smoother
-    # (steady-rate drain) or lands in ``thinking_direct`` when smoothing is
-    # disabled and we should print deltas immediately.
+    def _render_text_content(index: int, content: str) -> None:
+        """Feed text through Termflow one complete line at a time."""
+        buffer = termflow_line_buffers[index] + content
+        parser = termflow_parsers[index]
+        renderer = termflow_renderers[index]
+
+        while "\n" in buffer:
+            line, buffer = buffer.split("\n", 1)
+            renderer.render_all(parser.parse_line(line))
+
+        termflow_line_buffers[index] = buffer
+
+    # Smooth-stream state per thinking part: index → smoother (steady drain)
+    # or ``thinking_direct`` when smoothing is off (print deltas immediately).
     thinking_smoothers: dict[int, ThinkingStreamSmoother] = {}
     thinking_direct: set[int] = set()
     thinking_stream_id = object()
@@ -252,6 +274,20 @@ async def event_stream_handler(
             smoother.feed(text)
         else:
             console.print(f"[dim]{escape(text)}[/dim]", end="")
+
+    async def _finish_text_part(index: int) -> None:
+        """Flush one text part, including streams missing ``PartEndEvent``."""
+        parser = termflow_parsers.pop(index, None)
+        renderer = termflow_renderers.pop(index, None)
+        if parser is not None and renderer is not None:
+            remaining = termflow_line_buffers.pop(index, "")
+            if remaining.strip():
+                renderer.render_all(parser.parse_line(remaining))
+            renderer.render_all(parser.finalize())
+
+        writer = termflow_writers.pop(index, None)
+        if writer is not None:
+            await writer.close()
 
     async def _print_thinking_banner() -> None:
         """Print the THINKING banner on a fresh line."""
@@ -303,9 +339,8 @@ async def event_stream_handler(
     try:
         async for event in events:
             # ---- Pause gate ------------------------------------------------
-            # If the user has paused the agent, suppress rendering and block
-            # at this safe boundary until resume (or until the safety timeout
-            # expires, to avoid SSE upstream timeouts).
+            # Paused: suppress rendering and block at this safe boundary until
+            # resume (or the safety timeout, to avoid SSE upstream timeouts).
             from code_puppy.messaging.pause_controller import get_pause_controller
 
             _pc = get_pause_controller()
@@ -320,11 +355,10 @@ async def event_stream_handler(
                 resumed = await _pc.wait_if_paused(timeout=max_pause)
                 if resumed:
                     break
-                # Timed out — the controller force-resumed itself. If a
-                # slash-command window still owns the pause lease, re-arm
-                # and keep waiting: streaming must NOT interleave under an
-                # open /command menu. The drain's ``finally`` guarantees
-                # the ultimate resume, so this can't wait forever.
+                # Timed out (controller force-resumed). If a /command window
+                # still owns the pause lease, re-arm and keep waiting: streaming
+                # must not interleave under it; the drain's ``finally``
+                # guarantees the ultimate resume.
                 from code_puppy.messaging.run_ui import is_draining
 
                 if is_draining():
@@ -372,7 +406,7 @@ async def event_stream_handler(
                     if part.content and part.content.strip():
                         await _print_response_banner()
                         banner_printed.add(event.index)
-                        termflow_line_buffers[event.index] = part.content
+                        _render_text_content(event.index, part.content)
                 elif isinstance(part, ToolCallPart):
                     streaming_parts.add(event.index)
                     tool_parts.add(event.index)
@@ -408,26 +442,11 @@ async def event_stream_handler(
                                     await _print_response_banner()
                                     banner_printed.add(event.index)
 
-                                # Add content to line buffer
-                                termflow_line_buffers[event.index] += (
-                                    delta.content_delta
-                                )
-
-                                # Process complete lines
-                                parser = termflow_parsers[event.index]
-                                renderer = termflow_renderers[event.index]
-                                buffer = termflow_line_buffers[event.index]
-
-                                while "\n" in buffer:
-                                    line, buffer = buffer.split("\n", 1)
-                                    events_to_render = parser.parse_line(line)
-                                    renderer.render_all(events_to_render)
-
-                                termflow_line_buffers[event.index] = buffer
+                                _render_text_content(event.index, delta.content_delta)
                             else:
-                                # For thinking parts, stream smoothly (dim) via a
-                                # rate-limited buffer so bursty deltas don't stutter.
-                                # Gate on output level / suppress_thinking toggle.
+                                # Stream thinking parts smoothly (dim) via a
+                                # rate-limited buffer; gate on output level /
+                                # suppress_thinking toggle.
                                 if not _suppress_thinking_stream():
                                     if event.index not in banner_printed:
                                         await _print_thinking_banner()
@@ -456,9 +475,8 @@ async def event_stream_handler(
                                 tool_names.get(event.index, "") + tool_name_delta
                             )
 
-                        # Use stored tool name for display.
-                        # In low mode, skip the progress counter — the
-                        # RichConsoleRenderer peek is sufficient.
+                        # Use stored tool name; in low mode skip the progress
+                        # counter — the RichConsoleRenderer peek suffices.
                         if not _suppress_tool_progress():
                             tool_name = tool_names.get(event.index, "")
                             count = token_count[event.index]
@@ -486,38 +504,13 @@ async def event_stream_handler(
                 )
 
                 if event.index in streaming_parts:
-                    # For text parts, finalize termflow rendering
                     if event.index in text_parts:
-                        # Render any remaining buffered content
-                        if event.index in termflow_parsers:
-                            parser = termflow_parsers[event.index]
-                            renderer = termflow_renderers[event.index]
-                            remaining = termflow_line_buffers.get(event.index, "")
-
-                            # Parse and render any remaining partial line
-                            if remaining.strip():
-                                events_to_render = parser.parse_line(remaining)
-                                renderer.render_all(events_to_render)
-
-                            # Finalize the parser to close any open blocks
-                            final_events = parser.finalize()
-                            renderer.render_all(final_events)
-
-                            # Clean up termflow state
-                            del termflow_parsers[event.index]
-                            del termflow_renderers[event.index]
-                            del termflow_line_buffers[event.index]
-
-                        # Drain any smooth typewriter writer to completion so the
-                        # full response has finished printing before we move on.
-                        writer = termflow_writers.pop(event.index, None)
-                        if writer is not None:
-                            await writer.close()
+                        await _finish_text_part(event.index)
                     # For tool parts, clear the chunk counter line
                     elif event.index in tool_parts:
-                        # Erase the \r-repainted chunk counter line entirely
-                        # (space-padding assumed <= 50 cells and left ghost
-                        # tails like ``s)`` behind long tool names).
+                        # Erase the \r-repainted chunk-counter line entirely;
+                        # space-padding assumed <= 50 cells and left ghost
+                        # tails behind long tool names.
                         erase_progress_line(console)
                         # In high mode, dump the full tool call arguments so the
                         # user can see exactly what the model sent to the tool.
@@ -562,11 +555,15 @@ async def event_stream_handler(
                     banner_printed.discard(event.index)
 
     except BaseException:
-        # Cancelled (Ctrl+C / steer) or crashed mid-stream: the graceful
-        # drain below would never run, orphaning the background drain
-        # tasks — which then keep typing into the terminal. Abort them.
+        # Cancelled/crashed mid-stream: the graceful drain never runs, orphaning
+        # background drain tasks that keep typing into the terminal. Abort them.
         _abort_all_drainers()
         raise
+
+    # Providers can end without PartEndEvent. Finalize those parsers too;
+    # otherwise an unterminated fence or partial line disappears.
+    for index in list(text_parts):
+        await _finish_text_part(index)
 
     # Drain any smoothers/writers that didn't see a PartEndEvent (e.g. the
     # stream ended abruptly) so we never lose buffered text or orphan tasks.

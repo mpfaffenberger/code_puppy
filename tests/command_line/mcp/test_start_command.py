@@ -36,9 +36,14 @@ class TestStartCommand:
             start_cmd.execute(["missing"], group_id="g1")
             assert "not found" in str(mock_err.call_args)
 
-    def test_start_stdio_success(self, start_cmd):
+    @pytest.mark.parametrize(
+        ("server_type", "fragment"),
+        [("stdio", "Starting"), ("sse", "Enabled")],
+        ids=["stdio", "sse"],
+    )
+    def test_start_success(self, start_cmd, server_type, fragment):
         mock_server_config = MagicMock()
-        mock_server_config.type = "stdio"
+        mock_server_config.type = server_type
         start_cmd.manager.get_server_by_name.return_value = mock_server_config
 
         with (
@@ -54,27 +59,7 @@ class TestStartCommand:
         ):
             start_cmd.manager.start_server_sync.return_value = True
             start_cmd.execute(["myserver"], group_id="g1")
-            assert any("Starting" in str(c) for c in mock_succ.call_args_list)
-
-    def test_start_sse_success(self, start_cmd):
-        mock_server_config = MagicMock()
-        mock_server_config.type = "sse"
-        start_cmd.manager.get_server_by_name.return_value = mock_server_config
-
-        with (
-            patch(
-                "code_puppy.command_line.mcp.start_command.find_server_id_by_name",
-                return_value="id1",
-            ),
-            patch("code_puppy.command_line.mcp.start_command.emit_info"),
-            patch(
-                "code_puppy.command_line.mcp.start_command.emit_success"
-            ) as mock_succ,
-            patch("code_puppy.command_line.mcp.start_command.get_current_agent"),
-        ):
-            start_cmd.manager.start_server_sync.return_value = True
-            start_cmd.execute(["myserver"], group_id="g1")
-            assert any("Enabled" in str(c) for c in mock_succ.call_args_list)
+            assert any(fragment in str(c) for c in mock_succ.call_args_list)
 
     def test_start_failure(self, start_cmd):
         with (

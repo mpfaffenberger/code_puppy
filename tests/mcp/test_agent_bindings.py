@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -34,9 +34,8 @@ class TestBindingsRoundTrip:
         assert ab.get_agents_for_server("filesystem") == ["python"]
 
     def test_set_binding_default_is_auto_start_true(self, tmp_bindings):
-        # Locks in the "binding implies auto-start" UX default. If you ever
-        # need to flip this back, make sure you also update toggle_binding
-        # and the post-install bind menu.
+        # Locks in "binding implies auto-start"; flipping it means updating
+        # toggle_binding and the post-install bind menu too.
         ab.set_binding("python", "fs")
         assert ab.get_auto_start("python", "fs") is True
 
@@ -260,10 +259,8 @@ class TestUnboundOrphanWarning:
             manager.get_servers_for_agent(agent_name="python")
             manager.get_servers_for_agent(agent_name="rust")
 
-        # One consolidated warning per fresh (agent, set-of-unbound-servers)
-        # batch: python's first build emits one block listing nu+mu, rust's
-        # first build emits one block listing nu+mu, python's second build
-        # is fully deduped. Total: 2 warning blocks.
+        # One consolidated warning per fresh (agent, server-set) batch: python+rust
+        # first builds each emit a block (nu+mu); python's second is deduped — 2 blocks.
         assert mock_warn.call_count == 2
         # Each emitted message reports the count of unbound servers and the
         # specific agent it was built for (names are omitted by design).
@@ -354,11 +351,80 @@ class TestUnboundOrphanWarning:
 
 def _fake_managed(name: str):
     """Tiny mock for ManagedMCPServer satisfying get_servers_for_agent."""
-    from unittest.mock import MagicMock
-
     fake = MagicMock()
     fake.config.name = name
     fake.is_enabled.return_value = True
     fake.is_quarantined.return_value = False
     fake.get_pydantic_server.return_value = MagicMock(name=f"pydantic-{name}")
     return fake
+
+
+class TestJsonDeclaredBindingsMerge:
+    """JSON-declared bindings merge into the file view in get_bound_servers.
+
+    Covers the ``_declared_bindings`` helper: successful declarations, the
+    agent loader raising, and ``get_declared_mcp_bindings`` raising — all of
+    which must degrade gracefully instead of breaking MCP filtering.
+    """
+
+    def _stub_json_agent(self, declared):
+        from code_puppy.agents.json_agent import JSONAgent
+
+        fake_agent = MagicMock(spec=JSONAgent)
+        fake_agent.get_declared_mcp_bindings.return_value = declared
+        return patch(
+            "code_puppy.agents.agent_manager.load_agent", return_value=fake_agent
+        )
+
+    def test_declared_bindings_merged(self, tmp_bindings):
+        with self._stub_json_agent({"serena": {"auto_start": True}}):
+            assert ab.get_bound_servers("clone-1") == {"serena": {"auto_start": True}}
+
+    def test_file_wins_on_conflict(self, tmp_bindings):
+        tmp_bindings.write_text(
+            json.dumps({"bindings": {"clone-1": {"serena": {"auto_start": False}}}})
+        )
+        with self._stub_json_agent({"serena": {"auto_start": True}}):
+            assert ab.get_bound_servers("clone-1") == {"serena": {"auto_start": False}}
+
+    def test_union_of_servers(self, tmp_bindings):
+        tmp_bindings.write_text(
+            json.dumps({"bindings": {"clone-1": {"sqlite": {"auto_start": True}}}})
+        )
+        with self._stub_json_agent({"serena": {"auto_start": True}}):
+            assert ab.get_bound_servers("clone-1") == {
+                "serena": {"auto_start": True},
+                "sqlite": {"auto_start": True},
+            }
+
+    def test_loader_raises_falls_back_to_file(self, tmp_bindings):
+        tmp_bindings.write_text(
+            json.dumps({"bindings": {"clone-1": {"sqlite": {"auto_start": True}}}})
+        )
+        with patch(
+            "code_puppy.agents.agent_manager.load_agent",
+            side_effect=RuntimeError("boom"),
+        ):
+            assert ab.get_bound_servers("clone-1") == {"sqlite": {"auto_start": True}}
+
+    def test_get_declared_raises_falls_back_to_file(self, tmp_bindings):
+        from code_puppy.agents.json_agent import JSONAgent
+
+        tmp_bindings.write_text(
+            json.dumps({"bindings": {"clone-1": {"sqlite": {"auto_start": True}}}})
+        )
+        bad_agent = MagicMock(spec=JSONAgent)
+        bad_agent.get_declared_mcp_bindings.side_effect = RuntimeError("kaboom")
+        with patch(
+            "code_puppy.agents.agent_manager.load_agent", return_value=bad_agent
+        ):
+            assert ab.get_bound_servers("clone-1") == {"sqlite": {"auto_start": True}}
+
+    def test_non_json_agent_ignores_declarations(self, tmp_bindings):
+        tmp_bindings.write_text(
+            json.dumps({"bindings": {"clone-1": {"sqlite": {"auto_start": True}}}})
+        )
+        with patch(
+            "code_puppy.agents.agent_manager.load_agent", return_value=MagicMock()
+        ):
+            assert ab.get_bound_servers("clone-1") == {"sqlite": {"auto_start": True}}

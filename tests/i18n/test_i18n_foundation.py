@@ -6,24 +6,15 @@ pseudolocalization.
 """
 
 import json
+from pathlib import Path
 
 import pytest
 
 from code_puppy import i18n
 from code_puppy.i18n import catalog, formats, locale, plurals, pseudo, translate
 
-
-@pytest.fixture(autouse=True)
-def _isolate_i18n(tmp_path, monkeypatch):
-    """Reset catalog state + force a clean en-US translator per test."""
-    # Clear any env-based locale so detection tests are deterministic.
-    for var in ("CODE_PUPPY_LOCALE", "LC_ALL", "LC_MESSAGES", "LANG", "LANGUAGE"):
-        monkeypatch.delenv(var, raising=False)
-    catalog.reset()
-    translate.get_translator().set_locale("en-US")
-    yield
-    catalog.reset()
-    translate.get_translator().set_locale("en-US")
+_LOCALES_DIR = Path(catalog.__file__).parent / "locales"
+_CATALOG_PATHS = sorted(_LOCALES_DIR.glob("*.json"))
 
 
 def _write_catalog(tmp_path, name, data):
@@ -86,9 +77,8 @@ def test_fallback_chain():
 
 
 def test_fallback_chain_latin_american_spanish():
-    # es-419 is deprecated (folded into base es), so Latin American Spanish
-    # now truncates straight to es -- keeping its own regional override file
-    # on top and never probing the removed es-419 catalog.
+    # es-419 is deprecated (folded into es): Latin American Spanish truncates straight
+    # to es — its own regional override stays on top, es-419 catalog never probed.
     assert locale.fallback_chain("es-AR") == ["es-AR", "es", "en-US"]
     assert locale.fallback_chain("es-MX") == ["es-MX", "es", "en-US"]
     # An explicit es-419 request still degrades gracefully to base es.
@@ -130,6 +120,41 @@ def test_malformed_catalog_is_skipped(tmp_path):
 # --- interpolation --------------------------------------------------------
 def test_interpolation():
     assert i18n.t("startup.welcome", name="TJ") == "Welcome to Code Puppy, TJ!"
+
+
+@pytest.mark.parametrize(
+    ("locale_name", "expected", "expected_unknown"),
+    [
+        (
+            "en-US",
+            "Core plugins version: 0.0.2",
+            "Core plugins version: unknown",
+        ),
+        (
+            "es",
+            "Versión de los complementos principales: 0.0.2",
+            "Versión de los complementos principales: desconocida",
+        ),
+        (
+            "fr-CA",
+            "Version des modules d’extension principaux : 0.0.2",
+            "Version des modules d’extension principaux : inconnue",
+        ),
+    ],
+)
+def test_core_plugins_version_catalog_interpolates(
+    locale_name, expected, expected_unknown
+):
+    translate.set_locale(locale_name)
+    assert i18n.t("version.core_plugins", version="0.0.2") == expected
+    assert i18n.t("version.core_plugins_unknown") == expected_unknown
+
+
+def test_core_plugins_unknown_pseudolocalizes_once():
+    translate.set_locale(pseudo.PSEUDO_LOCALE)
+    rendered = i18n.t("version.core_plugins_unknown")
+    assert rendered.count("\u27e6") == 1
+    assert rendered.count("\u27e7") == 1
 
 
 def test_missing_param_leaves_placeholder():
@@ -285,34 +310,43 @@ def test_spanish_plurals():
 
 # --- shipped catalog integrity -------------------------------------------
 def test_all_shipped_catalogs_are_valid_json():
-    import glob
-    import os
-
-    locales_dir = os.path.join(os.path.dirname(catalog.__file__), "locales")
-    files = glob.glob(os.path.join(locales_dir, "*.json"))
-    assert files, "no shipped catalogs found"
-    for path in files:
-        with open(path, encoding="utf-8") as fh:
-            data = json.load(fh)  # raises on malformed JSON
+    assert _CATALOG_PATHS, f"no shipped catalogs found in {_LOCALES_DIR}"
+    for path in _CATALOG_PATHS:
+        data = json.loads(path.read_text(encoding="utf-8"))
         assert isinstance(data, dict), f"{path} is not a JSON object"
 
 
-def test_target_locales_are_available():
+def test_shipped_catalog_paths_are_not_empty():
+    assert _CATALOG_PATHS, f"no shipped catalogs found in {_LOCALES_DIR}"
+
+
+@pytest.mark.parametrize("path", _CATALOG_PATHS, ids=lambda path: path.name)
+def test_shipped_catalog_keys_are_alphabetized(path):
+    """Top-level keys are sorted; nested CLDR plural categories are exempt."""
+
+    def reject_duplicates(pairs):
+        seen = set()
+        for key, _ in pairs:
+            assert key not in seen, f"{path.name}: duplicate key {key!r}"
+            seen.add(key)
+        return dict(pairs)
+
+    data = json.loads(
+        path.read_text(encoding="utf-8"), object_pairs_hook=reject_duplicates
+    )
+    assert list(data) == sorted(data), (
+        f"{path.name}: top-level keys are not alphabetized"
+    )
+
+
+def test_shipped_locales_are_available():
     available = i18n.available_locales()
-    for expected in (
-        "en-US",
-        "es",
-        "fr-CA",
-        "es-MX",
-        "es-AR",
-        "es-CO",
-        "es-CL",
-    ):
+    for expected in ("en-US", "es", "fr-CA"):
         assert expected in available, f"{expected} catalog is missing"
 
 
-def test_dialect_stubs_inherit_from_base_es():
-    # The empty country stubs must resolve every key via es -> en-US.
+def test_unshipped_spanish_region_falls_back_to_base_es():
+    # Regional catalogs are added only when reviewed translations exist.
     for dialect in ("es-MX", "es-AR", "es-CO", "es-CL"):
         translate.set_locale(dialect)
         assert i18n.t("confirm.yes") == "S\u00ed"

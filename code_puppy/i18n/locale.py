@@ -27,17 +27,12 @@ _POSIX_LOCALE_VARS = ("LC_ALL", "LC_MESSAGES", "LANG", "LANGUAGE")
 # Matches things like "en", "en_US", "en-US", "en_US.UTF-8", "zh-Hans-CN".
 _LOCALE_RE = re.compile(r"^[A-Za-z]{2,3}(?:[_-][A-Za-z0-9]+)*")
 
-# CLDR parent-locale overrides: locales whose fallback parent is NOT simply
-# their truncated form (see :func:`fallback_chain`). Source: CLDR
-# supplementalData <parentLocales>. Kept as an explicit, testable map so a
-# plugin / the private fork can register a non-truncation parent in one line.
-#
-# Currently empty: the only override we shipped was the Latin American Spanish
-# ``es-419`` umbrella, which has been deprecated and folded into the base
-# ``es`` catalog. Every Central/South American dialect (``es-MX``, ``es-AR``,
-# ...) now truncates straight to ``es`` (``es-MX -> es -> en-US``), keeping its
-# own regional override file on top. To reintroduce a CLDR umbrella, add e.g.
-# ``PARENT_LOCALES["es-AR"] = "es-419"``.
+# CLDR parent-locale overrides: locales whose fallback parent isn't simply
+# their truncated form (see :func:`fallback_chain`). Explicit, testable map so
+# a plugin/private fork can register a non-truncation parent in one line.
+# Currently empty: the ``es-419`` umbrella was deprecated and folded into base
+# ``es``, so es-MX/AR/... truncate straight to ``es`` (``es-MX -> es -> en-US``).
+# To reintroduce a CLDR umbrella: PARENT_LOCALES["es-AR"] = "es-419".
 PARENT_LOCALES: dict = {}
 
 

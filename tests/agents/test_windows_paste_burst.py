@@ -13,7 +13,6 @@ from code_puppy.agents._key_listeners import (
     _PASTE_CLOSE,
     _PASTE_OPEN,
     _SHIFT_ENTER_SEQ,
-    _WIN_BURST_CAP,
     _WIN_PASTE_MIN_CHARS,
     _coalesce_paste_burst,
     _drain_windows_burst,
@@ -59,12 +58,6 @@ class TestDrain:
             ("char", "b"),
         ]
 
-    def test_burst_cap_leaves_remainder_queued(self):
-        fake = FakeMsvcrt(["x"] * (_WIN_BURST_CAP + 10))
-        items = _drain_windows_burst(fake)
-        assert len(items) == _WIN_BURST_CAP
-        assert len(fake.keys) == 10
-
     def test_first_key_read_despite_kbhit_lie(self):
         """The caller consumed the only kbhit() True; the drain must still
         read the first key (and its pushback-buffered pair tail)
@@ -100,6 +93,15 @@ class TestCoalesce:
 
     def test_burst_with_extended_key_is_typing(self):
         items = [("char", "a"), ("seq", "\x1b[A"), ("char", "b"), ("char", "c")]
+        assert _coalesce_paste_burst(items) is None
+
+    @pytest.mark.parametrize("backspace", ["\x08", "\x7f"])
+    def test_backspace_repeat_burst_is_typing(self, backspace):
+        items = [("char", backspace)] * 6
+        assert _coalesce_paste_burst(items) is None
+
+    def test_other_control_key_repeat_burst_is_typing(self):
+        items = [("char", "\x17")] * 3  # Ctrl+W
         assert _coalesce_paste_burst(items) is None
 
     def test_min_chars_boundary(self):
@@ -233,6 +235,12 @@ class TestRouteBurst:
     def test_small_typing_burst_dispatches_per_key(self, editor):
         _route(_chars("a"))
         assert editor._buffer == "a"
+
+    @pytest.mark.parametrize("backspace", ["\x08", "\x7f"])
+    def test_backspace_repeat_burst_deletes_every_character(self, editor, backspace):
+        _route(_chars("puppies"))
+        _route(_chars(backspace * 7))
+        assert editor._buffer == ""
 
     def test_vt_arrow_burst_moves_cursor_instead_of_pasting(self, editor):
         # VT-input arrows arrive as a char burst; they must reach the

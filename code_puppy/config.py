@@ -5,11 +5,19 @@ import json
 import logging
 import os
 import pathlib
-from typing import Optional
+from typing import Any, Optional
 
-from code_puppy.session_storage import save_session
+from code_puppy.config_file import load_config, mutate_config
+from code_puppy.session_storage import compute_scope_key, save_session
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_SUBAGENT_RECURSION_LIMIT = 4
+
+# GPT-5.6 runaway-delegation guard: overlay cap on ``subagent_recursion_limit``
+# when the immediate caller is GPT-5.6. Default 2 (main→L1→L2) keeps two-hop
+# delegation; operators can raise it via /set.
+DEFAULT_SUBAGENT_RECURSION_LIMIT_GPT_5_6 = 2
 
 
 def _get_xdg_dir(env_var: str, fallback: str) -> str:
@@ -73,10 +81,40 @@ def get_subagent_verbose() -> bool:
     for parallel execution. When True, sub-agents produce full verbose output
     like the main agent (useful for debugging).
     """
-    cfg_val = get_value("subagent_verbose")
+    return get_truthy_bool_value("subagent_verbose", False)
+
+
+def get_subagent_recursion_limit() -> int:
+    """Return the maximum nested sub-agent depth (default 4)."""
+    cfg_val = get_value("subagent_recursion_limit")
     if cfg_val is None:
-        return False
-    return str(cfg_val).strip().lower() in {"1", "true", "yes", "on"}
+        return DEFAULT_SUBAGENT_RECURSION_LIMIT
+
+    try:
+        limit = int(str(cfg_val).strip())
+    except (TypeError, ValueError):
+        return DEFAULT_SUBAGENT_RECURSION_LIMIT
+
+    return limit if limit >= 0 else DEFAULT_SUBAGENT_RECURSION_LIMIT
+
+
+def get_subagent_recursion_limit_gpt_5_6() -> int:
+    """Return the max sub-agent depth allowed for a GPT-5.6 immediate caller.
+
+    Overlays the generic ``subagent_recursion_limit``: whichever fires first
+    wins. Default is 2 -- see ``DEFAULT_SUBAGENT_RECURSION_LIMIT_GPT_5_6`` for
+    the rationale. Invalid or negative values fall back to the default.
+    """
+    cfg_val = get_value("subagent_recursion_limit_gpt_5_6")
+    if cfg_val is None:
+        return DEFAULT_SUBAGENT_RECURSION_LIMIT_GPT_5_6
+
+    try:
+        limit = int(str(cfg_val).strip())
+    except (TypeError, ValueError):
+        return DEFAULT_SUBAGENT_RECURSION_LIMIT_GPT_5_6
+
+    return limit if limit >= 0 else DEFAULT_SUBAGENT_RECURSION_LIMIT_GPT_5_6
 
 
 # Pack agents - the specialized sub-agents coordinated by Pack Leader
@@ -104,10 +142,7 @@ def get_pack_agents_enabled() -> bool:
 
     When True, pack agents are available for use.
     """
-    cfg_val = get_value("enable_pack_agents")
-    if cfg_val is None:
-        return False
-    return str(cfg_val).strip().lower() in {"1", "true", "yes", "on"}
+    return get_truthy_bool_value("enable_pack_agents", False)
 
 
 def get_universal_constructor_enabled() -> bool:
@@ -119,10 +154,8 @@ def get_universal_constructor_enabled() -> bool:
 
     When False, the universal_constructor tool is not registered with agents.
     """
-    cfg_val = get_value("enable_universal_constructor")
-    if cfg_val is None:
-        return True  # Enabled by default
-    return str(cfg_val).strip().lower() in {"1", "true", "yes", "on"}
+    # Enabled to True as default.
+    return get_truthy_bool_value("enable_universal_constructor", True)
 
 
 def set_universal_constructor_enabled(enabled: bool) -> None:
@@ -143,10 +176,7 @@ def get_mcp_unbound_warning_silenced() -> bool:
     but power users who *know* about the unbound servers can silence the
     nag via ``/mcp silence-warning``.
     """
-    cfg_val = get_value("mcp_unbound_warning_silenced")
-    if cfg_val is None:
-        return False
-    return str(cfg_val).strip().lower() in {"1", "true", "yes", "on"}
+    return get_truthy_bool_value("mcp_unbound_warning_silenced", False)
 
 
 def set_mcp_unbound_warning_silenced(silenced: bool) -> None:
@@ -182,9 +212,19 @@ def get_enable_streaming() -> bool:
     Returns True if streaming is enabled, False otherwise.
     Defaults to True.
     """
-    val = get_value("enable_streaming")
+    # Default to True for better UX.
+    return get_truthy_bool_value("enable_streaming", True)
+
+
+def get_enable_logfire() -> bool:
+    """
+    Get the enable_logfire configuration value.
+    Controls whether Logfire observability instrumentation is enabled.
+    Strictly opt-in: defaults to False.
+    """
+    val = get_value("enable_logfire")
     if val is None:
-        return True  # Default to True for better UX
+        return False  # Opt-in: no telemetry unless the user asks for it
     return str(val).lower() in ("1", "true", "yes", "on")
 
 
@@ -199,6 +239,7 @@ def get_retry_main_strategy() -> str:
         from code_puppy.agents.retry_profiles import resolve
 
         return resolve("main").strategy
+
     except Exception:
         return "balanced"
 
@@ -209,6 +250,7 @@ def get_retry_main_max_attempts() -> int:
         from code_puppy.agents.retry_profiles import resolve
 
         return resolve("main").max_attempts
+
     except Exception:
         return 5
 
@@ -219,6 +261,7 @@ def get_retry_subagent_strategy() -> str:
         from code_puppy.agents.retry_profiles import resolve
 
         return resolve("subagent").strategy
+
     except Exception:
         return "balanced"
 
@@ -229,6 +272,7 @@ def get_retry_subagent_max_attempts() -> int:
         from code_puppy.agents.retry_profiles import resolve
 
         return resolve("subagent").max_attempts
+
     except Exception:
         return 9
 
@@ -238,10 +282,8 @@ def get_suppress_directory_listing() -> bool:
     Get the suppress_directory_listing configuration value.
     Returns True if directory listing displays should be suppressed, False otherwise.
     """
-    val = get_value("suppress_directory_listing")
-    if val is None:
-        return True  # Default to True (suppress by default)
-    return str(val).lower() in ("1", "true", "yes", "on")
+    # Default to True: suppress by default.
+    return get_truthy_bool_value("suppress_directory_listing", True)
 
 
 DEFAULT_SECTION = "puppy"
@@ -263,6 +305,33 @@ _default_vision_model_cache = None
 _warned_no_model = False
 
 
+# Parsed-config cache: (path, inode, mtime_ns, size) -> parser. ``get_value``
+# is called hundreds of times per turn (and per streamed chunk), and each
+# call used to re-read and re-parse the INI file. Any write -- ours go through
+# ``mutate_config``'s atomic replace, which changes the inode -- rolls the key.
+_CONFIG_CACHE: tuple[tuple[str, int, int, int], configparser.ConfigParser] | None = None
+
+
+def _load_config() -> configparser.ConfigParser:
+    """Load ``CONFIG_FILE`` through the bounded, recoverable I/O layer.
+
+    Returns a shared, cached parser while the file on disk is unchanged;
+    callers must treat it as read-only (mutations go through ``mutate_config``).
+    """
+    global _CONFIG_CACHE
+    try:
+        st = os.stat(CONFIG_FILE)
+    except OSError:
+        # Missing/unreadable: let the I/O layer decide, nothing to cache.
+        return load_config(CONFIG_FILE)
+    key = (CONFIG_FILE, st.st_ino, st.st_mtime_ns, st.st_size)
+    if _CONFIG_CACHE is not None and _CONFIG_CACHE[0] == key:
+        return _CONFIG_CACHE[1]
+    parser = load_config(CONFIG_FILE)
+    _CONFIG_CACHE = (key, parser)
+    return parser
+
+
 def ensure_config_exists():
     """
     Ensure that XDG directories and puppy.cfg exist, prompting if needed.
@@ -273,15 +342,19 @@ def ensure_config_exists():
         if not os.path.exists(directory):
             os.makedirs(directory, mode=0o700, exist_ok=True)
     exists = os.path.isfile(CONFIG_FILE)
-    config = configparser.ConfigParser()
-    if exists:
-        config.read(CONFIG_FILE)
+    # Skip the read entirely when we already know there's nothing to read --
+    # matches configparser's own no-op-on-missing-file behavior and avoids an
+    # unnecessary open() attempt during first-run setup.
+    # Uncached read: this parser is mutated in place below, and the cached
+    # instance from _load_config() is shared with every reader.
+    config = load_config(CONFIG_FILE) if exists else configparser.ConfigParser()
     missing = []
     if DEFAULT_SECTION not in config:
         config[DEFAULT_SECTION] = {}
     for key in REQUIRED_KEYS:
         if not config[DEFAULT_SECTION].get(key):
             missing.append(key)
+    prompted_values: dict[str, str] = {}
     if missing:
         # Note: Using sys.stdout here for initial setup before messaging system is available
         import sys
@@ -297,24 +370,65 @@ def ensure_config_exists():
                 ).strip()
             else:
                 val = input(f"Enter {key}: ").strip()
+            prompted_values[key] = val
             config[DEFAULT_SECTION][key] = val
 
     # Set default values for important config keys if they don't exist
     if not config[DEFAULT_SECTION].get("auto_save_session"):
         config[DEFAULT_SECTION]["auto_save_session"] = "true"
+    # port_base: seed so users discover the knob in their generated puppy.cfg
+    # (starting port for the HTTP-server port probe; searches port_base..+920).
+    if not config[DEFAULT_SECTION].get("port_base"):
+        config[DEFAULT_SECTION]["port_base"] = str(DEFAULT_PORT_BASE)
 
-    # Write the config if we made any changes
+    # Write the config if we made any changes. Re-reads under the config lock
+    # and re-applies the prompted values on top of that fresh snapshot, so a
+    # file that was corrupted or replaced between the read above and now is
+    # quarantined and recovered from rather than blindly overwritten.
     if missing or not exists:
-        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-            config.write(f)
+
+        def _apply(cfg: configparser.ConfigParser) -> None:
+            if DEFAULT_SECTION not in cfg:
+                cfg[DEFAULT_SECTION] = {}
+            for key, val in prompted_values.items():
+                cfg[DEFAULT_SECTION][key] = val
+            if not cfg[DEFAULT_SECTION].get("auto_save_session"):
+                cfg[DEFAULT_SECTION]["auto_save_session"] = "true"
+            if not cfg[DEFAULT_SECTION].get("port_base"):
+                cfg[DEFAULT_SECTION]["port_base"] = str(DEFAULT_PORT_BASE)
+
+        config = mutate_config(CONFIG_FILE, _apply)
     return config
 
 
 def get_value(key: str):
-    config = configparser.ConfigParser()
-    config.read(CONFIG_FILE)
+    from code_puppy.shared_credentials import get, is_credential_key
+
+    if is_credential_key(key, discover=False):
+        shared = get(key)
+        if shared:
+            return shared
+    config = _load_config()
     val = config.get(DEFAULT_SECTION, key, fallback=None)
     return val
+
+
+def get_truthy_bool_value(key: str, default_val: bool) -> bool:
+    """Set default_val as required to enforce specification."""
+    val = get_value(key)
+    if val is None:
+        return default_val
+
+    return str(val).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def get_falsy_bool_value(key: str, default_val: bool) -> bool:
+    """Set default_val as required to enforce specification."""
+    val = get_value(key)
+    if val is None:
+        return default_val
+
+    return str(val).strip().lower() in {"0", "false", "no", "off"}
 
 
 def get_puppy_name():
@@ -342,9 +456,8 @@ def get_locale() -> str:
     return ensure_detected(get_value("locale"))
 
 
-# Legacy function removed - message history limit is no longer used
-# Message history is now managed by token-based compaction system
-# using get_protected_token_count() and get_summarization_threshold()
+# Legacy function removed — history limit is now managed by token-based
+# compaction (get_protected_token_count() / get_summarization_threshold()).
 
 
 def get_allow_recursion() -> bool:
@@ -352,10 +465,8 @@ def get_allow_recursion() -> bool:
     Get the allow_recursion configuration value.
     Returns True if recursion is allowed, False otherwise.
     """
-    val = get_value("allow_recursion")
-    if val is None:
-        return True  # Default to True to allow recursion unless explicitly disabled
-    return str(val).lower() in ("1", "true", "yes", "on")
+    # Default to True to allow recursion unless explicitly disabled.
+    return get_truthy_bool_value("allow_recursion", True)
 
 
 def get_model_context_length() -> int:
@@ -378,6 +489,131 @@ def get_model_context_length() -> int:
         return 128000
 
 
+# Setting key (both in model catalog entries and the per-model
+# ``model_settings_`` namespace) for the output-token cap sent as
+# ``max_tokens``. Populated automatically from models.dev by ``/add_model``.
+MAX_OUTPUT_TOKENS_SETTING = "max_output_tokens"
+
+# Heuristic bounds used when a model entry carries no ``max_output_tokens``.
+_HEURISTIC_MIN_OUTPUT_TOKENS = 2048
+_HEURISTIC_MAX_OUTPUT_TOKENS = 65536
+_HEURISTIC_OUTPUT_FRACTION = 0.15
+
+
+def _coerce_positive_int(value: Any) -> Optional[int]:
+    """``int(value)`` when it parses to something > 0, else ``None``."""
+    try:
+        parsed = int(float(value))
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def _models_dev_output_tokens(
+    model_name: str, model_config: dict[str, Any]
+) -> Optional[int]:
+    """Authoritative output cap for one catalog entry, per models.dev.
+
+    The last stop before the 15% heuristic. Hand-written entries -- and every
+    model added before ``/add_model`` started stamping limits -- carry no
+    ``max_output_tokens``, and a guessed cap is actively dangerous for
+    adaptive-thinking models: their reasoning shares the output budget, so
+    guessing low leaves them unable to emit even one tool call. (Opus 5 really
+    does support 128000 output tokens; the heuristic handed it 19200 and it
+    hard-failed mid-thought, having produced no tool call at all.)
+
+    Args:
+        model_name: Catalog key, reused as a provider-scoped lookup key.
+        model_config: Catalog entry; its ``name`` is the bare model id.
+
+    Returns:
+        The cap when models.dev vouches for it, else ``None`` so the caller
+        falls through to the heuristic. Never raises, and never guesses: an
+        ambiguous or unknown model yields ``None``.
+    """
+    name = str(model_config.get("name") or "")
+    if not name:
+        return None
+    try:
+        from code_puppy.models_dev_parser import (
+            get_registry,
+            index_limits,
+            match_limits,
+        )
+
+        registry = get_registry()
+        if registry is None:
+            return None
+        by_key, by_name = index_limits(registry.get_models())
+        # Mirrors extra_model_key() over a "provider/model" alias so the
+        # provider-scoped match applies whenever we can identify the provider.
+        key = model_name.replace("/", "-").replace(":", "-")
+        match = match_limits(by_key, by_name, key, name)
+        if match.limits is None:
+            return None
+        return _coerce_positive_int(match.limits.max_output)
+    except Exception:
+        return None
+
+
+def get_model_max_output_tokens(
+    model_name: Optional[str] = None,
+    models_config: Optional[dict[str, Any]] = None,
+) -> int:
+    """Effective output-token cap (``max_tokens``) for a model.
+
+    Resolution order, first hit wins:
+
+    1. Per-model user override from ``/model_settings``.
+    2. ``max_output_tokens`` in the model's catalog entry
+       (``models.json`` / ``extra_models.json``; ``/add_model`` fills this
+       from models.dev's ``limit.output``).
+    3. ``limit.output`` for that model id from models.dev, so entries that
+       predate ``/add_model`` stamping limits (or were written by hand) still
+       get a real cap rather than a guess.
+    4. Heuristic: 15% of ``context_length``, clamped to [2048, 65536].
+
+    Args:
+        model_name: Model key; defaults to the current global model.
+        models_config: Optional preloaded catalog to avoid a reload.
+    """
+    if model_name is None:
+        model_name = get_global_model_name()
+
+    override = _coerce_positive_int(
+        get_model_setting(model_name, MAX_OUTPUT_TOKENS_SETTING)
+    )
+    if override is not None:
+        return override
+
+    context_length = 128000
+    try:
+        if models_config is None:
+            from code_puppy.model_factory import ModelFactory
+
+            models_config = ModelFactory.load_config()
+        model_config = models_config.get(model_name, {})
+        catalog_value = _coerce_positive_int(
+            model_config.get(MAX_OUTPUT_TOKENS_SETTING)
+        )
+        if catalog_value is not None:
+            return catalog_value
+        dev_value = _models_dev_output_tokens(model_name, model_config)
+        if dev_value is not None:
+            return dev_value
+        context_length = int(model_config.get("context_length", context_length))
+    except Exception:
+        pass
+
+    return max(
+        _HEURISTIC_MIN_OUTPUT_TOKENS,
+        min(
+            int(_HEURISTIC_OUTPUT_FRACTION * context_length),
+            _HEURISTIC_MAX_OUTPUT_TOKENS,
+        ),
+    )
+
+
 # --- CONFIG SETTER STARTS HERE ---
 def get_config_keys():
     """
@@ -391,11 +627,11 @@ def get_config_keys():
         "protected_token_count",
         "compaction_threshold",
         "summarization_model",
+        "auto_continue_model",
         "message_limit",
         "allow_recursion",
-        "openai_reasoning_effort",
-        "openai_reasoning_summary",
-        "openai_verbosity",
+        "subagent_recursion_limit",
+        "subagent_recursion_limit_gpt_5_6",
         "auto_save_session",
         "max_saved_sessions",
         "http2",
@@ -406,9 +642,9 @@ def get_config_keys():
         "frontend_emitter_max_recent_events",
         "frontend_emitter_queue_size",
         "locale",
+        "timestamp_heartbeat_interval",
     ]
-    # 'enable_dbos' is reserved for the dbos_durable_exec plugin and is read
-    # via the generic get_value API; intentionally not in default_keys.
+    # 'enable_dbos' is plugin-reserved (read via get_value); not in default_keys.
     # Add pack agents control key
     default_keys.append("enable_pack_agents")
     # Add universal constructor control key
@@ -417,13 +653,14 @@ def get_config_keys():
     default_keys.append("max_hook_retries")
     # Add streaming control key
     default_keys.append("enable_streaming")
+    # Opt-in Logfire observability (see code_puppy/observability.py)
+    default_keys.append("enable_logfire")
     # Add suppress directory listing key
     default_keys.append("suppress_directory_listing")
     # Add cancel agent key configuration
     default_keys.append("cancel_agent_key")
-    # Add max pause seconds configuration (used by event_stream_handler's
-    # wait_if_paused() to auto-resume long pauses before SSE upstream
-    # times out).
+    # Max pause seconds: event_stream_handler's wait_if_paused() auto-resumes
+    # long pauses before SSE upstream times out.
     default_keys.append("max_pause_seconds")
     # Add banner color keys
     for banner_name in DEFAULT_BANNER_COLORS:
@@ -432,11 +669,20 @@ def get_config_keys():
     default_keys.append("resume_message_count")
     # Per-file AGENTS.md character cap (see get_agents_md_max_chars()).
     default_keys.append("agents_md_max_chars")
+    # Tool-output reduction threshold in chars for the harness ToolOutputLimits
+    # capability (see get_tool_output_limit_chars()). 0 or negative disables.
+    default_keys.append("tool_output_limit_chars")
     # Add /goal iteration cap (owned by the wiggum plugin, surfaced here so
     # /set autocompletes it). See plugins/wiggum/register_callbacks.py.
     default_keys.append("goal_max_iterations")
+    # How relentlessly the agent proceeds without checking in; headless -p
+    # runs always behave as 'extreme' (see get_agency_level()).
+    default_keys.append("agency_level")
     # Add dangerous command guard disable (skips force push and destructive command guards)
     default_keys.append("disable_dangerous_command_guard")
+    # Per-pattern allowlist bypassing the command guards (e.g. "git reset
+    # --hard, --force"); see get_dangerous_command_guard_allowlist().
+    default_keys.append("dangerous_command_guard_allow")
     # Add retry profile keys (backoff policy for streaming retries). Per-model
     # overrides live under the model_settings_ namespace; these are the globals.
     default_keys.append("retry_main_strategy")
@@ -444,8 +690,7 @@ def get_config_keys():
     default_keys.append("retry_subagent_strategy")
     default_keys.append("retry_subagent_max_attempts")
 
-    config = configparser.ConfigParser()
-    config.read(CONFIG_FILE)
+    config = _load_config()
     keys = set(config[DEFAULT_SECTION].keys()) if DEFAULT_SECTION in config else set()
     keys.update(default_keys)
     return sorted(keys)
@@ -455,13 +700,19 @@ def set_config_value(key: str, value: str):
     """
     Sets a config value in the persistent config file.
     """
-    config = configparser.ConfigParser()
-    config.read(CONFIG_FILE)
-    if DEFAULT_SECTION not in config:
-        config[DEFAULT_SECTION] = {}
-    config[DEFAULT_SECTION][key] = value
-    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-        config.write(f)
+
+    from code_puppy.shared_credentials import is_credential_key, save
+
+    if is_credential_key(key):
+        save(key, value)
+        return
+
+    def _apply(config: configparser.ConfigParser) -> None:
+        if DEFAULT_SECTION not in config:
+            config[DEFAULT_SECTION] = {}
+        config[DEFAULT_SECTION][key] = value
+
+    mutate_config(CONFIG_FILE, _apply)
 
 
 # Alias for API compatibility
@@ -472,12 +723,14 @@ def set_value(key: str, value: str) -> None:
 
 def reset_value(key: str) -> None:
     """Remove a key from the config file, resetting it to default."""
-    config = configparser.ConfigParser()
-    config.read(CONFIG_FILE)
-    if DEFAULT_SECTION in config and key in config[DEFAULT_SECTION]:
-        del config[DEFAULT_SECTION][key]
-        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-            config.write(f)
+
+    def _apply(config: configparser.ConfigParser) -> bool:
+        if DEFAULT_SECTION in config and key in config[DEFAULT_SECTION]:
+            del config[DEFAULT_SECTION][key]
+            return True
+        return False  # nothing to remove -- skip the write entirely
+
+    mutate_config(CONFIG_FILE, _apply)
 
 
 # --- MODEL STICKY EXTENSION STARTS HERE ---
@@ -507,7 +760,7 @@ def _parse_mcp_servers_mapping(raw_text: str) -> dict:
     return servers
 
 
-def load_mcp_server_configs():
+def load_mcp_server_configs(*, raise_on_error: bool = False):
     """Load MCP server configs, merging user-level and trusted project-level.
 
     Sources, in ascending order of precedence:
@@ -522,6 +775,11 @@ def load_mcp_server_configs():
     Project entries win on name collision, matching how project agents, skills,
     and plugins override their user-level counterparts. Returns an empty dict
     when nothing is configured.
+
+    When *raise_on_error* is true, a parse/IO failure of an existing user-level
+    file (or a failure of the project loader) is re-raised after the error is
+    emitted, so callers that unregister missing names can skip that drop
+    instead of treating ``{}`` as "configure nothing".
     """
     from code_puppy.messaging.message_queue import emit_error
 
@@ -534,6 +792,8 @@ def load_mcp_server_configs():
                 configs.update(_parse_mcp_servers_mapping(f.read()))
     except Exception as e:
         emit_error(f"Failed to load MCP servers - {str(e)}")
+        if raise_on_error:
+            raise
 
     # 2. Project-level config (opt-in, trust-gated). A broken or untrusted
     #    project file must never break user-level loading.
@@ -545,6 +805,8 @@ def load_mcp_server_configs():
             configs.update(project_configs)
     except Exception as e:
         emit_error(f"Failed to load project MCP servers - {str(e)}")
+        if raise_on_error:
+            raise
 
     return configs
 
@@ -666,17 +928,32 @@ def reset_session_model():
     _SESSION_MODEL = None
 
 
-def model_supports_setting(model_name: str, setting: str) -> bool:
+def model_supports_setting(
+    model_name: str,
+    setting: str,
+    models_config: Optional[dict[str, Any]] = None,
+) -> bool:
     """Check if a model supports a particular setting (e.g., 'temperature', 'seed').
 
     Args:
         model_name: The name of the model to check.
         setting: The setting name to check for (e.g., 'temperature', 'seed', 'top_p').
+        models_config: Optional preloaded model catalog. Callers checking several
+            settings should pass one snapshot to avoid repeated config loads.
 
     Returns:
         True if the model supports the setting, False otherwise.
         Defaults to True for backwards compatibility if model config doesn't specify.
     """
+    from code_puppy.model_utils import (
+        get_anthropic_thinking_display_choices,
+        supports_gpt_responses_controls,
+    )
+
+    # Every model has an output cap; it's resolved into ``max_tokens`` by
+    # make_model_settings rather than sent to the provider as-is.
+    if setting == MAX_OUTPUT_TOKENS_SETTING:
+        return True
     # GLM-4.5+ models support deep-thinking controls (thinking_type,
     # clear_thinking); GLM-5.2+ additionally support reasoning_effort.
     if setting in ("thinking_type", "clear_thinking"):
@@ -689,12 +966,30 @@ def model_supports_setting(model_name: str, setting: str) -> bool:
 
         if supports_glm_reasoning_effort(model_name):
             return True
+    if setting in ("reasoning_context", "reasoning_mode"):
+        # GPT-5.6+ Responses API controls; detect here so injected/custom
+        # definitions needn't duplicate supported_settings metadata.
+        if supports_gpt_responses_controls(model_name):
+            return True
+    if setting == "thinking_display":
+        # Fable 5.1 progress-update display; same identity-based detection so
+        # OAuth-generated and bundled entries needn't list it explicitly.
+        if get_anthropic_thinking_display_choices(model_name):
+            return True
 
     try:
         from code_puppy.model_factory import ModelFactory
 
-        models_config = ModelFactory.load_config()
+        if models_config is None:
+            models_config = ModelFactory.load_config()
         model_config = models_config.get(model_name, {})
+        underlying_name = str(model_config.get("name", "")).lower()
+        if setting in ("reasoning_context", "reasoning_mode"):
+            if supports_gpt_responses_controls(underlying_name):
+                return True
+        if setting == "thinking_display":
+            if get_anthropic_thinking_display_choices(model_name, underlying_name):
+                return True
 
         # Get supported_settings list, default to supporting common settings
         supported_settings = model_config.get("supported_settings")
@@ -796,16 +1091,28 @@ def set_model_name(model: str):
     _SESSION_MODEL = model
 
     # Also persist to file for new terminal sessions
-    config = configparser.ConfigParser()
-    config.read(CONFIG_FILE)
-    if DEFAULT_SECTION not in config:
-        config[DEFAULT_SECTION] = {}
-    config[DEFAULT_SECTION]["model"] = model or ""
-    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-        config.write(f)
+    def _apply(config: configparser.ConfigParser) -> None:
+        if DEFAULT_SECTION not in config:
+            config[DEFAULT_SECTION] = {}
+        config[DEFAULT_SECTION]["model"] = model or ""
+
+    mutate_config(CONFIG_FILE, _apply)
 
     # Clear model cache when switching models to ensure fresh validation
     clear_model_cache()
+
+
+def get_auto_continue_model_name() -> str | None:
+    """Return the model used by the automatic continuation classifier.
+
+    ``auto_continue_model`` is an optional dedicated override. An unset or
+    blank value follows the session's global model so existing installations
+    need no configuration change.
+    """
+    value = get_value("auto_continue_model")
+    if value and value.strip():
+        return value.strip()
+    return get_global_model_name()
 
 
 def get_summarization_model_name() -> str:
@@ -835,86 +1142,38 @@ def set_summarization_model_name(model: str) -> None:
     set_config_value("summarization_model", model or "")
 
 
+# ---------------------------------------------------------------------------
+# Puppy-token provider hook — lets plugins inject a custom credential
+# backend (e.g. OS keyring) without baking that logic into core.
+# ---------------------------------------------------------------------------
+_puppy_token_getter = None
+_puppy_token_setter = None
+
+
+def register_puppy_token_provider(*, getter, setter) -> None:
+    """Register custom get/set functions for the puppy_token credential.
+
+    Called by distribution-specific plugins at startup to route token
+    storage through the OS keyring or another secure backend.  When no
+    provider is registered the default plaintext config-file path is used.
+    """
+    global _puppy_token_getter, _puppy_token_setter
+    _puppy_token_getter = getter
+    _puppy_token_setter = setter
+
+
 def get_puppy_token():
-    """Returns the puppy_token from config, or None if not set."""
+    """Returns the puppy_token, delegating to a registered provider if set."""
+    if _puppy_token_getter is not None:
+        return _puppy_token_getter()
     return get_value("puppy_token")
 
 
 def set_puppy_token(token: str):
-    """Sets the puppy_token in the persistent config file."""
+    """Sets the puppy_token, delegating to a registered provider if set."""
+    if _puppy_token_setter is not None:
+        return _puppy_token_setter(token)
     set_config_value("puppy_token", token)
-
-
-def get_openai_reasoning_effort() -> str:
-    """Return the configured OpenAI reasoning effort."""
-    allowed_values = {"minimal", "low", "medium", "high", "xhigh", "ultra"}
-    configured = (get_value("openai_reasoning_effort") or "medium").strip().lower()
-    if configured not in allowed_values:
-        return "medium"
-    return configured
-
-
-def set_openai_reasoning_effort(value: str) -> None:
-    """Persist the OpenAI reasoning effort ensuring it remains within allowed values."""
-    allowed_values = {"minimal", "low", "medium", "high", "xhigh", "ultra"}
-    normalized = (value or "").strip().lower()
-    if normalized not in allowed_values:
-        raise ValueError(
-            f"Invalid reasoning effort '{value}'. Allowed: {', '.join(sorted(allowed_values))}"
-        )
-    set_config_value("openai_reasoning_effort", normalized)
-
-
-def get_openai_reasoning_summary() -> str:
-    """Return the configured OpenAI reasoning summary mode.
-
-    Supported values:
-    - auto: let the provider decide the best summary style
-    - concise: shorter reasoning summaries
-    - detailed: fuller reasoning summaries
-    """
-    allowed_values = {"auto", "concise", "detailed"}
-    configured = (get_value("openai_reasoning_summary") or "detailed").strip().lower()
-    if configured not in allowed_values:
-        return "auto"
-    return configured
-
-
-def set_openai_reasoning_summary(value: str) -> None:
-    """Persist the OpenAI reasoning summary mode ensuring it remains valid."""
-    allowed_values = {"auto", "concise", "detailed"}
-    normalized = (value or "").strip().lower()
-    if normalized not in allowed_values:
-        raise ValueError(
-            f"Invalid reasoning summary '{value}'. Allowed: {', '.join(sorted(allowed_values))}"
-        )
-    set_config_value("openai_reasoning_summary", normalized)
-
-
-def get_openai_verbosity() -> str:
-    """Return the configured OpenAI verbosity (low, medium, high).
-
-    Controls how concise vs. verbose the model's responses are:
-    - low: more concise responses
-    - medium: balanced (default)
-    - high: more verbose responses
-    """
-    allowed_values = {"low", "medium", "high"}
-    configured = (get_value("openai_verbosity") or "medium").strip().lower()
-    if configured not in allowed_values:
-        return "medium"
-    return configured
-
-
-def set_openai_verbosity(value: str) -> None:
-    """Persist the OpenAI verbosity ensuring it remains within allowed values."""
-    allowed_values = {"low", "medium", "high"}
-    normalized = (value or "").strip().lower()
-    if normalized not in allowed_values:
-        raise ValueError(
-            f"Invalid verbosity '{value}'. Allowed: {', '.join(sorted(allowed_values))}"
-        )
-    set_config_value("openai_verbosity", normalized)
 
 
 def get_temperature() -> Optional[float]:
@@ -991,13 +1250,13 @@ def get_model_setting(
         return default
 
 
-def set_model_setting(model_name: str, setting: str, value: Optional[float]) -> None:
+def set_model_setting(model_name: str, setting: str, value: Any | None) -> None:
     """Set a specific setting for a model.
 
     Args:
         model_name: The model name (e.g., 'gpt-5', 'zai-glm-5.1-api')
-        setting: The setting name (e.g., 'temperature', 'seed')
-        value: The value to set, or None to clear
+        setting: The setting name (e.g., 'temperature', 'reasoning_effort')
+        value: The numeric, string, or boolean value to set, or None to clear
     """
     sanitized_name = _sanitize_model_name_for_key(model_name)
     key = f"model_settings_{sanitized_name}_{setting}"
@@ -1012,6 +1271,30 @@ def set_model_setting(model_name: str, setting: str, value: Optional[float]) -> 
         set_config_value(key, str(value))
 
 
+# Reserved per-model setting name that holds user-defined custom request
+# params as JSON, e.g. {"chat_template_kwargs.thinking": "medium"}. Structured
+# data — generic scalar readers must never treat it as a plain setting.
+CUSTOM_MODEL_SETTING = "custom"
+
+
+def parse_config_scalar(val: str) -> Any:
+    """Parse a raw config string into bool, int, float, or string.
+
+    Booleans win first (``true``/``false``, case-insensitive), then ints,
+    then floats; anything else stays a string.
+    """
+    val_stripped = val.strip()
+    if val_stripped.lower() in ("true", "false"):
+        return val_stripped.lower() == "true"
+    try:
+        # Try int first for cleaner values like budget_tokens
+        if "." not in val_stripped:
+            return int(val_stripped)
+        return float(val_stripped)
+    except (ValueError, TypeError):
+        return val_stripped
+
+
 def get_all_model_settings(model_name: str) -> dict:
     """Get all settings for a specific model.
 
@@ -1021,37 +1304,69 @@ def get_all_model_settings(model_name: str) -> dict:
     Returns:
         Dictionary of setting_name -> value for all configured settings.
     """
-    import configparser
-
     sanitized_name = _sanitize_model_name_for_key(model_name)
     prefix = f"model_settings_{sanitized_name}_"
 
-    config = configparser.ConfigParser()
-    config.read(CONFIG_FILE)
+    config = _load_config()
 
     settings = {}
     if DEFAULT_SECTION in config:
         for key, val in config[DEFAULT_SECTION].items():
             if key.startswith(prefix) and val.strip():
                 setting_name = key[len(prefix) :]
-                # Handle different value types
-                val_stripped = val.strip()
-                # Check for boolean values first
-                if val_stripped.lower() in ("true", "false"):
-                    settings[setting_name] = val_stripped.lower() == "true"
-                else:
-                    # Try to parse as number (int first, then float)
-                    try:
-                        # Try int first for cleaner values like budget_tokens
-                        if "." not in val_stripped:
-                            settings[setting_name] = int(val_stripped)
-                        else:
-                            settings[setting_name] = float(val_stripped)
-                    except (ValueError, TypeError):
-                        # Keep as string if not a number
-                        settings[setting_name] = val_stripped
+                if setting_name == CUSTOM_MODEL_SETTING:
+                    # JSON blob managed by get_custom_model_settings(); not a
+                    # scalar setting, so keep it out of the generic namespace.
+                    continue
+                settings[setting_name] = parse_config_scalar(val)
 
     return settings
+
+
+def get_custom_model_settings(model_name: str) -> dict:
+    """Get user-defined custom request params for a model.
+
+    These are free-form key/value pairs configured via /model_settings ->
+    Custom Params. Dotted keys (e.g. ``chat_template_kwargs.thinking``)
+    are expanded into nested dicts and merged into ``extra_body`` by
+    :func:`code_puppy.model_factory.make_model_settings`.
+
+    Returns:
+        Dict of dotted_key -> value. Empty dict when unset or unparseable
+        (fails closed -- a corrupt blob never crashes settings resolution).
+    """
+    sanitized_name = _sanitize_model_name_for_key(model_name)
+    key = f"model_settings_{sanitized_name}_{CUSTOM_MODEL_SETTING}"
+    raw = get_value(key)
+    if raw is None or not raw.strip():
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except (ValueError, TypeError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def set_custom_model_setting(model_name: str, key: str, value: Any | None) -> None:
+    """Set (or delete, when value is None) one custom request param.
+
+    The full mapping is persisted as a JSON blob under the reserved
+    ``model_settings_<model>_custom`` config key. An empty mapping clears
+    the config entry entirely.
+    """
+    key = key.strip()
+    if not key:
+        return
+
+    settings = get_custom_model_settings(model_name)
+    if value is None:
+        settings.pop(key, None)
+    else:
+        settings[key] = value
+
+    sanitized_name = _sanitize_model_name_for_key(model_name)
+    cfg_key = f"model_settings_{sanitized_name}_{CUSTOM_MODEL_SETTING}"
+    set_config_value(cfg_key, json.dumps(settings) if settings else "")
 
 
 def clear_model_settings(model_name: str) -> None:
@@ -1060,23 +1375,20 @@ def clear_model_settings(model_name: str) -> None:
     Args:
         model_name: The model name
     """
-    import configparser
-
     sanitized_name = _sanitize_model_name_for_key(model_name)
     prefix = f"model_settings_{sanitized_name}_"
 
-    config = configparser.ConfigParser()
-    config.read(CONFIG_FILE)
-
-    if DEFAULT_SECTION in config:
+    def _apply(config: configparser.ConfigParser) -> bool:
+        if DEFAULT_SECTION not in config:
+            return False
         keys_to_remove = [
             key for key in config[DEFAULT_SECTION] if key.startswith(prefix)
         ]
         for key in keys_to_remove:
             del config[DEFAULT_SECTION][key]
+        return bool(keys_to_remove)  # nothing matched -- skip the write entirely
 
-        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-            config.write(f)
+    mutate_config(CONFIG_FILE, _apply)
 
 
 def get_effective_model_settings(model_name: Optional[str] = None) -> dict:
@@ -1330,27 +1642,46 @@ def get_yolo_mode() -> bool:
     if _cli_yolo_override is not None:
         return _cli_yolo_override
 
-    true_vals = {"1", "true", "yes", "on"}
-    cfg_val = get_value("yolo_mode")
-    if cfg_val is not None:
-        return str(cfg_val).strip().lower() in true_vals
-    return True
+    return get_truthy_bool_value("yolo_mode", True)
 
 
-def get_safety_permission_level():
+AGENCY_LEVELS = ("low", "medium", "high", "extreme")
+
+_headless_mode: bool = False
+
+
+def set_headless_mode(value: bool) -> None:
+    """Mark this process as headless (``-p`` prompt); process-local only."""
+    global _headless_mode
+    _headless_mode = value
+
+
+def get_headless_mode() -> bool:
+    """Return whether this process is running a headless ``-p`` prompt."""
+    return _headless_mode
+
+
+def get_agency_level() -> str:
     """
-    Checks puppy.cfg for 'safety_permission_level' (case-insensitive in value only).
-    Defaults to 'medium' if not set.
-    Allowed values: 'none', 'low', 'medium', 'high', 'critical' (all case-insensitive for value).
+    Checks puppy.cfg for 'agency_level' (case-insensitive in value only).
+    Allowed values: 'low', 'medium', 'high', 'extreme'.
+    Defaults to 'high' if not set or invalid: fully autonomous on requested
+    work, without the relentless background-process vigil of 'extreme'.
+
+    Headless (``-p``) runs always report 'extreme' no matter what the config
+    says — there is nobody at the keyboard to answer check-ins, so anything
+    lower would just stall the run.
+
     Returns the normalized lowercase string.
     """
-    valid_levels = {"none", "low", "medium", "high", "critical"}
-    cfg_val = get_value("safety_permission_level")
+    if _headless_mode:
+        return "extreme"
+    cfg_val = get_value("agency_level")
     if cfg_val is not None:
         normalized = str(cfg_val).strip().lower()
-        if normalized in valid_levels:
+        if normalized in AGENCY_LEVELS:
             return normalized
-    return "medium"  # Default to medium risk threshold
+    return "high"
 
 
 def get_mcp_disabled():
@@ -1360,13 +1691,7 @@ def get_mcp_disabled():
     Allowed values for ON: 1, '1', 'true', 'yes', 'on' (all case-insensitive for value).
     When enabled, Code Puppy will skip loading MCP servers entirely.
     """
-    true_vals = {"1", "true", "yes", "on"}
-    cfg_val = get_value("disable_mcp")
-    if cfg_val is not None:
-        if str(cfg_val).strip().lower() in true_vals:
-            return True
-        return False
-    return False
+    return get_truthy_bool_value("disable_mcp", False)
 
 
 def get_grep_output_verbose():
@@ -1378,13 +1703,28 @@ def get_grep_output_verbose():
     When False (default): Shows only file names with match counts
     When True: Shows full output with line numbers and content
     """
-    true_vals = {"1", "true", "yes", "on"}
-    cfg_val = get_value("grep_output_verbose")
-    if cfg_val is not None:
-        if str(cfg_val).strip().lower() in true_vals:
-            return True
-        return False
-    return False
+    return get_truthy_bool_value("grep_output_verbose", False)
+
+
+GREP_MAX_MATCHES_DEFAULT = 50
+
+
+def get_grep_max_matches() -> int:
+    """Return the per-call grep match budget.
+
+    Read from the ``grep_max_matches`` config key (``/set grep_max_matches=<int>``).
+    Defaults to ``GREP_MAX_MATCHES_DEFAULT`` when unset or non-numeric, and is
+    floored at 1: a budget of zero would make every search return nothing,
+    which is a foot-gun rather than a legitimate opt-out. Results past the
+    budget are dropped and reported via ``GrepOutput.truncated``.
+    """
+    val = get_value("grep_max_matches")
+    if val is None or not str(val).strip():
+        return GREP_MAX_MATCHES_DEFAULT
+    try:
+        return max(1, int(val))
+    except (ValueError, TypeError):
+        return GREP_MAX_MATCHES_DEFAULT
 
 
 def get_disable_dangerous_command_guard() -> bool:
@@ -1402,13 +1742,65 @@ def get_disable_dangerous_command_guard() -> bool:
     - Force push guard (git push --force, git push -f, etc.)
     - Destructive command guard (rm -rf, docker system prune, etc.)
     """
-    true_vals = {"1", "true", "yes", "on"}
-    cfg_val = get_value("disable_dangerous_command_guard")
-    if cfg_val is not None:
-        if str(cfg_val).strip().lower() in true_vals:
-            return True
+    return get_truthy_bool_value("disable_dangerous_command_guard", False)
+
+
+def normalize_guard_pattern_name(name: str) -> str:
+    """Canonicalize a guard pattern name for case/whitespace-insensitive match.
+
+    Lowercases and collapses internal whitespace runs to a single space so
+    allowlist entries survive copy-paste sloppiness (e.g. 'Git   Reset --Hard'
+    matches the detector's 'git reset --hard').
+
+    Args:
+        name: Raw pattern name (from config or a detector match).
+
+    Returns:
+        The normalized form, or '' for falsy input.
+    """
+    if not name:
+        return ""
+    return " ".join(str(name).split()).lower()
+
+
+def get_dangerous_command_guard_allowlist() -> set:
+    """Return the granular allowlist of guard pattern names to bypass.
+
+    Reads the 'dangerous_command_guard_allow' config key: a comma-separated
+    list of *pattern names* (as reported by the destructive command guard and
+    the force push guard, e.g. 'git reset --hard' or '--force') that should be
+    waved through while every other dangerous pattern stays guarded.
+
+    Unlike 'disable_dangerous_command_guard' (all-or-nothing), this lets you
+    trust specific commands without dropping protection on the rest. Applies to
+    BOTH guards, matching pattern names exactly (after normalization).
+
+    Returns:
+        A set of normalized pattern names (empty if unset).
+    """
+    raw = get_value("dangerous_command_guard_allow")
+    if not raw:
+        return set()
+    return {
+        normalized
+        for chunk in str(raw).split(",")
+        if (normalized := normalize_guard_pattern_name(chunk))
+    }
+
+
+def is_dangerous_command_allowlisted(pattern_name: str) -> bool:
+    """Check whether a detected guard pattern is on the granular allowlist.
+
+    Args:
+        pattern_name: The detector's pattern_name for the match.
+
+    Returns:
+        True if the pattern should bypass the guard, False otherwise.
+    """
+    normalized = normalize_guard_pattern_name(pattern_name)
+    if not normalized:
         return False
-    return False
+    return normalized in get_dangerous_command_guard_allowlist()
 
 
 def get_protected_token_count():
@@ -1437,6 +1829,34 @@ def get_protected_token_count():
         return min(50000, max_protected_tokens)
 
 
+# Char threshold above which a tool return is reduced (spilled to a file the
+# model can read back through the harness read_tool_result tool, truncated as
+# fallback). Matches the pydantic-ai-harness ToolOutputLimits default.
+TOOL_OUTPUT_LIMIT_CHARS_DEFAULT = 10_000
+
+
+def get_tool_output_limit_chars() -> int:
+    """Return the tool-output reduction threshold in characters.
+
+    Read from the ``tool_output_limit_chars`` config key (settable via
+    ``/set tool_output_limit_chars=<int>``). Defaults to
+    ``TOOL_OUTPUT_LIMIT_CHARS_DEFAULT`` (10,000) when unset or non-numeric.
+    Zero or negative disables tool-output reduction entirely — no clamp is
+    applied here because "disable" is a legitimate choice, unlike the
+    compaction knobs where a bad value would wedge the run.
+    """
+    val = get_value("tool_output_limit_chars")
+    # `val is None`-style unset check (not `if not val:`): get_value returns
+    # str | None today, but a falsy non-None value (int 0 through a future
+    # cache) must stay an explicit opt-out, never a fallback to the default.
+    if val is None or not str(val).strip():
+        return TOOL_OUTPUT_LIMIT_CHARS_DEFAULT
+    try:
+        return int(val)
+    except (ValueError, TypeError):
+        return TOOL_OUTPUT_LIMIT_CHARS_DEFAULT
+
+
 def get_resume_message_count() -> int:
     """
     Returns the number of messages to display when resuming a session.
@@ -1454,12 +1874,8 @@ def get_resume_message_count() -> int:
         return 50
 
 
-# Default cap (in characters) for any single AGENTS.md file injected into
-# the system prompt. Users can override this via
-# ``/set agents_md_max_chars=<int>`` — any positive integer is honoured so
-# models with very large context windows (1M+ tokens) can opt into bigger
-# AGENTS.md files when it makes sense. The default of 10,000 just keeps
-# the unbounded out-of-the-box behaviour from regressing.
+# Per-file AGENTS.md char cap, /settable via agents_md_max_chars; any positive
+# int honoured (1M-token models can opt bigger). 10k default keeps behavior sane.
 AGENTS_MD_MAX_CHARS_DEFAULT = 10_000
 
 
@@ -1509,8 +1925,9 @@ def get_compaction_strategy() -> str:
     val = get_value("compaction_strategy")
     if val and val.lower() in ["summarization", "truncation"]:
         return val.lower()
-    # Default to summarization
-    return "truncation"
+    # Summarization preserves useful long-running context by default. Users can
+    # explicitly select truncation as a zero-cost rollback strategy.
+    return "summarization"
 
 
 def get_http2() -> bool:
@@ -1518,10 +1935,7 @@ def get_http2() -> bool:
     Get the http2 configuration value.
     Returns False if not set (default).
     """
-    val = get_value("http2")
-    if val is None:
-        return False
-    return str(val).lower() in ("1", "true", "yes", "on")
+    return get_truthy_bool_value("http2", False)
 
 
 def set_http2(enabled: bool) -> None:
@@ -1643,8 +2057,7 @@ def get_all_agent_pinned_models() -> dict:
         Dict mapping agent names to their pinned model names.
         Only includes agents that have a pinned model (non-empty value).
     """
-    config = configparser.ConfigParser()
-    config.read(CONFIG_FILE)
+    config = _load_config()
 
     pinnings = {}
     if DEFAULT_SECTION in config:
@@ -1674,13 +2087,7 @@ def get_auto_save_session() -> bool:
     Defaults to True if not set.
     Allowed values for ON: 1, '1', 'true', 'yes', 'on' (all case-insensitive for value).
     """
-    true_vals = {"1", "true", "yes", "on"}
-    cfg_val = get_value("auto_save_session")
-    if cfg_val is not None:
-        if str(cfg_val).strip().lower() in true_vals:
-            return True
-        return False
-    return True
+    return get_truthy_bool_value("auto_save_session", True)
 
 
 def set_auto_save_session(enabled: bool):
@@ -1864,13 +2271,8 @@ def set_diff_deletion_color(color: str):
 # Banner Color Configuration
 # =============================================================================
 
-# Default banner colors (Rich color names)
-# A beautiful jewel-tone palette with semantic meaning:
-#   - Blues/Teals: Reading & navigation (calm, informational)
-#   - Warm tones: Actions & changes (edits, shell commands)
-#   - Purples: AI thinking & reasoning (the "brain" colors)
-#   - Greens: Completions & success
-#   - Neutrals: Search & listings
+# Default banner colors: jewel-tone palette — blues/teals=read/nav, warm=actions,
+# purples=thinking, greens=success, neutrals=search/listings.
 DEFAULT_BANNER_COLORS = {
     "thinking": "deep_sky_blue4",  # Sapphire - contemplation
     "agent_response": "medium_purple4",  # Amethyst - main AI output
@@ -2011,15 +2413,10 @@ def pin_current_session_name(name: str) -> str:
 
 # ----- Deprecated aliases (the unified-autosave migration) ---------------------------------
 #
-# The pre-unification API stored a bare ID in the singleton and synthesized
-# ``auto_session_<id>`` on every read. That scheme broke the moment a
-# user-named string (e.g. ``"mywork"``) was pinned: the next read produced
-# ``"auto_session_mywork"`` and named-session save-back wrote the wrong file.
-#
-# These aliases preserve external plugin compatibility for ONE release. Every
-# internal caller in this PR has been migrated to the new API; the aliases
-# never fire from in-repo code (otherwise ``-W error`` test runs would fail
-# and every startup would spam ``DeprecationWarning`` in user terminals).
+# Pre-unification API pinned a bare ID and synthesized ``auto_session_<id>`` per
+# read; that broke once a user-named string was pinned (wrong save-back file).
+# These aliases keep external plugins working for ONE release — never fired
+# in-repo (would fail -W error runs and spam DeprecationWarnings).
 
 
 def get_current_autosave_id() -> str:
@@ -2116,9 +2513,9 @@ def set_current_autosave_from_session_name(session_name: str) -> str:
     return pin_current_session_name(session_name)
 
 
-def auto_save_session_if_enabled() -> bool:
-    """Automatically save the current session if auto_save_session is enabled."""
-    if not get_auto_save_session():
+def auto_save_session_if_enabled(*, force: bool = False) -> bool:
+    """Save the current session when enabled, or unconditionally when forced."""
+    if not force and not get_auto_save_session():
         return False
 
     try:
@@ -2143,12 +2540,11 @@ def auto_save_session_if_enabled() -> bool:
             timestamp=now.isoformat(),
             token_estimator=current_agent.estimate_tokens_for_message,
             auto_saved=True,
+            scope_key=compute_scope_key(pathlib.Path.cwd()),
         )
 
-        # Point quick-resume at this just-saved session. Every turn, exit, and
-        # finalize routes through this single autosave chokepoint, so cwd and
-        # any tool-observed child workspaces always map to a loadable pickle.
-        # Best-effort: never let pointer bookkeeping block the autosave.
+        # Point quick-resume at this save; every turn/exit/finalize routes through
+        # this chokepoint. Best-effort, never blocks the autosave.
         record_quick_resume_sessions(session_name)
 
         # Append conversation-wide TTFT + TG averages if we have any data.
@@ -2169,11 +2565,8 @@ def auto_save_session_if_enabled() -> bool:
             f"({metadata.total_tokens} tokens){stats_suffix}"
         )
 
-        # Fire post_autosave so plugins can render follow-up lines
-        # (token quota, etc.) without us knowing about them here.
-        # Delegates to the shared lifecycle helper -- see its docstring for
-        # why an executor wrap is needed and where to add disk-level
-        # forensics if we ever want them across all callers.
+        # Fire post_autosave so plugins can append lines (token quota) without
+        # us knowing about them. See session_lifecycle's docstring re executor wrap.
         from code_puppy.session_lifecycle import fire_post_autosave_callback
 
         fire_post_autosave_callback(metadata)
@@ -2282,12 +2675,8 @@ def get_last_terminal_session() -> Optional[str]:
 
 # --------------------------------------------------------------------------- #
 # Quick-resume: resume the latest autosave for a directory + git branch.
-#
-# Unlike terminal sessions (keyed by TTY, which is POSIX-only), quick-resume is
-# keyed by canonical workspace + branch, so it works identically on Windows and
-# macOS/Linux. All filesystem access goes through ``os.path``/``pathlib`` and
-# git is probed via subprocess with failures swallowed, so a missing git or a
-# non-repo directory degrades gracefully rather than raising.
+# Keyed by workspace+branch (not TTY, so it works on Windows too); git probing
+# and fs access swallow failures so non-repos degrade gracefully.
 # --------------------------------------------------------------------------- #
 
 # Child workspaces touched by tools this run; flushed to pointers on next save.
@@ -2360,16 +2749,23 @@ def _detect_git_toplevel(path: str) -> Optional[str]:
         return None
     try:
         import subprocess
+        import tempfile
 
-        out = subprocess.run(
-            ["git", "-C", probe_dir, "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            timeout=0.5,
-        )
-        if out.returncode == 0:
-            root = out.stdout.strip()
-            return os.path.realpath(root) if root else None
+        # Windows hardening: capture_output=True can hang FOREVER joining reader
+        # threads if a grandchild keeps the pipe open. Use a temp file (no reader
+        # threads) + detached stdin so run() never blocks on a thread join.
+        with tempfile.TemporaryFile() as out_f:
+            proc = subprocess.run(
+                ["git", "-C", probe_dir, "rev-parse", "--show-toplevel"],
+                stdin=subprocess.DEVNULL,
+                stdout=out_f,
+                stderr=subprocess.DEVNULL,
+                timeout=5,
+            )
+            if proc.returncode == 0:
+                out_f.seek(0)
+                root = out_f.read().decode("utf-8", "replace").strip()
+                return os.path.realpath(root) if root else None
     except Exception:
         return None
     return None
@@ -2417,9 +2813,9 @@ def get_quick_resume_location(
     branch: Optional[str] = None
     if git_root:
         try:
-            from code_puppy.plugins.statusline.payload import detect_git_branch
+            from code_puppy.callbacks import get_git_branch
 
-            branch = detect_git_branch(cwd)
+            branch = get_git_branch(cwd)
         except Exception:
             branch = None
     return os.path.realpath(cwd), branch
@@ -2493,11 +2889,6 @@ def observe_quick_resume_path(target_path: str, *, path_kind: str = "auto") -> b
         return False
 
 
-def clear_observed_quick_resume_paths() -> None:
-    """Clear the observed-workspace set (used by tests)."""
-    _OBSERVED_QUICK_RESUME_KEYS.clear()
-
-
 def record_quick_resume_sessions(session_name: str) -> None:
     """Record cwd plus every observed child workspace for ``session_name``."""
     record_directory_session(session_name)
@@ -2539,21 +2930,25 @@ def get_last_directory_session(
 def resolve_quick_resume_pickle(
     target_path: Optional[str] = None, *, path_kind: str = "auto"
 ) -> Optional[str]:
-    """Return the absolute ``.pkl`` path for a scope's latest session, or None.
+    """Return the absolute session-file path for a scope's latest session.
 
-    The single source of truth the CLI ``--quick-resume`` flag consults. Resolves
-    strictly inside ``AUTOSAVE_DIR`` (rejecting any path-traversal) and only
-    returns a path that is an existing file.
+    The single source of truth the CLI ``--quick-resume`` flag consults.
+    Prefers the ``.json`` envelope and falls back to a legacy ``.pkl`` (which
+    ``load_session`` lazily migrates). Resolves strictly inside
+    ``AUTOSAVE_DIR`` (rejecting any path-traversal) and only returns a path
+    that is an existing file. Name kept for API stability; "pickle" is
+    historical.
     """
     session_name = get_last_directory_session(target_path, path_kind=path_kind)
     if not session_name:
         return None
     try:
         autosave_dir = pathlib.Path(AUTOSAVE_DIR).resolve()
-        candidate = (autosave_dir / f"{session_name}.pkl").resolve(strict=False)
-        if candidate.parent != autosave_dir or not candidate.is_file():
-            return None
-        return str(candidate)
+        for suffix in (".json", ".pkl"):
+            candidate = (autosave_dir / f"{session_name}{suffix}").resolve(strict=False)
+            if candidate.parent == autosave_dir and candidate.is_file():
+                return str(candidate)
+        return None
     except OSError:
         logger.debug("Unable to resolve quick-resume autosave path", exc_info=True)
         return None
@@ -2573,13 +2968,7 @@ def get_suppress_thinking_messages() -> bool:
     Allowed values for ON: 1, '1', 'true', 'yes', 'on' (all case-insensitive for value).
     When enabled, thinking messages (agent_reasoning, planned_next_steps) will be hidden.
     """
-    true_vals = {"1", "true", "yes", "on"}
-    cfg_val = get_value("suppress_thinking_messages")
-    if cfg_val is not None:
-        if str(cfg_val).strip().lower() in true_vals:
-            return True
-        return False
-    return False
+    return get_truthy_bool_value("suppress_thinking_messages", False)
 
 
 def set_suppress_thinking_messages(enabled: bool):
@@ -2599,12 +2988,7 @@ def get_smooth_thinking_stream() -> bool:
     When enabled, THINKING block deltas are buffered and drained to the
     console at a steady, consistent rate instead of being printed in bursts.
     """
-    false_vals = {"0", "false", "no", "off"}
-    cfg_val = get_value("smooth_thinking_stream")
-    if cfg_val is not None:
-        if str(cfg_val).strip().lower() in false_vals:
-            return False
-    return True
+    return get_falsy_bool_value("smooth_thinking_stream", True)
 
 
 def set_smooth_thinking_stream(enabled: bool):
@@ -2624,12 +3008,7 @@ def get_smooth_response_stream() -> bool:
     When enabled, the AGENT RESPONSE markdown is typed out one character at a
     time at a steady rate instead of appearing line-by-line in bursts.
     """
-    false_vals = {"0", "false", "no", "off"}
-    cfg_val = get_value("smooth_response_stream")
-    if cfg_val is not None:
-        if str(cfg_val).strip().lower() in false_vals:
-            return False
-    return True
+    return get_falsy_bool_value("smooth_response_stream", True)
 
 
 def set_smooth_response_stream(enabled: bool):
@@ -2648,13 +3027,7 @@ def get_suppress_informational_messages() -> bool:
     Allowed values for ON: 1, '1', 'true', 'yes', 'on' (all case-insensitive for value).
     When enabled, informational messages (info, success, warning) will be hidden.
     """
-    true_vals = {"1", "true", "yes", "on"}
-    cfg_val = get_value("suppress_informational_messages")
-    if cfg_val is not None:
-        if str(cfg_val).strip().lower() in true_vals:
-            return True
-        return False
-    return False
+    return get_truthy_bool_value("suppress_informational_messages", False)
 
 
 def set_suppress_informational_messages(enabled: bool):
@@ -2721,7 +3094,9 @@ def get_api_key(key_name: str) -> str:
     Returns:
         The API key value, or empty string if not set
     """
-    return get_value(key_name) or ""
+    from code_puppy.shared_credentials import get
+
+    return get(key_name) or get_value(key_name) or ""
 
 
 def set_api_key(key_name: str, value: str):
@@ -2755,40 +3130,50 @@ def load_api_keys_to_environment():
         "CEREBRAS_API_KEY",
         "SYN_API_KEY",
         "AZURE_OPENAI_API_KEY",
-        "AZURE_OPENAI_ENDPOINT",
         "OPENROUTER_API_KEY",
         "ZAI_API_KEY",
     ]
+    # puppy.cfg is the user's own (trusted) config, so the Azure endpoint
+    # hydrates from it — but never from a project dot-env file: an endpoint
+    # is a redirect target, not a credential.
+    cfg_only_names = ["AZURE_OPENAI_ENDPOINT"]
 
-    # Dynamically include every env var referenced by a configured model
-    # (e.g. FIREWORKS_API_KEY / WAFER_API_KEY / CROF_API_KEY for local custom
-    # providers). Without this, such keys saved in puppy.cfg never hydrate into
-    # os.environ at startup. Best-effort: never let discovery break startup.
+    # Include api-key env vars referenced by configured models (e.g.
+    # FIREWORKS_API_KEY for local custom providers) so puppy.cfg keys hydrate at
+    # startup. Best-effort. Only api-key vars — never custom_endpoint.headers
+    # vars: a header value is spliced into outgoing request headers, so
+    # hydrating it from a project dot-env would let an untrusted repo set request
+    # headers/routing (same redirect concern as an endpoint).
     try:
-        from code_puppy.provider_credentials import all_required_env_vars
+        from code_puppy.provider_credentials import all_api_key_env_vars
 
-        for env_var in all_required_env_vars():
-            if env_var not in api_key_names:
+        for env_var in all_api_key_env_vars():
+            if env_var not in api_key_names and env_var not in cfg_only_names:
                 api_key_names.append(env_var)
     except Exception:
         pass
 
     # Step 1: Load from .env file if it exists (highest priority)
-    # Look for .env in current working directory
+    # Only the known API-key names are imported from a project-local .env;
+    # unrelated names (base URLs, proxies, CODE_PUPPY_* toggles) are ignored so
+    # a project's .env cannot redirect requests or change runtime settings.
     env_file = Path.cwd() / ".env"
     if env_file.exists():
         try:
-            from dotenv import load_dotenv
-
-            # override=True means .env values take precedence over existing env vars
-            load_dotenv(env_file, override=True)
+            from dotenv import dotenv_values
         except ImportError:
             # python-dotenv not installed, skip .env loading
-            pass
+            dotenv_values = None
+        if dotenv_values is not None:
+            env_values = dotenv_values(env_file)
+            for key_name in api_key_names:
+                value = env_values.get(key_name)
+                if value:
+                    os.environ[key_name] = value
 
     # Step 2: Load from puppy.cfg, but only if not already set
     # This ensures .env has priority over puppy.cfg
-    for key_name in api_key_names:
+    for key_name in [*api_key_names, *cfg_only_names]:
         # Only load from config if not already in environment
         if key_name not in os.environ or not os.environ[key_name]:
             value = get_api_key(key_name)
@@ -2819,10 +3204,8 @@ def set_default_agent(agent_name: str) -> None:
 # --- FRONTEND EMITTER CONFIGURATION ---
 def get_frontend_emitter_enabled() -> bool:
     """Check if frontend emitter is enabled."""
-    val = get_value("frontend_emitter_enabled")
-    if val is None:
-        return True  # Enabled by default
-    return str(val).lower() in ("1", "true", "yes", "on")
+    # Enabled to True by default.
+    return get_truthy_bool_value("frontend_emitter_enabled", True)
 
 
 def get_frontend_emitter_max_recent_events() -> int:
@@ -2845,3 +3228,69 @@ def get_frontend_emitter_queue_size() -> int:
         return int(val)
     except ValueError:
         return 100
+
+
+# Port-probe bounds:
+#   MIN_PORT_BASE=1024 avoids privileged ports the user process can't bind anyway.
+#   PORT_PROBE_WIDTH is how many consecutive ports find_available_port() scans.
+#   MAX_PORT_BASE keeps port_base + width within the 16-bit port space.
+MIN_PORT_BASE = 1024
+PORT_PROBE_WIDTH = 920
+MAX_PORT_BASE = 65535 - PORT_PROBE_WIDTH
+DEFAULT_PORT_BASE = 8090
+
+
+def _coerce_port_base(raw, source: str) -> int | None:
+    """Parse + range-check a candidate port_base. Returns None (with warning)
+    on invalid input so callers can fall through to the next source.
+    """
+    if raw is None or (isinstance(raw, str) and not raw.strip()):
+        return None
+    try:
+        val = int(str(raw).strip())
+    except (TypeError, ValueError):
+        _warn_port_base(f"Ignoring invalid {source} port_base={raw!r}: not an integer")
+        return None
+    if not (MIN_PORT_BASE <= val <= MAX_PORT_BASE):
+        _warn_port_base(
+            f"Ignoring {source} port_base={val}: must be in "
+            f"[{MIN_PORT_BASE}, {MAX_PORT_BASE}] so port+{PORT_PROBE_WIDTH} stays valid"
+        )
+        return None
+    return val
+
+
+def _warn_port_base(msg: str) -> None:
+    """Lazy-import emit_warning to avoid config <-> messaging import cycles."""
+    try:
+        from code_puppy.messaging import emit_warning
+
+        emit_warning(msg)
+    except Exception:
+        # Messaging bus not up yet (early startup); silent skip is fine --
+        # the fallback value still applies.
+        pass
+
+
+def resolve_port_base(cli_value=None) -> int:
+    """
+    Full precedence chain for the port probe's starting port:
+    CLI --port-base > CODE_PUPPY_PORT_BASE env > puppy.cfg[port_base] > default.
+
+    Invalid values at any layer are warned about and skipped, not crashed on.
+    """
+    candidates = (
+        (cli_value, "--port-base"),
+        (os.environ.get("CODE_PUPPY_PORT_BASE"), "CODE_PUPPY_PORT_BASE"),
+        (get_value("port_base"), "puppy.cfg[port_base]"),
+    )
+    for raw, source in candidates:
+        val = _coerce_port_base(raw, source)
+        if val is not None:
+            return val
+    return DEFAULT_PORT_BASE
+
+
+def get_port_base() -> int:
+    """Back-compat wrapper: resolve without a CLI-supplied value."""
+    return resolve_port_base(cli_value=None)

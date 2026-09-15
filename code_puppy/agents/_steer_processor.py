@@ -27,6 +27,7 @@ from pydantic_ai.messages import ModelMessage, ModelRequest, UserPromptPart
 from code_puppy.command_line.attachments import resolve_steer_content
 from code_puppy.messaging import emit_info
 from code_puppy.messaging.pause_controller import get_pause_controller
+from code_puppy.steer_metadata import STEER_METADATA
 
 
 def make_steer_history_processor(agent: Any) -> Callable[..., List[ModelMessage]]:
@@ -38,21 +39,24 @@ def make_steer_history_processor(agent: Any) -> Callable[..., List[ModelMessage]
     """
 
     def steer_history_processor(messages: List[ModelMessage]) -> List[ModelMessage]:
-        # Drain ONLY ``now``-mode steers. ``queue``-mode steers are owned
-        # by ``_runtime._do_run``'s between-turns loop; draining both here
-        # would double-inject them.
+        from code_puppy.agent_completion_inbox import pop_completion
+
+        # Drain ONLY ``now``-mode steers; the between-turns loop in
+        # ``_runtime._do_run`` owns ``queue``-mode ones — draining both
+        # here would double-inject.
         pending = get_pause_controller().drain_pending_steer_now()
-        if not pending:
+        completions = []
+        while (completion := pop_completion(agent)) is not None:
+            completions.append(completion)
+        if not pending and not completions:
             return messages
 
-        # CRITICAL: carry the in-effect instructions onto the injected
-        # request. pydantic-ai resolves the system prompt from the MOST
-        # RECENT ModelRequest (``Model._get_instructions``); injecting with
-        # ``instructions=None`` silently drops the system prompt for that
-        # model call. Most models just get one amnesiac turn — claude-code
-        # OAuth models hard-fail, because the endpoint fingerprints the
-        # "You are Claude Code..." system prompt and stealth-rejects
-        # requests without it as fake ``overloaded_error``s.
+        # CRITICAL: carry the in-effect instructions onto the injected request.
+        # pydantic-ai resolves the system prompt from the MOST RECENT
+        # ModelRequest; ``instructions=None`` silently drops it — most models
+        # get one amnesiac turn, claude-code OAuth models hard-fail (the
+        # endpoint fingerprints the "You are Claude Code..." prompt and
+        # stealth-rejects as fake ``overloaded_error``s).
         last_instructions = next(
             (
                 m.instructions
@@ -62,12 +66,17 @@ def make_steer_history_processor(agent: Any) -> Callable[..., List[ModelMessage]
             None,
         )
 
-        # Build one user message per steer (so each shows up as a discrete
-        # turn in the model's view of the conversation — clearer than
-        # concatenating them). Attachments (clipboard images, @file paths,
-        # URLs) are resolved just like the main prompt path — steering with
-        # a pasted screenshot Just Works.
+        # Keep each steer separate so providers can preserve its boundary.
+        # Attachments use the main prompt resolution path.
         injected: List[ModelMessage] = []
+        for completion in completions:
+            injected.append(
+                ModelRequest(
+                    parts=[UserPromptPart(content=completion)],
+                    instructions=last_instructions,
+                    metadata=dict(STEER_METADATA),
+                )
+            )
         for steer_text in pending:
             content, preview_text = resolve_steer_content(steer_text)
             n_extras = len(content) - 1 if isinstance(content, list) else 0
@@ -78,17 +87,15 @@ def make_steer_history_processor(agent: Any) -> Callable[..., List[ModelMessage]
                 ModelRequest(
                     parts=[UserPromptPart(content=content)],
                     instructions=last_instructions,
+                    metadata=dict(STEER_METADATA),
                 )
             )
 
-        # Append AFTER the existing messages. pydantic-ai passes this list
-        # to the model on this exact call, so the model's very next response
-        # will answer the steer.
+        # Append after history so the next model call applies the steer.
         new_messages = list(messages) + injected
 
-        # Mirror into agent._message_history so the steer persists across
-        # the turn boundary (matches how the compaction processor mutates
-        # the field directly).
+        # Mirror into agent._message_history so the steer persists across the
+        # turn boundary (matches the compaction processor's direct mutation).
         if hasattr(agent, "_message_history"):
             agent._message_history = list(agent._message_history) + injected
 

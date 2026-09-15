@@ -251,9 +251,8 @@ def test_posix_listener_no_longer_uses_buffered_stdin_read():
 
     from code_puppy.agents import _key_listeners
 
-    # The read loop lives in _posix_read_session (the supervisor in
-    # _listen_posix just restarts sessions) — check both, so a future
-    # refactor can't sneak a buffered read into either.
+    # The read loop lives in _posix_read_session (supervisor only restarts sessions);
+    # check both so a future refactor can't sneak a buffered read into either.
     src = inspect.getsource(_key_listeners._listen_posix) + inspect.getsource(
         _key_listeners._posix_read_session
     )

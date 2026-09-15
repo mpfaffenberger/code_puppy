@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import shutil
 import unicodedata
+from functools import lru_cache
 from typing import List, Optional, Tuple
 
 from rich.cells import cell_len, chop_cells
@@ -30,11 +31,8 @@ CURSOR_HIDE = "\x1b[?25l"  # DECTCEM: the prompt row paints its own
 CURSOR_SHOW = "\x1b[?25h"  # pseudo-cursor; the hardware one must not blink
 PASTE_ON = "\x1b[?2004h"  # bracketed paste while the bar owns input
 PASTE_OFF = "\x1b[?2004l"
-# xterm modifyOtherKeys level 1: encodes otherwise-ambiguous modified
-# keys (Shift+Enter!) as CSI 27;m;13~ without touching normal typing,
-# Ctrl+letters or arrows; unsupporting terminals ignore it. Level 2 /
-# kitty CSI >1u are deliberately NOT used — they re-encode ESC itself
-# and would fight the editor's ESC state machine.
+# xterm modifyOtherKeys level 1: encodes ambiguous modified keys (Shift+Enter!)
+# as CSI 27;m;13~; level 2 / kitty unused — they'd re-encode ESC and fight the editor.
 MODKEYS_ON = "\x1b[>4;1m"
 MODKEYS_OFF = "\x1b[>4;0m"
 
@@ -163,6 +161,7 @@ def stylize_slice(text: str, start: Optional[int], sgrs: Optional[List[str]]) ->
     return "".join(out)
 
 
+@lru_cache(maxsize=1)
 def _prompt_visual_rows(prefix: str, buffer: str, cursor_pos: int, width: int) -> tuple:
     """Soft-wrap prompt content into visual rows (cell-accurate).
 
@@ -244,7 +243,11 @@ def _prompt_visual_rows(prefix: str, buffer: str, cursor_pos: int, width: int) -
         else:
             row_offsets.extend([None] * len(segments))
         rows.extend(segments)
-    return rows, cursor_row, cursor_offset, row_offsets
+    # A repaint asks for the same layout repeatedly (row budgets, anchors,
+    # then painting). Retain only the latest layout, with immutable values,
+    # instead of wrapping the entire prompt at each step. The key includes
+    # cursor and width so movement and terminal resize invalidate it.
+    return tuple(rows), cursor_row, cursor_offset, tuple(row_offsets)
 
 
 def count_prompt_rows(prefix: str, buffer: str, cursor_pos: int, width: int) -> int:

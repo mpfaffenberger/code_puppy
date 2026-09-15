@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 import httpx
-from pydantic_ai._run_context import RunContext
+from pydantic_ai import RunContext
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
@@ -38,11 +38,19 @@ from pydantic_ai.settings import ModelSettings
 from pydantic_ai.tools import ToolDefinition
 from pydantic_ai.usage import RequestUsage
 
+from code_puppy.steer_metadata import is_steer_request
+
 logger = logging.getLogger(__name__)
 
 # Bypass thought signature for Gemini when no pending signature is available.
 # This allows function calls to work with thinking models.
 BYPASS_THOUGHT_SIGNATURE = "context_engineering_is_the_way_to_go"
+
+# Frames an in-flight /steer as guidance for the running task rather than a
+# new turn. Model-facing prompt text, so deliberately not translated.
+STEER_PREAMBLE = (
+    "Additional guidance for the current task; continue the existing workflow:"
+)
 
 
 def generate_tool_call_id() -> str:
@@ -232,6 +240,31 @@ def _sanitize_schema_for_gemini(schema: dict) -> dict:
     return resolve_refs(schema)
 
 
+def _split_mixed_user_contents(contents: list[dict[str, Any]]) -> None:
+    """Split user turns carrying both function responses and other parts.
+
+    Gemini rejects a user content that mixes ``function_response`` with text.
+    The consecutive-user merge in ``_map_messages`` produces exactly that
+    whenever a tool return is followed by a user prompt with no model turn
+    between them, which ``/steer`` and Ctrl+C-interrupted runs both do.
+    """
+    split: list[dict[str, Any]] = []
+    for content in contents:
+        parts = content.get("parts", [])
+        if content.get("role") != "user":
+            split.append(content)
+            continue
+        response_parts = [part for part in parts if "function_response" in part]
+        other_parts = [part for part in parts if "function_response" not in part]
+        if not response_parts or not other_parts:
+            split.append(content)
+            continue
+        # Tool results first: they answer the model's preceding call.
+        split.append({"role": "user", "parts": response_parts})
+        split.append({"role": "user", "parts": other_parts})
+    contents[:] = split
+
+
 class GeminiModel(Model):
     """Standalone Model implementation for Google's Generative Language API.
 
@@ -245,6 +278,8 @@ class GeminiModel(Model):
         base_url: str = "https://generativelanguage.googleapis.com/v1beta",
         http_client: httpx.AsyncClient | None = None,
     ):
+        # v2 Model.__init__ wires settings/profile state and pricing preload.
+        super().__init__()
         self._model_name = model_name
         self.api_key = api_key
         self._base_url = base_url.rstrip("/")
@@ -277,17 +312,6 @@ class GeminiModel(Model):
         Override in subclasses to inject custom instructions.
         """
         return None
-
-    def prepare_request(
-        self,
-        model_settings: ModelSettings | None,
-        model_request_parameters,
-    ) -> tuple:
-        """Prepare request by normalizing settings.
-
-        This is a compatibility method for pydantic-ai interface.
-        """
-        return model_settings, model_request_parameters
 
     async def _get_client(self) -> httpx.AsyncClient:
         """Get or create HTTP client."""
@@ -347,8 +371,88 @@ class GeminiModel(Model):
         """Map pydantic-ai messages to Gemini API format."""
         contents: list[dict[str, Any]] = []
         system_parts: list[dict[str, Any]] = []
+        # A normal user prompt starts the next turn and retires older steers.
+        # A retired steer keeps the user's words (parity with every other
+        # provider, which never drop the message) and loses only the
+        # current-task framing.
+        last_prompt_index = max(
+            (
+                i
+                for i, message in enumerate(messages)
+                if isinstance(message, ModelRequest)
+                and not is_steer_request(message)
+                and any(isinstance(part, UserPromptPart) for part in message.parts)
+            ),
+            default=-1,
+        )
+        # Gemini 400s on a block mixing function_response with text, so a steer
+        # block stays closed to later merges: a tool result outstanding across
+        # the steer starts its own block instead of being absorbed.
+        steer_block_open = False
+        steer_blocks: set[int] = set()
 
-        for m in messages:
+        def _is_steer_block(block: dict[str, Any] | None) -> bool:
+            return block is not None and id(block) in steer_blocks
+
+        for i, m in enumerate(messages):
+            if is_steer_request(m):
+                tool_parts: list[dict[str, Any]] = []
+                steer_parts: list[dict[str, Any]] = []
+                for part in m.parts:
+                    if isinstance(part, SystemPromptPart):
+                        system_parts.append({"text": part.content})
+                    elif isinstance(part, UserPromptPart):
+                        steer_parts.extend(await self._map_user_prompt(part))
+                    elif isinstance(part, ToolReturnPart):
+                        tool_parts.append(
+                            {
+                                "function_response": {
+                                    "name": part.tool_name,
+                                    "response": part.model_response_object(),
+                                    "id": part.tool_call_id,
+                                }
+                            }
+                        )
+                    elif isinstance(part, RetryPromptPart):
+                        if part.tool_name is None:
+                            steer_parts.append({"text": part.model_response()})
+                        else:
+                            tool_parts.append(
+                                {
+                                    "function_response": {
+                                        "name": part.tool_name,
+                                        "response": {"error": part.model_response()},
+                                        "id": part.tool_call_id,
+                                    }
+                                }
+                            )
+
+                if tool_parts:
+                    # Tool returns (e.g. spliced by prune_interrupted_tool_calls)
+                    # must precede steer guidance and never mix into a steer block.
+                    if (
+                        contents
+                        and contents[-1].get("role") == "user"
+                        and not _is_steer_block(contents[-1])
+                    ):
+                        contents[-1]["parts"].extend(tool_parts)
+                    else:
+                        contents.append({"role": "user", "parts": tool_parts})
+                    steer_block_open = False
+
+                if steer_parts:
+                    if steer_block_open and contents and _is_steer_block(contents[-1]):
+                        # Consecutive steers share one block and one preamble.
+                        # A kind change (retired -> active) can only happen
+                        # across the normal prompt that closes the block.
+                        contents[-1]["parts"].extend(steer_parts)
+                    else:
+                        if i > last_prompt_index:
+                            steer_parts.insert(0, {"text": STEER_PREAMBLE})
+                        contents.append({"role": "user", "parts": steer_parts})
+                        steer_blocks.add(id(contents[-1]))
+                        steer_block_open = True
+                continue
             if isinstance(m, ModelRequest):
                 message_parts: list[dict[str, Any]] = []
 
@@ -384,10 +488,15 @@ class GeminiModel(Model):
 
                 if message_parts:
                     # Merge with previous user message if exists
-                    if contents and contents[-1].get("role") == "user":
+                    if (
+                        contents
+                        and contents[-1].get("role") == "user"
+                        and not _is_steer_block(contents[-1])
+                    ):
                         contents[-1]["parts"].extend(message_parts)
                     else:
                         contents.append({"role": "user", "parts": message_parts})
+                steer_block_open = False
 
             elif isinstance(m, ModelResponse):
                 model_parts = self._map_model_response(m)
@@ -397,6 +506,15 @@ class GeminiModel(Model):
                         contents[-1]["parts"].extend(model_parts["parts"])
                     else:
                         contents.append(model_parts)
+                steer_block_open = False
+
+        # Gemini 3.x 400s on a history ending in a model turn, which /steer
+        # injection and interrupted tool calls both produce. Same trim
+        # _compaction.py :: history_processor() does for Anthropic prefill.
+        while contents and contents[-1].get("role") == "model":
+            contents.pop()
+
+        _split_mixed_user_contents(contents)
 
         # Ensure at least one content
         if not contents:
@@ -519,6 +637,38 @@ class GeminiModel(Model):
 
         return config
 
+    def _build_request_body(
+        self,
+        system_instruction,
+        contents,
+        model_settings,
+        model_request_parameters,
+        *,
+        streaming: bool,
+    ) -> dict[str, Any]:
+        body: dict[str, Any] = {"contents": contents}
+
+        gen_config = self._build_generation_config(model_settings)
+        if gen_config:
+            body["generationConfig"] = gen_config
+
+        if system_instruction:
+            body["systemInstruction"] = system_instruction
+
+        # Add tools.
+        if model_request_parameters.function_tools:
+            body["tools"] = self._build_tools(model_request_parameters.function_tools)
+
+            if streaming:
+                body["toolConfig"] = {
+                    "functionCallingConfig": {
+                        "mode": "AUTO",
+                        "streamFunctionCallArguments": True,
+                    }
+                }
+
+        return body
+
     async def request(
         self,
         messages: list[ModelMessage],
@@ -530,26 +680,20 @@ class GeminiModel(Model):
             messages, model_request_parameters
         )
 
-        # Build request body
-        body: dict[str, Any] = {"contents": contents}
+        body = self._build_request_body(
+            system_instruction=system_instruction,
+            contents=contents,
+            model_settings=model_settings,
+            model_request_parameters=model_request_parameters,
+            streaming=False,
+        )
 
-        gen_config = self._build_generation_config(model_settings)
-        if gen_config:
-            body["generationConfig"] = gen_config
-        if system_instruction:
-            body["systemInstruction"] = system_instruction
-
-        # Add tools
-        if model_request_parameters.function_tools:
-            body["tools"] = self._build_tools(model_request_parameters.function_tools)
-
-        # Make request
+        # Make request.
         client = await self._get_client()
         url = f"{self._base_url}/models/{self._model_name}:generateContent"
         headers = self._get_headers()
 
         response = await client.post(url, json=body, headers=headers)
-
         if response.status_code != 200:
             raise RuntimeError(
                 f"Gemini API error {response.status_code}: {response.text}"
@@ -576,15 +720,18 @@ class GeminiModel(Model):
 
         for part in parts:
             if part.get("thought") and part.get("text") is not None:
-                # Thinking part
+                # Thinking part.
                 signature = part.get("thoughtSignature")
                 response_parts.append(
                     ThinkingPart(content=part["text"], signature=signature)
                 )
+
             elif "text" in part:
                 response_parts.append(TextPart(content=part["text"]))
+
             elif "functionCall" in part:
                 fc = part["functionCall"]
+
                 response_parts.append(
                     ToolCallPart(
                         tool_name=fc["name"],
@@ -593,7 +740,7 @@ class GeminiModel(Model):
                     )
                 )
 
-        # Extract usage
+        # Extract usage.
         usage_meta = data.get("usageMetadata", {})
         usage = RequestUsage(
             input_tokens=usage_meta.get("promptTokenCount", 0),
@@ -621,26 +768,15 @@ class GeminiModel(Model):
             messages, model_request_parameters
         )
 
-        # Build request body
-        body: dict[str, Any] = {"contents": contents}
+        body = self._build_request_body(
+            system_instruction=system_instruction,
+            contents=contents,
+            model_settings=model_settings,
+            model_request_parameters=model_request_parameters,
+            streaming=True,
+        )
 
-        gen_config = self._build_generation_config(model_settings)
-        if gen_config:
-            body["generationConfig"] = gen_config
-        if system_instruction:
-            body["systemInstruction"] = system_instruction
-
-        # Add tools
-        if model_request_parameters.function_tools:
-            body["tools"] = self._build_tools(model_request_parameters.function_tools)
-            body["toolConfig"] = {
-                "functionCallingConfig": {
-                    "mode": "AUTO",
-                    "streamFunctionCallArguments": True,
-                }
-            }
-
-        # Make streaming request
+        # Make streaming request.
         client = await self._get_client()
         url = (
             f"{self._base_url}/models/{self._model_name}:streamGenerateContent?alt=sse"
@@ -661,11 +797,13 @@ class GeminiModel(Model):
                     line = line.strip()
                     if not line:
                         continue
+
                     if line.startswith("data: "):
                         json_str = line[6:]
                         if json_str:
                             try:
                                 yield json.loads(json_str)
+
                             except json.JSONDecodeError:
                                 continue
 
@@ -822,6 +960,16 @@ class GeminiStreamingResponse(StreamedResponse):
                         )
                         if event is not None:
                             yield event
+
+    async def close_stream(self) -> None:
+        """Close the SSE chunk generator (v2 cancellation contract).
+
+        ``_chunks`` is an async generator holding the ``client.stream``
+        context; ``aclose()`` unwinds it and tears down the HTTP stream.
+        """
+        aclose = getattr(self._chunks, "aclose", None)
+        if aclose is not None:
+            await aclose()
 
     @property
     def model_name(self) -> str:
