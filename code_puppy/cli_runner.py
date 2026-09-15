@@ -814,9 +814,11 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
     # Initialize the runtime agent manager
     if initial_command:
+        from code_puppy.agents.deferred_reload import apply_pending_agent_reloads
         from code_puppy.agents import get_current_agent
         from code_puppy.messaging import emit_info, emit_success, emit_system_message
 
+        apply_pending_agent_reloads()
         agent = get_current_agent()
         emit_info(t("cli.initial_command.processing", command=initial_command))
 
@@ -906,7 +908,10 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             persistent_prompt = False  # degrade to classic on any failure
 
     while True:
+        from code_puppy.agents.deferred_reload import apply_pending_agent_reloads
         from code_puppy.agents.agent_manager import get_current_agent
+
+        apply_pending_agent_reloads()
         from code_puppy.messaging import emit_info
 
         # Get the custom prompt from the current agent, or use default
