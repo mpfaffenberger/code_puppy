@@ -34,7 +34,6 @@ from code_puppy.messaging import (  # Structured messaging types
 )
 from code_puppy.tools import fs_access
 from code_puppy.tools.common import (
-    _find_best_window,
     generate_group_id,
     resolve_path,
     write_project_file,
@@ -346,41 +345,41 @@ def apply_replacements_to_content(
     ``file_permission_handler`` core plugin) must all go through it so a
     preview always shows exactly what the engine will do.
 
-    Exact substring match first; otherwise fall back to the best
-    Jaro-Winkler line window (must clear 0.95).
+    Matching is exact. A no-op, an unmatched ``old_str``, or an ambiguous
+    ``old_str`` (multiple hits without ``replace_all``) is refused rather
+    than guessed at -- a silent wrong-location edit is worse than an error
+    the model can correct.
     """
     modified = content
     for rep in replacements:
         old_snippet = rep.get("old_str", "")
         new_snippet = rep.get("new_str", "")
+        replace_all = bool(rep.get("replace_all", False))
 
-        if old_snippet and old_snippet in modified:
-            modified = modified.replace(old_snippet, new_snippet, 1)
-            continue
-
-        had_trailing_newline = modified.endswith("\n")
-        orig_lines = modified.splitlines()
-        loc, score = _find_best_window(orig_lines, old_snippet)
-
-        if score < 0.95 or loc is None:
+        if old_snippet == new_snippet:
             return {
-                "error": "No suitable match in file (JW < 0.95)",
-                "jw_score": score,
-                "received": old_snippet,
+                "error": (
+                    "No changes to make: old_str and new_str are exactly the same."
+                )
+            }
+        if not old_snippet or old_snippet not in modified:
+            return {
+                "error": f"String to replace not found in file.\nString: {old_snippet}"
             }
 
-        start, end = loc
-        prefix = "\n".join(orig_lines[:start])
-        suffix = "\n".join(orig_lines[end:])
-        parts = []
-        if prefix:
-            parts.append(prefix)
-        parts.append(new_snippet.rstrip("\n"))
-        if suffix:
-            parts.append(suffix)
-        modified = "\n".join(parts)
-        if had_trailing_newline and not modified.endswith("\n"):
-            modified += "\n"
+        matches = modified.count(old_snippet)
+        if matches > 1 and not replace_all:
+            return {
+                "error": (
+                    f"Found {matches} matches of the string to replace, but "
+                    "replace_all is false. To replace all occurrences, set "
+                    "replace_all to true. To replace only one occurrence, "
+                    "provide more surrounding context to uniquely identify "
+                    f"the instance.\nString: {old_snippet}"
+                )
+            }
+
+        modified = modified.replace(old_snippet, new_snippet, -1 if replace_all else 1)
 
     return {"content": modified}
 
@@ -388,7 +387,7 @@ def apply_replacements_to_content(
 def _replace_in_file(
     context: RunContext | None,
     path: str,
-    replacements: List[Dict[str, str]],
+    replacements: List[Dict[str, Any]],
     message_group: str | None = None,
 ) -> Dict[str, Any]:
     UndoManager().record_change(path, "replace_in_file")
@@ -576,7 +575,7 @@ def write_to_file(
 def replace_in_file(
     context: RunContext,
     path: str,
-    replacements: List[Dict[str, str]],
+    replacements: List[Dict[str, Any]],
     message_group: str | None = None,
 ) -> Dict[str, Any]:
     refused = _refuse_user_plugin_tree(path)
@@ -668,7 +667,7 @@ async def write_to_file_async(
 async def replace_in_file_async(
     context: RunContext,
     path: str,
-    replacements: List[Dict[str, str]],
+    replacements: List[Dict[str, Any]],
     message_group: str | None = None,
 ) -> Dict[str, Any]:
     """Async permission-aware variant of ``replace_in_file``."""
@@ -1124,13 +1123,14 @@ _REPLACEMENT_ITEM_SCHEMA = {
     "properties": {
         "old_str": {"type": "string"},
         "new_str": {"type": "string"},
+        "replace_all": {"type": "boolean", "default": False},
     },
     "required": ["old_str", "new_str"],
 }
 
 # Type alias used by the tool signature.  The Annotated + WithJsonSchema
 # tells Pydantic to emit _REPLACEMENT_ITEM_SCHEMA inline instead of a $ref.
-InlineReplacement = Annotated[Dict[str, str], WithJsonSchema(_REPLACEMENT_ITEM_SCHEMA)]
+InlineReplacement = Annotated[Dict[str, Any], WithJsonSchema(_REPLACEMENT_ITEM_SCHEMA)]
 
 
 def _try_json_repair(v: Any) -> Any:
@@ -1181,13 +1181,15 @@ def register_replace_in_file(agent):
         """Apply targeted text replacements to an existing file.
 
         Each replacement specifies an old_str to find and a new_str to replace it with.
+        old_str must match exactly and uniquely; if it occurs more than once, either
+        add surrounding context or set replace_all=true on that replacement.
         Replacements are applied sequentially. Prefer this over full file rewrites.
         """
         group_id = generate_group_id("replace_in_file", file_path)
         try:
             # Validate up front so a malformed payload returns a clean error
             # instead of tearing down the whole agent run via pydantic_ai.
-            normalized: List[Dict[str, str]] = []
+            normalized: List[Dict[str, Any]] = []
             for idx, raw in enumerate(replacements):
                 # Per-item json_repair: some models stringify each replacement
                 # individually — heal before strict validation.
@@ -1208,7 +1210,13 @@ def register_replace_in_file(agent):
                             f"both 'old_str' and 'new_str'."
                         )
                     }
-                normalized.append({"old_str": r["old_str"], "new_str": r["new_str"]})
+                normalized.append(
+                    {
+                        "old_str": r["old_str"],
+                        "new_str": r["new_str"],
+                        "replace_all": bool(r.get("replace_all", False)),
+                    }
+                )
 
             result = await _replace_in_file_helper(
                 context, file_path, normalized, message_group=group_id

@@ -27,7 +27,6 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "json-repair>=0.46.2",
     "pyfiglet>=0.8.post1",
-    "rapidfuzz>=3.13.0",
     "openai>=2.45.0",
     "ripgrep==14.1.0; sys_platform != 'android'",
     "playwright>=1.40.0; sys_platform != 'android'",

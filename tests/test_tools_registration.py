@@ -110,6 +110,16 @@ class TestToolRegistration:
         assert True
 
 
+_FILE_TOOL_NAMES = {
+    "create_file",
+    "replace_in_file",
+    "delete_snippet",
+    "delete_file",
+    "edit",
+    "apply_patch",
+}
+
+
 class _CapturingAgent:
     """Minimal stand-in recording the tool names pydantic-ai would see."""
 
@@ -121,6 +131,12 @@ class _CapturingAgent:
             return lambda f: self.tool(f)
         self.names.append(fn.__name__)
         return fn
+
+    @property
+    def file_tools(self) -> list[str]:
+        """Only the file-editing surface; plugin ``register_agent_tools``
+        hooks left behind by other tests may add unrelated names."""
+        return [n for n in self.names if n in _FILE_TOOL_NAMES]
 
 
 class TestRetiredProviderEditors:
@@ -135,7 +151,14 @@ class TestRetiredProviderEditors:
         register_tools_for_agent(
             agent, ["create_file", "replace_in_file"], model_name=model_name
         )
-        assert agent.names == ["create_file", "replace_in_file"]
+        # Plugin hooks left behind by other tests may add unrelated tools;
+        # only the file-editing surface matters here.
+        file_tools = [
+            n
+            for n in agent.names
+            if n in {"create_file", "replace_in_file", "edit", "apply_patch"}
+        ]
+        assert file_tools == ["create_file", "replace_in_file"]
 
     def test_retired_names_are_not_registrable(self):
         assert "edit" not in TOOL_REGISTRY
@@ -145,7 +168,7 @@ class TestRetiredProviderEditors:
         """Agent configs written during the provider-editor era keep working."""
         agent = _CapturingAgent()
         register_tools_for_agent(agent, ["edit", "apply_patch"], model_name="qwen-q4")
-        assert agent.names == [
+        assert agent.file_tools == [
             "replace_in_file",
             "create_file",
             "delete_snippet",
