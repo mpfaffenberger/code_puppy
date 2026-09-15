@@ -186,6 +186,11 @@ def match_limits(
     return LimitMatch(candidates[0], LimitMatchKind.NAME)
 
 
+def bundled_json_path() -> Path:
+    """Path to the models.dev snapshot shipped inside the package."""
+    return Path(__file__).parent / BUNDLED_JSON_FILENAME
+
+
 class ModelsDevRegistry:
     """Registry for managing models and providers from models.dev API.
 
@@ -243,9 +248,10 @@ class ModelsDevRegistry:
             )
             return None
 
-    def _get_bundled_json_path(self) -> Path:
+    @staticmethod
+    def _get_bundled_json_path() -> Path:
         """Get the path to the bundled JSON file."""
-        return Path(__file__).parent / BUNDLED_JSON_FILENAME
+        return bundled_json_path()
 
     def _load_data(self) -> None:
         """Load data from API or fallback sources, populating internal data structures."""
@@ -541,23 +547,29 @@ _REGISTRY_LOCK = threading.Lock()
 
 
 def get_registry() -> Optional[ModelsDevRegistry]:
-    """Process-wide cached models.dev registry.
+    """Process-wide cached registry built from the bundled models.dev snapshot.
 
-    Building a registry hits the network (falling back to the bundled
-    snapshot), so the model-resolution path must never do it on every call.
-    The first caller pays that cost once; everyone after reuses the instance.
+    This serves the model-resolution path (``config.get_model_max_output_tokens``),
+    which runs at startup and on every model switch, so it must never touch the
+    network: a plain ``hi`` would otherwise phone models.dev, and the CI egress
+    guard (``tests/integration/test_network_traffic_monitoring.py``) blocks
+    every release over it. The interactive ``/add_model`` and
+    ``/refresh_models`` commands build their own live ``ModelsDevRegistry()``
+    on demand, so the snapshot only ever lags until the user asks for fresh
+    data. The first caller pays the parse cost once; everyone after reuses
+    the instance.
 
     Returns:
-        The shared registry, or ``None`` when no data source could be loaded.
-        Callers must read ``None`` as "limits unknown", never as an error --
-        this is best-effort enrichment, not a hard dependency.
+        The shared registry, or ``None`` when the snapshot is missing or
+        malformed. Callers must read ``None`` as "limits unknown", never as an
+        error -- this is best-effort enrichment, not a hard dependency.
     """
     global _REGISTRY, _REGISTRY_ATTEMPTED
     with _REGISTRY_LOCK:
         if not _REGISTRY_ATTEMPTED:
             _REGISTRY_ATTEMPTED = True
             try:
-                _REGISTRY = ModelsDevRegistry()
+                _REGISTRY = ModelsDevRegistry(json_path=bundled_json_path())
             except Exception:
                 # Offline, no bundled snapshot, malformed JSON -- all mean the
                 # same thing here: we cannot vouch for any limits.
