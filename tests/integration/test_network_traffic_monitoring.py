@@ -384,9 +384,6 @@ def test_network_traffic_on_simple_message(
         "cloud.dbos.dev",
         "api.getlilac.com",
         "pypi.org",
-        # Builtin agent-skills catalog; keep this exact hostname in sync with
-        # plugins/agent_skills/remote_catalog.py rather than allowing a suffix.
-        "www.llmspec.dev",
         # Output-cap resolution (config.get_model_max_output_tokens) consults
         # models.dev once per process for catalog entries that carry no
         # max_output_tokens. Keep in sync with models_dev_parser.MODELS_DEV_API_URL.

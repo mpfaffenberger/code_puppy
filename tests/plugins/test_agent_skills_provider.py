@@ -62,12 +62,11 @@ def test_provider_listing_does_not_recurse_through_register_skills(
         discovery._plugin_skills_signature = None
 
 
-def test_provider_delegates_config_content_resources_and_catalog():
+def test_provider_delegates_config_content_and_resources():
     provider = AgentSkillsProvider()
     skill_path = Path("/skill")
     info = MagicMock(name="info", path=skill_path)
     info.name = "example"
-    catalog_entry = MagicMock(id="remote-example")
 
     with (
         patch(
@@ -90,10 +89,6 @@ def test_provider_delegates_config_content_resources_and_catalog():
             "code_puppy_core_plugins.agent_skills.provider.get_skill_resources",
             return_value=[skill_path / "reference.md"],
         ),
-        patch(
-            "code_puppy_core_plugins.agent_skills.provider.catalog.get_all",
-            return_value=[catalog_entry],
-        ),
     ):
         assert provider.is_enabled() is True
         assert provider.get_disabled_skill_names() == {"disabled"}
@@ -101,4 +96,3 @@ def test_provider_delegates_config_content_resources_and_catalog():
         assert provider.find_enabled_skill_path("missing") is None
         assert provider.load_skill_content(skill_path) == "# body"
         assert provider.get_skill_resources(skill_path) == [skill_path / "reference.md"]
-        assert provider.get_catalog_skill_ids() == ["remote-example"]

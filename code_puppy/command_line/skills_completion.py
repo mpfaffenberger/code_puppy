@@ -1,35 +1,13 @@
 """Prompt-toolkit completion for `/skills`.
 
-Mirrors MCPCompleter but simpler:
-- Completes subcommands for `/skills ...`
-- For `/skills install ...`, completes skill ids from the remote catalog
-
-This module is intentionally defensive: if the remote catalog isn't available,
-completion simply returns no skill ids.
+Mirrors MCPCompleter but simpler: completes subcommands for `/skills ...`.
 """
 
 from __future__ import annotations
 
-import logging
-import time
-from typing import Iterable, List
+from typing import Iterable
 
 from termflow.tui.completion import Completer, Completion, Document
-
-from code_puppy.skill_provider import get_skill_provider
-
-logger = logging.getLogger(__name__)
-
-
-def load_catalog_skill_ids() -> List[str]:
-    """Load skill ids from the remote catalog (lazy, cached)."""
-
-    try:
-        provider = get_skill_provider()
-        return provider.get_catalog_skill_ids() if provider is not None else []
-    except Exception as e:
-        logger.debug(f"Could not load skill ids: {e}")
-        return []
 
 
 class SkillsCompleter(Completer):
@@ -45,7 +23,6 @@ class SkillsCompleter(Completer):
         self.trigger = trigger
         self.subcommands = {
             "list": "List all installed skills",
-            "install": "Browse & install from catalog",
             "enable": "Enable skills integration globally",
             "disable": "Disable skills integration globally",
             "toggle": "Toggle skills system on/off",
@@ -53,27 +30,10 @@ class SkillsCompleter(Completer):
             "help": "Show skills help",
         }
 
-        self._skill_ids_cache: List[str] | None = None
-        self._cache_timestamp: float | None = None
-
-    def _get_skill_ids(self) -> List[str]:
-        """Get skill ids with 30-second cache."""
-
-        current_time = time.time()
-        if (
-            self._skill_ids_cache is None
-            or self._cache_timestamp is None
-            or current_time - self._cache_timestamp > 30
-        ):
-            self._skill_ids_cache = load_catalog_skill_ids()
-            self._cache_timestamp = current_time
-
-        return self._skill_ids_cache or []
-
     def get_completions(
         self, document: Document, complete_event
     ) -> Iterable[Completion]:
-        """Yield completions for /skills subcommands and skill ids."""
+        """Yield completions for /skills subcommands."""
 
         text = document.text
         cursor_position = document.cursor_position
@@ -110,38 +70,6 @@ class SkillsCompleter(Completer):
             return
 
         parts = after_skills.split()
-
-        # Special-case: /skills install <skill-id>
-        if len(parts) >= 1:
-            subcommand = parts[0].lower()
-
-            if subcommand == "install":
-                # Case 1: exactly `install ` -> show all ids
-                if len(parts) == 1 and text.endswith(" "):
-                    for skill_id in sorted(self._get_skill_ids()):
-                        yield Completion(
-                            skill_id,
-                            start_position=0,
-                            display=skill_id,
-                            display_meta="Skill",
-                        )
-                    return
-
-                # Case 2: `install <partial>` -> filter ids
-                if len(parts) == 2 and cursor_position > (
-                    skills_end + 1 + len(subcommand) + 1
-                ):
-                    partial = parts[1]
-                    start_position = -len(partial)
-                    for skill_id in sorted(self._get_skill_ids()):
-                        if skill_id.lower().startswith(partial.lower()):
-                            yield Completion(
-                                skill_id,
-                                start_position=start_position,
-                                display=skill_id,
-                                display_meta="Skill",
-                            )
-                    return
 
         # If we only have one part and no trailing space, complete subcommands
         if len(parts) == 1 and not text.endswith(" "):
