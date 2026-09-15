@@ -318,6 +318,17 @@ def test_all_shipped_catalogs_are_valid_json():
         assert isinstance(data, dict), f"{path} is not a JSON object"
 
 
+def test_shipped_catalog_keys_are_alphabetized():
+    import glob
+    import os
+
+    locales_dir = os.path.join(os.path.dirname(catalog.__file__), "locales")
+    for path in glob.glob(os.path.join(locales_dir, "*.json")):
+        with open(path, encoding="utf-8") as fh:
+            keys = list(json.load(fh))
+        assert keys == sorted(keys), f"{path} keys are not alphabetized"
+
+
 def test_shipped_locales_are_available():
     available = i18n.available_locales()
     for expected in ("en-US", "es", "fr-CA"):
