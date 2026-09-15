@@ -221,9 +221,9 @@ async def test_zero_arg_tool_call_with_arguments_envelope_validates(monkeypatch)
     assert call.args == {}
 
 
-@pytest.mark.parametrize("tool_name", ["replace_in_file", "edit", "apply_patch"])
+@pytest.mark.parametrize("tool_name", ["replace_in_file", "create_file"])
 def test_editor_args_are_repaired_before_pre_tool_call(tool_name):
-    """Every model-native editor reaches hooks with repaired JSON args."""
+    """Every editor tool reaches hooks with repaired JSON args."""
     raw_args = f'{{"tool": "{tool_name}", "file_path": "puppy.py"'
 
     args, mode = pydantic_patches._tool_args_for_pre_tool_call(raw_args)

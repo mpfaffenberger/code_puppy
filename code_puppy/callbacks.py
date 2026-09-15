@@ -17,7 +17,6 @@ PhaseType = Literal[
     "replace_in_file",
     "delete_snippet",
     "delete_file",
-    "apply_patch",
     "run_shell_command",
     "run_shell_command_output",
     "load_model_config",
@@ -108,7 +107,6 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "replace_in_file": [],
     "delete_snippet": [],
     "delete_file": [],
-    "apply_patch": [],
     "run_shell_command": [],
     "run_shell_command_output": [],
     "load_model_config": [],
@@ -579,11 +577,6 @@ def on_delete_snippet(*args, **kwargs) -> Any:
 
 def on_delete_file(*args, **kwargs) -> Any:
     return _trigger_callbacks_sync("delete_file", *args, **kwargs)
-
-
-def on_apply_patch(*args, **kwargs) -> Any:
-    """Notify plugins about the provider-native multi-file edit operation."""
-    return _trigger_callbacks_sync("apply_patch", *args, **kwargs)
 
 
 async def on_run_shell_command(*args, **kwargs) -> Any:

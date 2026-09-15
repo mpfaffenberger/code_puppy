@@ -545,9 +545,7 @@ Agents can access these tools based on their configuration:
 - **`read_file`**: File content reading
 - **`grep`**: Text search across files
 - **`create_file`**: Create new files or overwrite existing ones
-- **`edit`**: Claude/OpenCode-style targeted text replacements in existing files
 - **`replace_in_file`**: Targeted text replacements in existing files
-- **`apply_patch`**: Codex/OpenCode-style multi-file patches (`patchText`) supporting add, update, delete, and move
 - **`delete_snippet`**: Remove a text snippet from a file
 - **`delete_file`**: File deletion
 - **`agent_run_shell_command`**: Shell command execution
@@ -663,8 +661,7 @@ Agents can access these tools based on their configuration:
 ### Tool Selection
 - Only include tools the agent actually needs
 - Most agents need `agent_share_your_reasoning`
-- File manipulation agents need `read_file`, `create_file`, `edit`
-- Codex/OpenAI Responses models receive `apply_patch` instead of the granular file mutation tools
+- File manipulation agents need `read_file`, `create_file`, `replace_in_file`
 - Note: `"edit_file"` still works in tool lists (auto-expands to the three individual tools)
 - Research agents need `grep`, `list_files`
 

@@ -1169,10 +1169,11 @@ RepairableReplacementsList = Annotated[
 ]
 
 
-def _register_targeted_edit(agent, exposed_name: str):
-    """Register the targeted replacement implementation under a public name."""
+def register_replace_in_file(agent):
+    """Register the replace_in_file tool for targeted text replacements."""
 
-    async def targeted_edit(
+    @agent.tool
+    async def replace_in_file(
         context: RunContext,
         file_path: str,
         replacements: RepairableReplacementsList,
@@ -1234,24 +1235,11 @@ def _register_targeted_edit(agent, exposed_name: str):
         except Exception as exc:
             # Last line of defense — never let this tool crash the agent run.
             _log_error(
-                f"Unhandled exception in {exposed_name}",
+                "Unhandled exception in replace_in_file",
                 exc,
                 message_group=group_id,
             )
-            return {"error": f"{exposed_name} failed: {exc}"}
-
-    targeted_edit.__name__ = exposed_name
-    return agent.tool(targeted_edit)
-
-
-def register_claude_edit(agent):
-    """Register the Claude/OpenCode-compatible targeted ``edit`` tool."""
-    return _register_targeted_edit(agent, "edit")
-
-
-def register_replace_in_file(agent):
-    """Register the legacy ``replace_in_file`` compatibility tool."""
-    return _register_targeted_edit(agent, "replace_in_file")
+            return {"error": f"replace_in_file failed: {exc}"}
 
 
 def register_delete_snippet(agent):
