@@ -6,11 +6,15 @@ pseudolocalization.
 """
 
 import json
+from pathlib import Path
 
 import pytest
 
 from code_puppy import i18n
 from code_puppy.i18n import catalog, formats, locale, plurals, pseudo, translate
+
+_LOCALES_DIR = Path(catalog.__file__).parent / "locales"
+_CATALOG_PATHS = sorted(_LOCALES_DIR.glob("*.json"))
 
 
 def _write_catalog(tmp_path, name, data):
@@ -306,27 +310,33 @@ def test_spanish_plurals():
 
 # --- shipped catalog integrity -------------------------------------------
 def test_all_shipped_catalogs_are_valid_json():
-    import glob
-    import os
-
-    locales_dir = os.path.join(os.path.dirname(catalog.__file__), "locales")
-    files = glob.glob(os.path.join(locales_dir, "*.json"))
-    assert files, "no shipped catalogs found"
-    for path in files:
-        with open(path, encoding="utf-8") as fh:
-            data = json.load(fh)  # raises on malformed JSON
+    assert _CATALOG_PATHS, f"no shipped catalogs found in {_LOCALES_DIR}"
+    for path in _CATALOG_PATHS:
+        data = json.loads(path.read_text(encoding="utf-8"))
         assert isinstance(data, dict), f"{path} is not a JSON object"
 
 
-def test_shipped_catalog_keys_are_alphabetized():
-    import glob
-    import os
+def test_shipped_catalog_paths_are_not_empty():
+    assert _CATALOG_PATHS, f"no shipped catalogs found in {_LOCALES_DIR}"
 
-    locales_dir = os.path.join(os.path.dirname(catalog.__file__), "locales")
-    for path in glob.glob(os.path.join(locales_dir, "*.json")):
-        with open(path, encoding="utf-8") as fh:
-            keys = list(json.load(fh))
-        assert keys == sorted(keys), f"{path} keys are not alphabetized"
+
+@pytest.mark.parametrize("path", _CATALOG_PATHS, ids=lambda path: path.name)
+def test_shipped_catalog_keys_are_alphabetized(path):
+    """Top-level keys are sorted; nested CLDR plural categories are exempt."""
+
+    def reject_duplicates(pairs):
+        seen = set()
+        for key, _ in pairs:
+            assert key not in seen, f"{path.name}: duplicate key {key!r}"
+            seen.add(key)
+        return dict(pairs)
+
+    data = json.loads(
+        path.read_text(encoding="utf-8"), object_pairs_hook=reject_duplicates
+    )
+    assert list(data) == sorted(data), (
+        f"{path.name}: top-level keys are not alphabetized"
+    )
 
 
 def test_shipped_locales_are_available():
