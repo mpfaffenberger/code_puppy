@@ -110,6 +110,49 @@ class TestToolRegistration:
         assert True
 
 
+class _CapturingAgent:
+    """Minimal stand-in recording the tool names pydantic-ai would see."""
+
+    def __init__(self):
+        self.names: list[str] = []
+
+    def tool(self, fn=None, **_kwargs):
+        if fn is None:
+            return lambda f: self.tool(f)
+        self.names.append(fn.__name__)
+        return fn
+
+
+class TestRetiredProviderEditors:
+    """``edit`` / ``apply_patch`` are gone; every model gets the granular tools."""
+
+    @pytest.mark.parametrize(
+        "model_name",
+        ["codex-gpt-5.4", "chatgpt-gpt-5", "claude-code-claude-opus-4-7", "qwen-q4"],
+    )
+    def test_every_model_gets_the_same_file_tools(self, model_name):
+        agent = _CapturingAgent()
+        register_tools_for_agent(
+            agent, ["create_file", "replace_in_file"], model_name=model_name
+        )
+        assert agent.names == ["create_file", "replace_in_file"]
+
+    def test_retired_names_are_not_registrable(self):
+        assert "edit" not in TOOL_REGISTRY
+        assert "apply_patch" not in TOOL_REGISTRY
+
+    def test_retired_names_alias_to_granular_tools(self):
+        """Agent configs written during the provider-editor era keep working."""
+        agent = _CapturingAgent()
+        register_tools_for_agent(agent, ["edit", "apply_patch"], model_name="qwen-q4")
+        assert agent.names == [
+            "replace_in_file",
+            "create_file",
+            "delete_snippet",
+            "delete_file",
+        ]
+
+
 class TestRemovedReasoningToolBehavior:
     """Test that the retired reasoning tool is hidden from agent-facing use."""
 

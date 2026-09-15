@@ -98,6 +98,11 @@ TOOL_REGISTRY.update(_load_browser_tool_registry())
 # registers the expansions INSTEAD (the original is not registered).
 TOOL_EXPANSIONS: dict[str, list[str]] = {
     "edit_file": ["create_file", "replace_in_file", "delete_snippet"],
+    # Compat aliases for the retired provider-specific editors (the Claude
+    # ``edit`` dialect and the Codex ``apply_patch`` envelope). Agent configs
+    # that still list them get the granular tools instead of a silent drop.
+    "edit": ["replace_in_file"],
+    "apply_patch": ["create_file", "replace_in_file", "delete_snippet", "delete_file"],
 }
 
 # Legacy tool names we silently ignore. Truly removed tools only — working
