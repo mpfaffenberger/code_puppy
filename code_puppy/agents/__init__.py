@@ -16,7 +16,12 @@ from .agent_manager import (
     set_current_agent,
 )
 
-# Import for its side effect: auto-registers the TTFT/TG run-stats hooks.
+from .deferred_reload import (
+    DeferredReloadQueue,
+    apply_agent_reloads,
+    clear_pending_agent_reloads,
+    request_agent_reload,
+)
 from . import run_stats  # noqa: F401
 from .subagent_stream_handler import subagent_stream_handler
 
@@ -30,5 +35,9 @@ __all__ = [
     "load_agent",
     "get_agent_descriptions",
     "refresh_agents",
+    "DeferredReloadQueue",
+    "request_agent_reload",
+    "apply_agent_reloads",
+    "clear_pending_agent_reloads",
     "subagent_stream_handler",
 ]

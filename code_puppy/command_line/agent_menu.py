@@ -41,40 +41,6 @@ from code_puppy.tools.command_runner import set_awaiting_user_input
 
 PAGE_SIZE = 10  # Agents per page
 
-# ---------------------------------------------------------------------------
-# Deferred-reload queue
-# ---------------------------------------------------------------------------
-# ``interactive_agent_picker`` runs in a worker thread + transient
-# asyncio.run loop (see handle_agent_command / switch_agent_resume) that dies
-# when the picker returns. Reloading inside would schedule MCP autostart tasks
-# on that loop; its cleanup deadlocks on anyio teardown and the main thread
-# hangs in future.result(timeout=300) — Enter after pinning a model freezes
-# the app. Solution: queue the reload; the caller drains it on the main loop
-# afterwards, where the MCP tasks belong.
-_PENDING_PIN_RELOADS: List[Tuple[str, Optional[str]]] = []
-
-
-def consume_pending_pin_reloads() -> List[Tuple[str, Optional[str]]]:
-    """Drain and return queued (agent_name, pinned_model) reload requests.
-
-    Callers MUST invoke this from the main event loop after the picker
-    worker future has completed, then call
-    :func:`apply_pending_pin_reload` for each tuple.
-    """
-    global _PENDING_PIN_RELOADS
-    pending = _PENDING_PIN_RELOADS
-    _PENDING_PIN_RELOADS = []
-    return pending
-
-
-def apply_pending_pin_reload(agent_name: str, pinned_model: Optional[str]) -> None:
-    """Reload the active agent if its pinned model changed during the picker.
-
-    Safe to call from the main event loop only. No-ops if the named agent
-    is not currently active.
-    """
-    _reload_agent_if_current(agent_name, pinned_model)
-
 
 def _sanitize_display_text(text: str) -> str:
     """Remove or replace characters that cause terminal rendering issues.
@@ -168,27 +134,6 @@ async def _select_pinned_model(agent_name: str) -> Optional[str]:
     return await ModelSelectionMenu(model_names=["(unpin)"] + model_names).run_async()
 
 
-def _reload_agent_if_current(
-    agent_name: str,
-    pinned_model: Optional[str],
-) -> None:
-    """Reload the current agent when its pinned model changes."""
-    current_agent = get_current_agent()
-    if not current_agent or current_agent.name != agent_name:
-        return
-
-    try:
-        if hasattr(current_agent, "refresh_config"):
-            current_agent.refresh_config()
-        current_agent.reload_code_generation_agent()
-        if pinned_model:
-            emit_info(f"Active agent reloaded with pinned model '{pinned_model}'")
-        else:
-            emit_info("Active agent reloaded with default model")
-    except Exception as exc:
-        emit_warning(f"Pinned model applied but reload failed: {exc}")
-
-
 def _apply_pinned_model(agent_name: str, model_choice: str) -> None:
     """Persist a pinned model selection for an agent.
 
@@ -218,12 +163,10 @@ def _apply_pinned_model(agent_name: str, model_choice: str) -> None:
                 if "model" in agent_config:
                     del agent_config["model"]
                 emit_success(f"Model pin cleared for '{agent_name}'")
-                pinned_model = None
             else:
                 # Set the model
                 agent_config["model"] = model_choice
                 emit_success(f"Pinned '{model_choice}' to '{agent_name}'")
-                pinned_model = model_choice
 
             # Save the updated configuration
             with open(agent_file_path, "w", encoding="utf-8") as f:
@@ -233,16 +176,13 @@ def _apply_pinned_model(agent_name: str, model_choice: str) -> None:
             if model_choice == "(unpin)":
                 clear_agent_pinned_model(agent_name)
                 emit_success(f"Model pin cleared for '{agent_name}'")
-                pinned_model = None
             else:
                 set_agent_pinned_model(agent_name, model_choice)
                 emit_success(f"Pinned '{model_choice}' to '{agent_name}'")
-                pinned_model = model_choice
 
-        # Defer the reload to the main loop — doing it here would schedule MCP
-        # autostart on the picker's transient loop and deadlock on shutdown
-        # (see ``_PENDING_PIN_RELOADS``).
-        _PENDING_PIN_RELOADS.append((agent_name, pinned_model))
+        from code_puppy.agents import request_agent_reload
+
+        request_agent_reload(agent_name)
     except Exception as exc:
         emit_warning(f"Failed to apply pinned model: {exc}")
 

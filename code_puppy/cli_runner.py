@@ -814,11 +814,10 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
     # Initialize the runtime agent manager
     if initial_command:
-        from code_puppy.agents.deferred_reload import apply_pending_agent_reloads
-        from code_puppy.agents import get_current_agent
+        from code_puppy.agents import apply_agent_reloads, get_current_agent
         from code_puppy.messaging import emit_info, emit_success, emit_system_message
 
-        apply_pending_agent_reloads()
+        apply_agent_reloads(get_current_agent)
         agent = get_current_agent()
         emit_info(t("cli.initial_command.processing", command=initial_command))
 
@@ -908,10 +907,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             persistent_prompt = False  # degrade to classic on any failure
 
     while True:
-        from code_puppy.agents.deferred_reload import apply_pending_agent_reloads
-        from code_puppy.agents.agent_manager import get_current_agent
-
-        apply_pending_agent_reloads()
+        from code_puppy.agents import get_current_agent
         from code_puppy.messaging import emit_info
 
         # Get the custom prompt from the current agent, or use default
@@ -1147,6 +1143,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 # Command not recognized, continue with normal processing
                 pass
 
+        from code_puppy.agents import apply_agent_reloads
+
+        apply_agent_reloads(get_current_agent)
         if task.strip():
             # Write to the secret file for permanent history with timestamp
             save_command_to_history(task)
@@ -1536,6 +1535,9 @@ async def execute_single_prompt(
     emit_info(t("cli.headless.executing", prompt=prompt))
 
     try:
+        from code_puppy.agents import apply_agent_reloads
+
+        apply_agent_reloads(get_current_agent)
         agent = get_current_agent()
         # Headless -p mode: no run UI (no bottom bar, no line editor) —
         # output must stay plain for pipes/CI even when stdout is a TTY.

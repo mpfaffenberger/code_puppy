@@ -1,49 +1,84 @@
-"""Queue agent rebuilds for the live CLI event loop.
+"""Queue agent rebuilds for the live CLI event loop."""
 
-Background integrations may update an agent's configuration from a worker
-thread, but rebuilding the pydantic/MCP agent must happen on the main event
-loop. This module provides the synchronization seam between those contexts.
-"""
-
+import logging
 import threading
+from collections.abc import Callable
 
-_pending_agent_reloads: set[str] = set()
-_pending_lock = threading.Lock()
+logger = logging.getLogger(__name__)
+MAX_RELOAD_ATTEMPTS = 3
+
+
+class DeferredReloadQueue:
+    """Thread-safe queue that applies agent rebuilds on the main loop."""
+
+    def __init__(self) -> None:
+        self._pending: dict[str, int] = {}
+        self._lock = threading.Lock()
+
+    def request(self, agent_name: str) -> None:
+        """Request a reload, preserving any existing retry count."""
+        with self._lock:
+            self._pending.setdefault(agent_name, 0)
+
+    def clear(self) -> None:
+        """Clear queued requests; intended for deterministic test cleanup."""
+        with self._lock:
+            self._pending.clear()
+
+    def apply(self, get_current_agent: Callable[[], object]) -> None:
+        """Apply the active request from the main event loop."""
+        try:
+            current = get_current_agent()
+        except Exception:
+            logger.exception("Could not inspect the active agent for deferred reload")
+            return
+
+        with self._lock:
+            pending = dict(self._pending)
+
+        if current.name not in pending:
+            return
+
+        try:
+            current.refresh_config()
+            current.reload_code_generation_agent()
+        except Exception:
+            with self._lock:
+                attempts = self._pending.get(current.name, 0) + 1
+                if attempts >= MAX_RELOAD_ATTEMPTS:
+                    self._pending.pop(current.name, None)
+                    logger.exception(
+                        "Giving up after %d failed reload attempts for agent %r",
+                        attempts,
+                        current.name,
+                    )
+                else:
+                    self._pending[current.name] = attempts
+                    logger.exception(
+                        "Deferred reload attempt %d/%d failed for agent %r",
+                        attempts,
+                        MAX_RELOAD_ATTEMPTS,
+                        current.name,
+                    )
+            return
+
+        with self._lock:
+            self._pending.pop(current.name, None)
+
+
+_queue = DeferredReloadQueue()
 
 
 def request_agent_reload(agent_name: str) -> None:
     """Request a main-loop reload for *agent_name* after its config changes."""
-    with _pending_lock:
-        _pending_agent_reloads.add(agent_name)
+    _queue.request(agent_name)
 
 
-def apply_pending_agent_reloads() -> None:
-    """Apply queued reloads for the currently active agent.
+def apply_agent_reloads(get_current_agent: Callable[[], object]) -> None:
+    """Apply queued reloads for the active agent on the main event loop."""
+    _queue.apply(get_current_agent)
 
-    Call this from the main event loop. Requests for inactive agents remain
-    queued until that agent becomes active, avoiding a lost update while a
-    background operation finishes during an agent switch.
-    """
-    from code_puppy.agents import get_current_agent
 
-    with _pending_lock:
-        pending = set(_pending_agent_reloads)
-        _pending_agent_reloads.clear()
-
-    if not pending:
-        return
-
-    try:
-        current = get_current_agent()
-        if current.name in pending:
-            if hasattr(current, "refresh_config"):
-                current.refresh_config()
-            current.reload_code_generation_agent()
-            pending.remove(current.name)
-    except Exception:
-        # Keep the request queued so a later prompt can retry safely.
-        pass
-
-    if pending:
-        with _pending_lock:
-            _pending_agent_reloads.update(pending)
+def clear_pending_agent_reloads() -> None:
+    """Clear queued reloads, primarily for test isolation."""
+    _queue.clear()
