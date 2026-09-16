@@ -228,11 +228,10 @@ def test_interpolation_contracts(cases):
 
 
 def test_escaped_braces_render_as_literal_placeholder():
-    """{{name}} must render as the literal text {name}, never substituted.
+    """Test the grammar directly rather than through a catalog key.
 
-    Tests the grammar directly: the last catalog key using this escape
-    The contract must hold for future translators regardless of which
-    catalog key uses the escape.
+    The contract must hold for future translators regardless of which key
+    uses the escape.
     """
     rendered = translate._interpolate("Usage: /x {{color_type}} <name>", {})
     assert "{color_type}" in rendered, (
