@@ -150,6 +150,8 @@ _RETRYABLE_EXCEPTIONS: tuple = (
 # while reading an established stream can escape as a raw ``ssl.SSLError``.
 # Keep this allowlist narrow: certificate and protocol errors need user action,
 # while a corrupted TLS record on an existing SSE stream is safe to retry.
+# Only the reason observed escaping raw from AnyIO is included; add another
+# reason only after confirming that it can bypass the httpx/httpcore wrappers.
 _RETRYABLE_TLS_REASONS = frozenset({"DECRYPTION_FAILED_OR_BAD_RECORD_MAC"})
 
 
@@ -161,11 +163,15 @@ def _is_retryable_tls_stream_error(exc: BaseException) -> bool:
     reason = getattr(exc, "reason", None)
     if isinstance(reason, str) and reason.upper() in _RETRYABLE_TLS_REASONS:
         return True
+    if reason is not None:
+        return False
 
     # Hand-built exceptions and some Python/OpenSSL combinations omit
     # ``.reason`` but preserve its stable symbolic name in the message.
     message = str(exc).upper()
-    return any(f"[SSL: {reason}]" in message for reason in _RETRYABLE_TLS_REASONS)
+    return any(
+        f"[SSL: {tls_reason}]" in message for tls_reason in _RETRYABLE_TLS_REASONS
+    )
 
 
 def _matches_retryable_snippet(msg: str) -> bool:

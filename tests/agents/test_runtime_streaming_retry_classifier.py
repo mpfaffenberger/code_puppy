@@ -50,7 +50,7 @@ def test_is_retryable_one_does_not_widen_to_unrelated_value_errors() -> None:
 
 
 def _tls_record_error() -> ssl.SSLError:
-    """Match the raw AnyIO stream-read failure reported from macOS."""
+    """Match the reported message-only shape; constructed errors lack .reason."""
     return ssl.SSLError(
         ssl.SSL_ERROR_SSL,
         "[SSL: DECRYPTION_FAILED_OR_BAD_RECORD_MAC] "
@@ -60,6 +60,14 @@ def _tls_record_error() -> ssl.SSLError:
 
 def test_is_retryable_one_recognizes_tls_record_error() -> None:
     assert _is_retryable_one(_tls_record_error()) is True
+
+
+def test_is_retryable_one_uses_structured_tls_reason() -> None:
+    """Real OpenSSL errors populate .reason; constructed ones do not."""
+    exc = ssl.SSLError(ssl.SSL_ERROR_SSL, "decryption failed or bad record mac")
+    exc.reason = "DECRYPTION_FAILED_OR_BAD_RECORD_MAC"
+
+    assert _is_retryable_one(exc) is True
 
 
 def test_should_retry_streaming_reaches_tls_record_error_inside_group() -> None:
@@ -82,6 +90,13 @@ def test_tls_protocol_error_is_not_retryable() -> None:
         ssl.SSL_ERROR_SSL,
         "[SSL: WRONG_VERSION_NUMBER] wrong version number",
     )
+
+    assert _is_retryable_one(exc) is False
+
+
+def test_structured_tls_reason_is_not_overridden_by_message_fallback() -> None:
+    exc = _tls_record_error()
+    exc.reason = "WRONG_VERSION_NUMBER"
 
     assert _is_retryable_one(exc) is False
 
