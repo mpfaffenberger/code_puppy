@@ -19,16 +19,6 @@ from code_puppy.config import get_value, set_value
 logger = logging.getLogger(__name__)
 
 
-def get_lock_builtin_plugins() -> bool:
-    """Compat shim -- the builtin-plugin lock is gone; nothing is ever locked.
-
-    ``code_puppy_core_plugins<=0.0.50``'s ``/plugins`` menu still imports this
-    at open time. Delete once the bundle floor in ``pyproject.toml`` is past
-    the release that dropped the lock.
-    """
-    return False
-
-
 def get_disabled_plugins() -> Set[str]:
     """Return the set of explicitly disabled plugin names.
 
