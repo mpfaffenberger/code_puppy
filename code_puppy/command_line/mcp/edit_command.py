@@ -42,7 +42,7 @@ class EditCommand(MCPCommandBase):
             # Need a server name
             if not args:
                 emit_info(
-                    Text.from_markup(f"[yellow]{t('mcp.edit.usage')}[/yellow]"),
+                    Text(t("mcp.edit.usage"), style="yellow"),
                     message_group=group_id,
                 )
                 emit_info(
@@ -80,7 +80,7 @@ class EditCommand(MCPCommandBase):
 
         except Exception as e:
             logger.error(f"Error editing server: {e}")
-            emit_error(t("mcp.edit.error", error=e), message_group=group_id)
+            emit_error(t("mcp.edit.config_error", error=e), message_group=group_id)
 
     def _load_server_config(
         self, server_name: str, group_id: str

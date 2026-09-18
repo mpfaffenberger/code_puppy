@@ -156,6 +156,7 @@
   "mcp.custom_server.type_stdio": "    1. 📟 stdio  - Commande locale (npx, python, uvx, etc.)",
   "mcp.custom_server.url_missing": "Les serveurs {server_type} nécessitent un champ 'url'",
   "mcp.edit.available_servers": "\nServeurs disponibles :",
+  "mcp.edit.config_error": "Erreur de configuration : {error}",
   "mcp.edit.config_load_error": "Erreur de chargement de la configuration du serveur : {error}",
   "mcp.edit.config_read_error": "Erreur de lecture du fichier de configuration : {error}",
   "mcp.edit.error": "Erreur : {error}",
