@@ -13,6 +13,7 @@ from pydantic_ai.profiles.openai import OpenAIModelProfile
 from pydantic_ai.settings import ModelSettings
 
 from code_puppy.gemini_model import GeminiModel
+from code_puppy.i18n import t
 from code_puppy.messaging import emit_warning
 
 from . import callbacks
@@ -620,7 +621,11 @@ def get_custom_config(model_config):
             resolved_value = get_api_key(env_var_name)
             if resolved_value is None:
                 emit_warning(
-                    f"'{env_var_name}' is not set (check config or environment) for custom endpoint header '{key}'. Proceeding with empty value."
+                    t(
+                        "model_factory.custom.header_missing",
+                        env_var=env_var_name,
+                        key=key,
+                    )
                 )
                 resolved_value = ""
             value = resolved_value
@@ -633,7 +638,11 @@ def get_custom_config(model_config):
                     resolved_value = get_api_key(env_var)
                     if resolved_value is None:
                         emit_warning(
-                            f"'{env_var}' is not set (check config or environment) for custom endpoint header '{key}'. Proceeding with empty value."
+                            t(
+                                "model_factory.custom.header_missing",
+                                env_var=env_var,
+                                key=key,
+                            )
                         )
                         resolved_values.append("")
                     else:
@@ -649,7 +658,7 @@ def get_custom_config(model_config):
             api_key = get_api_key(env_var_name)
             if api_key is None:
                 emit_warning(
-                    f"API key '{env_var_name}' is not set (checked config and environment); proceeding without API key."
+                    t("model_factory.custom.api_key_missing", env_var=env_var_name)
                 )
         else:
             api_key = custom_config["api_key"]
@@ -824,7 +833,10 @@ class ModelFactory:
             api_key = get_api_key("GEMINI_API_KEY")
             if not api_key:
                 emit_warning(
-                    f"GEMINI_API_KEY is not set (check config or environment); skipping Gemini model '{model_config.get('name')}'."
+                    t(
+                        "model_factory.gemini.api_key_missing",
+                        model=model_config.get("name"),
+                    )
                 )
                 return None
 
@@ -835,7 +847,10 @@ class ModelFactory:
             api_key = get_api_key("OPENAI_API_KEY")
             if not api_key:
                 emit_warning(
-                    f"OPENAI_API_KEY is not set (check config or environment); skipping OpenAI model '{model_config.get('name')}'."
+                    t(
+                        "model_factory.openai.api_key_missing",
+                        model=model_config.get("name"),
+                    )
                 )
                 return None
 
@@ -866,7 +881,10 @@ class ModelFactory:
             api_key = get_api_key("ANTHROPIC_API_KEY")
             if not api_key:
                 emit_warning(
-                    f"ANTHROPIC_API_KEY is not set (check config or environment); skipping Anthropic model '{model_config.get('name')}'."
+                    t(
+                        "model_factory.anthropic.api_key_missing",
+                        model=model_config.get("name"),
+                    )
                 )
                 return None
 
@@ -912,7 +930,10 @@ class ModelFactory:
             url, headers, verify, api_key, timeout = get_custom_config(model_config)
             if not api_key:
                 emit_warning(
-                    f"API key is not set for custom Anthropic endpoint; skipping model '{model_config.get('name')}'."
+                    t(
+                        "model_factory.custom_anthropic.api_key_missing",
+                        model=model_config.get("name"),
+                    )
                 )
                 return None
 
@@ -970,7 +991,15 @@ class ModelFactory:
                 azure_endpoint = get_api_key(azure_endpoint_config[1:])
             if not azure_endpoint:
                 emit_warning(
-                    f"Azure OpenAI endpoint '{azure_endpoint_config[1:] if azure_endpoint_config.startswith('$') else azure_endpoint_config}' not found (check config or environment); skipping model '{model_config.get('name')}'."
+                    t(
+                        "model_factory.azure.endpoint_missing",
+                        endpoint=(
+                            azure_endpoint_config[1:]
+                            if azure_endpoint_config.startswith("$")
+                            else azure_endpoint_config
+                        ),
+                        model=model_config.get("name"),
+                    )
                 )
                 return None
 
@@ -984,7 +1013,15 @@ class ModelFactory:
                 api_version = get_api_key(api_version_config[1:])
             if not api_version:
                 emit_warning(
-                    f"Azure OpenAI API version '{api_version_config[1:] if api_version_config.startswith('$') else api_version_config}' not found (check config or environment); skipping model '{model_config.get('name')}'."
+                    t(
+                        "model_factory.azure.api_version_missing",
+                        version=(
+                            api_version_config[1:]
+                            if api_version_config.startswith("$")
+                            else api_version_config
+                        ),
+                        model=model_config.get("name"),
+                    )
                 )
                 return None
 
@@ -998,7 +1035,15 @@ class ModelFactory:
                 api_key = get_api_key(api_key_config[1:])
             if not api_key:
                 emit_warning(
-                    f"Azure OpenAI API key '{api_key_config[1:] if api_key_config.startswith('$') else api_key_config}' not found (check config or environment); skipping model '{model_config.get('name')}'."
+                    t(
+                        "model_factory.azure.api_key_missing",
+                        key=(
+                            api_key_config[1:]
+                            if api_key_config.startswith("$")
+                            else api_key_config
+                        ),
+                        model=model_config.get("name"),
+                    )
                 )
                 return None
 
@@ -1049,7 +1094,10 @@ class ModelFactory:
             api_key = get_api_key("ZAI_API_KEY")
             if not api_key:
                 emit_warning(
-                    f"ZAI_API_KEY is not set (check config or environment); skipping ZAI coding model '{model_config.get('name')}'."
+                    t(
+                        "model_factory.zai.coding_api_key_missing",
+                        model=model_config.get("name"),
+                    )
                 )
                 return None
             provider = make_openai_provider(
@@ -1068,7 +1116,10 @@ class ModelFactory:
             api_key = get_api_key("ZAI_API_KEY")
             if not api_key:
                 emit_warning(
-                    f"ZAI_API_KEY is not set (check config or environment); skipping ZAI API model '{model_config.get('name')}'."
+                    t(
+                        "model_factory.zai.api_key_missing",
+                        model=model_config.get("name"),
+                    )
                 )
                 return None
             provider = make_openai_provider(
@@ -1088,7 +1139,10 @@ class ModelFactory:
             url, headers, verify, api_key, timeout = get_custom_config(model_config)
             if not api_key:
                 emit_warning(
-                    f"API key is not set for custom Gemini endpoint; skipping model '{model_config.get('name')}'."
+                    t(
+                        "model_factory.custom_gemini.api_key_missing",
+                        model=model_config.get("name"),
+                    )
                 )
                 return None
 
@@ -1119,7 +1173,10 @@ class ModelFactory:
 
             if not api_key:
                 emit_warning(
-                    f"API key is not set for Cerebras endpoint; skipping model '{model_config.get('name')}'."
+                    t(
+                        "model_factory.cerebras.api_key_missing",
+                        model=model_config.get("name"),
+                    )
                 )
                 return None
             # Add Cerebras 3rd party integration header
@@ -1171,7 +1228,11 @@ class ModelFactory:
                     api_key = get_api_key(env_var_name)
                     if api_key is None:
                         emit_warning(
-                            f"OpenRouter API key '{env_var_name}' not found (check config or environment); skipping model '{model_config.get('name')}'."
+                            t(
+                                "model_factory.openrouter.api_key_missing",
+                                env_var=env_var_name,
+                                model=model_config.get("name"),
+                            )
                         )
                         return None
                 else:
@@ -1182,7 +1243,10 @@ class ModelFactory:
                 api_key = get_api_key("OPENROUTER_API_KEY")
                 if api_key is None:
                     emit_warning(
-                        f"OPENROUTER_API_KEY is not set (check config or environment); skipping OpenRouter model '{model_config.get('name')}'."
+                        t(
+                            "model_factory.openrouter.default_api_key_missing",
+                            model=model_config.get("name"),
+                        )
                     )
                     return None
 
