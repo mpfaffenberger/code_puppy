@@ -25,7 +25,7 @@ from code_puppy.config import (
     get_suppress_informational_messages,
     get_suppress_thinking_messages,
 )
-from code_puppy.i18n import t
+from code_puppy.i18n import ngettext, t
 from code_puppy.tools.common import stream_diff_ansi_lines
 from code_puppy.tools.subagent_context import is_subagent
 
@@ -514,13 +514,13 @@ class RichConsoleRenderer:
             self._render_universal_constructor(message)
         elif isinstance(message, UserInputRequest):
             # Can't handle async user input in sync context - skip
-            self._console.print(t("renderer.user_input_async"))
+            self._console.print(f"[dim]{t('renderer.user_input_async')}[/dim]")
         elif isinstance(message, ConfirmationRequest):
             # Can't handle async confirmation in sync context - skip
-            self._console.print(t("renderer.confirmation_async"))
+            self._console.print(f"[dim]{t('renderer.confirmation_async')}[/dim]")
         elif isinstance(message, SelectionRequest):
             # Can't handle async selection in sync context - skip
-            self._console.print(t("renderer.selection_async"))
+            self._console.print(f"[dim]{t('renderer.selection_async')}[/dim]")
         elif isinstance(message, SpinnerControl):
             self._render_spinner_control(message)
         elif isinstance(message, DividerMessage):
@@ -536,7 +536,7 @@ class RichConsoleRenderer:
         else:
             # Unknown message type - render as debug
             self._console.print(
-                t("renderer.unknown_message", message_type=type(message).__name__)
+                f"[dim]{t('renderer.unknown_message', message_type=type(message).__name__)}[/dim]"
             )
 
     async def render(self, message: AnyMessage) -> None:
@@ -718,7 +718,7 @@ class RichConsoleRenderer:
         render_dir_tree(root_key, 0)
 
         # Summary
-        self._console.print(f"\n[bold cyan]{t('renderer.summary')}[/bold cyan]:")
+        self._console.print(f"\n[bold cyan]{t('renderer.summary')}[/bold cyan]")
         self._console.print(
             f"[blue]{msg.dir_count} directories[/blue], "
             f"[green]{msg.file_count} files[/green] "
@@ -772,12 +772,9 @@ class RichConsoleRenderer:
             )
 
         if not msg.matches:
-            no_matches = t(
-                "renderer.no_matches",
-                search_term=msg.search_term,
-                directory=msg.directory,
+            self._console.print(
+                f"[dim]{t('renderer.no_matches', search_term=msg.search_term, directory=msg.directory)}[/dim]"
             )
-            self._console.print(f"[dim]{no_matches}[/dim]")
             return
 
         # Group by file
@@ -792,10 +789,10 @@ class RichConsoleRenderer:
             # Verbose mode: Show full output with line numbers and content
             for file_path in sorted(by_file.keys()):
                 file_matches = by_file[file_path]
-                match_word = "match" if len(file_matches) == 1 else "matches"
-                self._console.print(
-                    f"\n[dim]{file_path} ({len(file_matches)} {match_word})[/dim]"
+                match_count = ngettext(
+                    "renderer.match_count", len(file_matches), count=len(file_matches)
                 )
+                self._console.print(f"\n[dim]{file_path} ({match_count})[/dim]")
 
                 # Show each match with line number and content
                 for match in file_matches:
@@ -826,26 +823,26 @@ class RichConsoleRenderer:
             self._console.print("")
             for file_path in sorted(by_file.keys()):
                 file_matches = by_file[file_path]
-                match_word = "match" if len(file_matches) == 1 else "matches"
-                self._console.print(
-                    f"[dim]{file_path} ({len(file_matches)} {match_word})[/dim]"
+                match_count = ngettext(
+                    "renderer.match_count", len(file_matches), count=len(file_matches)
                 )
+                self._console.print(f"[dim]{file_path} ({match_count})[/dim]")
 
         # Summary - subtle
-        match_word = "match" if msg.total_matches == 1 else "matches"
-        file_word = "file" if len(by_file) == 1 else "files"
         num_files = len(by_file)
+        match_count = ngettext(
+            "renderer.match_count", msg.total_matches, count=msg.total_matches
+        )
+        file_count = ngettext("renderer.file_count", num_files, count=num_files)
         found_matches = t(
             "renderer.found_matches",
-            matches=msg.total_matches,
-            match_word=match_word,
-            files=num_files,
-            file_word=file_word,
+            matches=match_count,
+            files=file_count,
         )
         self._console.print(f"[dim]{found_matches}[/dim]")
         if msg.truncated:
             self._console.print(
-                t("renderer.truncated", matches=msg.total_matches)
+                f"[yellow]{t('renderer.truncated', matches=msg.total_matches)}[/yellow]"
             )
 
         # Trailing newline for spinner separation
@@ -945,7 +942,7 @@ class RichConsoleRenderer:
 
         # Show timeout or background status
         if msg.background:
-            self._console.print(t("renderer.background_no_timeout"))
+            self._console.print(f"[dim]{t('renderer.background_no_timeout')}[/dim]")
         else:
             self._console.print(
                 f"[dim]{t('renderer.timeout', seconds=msg.timeout)}[/dim]"
@@ -981,14 +978,8 @@ class RichConsoleRenderer:
         In high mode the exit code and wall-clock duration are displayed.
         """
         if get_output_level() == "high":
-            exit_style = "green" if msg.exit_code == 0 else "red"
             self._console.print(
-                t(
-                    "renderer.exit_duration",
-                    exit_style=exit_style,
-                    exit_code=msg.exit_code,
-                    duration=f"{msg.duration_seconds:.1f}",
-                )
+                f"[dim]{t('renderer.exit_duration', exit_code=msg.exit_code, duration=f'{msg.duration_seconds:.1f}')}[/dim]"
             )
         else:
             # Just print trailing newline for spinner separation
@@ -1005,7 +996,7 @@ class RichConsoleRenderer:
         self._console.print(f"\n{banner}")
 
         # Current reasoning
-        self._console.print(t("renderer.current_reasoning"))
+        self._console.print(f"[bold cyan]{t('renderer.current_reasoning')}[/bold cyan]")
         # Render reasoning as markdown
         md = Markdown(msg.reasoning)
         self._console.print(md)
@@ -1051,7 +1042,11 @@ class RichConsoleRenderer:
             if msg.is_new_session
             else f"Continuing ({msg.message_count} messages)"
         )
-        banner_text = t("renderer.fork") if msg.is_fork else t("renderer.invoke_agent")
+        banner_text = (
+            "\U0001f374 " + t("renderer.fork")
+            if msg.is_fork
+            else "\U0001f916 " + t("renderer.invoke_agent")
+        )
         banner = self._format_banner("invoke_agent", banner_text)
         self._console.print(
             f"\n{banner} "
@@ -1083,7 +1078,7 @@ class RichConsoleRenderer:
         """Render sub-agent response with markdown formatting."""
         # Response header
         banner = self._format_banner(
-            "subagent_response", t("renderer.subagent_response")
+            "subagent_response", "\u2713 " + t("renderer.subagent_response")
         )
         self._console.print(f"\n{banner} [bold cyan]{msg.agent_name}[/bold cyan]")
 
