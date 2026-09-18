@@ -235,11 +235,13 @@ def _apply_pinned_model(agent_name: str, model_choice: str) -> None:
             # Handle built-in Python agent - use config functions
             if model_choice == "(unpin)":
                 clear_agent_pinned_model(agent_name)
-                emit_success(f"Model pin cleared for '{agent_name}'")
+                emit_success(t("agent_menu.pin_cleared", agent=agent_name))
                 pinned_model = None
             else:
                 set_agent_pinned_model(agent_name, model_choice)
-                emit_success(f"Pinned '{model_choice}' to '{agent_name}'")
+                emit_success(
+                    t("agent_menu.pin_set", model=model_choice, agent=agent_name)
+                )
                 pinned_model = model_choice
 
         # Defer the reload to the main loop — doing it here would schedule MCP
