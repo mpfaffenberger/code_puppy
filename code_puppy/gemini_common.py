@@ -91,12 +91,8 @@ def _build_generation_config(model_settings: ModelSettings | None) -> dict[str, 
         thinking_enabled = model_settings.get("thinking_enabled")
         thinking_level = model_settings.get("thinking_level")
 
-        # Build thinkingConfig if thinking settings are present.
-        if thinking_enabled is False:
-            # Disable thinking by not including thinkingConfig.
-            pass
-
-        elif thinking_level is not None:
+        # Build `thinkingConfig` if thinking settings are present.
+        if thinking_enabled is not False and thinking_level is not None:
             # Gemini 3 Pro uses thinkingLevel with values "low" or "high".
             # `includeThoughts=True` is required to surface the thinking in response.
             config["thinkingConfig"] = {

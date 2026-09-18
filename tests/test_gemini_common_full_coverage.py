@@ -1,7 +1,6 @@
 """Full coverage tests for code_puppy/gemini_common.py."""
 
 import uuid
-from unittest.mock import MagicMock
 
 from pydantic_ai import ModelSettings
 from pydantic_ai.messages import TextPart, ThinkingPart, ToolCallPart
