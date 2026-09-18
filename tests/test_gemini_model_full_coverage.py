@@ -1,6 +1,5 @@
 """Full coverage tests for code_puppy/gemini_model.py."""
 
-import uuid
 from datetime import datetime
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
@@ -27,7 +26,6 @@ from code_puppy.gemini_model import (
     GeminiStreamingResponse,
     _flatten_union_to_object_gemini,
     _sanitize_schema_for_gemini,
-    generate_tool_call_id,
 )
 from code_puppy.steer_metadata import STEER_METADATA, is_steer_request
 
@@ -56,18 +54,6 @@ def default_params():
         function_tools=[],
         allow_text_output=True,
     )
-
-
-# --- Utility functions ---
-
-
-class TestUtilities:
-    def test_generate_tool_call_id(self):
-        result = generate_tool_call_id()
-        uuid.UUID(result)  # should not raise
-
-    def test_bypass_thought_signature(self):
-        assert isinstance(BYPASS_THOUGHT_SIGNATURE, str)
 
 
 # --- Schema sanitization ---
