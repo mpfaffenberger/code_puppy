@@ -59,7 +59,6 @@ _NAMESPACES = {
     "tools.common.approval": (("tools.common.approval.",), 12),
     "renderer": (("renderer.",), 26),
     "model_factory": (("model_factory.",), 15),
-    "mcp.install": (("mcp.install.",), 19),
     "mcp.edit": (("mcp.edit.",), 10),
 }
 
