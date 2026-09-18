@@ -747,6 +747,18 @@ def on_error_logged(
     failures), and hooking it would let a reporting plugin generate reports
     about its own reporting.
 
+    Re-entrancy: dispatch is latched per-thread, so a subscriber that itself
+    calls ``log_error()`` will not re-trigger this phase. ``log_error_message()``
+    does not fire it at all.
+
+    Subscribers must return promptly. Dispatch is synchronous and on the error
+    path -- a blocking network call here adds its full latency to every logged
+    error, including during interpreter shutdown. Queue and drain off-thread.
+
+    The payload is unsanitised: ``error.args`` and the traceback may contain
+    file paths, request bodies, or credentials. A subscriber that forwards it
+    off-box owns that redaction.
+
     Args:
         error: The exception that was logged.
         context: Optional context string describing where the error occurred.

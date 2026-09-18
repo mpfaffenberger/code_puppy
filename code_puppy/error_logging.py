@@ -5,7 +5,9 @@ Per XDG spec, logs are "state data" (actions history), not configuration.
 Because even good puppies make mistakes sometimes! 🐶
 """
 
+import logging
 import os
+import threading
 import traceback
 from datetime import datetime
 from pathlib import Path
@@ -73,6 +75,16 @@ def _build_error_log_entry(
     return "\n".join(log_entry_parts)
 
 
+# Guards against a subscriber that calls ``log_error()`` from inside the
+# ``error_logged`` dispatch, which would otherwise re-enter this phase until
+# CPython's recursion limit trips -- roughly 199 nested dispatches, each one
+# appending a full traceback to the local log.
+#
+# Thread-local rather than a module global: a subscriber running on one thread
+# must not blind the hook for an unrelated error on another.
+_notify_state = threading.local()
+
+
 def _notify_error_logged(
     error: Exception,
     context: Optional[str],
@@ -84,7 +96,15 @@ def _notify_error_logged(
     module scope would create an import cycle through ``config``.
 
     Core registers no subscriber, so this is a no-op in a stock install.
+
+    Latched per thread, so a subscriber that logs an error of its own is
+    observed once rather than recursing. ``log_error_message()`` closes the
+    same door from the other side by never firing this phase at all.
     """
+    if getattr(_notify_state, "active", False):
+        return
+
+    _notify_state.active = True
     try:
         from code_puppy.callbacks import on_error_logged
 
@@ -95,8 +115,14 @@ def _notify_error_logged(
         )
     except Exception:
         # An observer must never turn "we hit an error" into "we crashed while
-        # writing down that we hit an error".
-        pass
+        # writing down that we hit an error" -- but leave a breadcrumb.
+        #
+        # ``_trigger_callbacks_sync`` already isolates and logs each
+        # subscriber's own failures, so reaching here means the dispatch
+        # itself broke: the lazy import failed, most plausibly.
+        logging.getLogger(__name__).debug("error_logged dispatch failed", exc_info=True)
+    finally:
+        _notify_state.active = False
 
 
 def log_error(

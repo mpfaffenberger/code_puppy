@@ -75,6 +75,7 @@ approval. With `fail_closed=True` its exception is reported as a block instead. 
 | `shutdown` | Graceful exit | `() -> None` |
 | `invoke_agent` | Sub-agent invoked | `(*args, **kwargs) -> None` |
 | `agent_exception` | Unhandled agent error | `(exception, *args, **kwargs) -> None` |
+| `error_logged` | After `log_error()` writes to the local log | `(error, *, context=None, include_traceback=True) -> None` — sync observer; must return promptly |
 | `agent_run_start` | Before agent task | `(agent_name, model_name, session_id=None) -> None` |
 | `model_select` | Select a model for one run | `(*, agent_name, current_model, prompt, messages, session_id=None) -> str \| None` — first non-empty result wins |
 | `agent_run_end` | After agent run | `(agent_name, model_name, session_id=None, success=True, error=None, response_text=None, metadata=None) -> None` |
