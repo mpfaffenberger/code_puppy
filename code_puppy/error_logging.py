@@ -120,7 +120,14 @@ def _notify_error_logged(
         # ``_trigger_callbacks_sync`` already isolates and logs each
         # subscriber's own failures, so reaching here means the dispatch
         # itself broke: the lazy import failed, most plausibly.
-        logging.getLogger(__name__).debug("error_logged dispatch failed", exc_info=True)
+        #
+        # warning, not debug: the root logger sits at WARNING in a stock
+        # install, so a debug record is discarded and the "breadcrumb" this
+        # comment promises would not exist. This branch is unreachable in
+        # normal operation, so it cannot become noise.
+        logging.getLogger(__name__).warning(
+            "error_logged dispatch failed", exc_info=True
+        )
     finally:
         _notify_state.active = False
 

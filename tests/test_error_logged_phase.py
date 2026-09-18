@@ -124,6 +124,35 @@ def test_latch_is_per_thread(isolated_log) -> None:
     assert seen == {"A": ["from A"], "B": ["from B"]}
 
 
+def test_failed_dispatch_leaves_a_visible_breadcrumb(
+    isolated_log, caplog, monkeypatch
+) -> None:
+    """A broken dispatch must be visible at the default log level.
+
+    Per-subscriber failures are already isolated and logged by
+    ``_trigger_callbacks_sync``, so this branch means the dispatch itself
+    broke -- the lazy import failing, most plausibly. It is unreachable in
+    normal operation, so it cannot become noise, and a ``debug`` record
+    would be discarded by the stock ``WARNING`` root level.
+    """
+
+    def explode(*args, **kwargs):
+        raise ImportError("callbacks unavailable")
+
+    monkeypatch.setattr("code_puppy.callbacks.on_error_logged", explode, raising=False)
+
+    with caplog.at_level(logging.WARNING, logger="code_puppy.error_logging"):
+        error_logging.log_error(ValueError("original"))
+
+    assert any(
+        record.levelno >= logging.WARNING
+        and "error_logged dispatch failed" in record.getMessage()
+        for record in caplog.records
+    )
+    # The local sink is independent and must still have run.
+    assert "original" in _written(isolated_log)
+
+
 def test_log_error_message_does_not_fire_the_phase(isolated_log) -> None:
     """The other half of the recursion guard.
 
