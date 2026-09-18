@@ -33,7 +33,7 @@ from pydantic_ai.settings import ModelSettings
 from pydantic_ai.tools import ToolDefinition
 from pydantic_ai.usage import RequestUsage
 
-from code_puppy.gemini_common import _parse_candidate_parts
+from code_puppy.gemini_common import _parse_candidate_parts, _build_generation_config
 
 logger = logging.getLogger(__name__)
 
@@ -147,14 +147,16 @@ class GeminiCodeAssistModel(Model):
             if isinstance(msg, ModelRequest):
                 for part in msg.parts:
                     if isinstance(part, SystemPromptPart):
-                        # Collect system prompt
+                        # Collect system prompt.
                         if system_instruction is None:
                             system_instruction = {
                                 "role": "user",
                                 "parts": [{"text": part.content}],
                             }
+
                         else:
                             system_instruction["parts"].append({"text": part.content})
+
                     elif isinstance(part, UserPromptPart):
                         contents.append(
                             {
@@ -162,14 +164,17 @@ class GeminiCodeAssistModel(Model):
                                 "parts": [{"text": part.content}],
                             }
                         )
+
                     elif isinstance(part, ToolReturnPart):
-                        # Serialize content to string if it's not already
+                        # Serialize content to string if it's not already.
                         content = part.content
                         if not isinstance(content, (str, int, float, bool, type(None))):
                             try:
                                 content = json.dumps(content, default=str)
+
                             except (TypeError, ValueError):
                                 content = str(content)
+
                         contents.append(
                             {
                                 "role": "user",
@@ -183,12 +188,14 @@ class GeminiCodeAssistModel(Model):
                                 ],
                             }
                         )
+
             elif isinstance(msg, ModelResponse):
                 parts = []
                 first_func_call = True
                 for part in msg.parts:
                     if isinstance(part, TextPart):
                         parts.append({"text": part.content})
+
                     elif isinstance(part, ToolCallPart):
                         func_call_part = {
                             "functionCall": {
@@ -196,18 +203,21 @@ class GeminiCodeAssistModel(Model):
                                 "args": part.args_as_dict(),
                             }
                         }
-                        # Code Assist API requires thoughtSignature on function calls
-                        # Use synthetic signature to skip validation
+
+                        # Code Assist API requires thoughtSignature on function calls.
+                        # Use synthetic signature to skip validation.
                         if first_func_call:
                             func_call_part["thoughtSignature"] = (
                                 "skip_thought_signature_validator"
                             )
                             first_func_call = False
+
                         parts.append(func_call_part)
+
                 if parts:
                     contents.append({"role": "model", "parts": parts})
 
-        # Build the inner request (Vertex-style format)
+        # Build the inner request (Vertex-style format).
         inner_request: Dict[str, Any] = {
             "contents": contents,
         }
@@ -215,18 +225,18 @@ class GeminiCodeAssistModel(Model):
         if system_instruction:
             inner_request["systemInstruction"] = system_instruction
 
-        # Add tools if available
+        # Add tools if available.
         if model_request_parameters.function_tools:
             inner_request["tools"] = [
                 self._build_tools(model_request_parameters.function_tools)
             ]
 
-        # Add generation config
-        generation_config = self._build_generation_config(model_settings)
+        # Add generation config.
+        generation_config = _build_generation_config(model_settings)
         if generation_config:
             inner_request["generationConfig"] = generation_config
 
-        # Wrap in Code Assist format
+        # Wrap in Code Assist format.
         return {
             "model": self._model_name,
             "project": self.project_id,
@@ -250,32 +260,6 @@ class GeminiCodeAssistModel(Model):
             function_declarations.append(func_decl)
 
         return {"functionDeclarations": function_declarations}
-
-    def _build_generation_config(
-        self, model_settings: ModelSettings | None
-    ) -> Optional[Dict[str, Any]]:
-        """Build generation config from model settings."""
-        if not model_settings:
-            return None
-
-        config: Dict[str, Any] = {}
-
-        if (
-            hasattr(model_settings, "temperature")
-            and model_settings.temperature is not None
-        ):
-            config["temperature"] = model_settings.temperature
-
-        if hasattr(model_settings, "top_p") and model_settings.top_p is not None:
-            config["topP"] = model_settings.top_p
-
-        if (
-            hasattr(model_settings, "max_tokens")
-            and model_settings.max_tokens is not None
-        ):
-            config["maxOutputTokens"] = model_settings.max_tokens
-
-        return config if config else None
 
     def _parse_response(self, data: Dict[str, Any]) -> ModelResponse:
         """Parse the Code Assist API response."""
