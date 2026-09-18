@@ -7,6 +7,7 @@ from typing import List, Optional
 
 from rich.text import Text
 
+from code_puppy.i18n import t
 from code_puppy.messaging import emit_error, emit_info
 
 from .base import MCPCommandBase
@@ -54,10 +55,10 @@ class InstallCommand(MCPCommandBase):
             return
 
         except ImportError:
-            emit_info("Server registry not available", message_group=group_id)
+            emit_info(t("mcp.install.registry_unavailable"), message_group=group_id)
         except Exception as e:
             logger.error(f"Error installing server: {e}")
-            emit_info(f"Installation failed: {e}", message_group=group_id)
+            emit_info(t("mcp.install.failed", error=e), message_group=group_id)
 
     def _install_from_catalog(self, server_name_or_id: str, group_id: str) -> bool:
         """Install a server directly from the catalog by name or ID."""
@@ -76,20 +77,17 @@ class InstallCommand(MCPCommandBase):
                 results = catalog.search(server_name_or_id)
                 if not results:
                     emit_info(
-                        f"❌ No server found matching '{server_name_or_id}'",
+                        t("mcp.install.no_server_found", server=server_name_or_id),
                         message_group=group_id,
                     )
-                    emit_info(
-                        "Try '/mcp install' to browse available servers",
-                        message_group=group_id,
-                    )
+                    emit_info(t("mcp.install.browse_hint"), message_group=group_id)
                     return False
                 elif len(results) == 1:
                     selected_server = results[0]
                 else:
                     # Multiple matches, show them
                     emit_info(
-                        f"🔍 Multiple servers found matching '{server_name_or_id}':",
+                        t("mcp.install.multiple_servers", server=server_name_or_id),
                         message_group=group_id,
                     )
                     for i, server in enumerate(results[:5]):
@@ -109,27 +107,28 @@ class InstallCommand(MCPCommandBase):
                         )
                         emit_info(f"     ID: {server.id}", message_group=group_id)
 
-                    emit_info(
-                        "Please use the exact server ID: '/mcp install <server_id>'",
-                        message_group=group_id,
-                    )
+                    emit_info(t("mcp.install.exact_id_hint"), message_group=group_id)
                     return False
 
             # Show what we're installing
             emit_info(
-                f"📦 Installing: {selected_server.display_name}", message_group=group_id
+                t("mcp.install.installing", server=selected_server.display_name),
+                message_group=group_id,
             )
             description = (
                 selected_server.description
                 if selected_server.description
-                else "No description available"
+                else t("mcp.install.no_description")
             )
-            emit_info(f"Description: {description}", message_group=group_id)
+            emit_info(
+                t("mcp.install.description", description=description),
+                message_group=group_id,
+            )
             emit_info("", message_group=group_id)
 
             # Get custom name (default to server name)
             server_name = emit_prompt(
-                f"Enter custom name for this server [{selected_server.name}]: "
+                t("mcp.install.custom_name_prompt", name=selected_server.name)
             ).strip()
             if not server_name:
                 server_name = selected_server.name
@@ -138,10 +137,10 @@ class InstallCommand(MCPCommandBase):
             existing_server = find_server_id_by_name(self.manager, server_name)
             if existing_server:
                 override = emit_prompt(
-                    f"Server '{server_name}' already exists. Override it? [y/N]: "
+                    t("mcp.install.override_prompt", server=server_name)
                 )
                 if not override.lower().startswith("y"):
-                    emit_info("Installation cancelled", message_group=group_id)
+                    emit_info(t("mcp.install.cancelled"), message_group=group_id)
                     return False
 
             # Collect environment variables and command line arguments
@@ -153,7 +152,7 @@ class InstallCommand(MCPCommandBase):
             if required_env_vars:
                 emit_info(
                     Text.from_markup(
-                        "\n[yellow]Required Environment Variables:[/yellow]"
+                        f"\n[yellow]{t('mcp.install.required_environment_variables')}[/yellow]"
                     ),
                     message_group=group_id,
                 )
@@ -164,12 +163,16 @@ class InstallCommand(MCPCommandBase):
                     current_value = os.environ.get(var, "")
                     if current_value:
                         emit_info(
-                            Text.from_markup(f"  {var}: [green]Already set[/green]"),
+                            Text.from_markup(
+                                f"  {var}: [green]{t('mcp.install.already_set')}[/green]"
+                            ),
                             message_group=group_id,
                         )
                         env_vars[var] = current_value
                     else:
-                        value = emit_prompt(f"  Enter value for {var}: ").strip()
+                        value = emit_prompt(
+                            t("mcp.install.environment_prompt", variable=var)
+                        ).strip()
                         if value:
                             env_vars[var] = value
 
@@ -177,7 +180,9 @@ class InstallCommand(MCPCommandBase):
             required_cmd_args = selected_server.get_command_line_args()
             if required_cmd_args:
                 emit_info(
-                    Text.from_markup("\n[yellow]Command Line Arguments:[/yellow]"),
+                    Text.from_markup(
+                        f"\n[yellow]{t('mcp.install.command_line_arguments')}[/yellow]"
+                    ),
                     message_group=group_id,
                 )
                 for arg_config in required_cmd_args:
@@ -194,7 +199,9 @@ class InstallCommand(MCPCommandBase):
                         if not required:
                             arg_prompt += " (optional)"
 
-                        value = emit_prompt(f"{arg_prompt}: ").strip()
+                        value = emit_prompt(
+                            t("mcp.install.argument_prompt", prompt=arg_prompt)
+                        ).strip()
                         if value:
                             cmd_args[name] = value
                         elif default:
@@ -206,9 +213,9 @@ class InstallCommand(MCPCommandBase):
             )
 
         except ImportError:
-            emit_info("Server catalog not available", message_group=group_id)
+            emit_info(t("mcp.install.catalog_unavailable"), message_group=group_id)
             return False
         except Exception as e:
             logger.error(f"Error installing from catalog: {e}")
-            emit_error(f"Installation error: {e}", message_group=group_id)
+            emit_error(t("mcp.install.error", error=e), message_group=group_id)
             return False
