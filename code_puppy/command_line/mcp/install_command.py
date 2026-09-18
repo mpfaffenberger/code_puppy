@@ -58,7 +58,9 @@ class InstallCommand(MCPCommandBase):
             emit_info(t("mcp.install.registry_unavailable"), message_group=group_id)
         except Exception as e:
             logger.error(f"Error installing server: {e}")
-            emit_info(t("mcp.install.failed", error=e), message_group=group_id)
+            emit_info(
+                t("mcp.install_wizard.install_failed", error=e), message_group=group_id
+            )
 
     def _install_from_catalog(self, server_name_or_id: str, group_id: str) -> bool:
         """Install a server directly from the catalog by name or ID."""
@@ -112,7 +114,7 @@ class InstallCommand(MCPCommandBase):
 
             # Show what we're installing
             emit_info(
-                t("mcp.install.installing", server=selected_server.display_name),
+                t("mcp.install_wizard.installing", name=selected_server.display_name),
                 message_group=group_id,
             )
             description = (
@@ -137,10 +139,10 @@ class InstallCommand(MCPCommandBase):
             existing_server = find_server_id_by_name(self.manager, server_name)
             if existing_server:
                 override = emit_prompt(
-                    t("mcp.install.override_prompt", server=server_name)
+                    t("mcp.install_wizard.override_prompt", server_name=server_name)
                 )
                 if not override.lower().startswith("y"):
-                    emit_info(t("mcp.install.cancelled"), message_group=group_id)
+                    emit_info(t("mcp.install_wizard.cancelled"), message_group=group_id)
                     return False
 
             # Collect environment variables and command line arguments
@@ -152,7 +154,7 @@ class InstallCommand(MCPCommandBase):
             if required_env_vars:
                 emit_info(
                     Text.from_markup(
-                        f"\n[yellow]{t('mcp.install.required_environment_variables')}[/yellow]"
+                        f"\n[yellow]{t('mcp.install_wizard.env_vars_header')}[/yellow]"
                     ),
                     message_group=group_id,
                 )
@@ -164,14 +166,14 @@ class InstallCommand(MCPCommandBase):
                     if current_value:
                         emit_info(
                             Text.from_markup(
-                                f"  {var}: [green]{t('mcp.install.already_set')}[/green]"
+                                f"  {var}: [green]{t('mcp.install_wizard.already_set')}[/green]"
                             ),
                             message_group=group_id,
                         )
                         env_vars[var] = current_value
                     else:
                         value = emit_prompt(
-                            t("mcp.install.environment_prompt", variable=var)
+                            t("mcp.install_wizard.env_var_prompt", var=var)
                         ).strip()
                         if value:
                             env_vars[var] = value
@@ -181,7 +183,7 @@ class InstallCommand(MCPCommandBase):
             if required_cmd_args:
                 emit_info(
                     Text.from_markup(
-                        f"\n[yellow]{t('mcp.install.command_line_arguments')}[/yellow]"
+                        f"\n[yellow]{t('mcp.install_wizard.cmd_args_header')}[/yellow]"
                     ),
                     message_group=group_id,
                 )
@@ -197,7 +199,7 @@ class InstallCommand(MCPCommandBase):
                         if default:
                             arg_prompt += f" [{default}]"
                         if not required:
-                            arg_prompt += " (optional)"
+                            arg_prompt += f" {t('mcp.install_wizard.optional_suffix')}"
 
                         value = emit_prompt(
                             t("mcp.install.argument_prompt", prompt=arg_prompt)
@@ -213,7 +215,9 @@ class InstallCommand(MCPCommandBase):
             )
 
         except ImportError:
-            emit_info(t("mcp.install.catalog_unavailable"), message_group=group_id)
+            emit_info(
+                t("mcp.install_wizard.catalog_unavailable"), message_group=group_id
+            )
             return False
         except Exception as e:
             logger.error(f"Error installing from catalog: {e}")
