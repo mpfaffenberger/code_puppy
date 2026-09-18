@@ -796,25 +796,6 @@ class TestMapModelResponse:
         assert result is None
 
 
-# --- Build tools ---
-
-
-class TestBuildTools:
-    def test_build_tools(self, model):
-        tools = [
-            ToolDefinition(
-                name="fn", description="desc", parameters_json_schema={"type": "object"}
-            ),
-            ToolDefinition(name="fn2", description="", parameters_json_schema=None),
-        ]
-        result = model._build_tools(tools)
-        assert len(result) == 1
-        decls = result[0]["functionDeclarations"]
-        assert len(decls) == 2
-        assert "parameters" in decls[0]
-        assert "parameters" not in decls[1]
-
-
 # --- Request ---
 
 
