@@ -25,6 +25,7 @@ from code_puppy.config import (
     get_suppress_informational_messages,
     get_suppress_thinking_messages,
 )
+from code_puppy.i18n import t
 from code_puppy.tools.common import stream_diff_ansi_lines
 from code_puppy.tools.subagent_context import is_subagent
 
@@ -381,7 +382,7 @@ class RichConsoleRenderer:
             # Don't let rendering errors crash the loop
             # Escape the error message to prevent nested markup errors
             safe_error = escape_rich_markup(str(e))
-            self._console.print(f"[dim red]Render error: {safe_error}[/dim red]")
+            self._console.print(f"[dim red]{t('renderer.render_error', error=safe_error)}[/dim red]")
 
     def _should_silence_during_pause(self, message: AnyMessage) -> bool:
         """Return True iff this message must be silently dropped right now.
@@ -511,13 +512,13 @@ class RichConsoleRenderer:
             self._render_universal_constructor(message)
         elif isinstance(message, UserInputRequest):
             # Can't handle async user input in sync context - skip
-            self._console.print("[dim]User input requested (requires async)[/dim]")
+            self._console.print(t("renderer.user_input_async"))
         elif isinstance(message, ConfirmationRequest):
             # Can't handle async confirmation in sync context - skip
-            self._console.print("[dim]Confirmation requested (requires async)[/dim]")
+            self._console.print(t("renderer.confirmation_async"))
         elif isinstance(message, SelectionRequest):
             # Can't handle async selection in sync context - skip
-            self._console.print("[dim]Selection requested (requires async)[/dim]")
+            self._console.print(t("renderer.selection_async"))
         elif isinstance(message, SpinnerControl):
             self._render_spinner_control(message)
         elif isinstance(message, DividerMessage):
@@ -532,7 +533,7 @@ class RichConsoleRenderer:
             self._render_skill_activate(message)
         else:
             # Unknown message type - render as debug
-            self._console.print(f"[dim]Unknown message: {type(message).__name__}[/dim]")
+            self._console.print(t("renderer.unknown_message", message_type=type(message).__name__))
 
     async def render(self, message: AnyMessage) -> None:
         """Render a message asynchronously (supports user input requests)."""
@@ -607,7 +608,7 @@ class RichConsoleRenderer:
 
         # Header on single line
         rec_flag = f"(recursive={msg.recursive})"
-        banner = self._format_banner("directory_listing", "DIRECTORY LISTING")
+        banner = self._format_banner("directory_listing", t("renderer.directory_listing"))
         self._console.print(
             f"\n{banner} [bold cyan]{msg.directory}[/bold cyan] [dim]{rec_flag}[/dim]\n"
         )
@@ -711,7 +712,7 @@ class RichConsoleRenderer:
         render_dir_tree(root_key, 0)
 
         # Summary
-        self._console.print("\n[bold cyan]Summary:[/bold cyan]")
+        self._console.print(f"\n[bold cyan]{t('renderer.summary')}[/bold cyan]:")
         self._console.print(
             f"[blue]{msg.dir_count} directories[/blue], "
             f"[green]{msg.file_count} files[/green] "
@@ -734,7 +735,7 @@ class RichConsoleRenderer:
             line_info = f" [dim](lines {msg.start_line}-{end_line})[/dim]"
 
         # Just print the header - content is for LLM only
-        banner = self._format_banner("read_file", "READ FILE")
+        banner = self._format_banner("read_file", t("renderer.read_file"))
         self._console.print(f"\n{banner} [bold cyan]{msg.path}[/bold cyan]{line_info}")
 
         # High mode: show token count and total lines.
@@ -752,7 +753,7 @@ class RichConsoleRenderer:
         import re
 
         # Header
-        banner = self._format_banner("grep", "GREP")
+        banner = self._format_banner("grep", t("renderer.grep"))
         self._console.print(
             f"\n{banner} [dim]{msg.directory} for '{msg.search_term}'[/dim]"
         )
@@ -766,8 +767,7 @@ class RichConsoleRenderer:
 
         if not msg.matches:
             self._console.print(
-                f"[dim]No matches found for '{msg.search_term}' "
-                f"in {msg.directory}[/dim]"
+                f"[dim]{t('renderer.no_matches', search_term=msg.search_term, directory=msg.directory)}[/dim]"
             )
             return
 
@@ -827,13 +827,11 @@ class RichConsoleRenderer:
         file_word = "file" if len(by_file) == 1 else "files"
         num_files = len(by_file)
         self._console.print(
-            f"[dim]Found {msg.total_matches} {match_word} "
-            f"across {num_files} {file_word}[/dim]"
+            f"[dim]{t('renderer.found_matches', matches=msg.total_matches, match_word=match_word, files=num_files, file_word=file_word)}[/dim]"
         )
         if msg.truncated:
             self._console.print(
-                "[yellow]  Truncated: more matches exist beyond the "
-                f"{msg.total_matches} shown[/yellow]"
+                t("renderer.truncated", matches=msg.total_matches)
             )
 
         # Trailing newline for spinner separation
@@ -913,7 +911,7 @@ class RichConsoleRenderer:
         # Escape command to prevent Rich markup injection
         safe_command = escape_rich_markup(msg.command)
         # Header showing command is starting
-        banner = self._format_banner("shell_command", "SHELL COMMAND")
+        banner = self._format_banner("shell_command", t("renderer.shell_command"))
 
         # Add background indicator if running in background mode
         if msg.background:
@@ -926,13 +924,13 @@ class RichConsoleRenderer:
         # Show working directory if specified
         if msg.cwd:
             safe_cwd = escape_rich_markup(msg.cwd)
-            self._console.print(f"[dim]Working directory: {safe_cwd}[/dim]")
+            self._console.print(f"[dim]{t('renderer.working_directory', cwd=safe_cwd)}[/dim]")
 
         # Show timeout or background status
         if msg.background:
-            self._console.print("[dim]Runs detached (no timeout)[/dim]")
+            self._console.print(t("renderer.background_no_timeout"))
         else:
-            self._console.print(f"[dim]Timeout: {msg.timeout}s[/dim]")
+            self._console.print(f"[dim]{t('renderer.timeout', seconds=msg.timeout)}[/dim]")
 
     def _render_shell_line(self, msg: ShellLineMessage) -> None:
         """Render shell output line preserving ANSI codes and carriage returns."""
@@ -966,8 +964,12 @@ class RichConsoleRenderer:
         if get_output_level() == "high":
             exit_style = "green" if msg.exit_code == 0 else "red"
             self._console.print(
-                f"[dim]  exit=[/dim][{exit_style}]{msg.exit_code}[/{exit_style}]"
-                f"[dim]  {msg.duration_seconds:.1f}s[/dim]"
+                t(
+                    "renderer.exit_duration",
+                    exit_style=exit_style,
+                    exit_code=msg.exit_code,
+                    duration=msg.duration_seconds,
+                )
             )
         else:
             # Just print trailing newline for spinner separation
@@ -980,18 +982,18 @@ class RichConsoleRenderer:
     def _render_agent_reasoning(self, msg: AgentReasoningMessage) -> None:
         """Render agent reasoning matching old format."""
         # Header matching old format
-        banner = self._format_banner("agent_reasoning", "AGENT REASONING")
+        banner = self._format_banner("agent_reasoning", t("renderer.agent_reasoning"))
         self._console.print(f"\n{banner}")
 
         # Current reasoning
-        self._console.print("[bold cyan]Current reasoning:[/bold cyan]")
+        self._console.print(t("renderer.current_reasoning"))
         # Render reasoning as markdown
         md = Markdown(msg.reasoning)
         self._console.print(md)
 
         # Next steps (if any)
         if msg.next_steps and msg.next_steps.strip():
-            self._console.print("\n[bold cyan]Planned next steps:[/bold cyan]")
+            self._console.print(f"\n[bold cyan]{t('renderer.planned_next_steps')}[/bold cyan]")
             md_steps = Markdown(msg.next_steps)
             self._console.print(md_steps)
 
@@ -1001,7 +1003,7 @@ class RichConsoleRenderer:
     def _render_agent_response(self, msg: AgentResponseMessage) -> None:
         """Render agent response with header and markdown formatting."""
         # Header
-        banner = self._format_banner("agent_response", "AGENT RESPONSE")
+        banner = self._format_banner("agent_response", t("renderer.agent_response"))
         self._console.print(f"\n{banner}\n")
 
         # Content (markdown or plain)
@@ -1028,7 +1030,7 @@ class RichConsoleRenderer:
             if msg.is_new_session
             else f"Continuing ({msg.message_count} messages)"
         )
-        banner_text = "\U0001f374 FORK" if msg.is_fork else "\U0001f916 INVOKE AGENT"
+        banner_text = t("renderer.fork") if msg.is_fork else t("renderer.invoke_agent")
         banner = self._format_banner("invoke_agent", banner_text)
         self._console.print(
             f"\n{banner} "
@@ -1051,14 +1053,14 @@ class RichConsoleRenderer:
             prompt_display = (
                 msg.prompt[:200] + "..." if len(msg.prompt) > 200 else msg.prompt
             )
-        self._console.print("[dim]Prompt:[/dim]")
+        self._console.print(f"[dim]{t('renderer.prompt_label')}[/dim]")
         md_prompt = Markdown(prompt_display)
         self._console.print(md_prompt)
 
     def _render_subagent_response(self, msg: SubAgentResponseMessage) -> None:
         """Render sub-agent response with markdown formatting."""
         # Response header
-        banner = self._format_banner("subagent_response", "✓ AGENT RESPONSE")
+        banner = self._format_banner("subagent_response", t("renderer.subagent_response"))
         self._console.print(f"\n{banner} [bold cyan]{msg.agent_name}[/bold cyan]")
 
         # Render response as markdown
@@ -1078,7 +1080,7 @@ class RichConsoleRenderer:
             return
 
         # Format banner
-        banner = self._format_banner("universal_constructor", "UNIVERSAL CONSTRUCTOR")
+        banner = self._format_banner("universal_constructor", t("renderer.universal_constructor"))
 
         # Build the header: escape user strings (markup injection), and disable
         # auto-highlighting — its regexes mangle 'uuid-gen' and '0.00s'.
