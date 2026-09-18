@@ -57,6 +57,7 @@ _NAMESPACES = {
         35,
     ),
     "tools.common.approval": (("tools.common.approval.",), 12),
+    "renderer": (("renderer.",), 26),
 }
 
 _PREFIXES = [prefixes for prefixes, _ in _NAMESPACES.values()]
