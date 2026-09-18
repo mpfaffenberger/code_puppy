@@ -496,7 +496,7 @@
   "renderer.confirmation_async": "[dim]Confirmation requested (requires async)[/dim]",
   "renderer.current_reasoning": "[bold cyan]Current reasoning:[/bold cyan]",
   "renderer.directory_listing": "DIRECTORY LISTING",
-  "renderer.exit_duration": "[dim]  exit=[/dim][{exit_style}]{exit_code}[/{exit_style}][dim]  {duration:.1f}s[/dim]",
+  "renderer.exit_duration": "[dim]  exit=[/dim][{exit_style}]{exit_code}[/{exit_style}][dim]  {duration}s[/dim]",
   "renderer.fork": " FORK",
   "renderer.found_matches": "Found {matches} {match_word} across {files} {file_word}",
   "renderer.grep": "GREP",

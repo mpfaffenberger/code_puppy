@@ -340,7 +340,7 @@
   "renderer.confirmation_async": "[dim]Se solicitó confirmación (requiere asincronía)[/dim]",
   "renderer.current_reasoning": "[bold cyan]Razonamiento actual:[/bold cyan]",
   "renderer.directory_listing": "LISTADO DEL DIRECTORIO",
-  "renderer.exit_duration": "[dim]  salida=[/dim][{exit_style}]{exit_code}[/{exit_style}][dim]  {duration:.1f}s[/dim]",
+  "renderer.exit_duration": "[dim]  salida=[/dim][{exit_style}]{exit_code}[/{exit_style}][dim]  {duration}s[/dim]",
   "renderer.fork": " BIFURCAR",
   "renderer.found_matches": "Se encontraron {matches} {match_word} en {files} {file_word}",
   "renderer.grep": "GREP",

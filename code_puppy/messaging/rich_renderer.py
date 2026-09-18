@@ -382,7 +382,9 @@ class RichConsoleRenderer:
             # Don't let rendering errors crash the loop
             # Escape the error message to prevent nested markup errors
             safe_error = escape_rich_markup(str(e))
-            self._console.print(f"[dim red]{t('renderer.render_error', error=safe_error)}[/dim red]")
+            self._console.print(
+                f"[dim red]{t('renderer.render_error', error=safe_error)}[/dim red]"
+            )
 
     def _should_silence_during_pause(self, message: AnyMessage) -> bool:
         """Return True iff this message must be silently dropped right now.
@@ -533,7 +535,9 @@ class RichConsoleRenderer:
             self._render_skill_activate(message)
         else:
             # Unknown message type - render as debug
-            self._console.print(t("renderer.unknown_message", message_type=type(message).__name__))
+            self._console.print(
+                t("renderer.unknown_message", message_type=type(message).__name__)
+            )
 
     async def render(self, message: AnyMessage) -> None:
         """Render a message asynchronously (supports user input requests)."""
@@ -608,7 +612,9 @@ class RichConsoleRenderer:
 
         # Header on single line
         rec_flag = f"(recursive={msg.recursive})"
-        banner = self._format_banner("directory_listing", t("renderer.directory_listing"))
+        banner = self._format_banner(
+            "directory_listing", t("renderer.directory_listing")
+        )
         self._console.print(
             f"\n{banner} [bold cyan]{msg.directory}[/bold cyan] [dim]{rec_flag}[/dim]\n"
         )
@@ -766,9 +772,12 @@ class RichConsoleRenderer:
             )
 
         if not msg.matches:
-            self._console.print(
-                f"[dim]{t('renderer.no_matches', search_term=msg.search_term, directory=msg.directory)}[/dim]"
+            no_matches = t(
+                "renderer.no_matches",
+                search_term=msg.search_term,
+                directory=msg.directory,
             )
+            self._console.print(f"[dim]{no_matches}[/dim]")
             return
 
         # Group by file
@@ -826,9 +835,14 @@ class RichConsoleRenderer:
         match_word = "match" if msg.total_matches == 1 else "matches"
         file_word = "file" if len(by_file) == 1 else "files"
         num_files = len(by_file)
-        self._console.print(
-            f"[dim]{t('renderer.found_matches', matches=msg.total_matches, match_word=match_word, files=num_files, file_word=file_word)}[/dim]"
+        found_matches = t(
+            "renderer.found_matches",
+            matches=msg.total_matches,
+            match_word=match_word,
+            files=num_files,
+            file_word=file_word,
         )
+        self._console.print(f"[dim]{found_matches}[/dim]")
         if msg.truncated:
             self._console.print(
                 t("renderer.truncated", matches=msg.total_matches)
@@ -916,7 +930,8 @@ class RichConsoleRenderer:
         # Add background indicator if running in background mode
         if msg.background:
             self._console.print(
-                f"\n{banner} [dim]$ {safe_command}[/dim]  [bold magenta][BACKGROUND][/bold magenta]"
+                f"\n{banner} [dim]$ {safe_command}[/dim]  "
+                f"[bold magenta][BACKGROUND][/bold magenta]"
             )
         else:
             self._console.print(f"\n{banner} [dim]$ {safe_command}[/dim]")
@@ -924,13 +939,17 @@ class RichConsoleRenderer:
         # Show working directory if specified
         if msg.cwd:
             safe_cwd = escape_rich_markup(msg.cwd)
-            self._console.print(f"[dim]{t('renderer.working_directory', cwd=safe_cwd)}[/dim]")
+            self._console.print(
+                f"[dim]{t('renderer.working_directory', cwd=safe_cwd)}[/dim]"
+            )
 
         # Show timeout or background status
         if msg.background:
             self._console.print(t("renderer.background_no_timeout"))
         else:
-            self._console.print(f"[dim]{t('renderer.timeout', seconds=msg.timeout)}[/dim]")
+            self._console.print(
+                f"[dim]{t('renderer.timeout', seconds=msg.timeout)}[/dim]"
+            )
 
     def _render_shell_line(self, msg: ShellLineMessage) -> None:
         """Render shell output line preserving ANSI codes and carriage returns."""
@@ -968,7 +987,7 @@ class RichConsoleRenderer:
                     "renderer.exit_duration",
                     exit_style=exit_style,
                     exit_code=msg.exit_code,
-                    duration=msg.duration_seconds,
+                    duration=f"{msg.duration_seconds:.1f}",
                 )
             )
         else:
@@ -993,7 +1012,9 @@ class RichConsoleRenderer:
 
         # Next steps (if any)
         if msg.next_steps and msg.next_steps.strip():
-            self._console.print(f"\n[bold cyan]{t('renderer.planned_next_steps')}[/bold cyan]")
+            self._console.print(
+                f"\n[bold cyan]{t('renderer.planned_next_steps')}[/bold cyan]"
+            )
             md_steps = Markdown(msg.next_steps)
             self._console.print(md_steps)
 
@@ -1043,7 +1064,8 @@ class RichConsoleRenderer:
         if msg.model_name:
             safe_model_name = escape_rich_markup(msg.model_name)
             self._console.print(
-                f"[dim]Requested model override:[/dim] [bold magenta]{safe_model_name}[/bold magenta]"
+                f"[dim]Requested model override:[/dim] "
+                f"[bold magenta]{safe_model_name}[/bold magenta]"
             )
 
         # Prompt (truncated in medium, full in high, rendered as markdown)
@@ -1060,7 +1082,9 @@ class RichConsoleRenderer:
     def _render_subagent_response(self, msg: SubAgentResponseMessage) -> None:
         """Render sub-agent response with markdown formatting."""
         # Response header
-        banner = self._format_banner("subagent_response", t("renderer.subagent_response"))
+        banner = self._format_banner(
+            "subagent_response", t("renderer.subagent_response")
+        )
         self._console.print(f"\n{banner} [bold cyan]{msg.agent_name}[/bold cyan]")
 
         # Render response as markdown
@@ -1080,7 +1104,9 @@ class RichConsoleRenderer:
             return
 
         # Format banner
-        banner = self._format_banner("universal_constructor", t("renderer.universal_constructor"))
+        banner = self._format_banner(
+            "universal_constructor", t("renderer.universal_constructor")
+        )
 
         # Build the header: escape user strings (markup injection), and disable
         # auto-highlighting — its regexes mangle 'uuid-gen' and '0.00s'.
