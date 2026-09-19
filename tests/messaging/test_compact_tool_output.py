@@ -15,8 +15,44 @@ from code_puppy.messaging.tool_output import compact_tool_output, format_tool_ca
 
 def test_summary_is_one_literal_line():
     summary = format_tool_call("read_file", {"path": "[red]file", "text": "a\nb"})
-    assert summary.plain == '● read_file {"path":"[red]file","text":"a\\nb"}'
+    assert summary.plain == '● read_file  path=[red]file · text="a b"'
     assert summary.no_wrap
+
+
+def test_nested_payloads_are_summarized():
+    summary = format_tool_call(
+        "replace_in_file", {"replacements": [{"new_str": "x" * 10000}]}
+    )
+    assert summary.plain == "● replace_in_file  replacements=[… ×1]"
+
+
+def test_tool_name_uses_theme_color():
+    with patch("code_puppy.callbacks.on_prompt_text_color", return_value="#aabbcc"):
+        summary = format_tool_call("read_file", {})
+    assert summary.spans[0].style.color.triplet == (170, 187, 204)
+    assert summary.plain == "● read_file"
+
+
+def test_long_call_stays_on_one_line_with_blank_separator():
+    output = StringIO()
+    console = Console(file=output, width=40, soft_wrap=True)
+    with (
+        patch(
+            "code_puppy.agents.event_stream_handler.get_streaming_console",
+            return_value=console,
+        ),
+        patch(
+            "code_puppy.agents.event_stream_handler._should_suppress_output",
+            return_value=False,
+        ),
+    ):
+        with compact_tool_output("shell", {"command": "long command " * 100}):
+            pass
+    lines = output.getvalue().splitlines()
+    assert len(lines) == 2
+    assert len(lines[0]) <= 39
+    assert lines[0].endswith("…")
+    assert lines[1] == ""
 
 
 def test_execution_suppresses_both_buses_and_restores_after_exception():
@@ -49,7 +85,7 @@ def test_execution_suppresses_both_buses_and_restores_after_exception():
     assert [message.content for message in queue.get_buffered_messages()] == [
         "approval"
     ]
-    assert output.getvalue() == '● example {"x":1}\n'
+    assert output.getvalue() == "● example  x=1\n\n"
 
 
 @pytest.mark.parametrize("level", ["low", "medium", "high"])
