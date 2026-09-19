@@ -630,7 +630,7 @@ async def _run_paused_commands(editor: RunningLineEditor, first_cmd: str) -> Non
     """Pause → execute queued command(s) → resume. Exception-safe."""
     from .bus import get_message_bus
     from .commands import PauseAgentCommand, ResumeAgentCommand
-    from .message_queue import emit_info, emit_warning
+    from .message_queue import emit_warning
     from .pause_controller import get_pause_controller
 
     bus = get_message_bus()
@@ -652,23 +652,18 @@ async def _run_paused_commands(editor: RunningLineEditor, first_cmd: str) -> Non
             elif not pc.is_paused():
                 # wait_if_paused timeout / cancel resumed behind our back; the
                 # window is gone, so running now would interleave with streaming.
-                emit_warning(
-                    f"⏸ pause expired before {cmd} could run — skipped; "
-                    "run it again when the agent finishes."
-                )
+                logger.debug("pause expired before %s could run; skipped", cmd)
             else:
-                emit_info(f"⏸ agent paused — running {cmd}")
                 with suspended_run_ui():
                     result = _execute_command(cmd)
                 _handle_command_result(cmd, result)
             cmd = editor.get_pending_command()
     finally:
-        # ALWAYS resume + let the transcript know, even on exceptions.
+        # ALWAYS resume silently, even on exceptions.
         try:
             bus.provide_response(ResumeAgentCommand())
         except Exception:
             pc.resume()
-        emit_info("▶ resumed")
 
 
 async def _await_parked(pc, timeout: float) -> bool:

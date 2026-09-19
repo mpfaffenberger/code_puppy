@@ -325,6 +325,11 @@ def emit_message(message_type: MessageType, content: Any, **metadata):
     """
     if isinstance(content, LazyTranslation):
         content = str(content)
+    if message_type in (MessageType.INFO, MessageType.SUCCESS):
+        from .menu_lifecycle import is_menu_close_notice
+
+        if is_menu_close_notice(content):
+            return
     queue = get_global_queue()
     queue.emit_simple(message_type, content, **metadata)
 
