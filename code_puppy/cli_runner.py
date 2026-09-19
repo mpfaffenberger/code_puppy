@@ -696,7 +696,7 @@ def _prompt_echo_text(task: str):
 
     prompt_color = on_prompt_text_color()
     style = f"bold {prompt_color}" if prompt_color else "bold"
-    return Text(f"\n> {task}", style=style)
+    return Text(f"\n> {task}\n", style=style)
 
 
 def _interactive_sigint_guard(_sig, _frame):
