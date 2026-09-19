@@ -39,9 +39,9 @@ def format_activity_heading(label: str, *, secondary: bool = False) -> Text:
 
     name = sanitize(" ".join(label.split()))
     summary = Text(no_wrap=True, overflow="ellipsis")
-    # The theme installs the terminal ANSI palette; use its magenta accent
-    # rather than a fixed RGB color so the marker follows theme switches.
-    accent = Style(color="cyan" if secondary else "magenta")
+    # ANSI blue matches the prompt's agent-name slot; themes remap it.
+    # Thinking keeps the secondary cyan slot.
+    accent = Style(color="cyan" if secondary else "blue")
     summary.append("●", accent)
     summary.append(" ")
     label_color = "cyan" if secondary else (on_prompt_text_color() or "cyan")
@@ -54,7 +54,7 @@ def format_tool_call(tool_name: str, arguments: object) -> Text:
     from .bar_rendering import sanitize
 
     summary = format_activity_heading(tool_name)
-    accent = "magenta"
+    accent = "blue"
     if isinstance(arguments, dict):
         for index, (key, value) in enumerate(arguments.items()):
             summary.append("  " if index == 0 else " · ", style="dim")

@@ -31,7 +31,7 @@ def test_tool_name_uses_theme_color():
         summary = format_tool_call("read_file", {})
     marker, name = summary.spans
     assert (marker.start, marker.end) == (0, 1)
-    assert marker.style.color.name == "magenta"
+    assert marker.style.color.name == "blue"
     assert not marker.style.bold
     assert name.style.color.triplet == (170, 187, 204)
     assert name.start == 2
@@ -45,7 +45,7 @@ def test_arg_names_accented_and_values_dimmed():
     styles = {
         summary.plain[s.start : s.end]: Style.parse(str(s.style)) for s in summary.spans
     }
-    assert styles["file_path"].color.name == "magenta"
+    assert styles["file_path"].color.name == "blue"
     assert styles["x.py"].dim is True
     assert styles["="].dim is True
 

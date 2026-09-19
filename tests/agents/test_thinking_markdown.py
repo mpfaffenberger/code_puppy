@@ -57,7 +57,7 @@ async def test_thinking_markdown(monkeypatch, explicit_end, suppressed):
         assert actual.bold == expected.bold
         marker = styled.get_style_at_offset(console, heading_offset - 2)
         assert marker.color.number == 6
-        assert tool.get_style_at_offset(console, 0).color.number == 5
+        assert tool.get_style_at_offset(console, 0).color.number == 4
         assert not marker.dim
         assert not styled.get_style_at_offset(console, heading_offset).dim
         assert "**" not in plain
