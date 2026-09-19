@@ -99,7 +99,13 @@ def _build_agent_config():
 
     config.temporary_model_name_override.side_effect = temporary_override
     config.get_model_name.return_value = "override-model"
-    config.get_full_system_prompt.return_value = "Test instructions"
+    # Sub-agent prompt assembly reads the stable prefix and the identity tail
+    # as separate components (see build_subagent_instructions); stub both.
+    config.get_stable_system_prompt.return_value = "Test instructions"
+    config.get_identity_prompt.return_value = "\n\nYour ID is `override-agent-abc123`."
+    config.get_full_system_prompt.return_value = (
+        "Test instructions\n\nYour ID is `override-agent-abc123`."
+    )
     config.get_available_tools.return_value = ["list_files"]
     config.get_message_history.return_value = []
     return config
