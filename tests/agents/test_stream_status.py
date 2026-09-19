@@ -106,6 +106,17 @@ def test_tool_end_switches_to_working_without_changing_total():
     assert status.characters == 5
 
 
+@pytest.mark.parametrize(
+    "characters, expected", [(8023, "3,209"), (2500000, "1,000,000")]
+)
+def test_streamed_count_uses_thousands_separators(characters, expected):
+    bar = Mock()
+    status = StreamStatus(bar)
+    status.characters = characters
+    status.paint()
+    bar.set_tool_progress.assert_called_with(f"Streamed ~{expected} tokens | Working")
+
+
 def test_no_bar_is_noop():
     status = StreamStatus(None)
     status.update(PartStartEvent(index=0, part=TextPart(content="ignored")))

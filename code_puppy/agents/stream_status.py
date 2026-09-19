@@ -58,7 +58,7 @@ class StreamStatus:
             return
         tokens = max(1, int(self.characters / 2.5)) if self.characters else 0
         self.bar.set_tool_progress(
-            t("stream.progress", count=tokens, activity=self.activity)
+            t("stream.progress", count=f"{tokens:,}", activity=self.activity)
         )
 
     def update(self, event) -> None:
