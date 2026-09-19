@@ -21,7 +21,14 @@ To resolve the active locale from the environment/config at boot::
 See ``PUP-473`` (epic) and ``PUP-475`` (this foundation story) for scope.
 """
 
-from .catalog import add_catalog_dir, available_locales, load_catalog, lookup, reset
+from .catalog import (
+    add_catalog_dir,
+    available_locales,
+    load_catalog,
+    lookup,
+    register_plugin_catalog,
+    reset,
+)
 from .formats import format_datetime, format_number
 from .locale import (
     DEFAULT_LOCALE,
@@ -49,31 +56,32 @@ from .translate import (
 _ = t
 
 __all__ = [
-    "_",
-    "t",
-    "ngettext",
-    "lazy",
+    "DEFAULT_LOCALE",
+    "PSEUDO_LOCALE",
     "LazyTranslation",
     "Translator",
-    "get_translator",
-    "get_locale",
-    "set_locale",
-    "use_detected_locale",
-    "ensure_detected",
-    "detect_locale",
-    "normalize_locale",
-    "fallback_chain",
-    "language_of",
-    "DEFAULT_LOCALE",
-    "plural_category",
-    "format_number",
-    "format_datetime",
+    "_",
     "add_catalog_dir",
     "available_locales",
+    "detect_locale",
+    "ensure_detected",
+    "fallback_chain",
+    "format_datetime",
+    "format_number",
+    "get_locale",
+    "get_translator",
+    "is_pseudo_locale",
+    "language_of",
+    "lazy",
     "load_catalog",
     "lookup",
-    "reset",
+    "ngettext",
+    "normalize_locale",
+    "plural_category",
     "pseudolocalize",
-    "is_pseudo_locale",
-    "PSEUDO_LOCALE",
+    "register_plugin_catalog",
+    "reset",
+    "set_locale",
+    "t",
+    "use_detected_locale",
 ]
