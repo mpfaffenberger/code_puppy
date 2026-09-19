@@ -18,10 +18,30 @@ def test_pending_survives_long_status(width):
     assert "(1 pending)" in text.plain
     assert text.cell_len <= width
     style = text.get_style_at_offset(Console(), text.plain.index("pending"))
-    assert style.bold
-    assert style.reverse
+    assert not style.bold
+    assert not style.reverse
+    assert style.bgcolor is None
     assert not style.dim
     assert style.color.number == 5
+
+
+def test_pending_alone_has_no_badge_padding():
+    text = Text.from_ansi(render_status_line("", " (1 pending)", 80))
+    assert text.plain == "(1 pending)"
+
+
+@pytest.mark.parametrize("suffix", ["", " (1 pending)"])
+def test_tool_name_has_accent_foreground_only(suffix):
+    text = Text.from_ansi(
+        render_status_line("context | ~42 tokens | Calling grep", suffix, 100)
+    )
+    console = Console()
+    style = text.get_style_at_offset(console, text.plain.index("grep"))
+    assert style.color.number == 5
+    assert not style.dim
+    assert not style.reverse
+    assert style.bgcolor is None
+    assert text.get_style_at_offset(console, text.plain.index("Calling")).dim
 
 
 def test_empty_queue_has_no_badge():
