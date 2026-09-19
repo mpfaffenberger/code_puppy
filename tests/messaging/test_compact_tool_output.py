@@ -29,7 +29,12 @@ def test_nested_payloads_are_summarized():
 def test_tool_name_uses_theme_color():
     with patch("code_puppy.callbacks.on_prompt_text_color", return_value="#aabbcc"):
         summary = format_tool_call("read_file", {})
-    assert summary.spans[0].style.color.triplet == (170, 187, 204)
+    marker, name = summary.spans
+    assert (marker.start, marker.end) == (0, 1)
+    assert marker.style.color.name == "magenta"
+    assert marker.style.bold is False
+    assert name.style.color.triplet == (170, 187, 204)
+    assert name.start == 2
     assert summary.plain == "● read_file"
 
 

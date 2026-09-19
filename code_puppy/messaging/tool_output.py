@@ -39,9 +39,11 @@ def format_tool_call(tool_name: str, arguments: object) -> Text:
 
     name = sanitize(" ".join(tool_name.split()))
     summary = Text(no_wrap=True, overflow="ellipsis")
-    summary.append(
-        f"● {name}", Style(color=on_prompt_text_color() or "cyan", bold=True)
-    )
+    # The theme installs the terminal ANSI palette; use its magenta accent
+    # rather than a fixed RGB color so the marker follows theme switches.
+    summary.append("●", Style(color="magenta", bold=False))
+    summary.append(" ")
+    summary.append(name, Style(color=on_prompt_text_color() or "cyan", bold=True))
     if isinstance(arguments, dict):
         for index, (key, value) in enumerate(arguments.items()):
             summary.append("  " if index == 0 else " · ", style="dim")
