@@ -260,41 +260,30 @@ async def compact(
 # ---------------------------------------------------------------------------
 
 
+def _is_empty_thinking_part(part: Any) -> bool:
+    """Visible text may be empty while opaque provider replay state is not."""
+    return (
+        isinstance(part, ThinkingPart)
+        and not part.content
+        and not part.signature
+        and not part.id
+        and not part.provider_details
+    )
+
+
 def _strip_empty_thinking_parts(
     messages: List[ModelMessage],
 ) -> Tuple[List[ModelMessage], int]:
-    """Remove empty ThinkingParts without discarding replay signatures."""
+    """Remove empty ThinkingParts without discarding provider replay state."""
     cleaned: List[ModelMessage] = []
     filtered_count = 0
     for msg in messages:
-        parts = list(msg.parts)
-        if (
-            len(parts) == 1
-            and isinstance(parts[0], ThinkingPart)
-            and not parts[0].content
-            and not parts[0].signature
-        ):
-            filtered_count += 1
-            continue
-        if any(
-            isinstance(p, ThinkingPart) and not p.content and not p.signature
-            for p in parts
-        ):
-            msg = dataclasses.replace(
-                msg,
-                parts=[
-                    p
-                    for p in parts
-                    if not (
-                        isinstance(p, ThinkingPart)
-                        and not p.content
-                        and not p.signature
-                    )
-                ],
-            )
-            if not msg.parts:
+        if any(_is_empty_thinking_part(part) for part in msg.parts):
+            parts = [part for part in msg.parts if not _is_empty_thinking_part(part)]
+            if not parts:
                 filtered_count += 1
                 continue
+            msg = dataclasses.replace(msg, parts=parts)
         cleaned.append(msg)
     return cleaned, filtered_count
 
@@ -308,7 +297,7 @@ def make_history_processor(agent: Any) -> Callable[..., Any]:
          (preserving the last-message regardless of compacted-hash collisions).
       3. Runs ``compact(...)`` if we're over threshold (or ``/compact`` forced).
       4. Records dropped-message hashes in ``agent._compacted_message_hashes``.
-      5. Strips empty ThinkingParts that carry no replay signature.
+      5. Strips empty ThinkingParts that carry no provider replay state.
       6. Trims trailing ModelResponse messages so history ends with a ModelRequest.
       7. Fires ``on_message_history_processor_end``.
 
