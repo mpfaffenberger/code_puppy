@@ -118,6 +118,11 @@ class MessageQueue:
 
     def emit(self, message: UIMessage):
         """Emit a message to the queue."""
+        from .tool_output import suppress_tool_message
+
+        if suppress_tool_message(message):
+            return
+
         # If no renderer is active yet, buffer the message for startup
         if not self._has_active_renderer:
             self._startup_buffer.append(message)

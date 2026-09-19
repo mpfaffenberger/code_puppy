@@ -106,6 +106,11 @@ class MessageBus:
         Args:
             message: The message to emit.
         """
+        from .tool_output import suppress_tool_message
+
+        if suppress_tool_message(message):
+            return
+
         # Auto-tag message with current session if not already set
         with self._lock:
             if message.session_id is None and self._current_session_id is not None:

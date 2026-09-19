@@ -184,7 +184,6 @@ async def event_stream_handler(
     tool_names: dict[int, str] = {}  # Track tool name per tool part index
     tool_args_buffer: dict[int, str] = {}  # Accumulate raw tool-call args JSON
     did_stream_anything = False  # Track if we streamed any content
-    is_high_mode = get_output_level() == "high"
 
     # Termflow streaming state for text parts
     termflow_parsers: dict[int, TermflowParser] = {}
@@ -475,23 +474,6 @@ async def event_stream_handler(
                                 tool_names.get(event.index, "") + tool_name_delta
                             )
 
-                        # Use stored tool name; in low mode skip the progress
-                        # counter — the RichConsoleRenderer peek suffices.
-                        if not _suppress_tool_progress():
-                            tool_name = tool_names.get(event.index, "")
-                            count = token_count[event.index]
-                            # Display tool progress without decorative icons.
-                            if tool_name:
-                                console.print(
-                                    f"  Calling {tool_name}... {count} token(s)   ",
-                                    end="\r",
-                                )
-                            else:
-                                console.print(
-                                    f"  Calling tool... {count} token(s)   ",
-                                    end="\r",
-                                )
-
             # PartEndEvent - finish the streaming with a newline
             elif isinstance(event, PartEndEvent):
                 # Fire stream event callback for part_end
@@ -506,33 +488,8 @@ async def event_stream_handler(
                 if event.index in streaming_parts:
                     if event.index in text_parts:
                         await _finish_text_part(event.index)
-                    # For tool parts, clear the chunk counter line
                     elif event.index in tool_parts:
-                        # Erase the \r-repainted chunk-counter line entirely;
-                        # space-padding assumed <= 50 cells and left ghost
-                        # tails behind long tool names.
-                        erase_progress_line(console)
-                        # In high mode, dump the full tool call arguments so the
-                        # user can see exactly what the model sent to the tool.
-                        if is_high_mode:
-                            tool_name = tool_names.get(event.index, "tool")
-                            raw_args = tool_args_buffer.get(event.index, "")
-                            if raw_args:
-                                # Pretty-print the JSON if possible.
-                                import json as _json
-
-                                try:
-                                    parsed = _json.loads(raw_args)
-                                    formatted = _json.dumps(
-                                        parsed, indent=2, ensure_ascii=False
-                                    )
-                                except (ValueError, TypeError):
-                                    formatted = raw_args
-                                console.print(
-                                    f"[dim]  tool_call {escape(tool_name)} args:[/dim]"
-                                )
-                                for arg_line in formatted.splitlines():
-                                    console.print(f"[dim]    {escape(arg_line)}[/dim]")
+                        pass  # Execution renders the single compact call summary.
                     # For thinking parts, drain the smoother then print newline
                     elif event.index in thinking_parts:
                         _emit_thinking(event.index, "", final=True)

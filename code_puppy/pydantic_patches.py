@@ -439,7 +439,12 @@ def patch_tool_call_callbacks() -> bool:
             error: Exception | None = None
             result = None
             try:
-                result = await _original_execute_tool_call(self, validated, **kwargs)
+                from code_puppy.messaging.tool_output import compact_tool_output
+
+                with compact_tool_output(tool_name, tool_args):
+                    result = await _original_execute_tool_call(
+                        self, validated, **kwargs
+                    )
                 # Prepend collected hook stdout (PreToolUse "additional
                 # context") so the model sees it as part of the tool result.
                 if hook_context_messages:
