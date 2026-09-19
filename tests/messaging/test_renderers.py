@@ -256,7 +256,7 @@ def test_sync_renderer_queued_banner(mq):
     )
 
     output = console.file.getvalue()
-    assert output.startswith("\n QUEUED  for next turn: fix the tests")
+    assert output == ""
     assert chr(0x23ED) not in output
 
 
@@ -269,15 +269,8 @@ def test_sync_renderer_queued_style_includes_trailing_padding(mq):
             UIMessage(type=MessageType.QUEUED, content="for next turn: later")
         )
 
-    mock_print.assert_any_call()
-    queued = mock_print.call_args_list[1].args[0]
-    assert isinstance(queued, Text)
-    assert queued.plain == " QUEUED  for next turn: later"
-    assert queued.spans[0].start == 0
-    assert queued.spans[0].end == len(" QUEUED ")
-    assert str(queued.spans[0].style).startswith("bold white on ")
-    assert queued.spans[1].start == len(" QUEUED  ")
-    assert queued.spans[1].style == "dim"
+    mock_print.assert_not_called()
+
 
 
 def test_sync_renderer_version_dim(mq):

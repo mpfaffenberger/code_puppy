@@ -259,7 +259,11 @@ def test_status_suffix_paints_after_status(bar, tty):
     bar.set_status("tokens: 42")
     drain(tty)
     bar.set_status_suffix(" (2 queued)")
-    assert "tokens: 42 (2 queued)" in written(tty)
+    from rich.text import Text
+
+    output = Text.from_ansi(written(tty)).plain
+    assert "tokens: 42" in output
+    assert "(2 queued)" in output
 
 
 def test_status_suffix_alone_materializes_row(bar, tty):

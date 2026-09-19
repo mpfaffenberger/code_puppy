@@ -276,6 +276,10 @@ def _classify_style(message: UIMessage) -> Optional[str]:
 
 def _print_message(console: Console, message: UIMessage) -> None:
     """Print one message while coordinating with the live prompt surface."""
+    # Pending submissions are represented by the status badge, not scrollback.
+    if message.type == MessageType.QUEUED:
+        return
+
     from contextlib import nullcontext
 
     try:

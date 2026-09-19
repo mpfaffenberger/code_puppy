@@ -56,9 +56,6 @@ from .bar_rendering import (
 from .bar_rendering import (
     render_styled_line as _render_styled_line,
 )
-from .bar_rendering import (
-    sanitize as _sanitize,
-)
 
 #: Maximum rows for the multiline prompt viewport.
 PROMPT_MAX_ROWS = 5
@@ -202,6 +199,13 @@ class BarPainterMixin:
         progress = f"{self._tool_progress} | " if self._tool_progress else ""
         return f"{self._status_prefix}{progress}{self._status}{self._status_suffix}"
 
+    def _render_status_line(self, width: int) -> str:
+        from .status_line import render_status_line
+
+        progress = f"{self._tool_progress} | " if self._tool_progress else ""
+        body = f"{self._status_prefix}{progress}{self._status}"
+        return render_status_line(body, self._status_suffix, width)
+
     def _total_reserved(self) -> int:
         """Rows needed: top margin + panel + prompt + popup + status."""
         return (
@@ -311,8 +315,7 @@ class BarPainterMixin:
         if not self._status_visible():
             return ""
         _pt, _pop, status_row, _panel = self._row_anchors()
-        combined = self._combined_status()
-        text = _dim(_clip_cells(_sanitize(combined), self._cols))
+        text = self._render_status_line(self._cols)
         return (
             f"{_SAVE_CURSOR}{_WRAP_OFF}\x1b[{status_row};1H{_CLEAR_LINE}{text}"
             f"{_WRAP_ON}{_RESTORE_CURSOR}"
