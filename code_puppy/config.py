@@ -2535,7 +2535,6 @@ def auto_save_session_if_enabled(*, force: bool = False) -> bool:
         import pathlib
 
         from code_puppy.agents.agent_manager import get_current_agent
-        from code_puppy.messaging import emit_info
 
         current_agent = get_current_agent()
         history = current_agent.get_message_history()
@@ -2559,24 +2558,6 @@ def auto_save_session_if_enabled(*, force: bool = False) -> bool:
         # Point quick-resume at this save; every turn/exit/finalize routes through
         # this chokepoint. Best-effort, never blocks the autosave.
         record_quick_resume_sessions(session_name)
-
-        # Append conversation-wide TTFT + TG averages if we have any data.
-        stats_suffix = ""
-        try:
-            from code_puppy.agents.run_stats import AgentRunStats
-
-            avg_ttft, avg_gen = AgentRunStats.get_conversation_stats()
-            formatted = AgentRunStats.format_conversation_stats(avg_ttft, avg_gen)
-            if formatted:
-                stats_suffix = f" | {formatted}"
-        except Exception:
-            # Stats are decorative; never block the auto-save line on them.
-            pass
-
-        emit_info(
-            f"\U0001f43e Auto-saved session: {metadata.message_count} messages "
-            f"({metadata.total_tokens} tokens){stats_suffix}"
-        )
 
         # Fire post_autosave so plugins can append lines (token quota) without
         # us knowing about them. See session_lifecycle's docstring re executor wrap.
