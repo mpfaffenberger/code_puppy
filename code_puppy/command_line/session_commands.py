@@ -360,6 +360,8 @@ def handle_quick_resume_command(command: str) -> bool:
 
     try:
         history = load_session(session_name, session_path.parent)
+        agent = get_current_agent()
+        agent.set_message_history(history)
     except FileNotFoundError:
         logger.warning("Quick-resume session file not found: %s", session_path)
         emit_error(t("cmd.quick_resume.file_not_found"))
@@ -369,8 +371,6 @@ def handle_quick_resume_command(command: str) -> bool:
         emit_error(t("cmd.quick_resume.failed"))
         return True
 
-    agent = get_current_agent()
-    agent.set_message_history(history)
     set_current_autosave_from_session_name(session_name)
     total_tokens = sum(agent.estimate_tokens_for_message(m) for m in history)
 
@@ -466,6 +466,8 @@ def handle_load_context_command(command: str) -> bool:
 
     try:
         history = load_session(session_name, sessions_dir)
+        agent = get_current_agent()
+        agent.set_message_history(history)
     except FileNotFoundError:
         emit_error(t("cmd.load_context.not_found", path=session_path))
         scope_key = compute_scope_key(Path.cwd()) if cwd_flag else None
@@ -477,8 +479,6 @@ def handle_load_context_command(command: str) -> bool:
         emit_error(t("cmd.load_context.failed", error=exc))
         return True
 
-    agent = get_current_agent()
-    agent.set_message_history(history)
     total_tokens = sum(agent.estimate_tokens_for_message(m) for m in history)
 
     # Rotate the singleton to a fresh ``auto_session_<TS>`` so autosaves don't
