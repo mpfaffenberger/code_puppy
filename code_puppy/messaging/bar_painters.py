@@ -27,6 +27,8 @@ or empties (``_total_reserved`` changes → region grows/shrinks).
 
 from __future__ import annotations
 
+from .identity_line import IdentityLineMixin
+
 import re
 
 from .bar_rendering import (
@@ -102,7 +104,7 @@ def _panel_overflow_row(hidden: int) -> str:
     return f"\u2026 +{hidden} more"
 
 
-class BarPainterMixin:
+class BarPainterMixin(IdentityLineMixin):
     """Layout math + reserved-row painters for :class:`BottomBar`."""
 
     def _prompt_row_count(self) -> int:
@@ -165,6 +167,7 @@ class BarPainterMixin:
             + len(self._visible_popup_lines())
             + self._visible_popup_slack()
             + (1 if self._status_visible() else 0)
+            + self._identity_row_count()
         )
         return max(0, rows - 1 - non_panel)
 
@@ -219,6 +222,7 @@ class BarPainterMixin:
             + len(self._visible_popup_lines())
             + self._visible_popup_slack()
             + (1 if self._status_visible() else 0)
+            + self._identity_row_count()
         )
 
     def _row_anchors(self) -> tuple:
@@ -236,6 +240,7 @@ class BarPainterMixin:
         popup_top = (
             rows
             - status_rows
+            - self._identity_row_count()
             - self._visible_popup_slack()
             - len(self._visible_popup_lines())
             + 1
@@ -251,6 +256,7 @@ class BarPainterMixin:
             + self._panel_seq()
             + self._prompt_seq()
             + self._popup_seq()
+            + self._identity_seq()
             + self._status_seq()
         )
 
