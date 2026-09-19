@@ -195,16 +195,20 @@ class BarPainterMixin:
             or self._tool_progress
         )
 
+    def _status_body(self) -> str:
+        return " | ".join(
+            slot.strip()
+            for slot in (self._status_prefix, self._status, self._tool_progress)
+            if slot.strip()
+        )
+
     def _combined_status(self) -> str:
-        progress = f"{self._tool_progress} | " if self._tool_progress else ""
-        return f"{self._status_prefix}{progress}{self._status}{self._status_suffix}"
+        return f"{self._status_body()}{self._status_suffix}"
 
     def _render_status_line(self, width: int) -> str:
         from .status_line import render_status_line
 
-        progress = f"{self._tool_progress} | " if self._tool_progress else ""
-        body = f"{self._status_prefix}{progress}{self._status}"
-        return render_status_line(body, self._status_suffix, width)
+        return render_status_line(self._status_body(), self._status_suffix, width)
 
     def _total_reserved(self) -> int:
         """Rows needed: top margin + panel + prompt + popup + status."""

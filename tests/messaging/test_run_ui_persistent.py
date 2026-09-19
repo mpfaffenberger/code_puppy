@@ -322,4 +322,8 @@ def test_tty_without_flags_selects_new_path(monkeypatch):
     monkeypatch.setattr("sys.stdout", FakeTTY())
     monkeypatch.delenv("CODE_PUPPY_CLASSIC_PROMPT", raising=False)
     monkeypatch.delenv("CODE_PUPPY_NO_TUI", raising=False)
+    monkeypatch.setattr("code_puppy.config.get_value", lambda key: None)
+    monkeypatch.setattr(
+        "code_puppy.terminal_utils.ensure_windows_vt_processing", lambda: True
+    )
     assert _use_persistent_prompt() is True

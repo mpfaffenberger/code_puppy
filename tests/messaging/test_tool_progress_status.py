@@ -11,9 +11,9 @@ def test_progress_preserves_other_slots_and_clears():
     bar.set_status_prefix("spinner ")
     bar.set_status_suffix(" queued")
     bar.set_tool_progress("read_file · ~42 tokens")
-    assert bar._combined_status() == "spinner read_file · ~42 tokens | context queued"
+    assert bar._combined_status() == "spinner | context | read_file · ~42 tokens queued"
     bar.set_tool_progress("")
-    assert bar._combined_status() == "spinner context queued"
+    assert bar._combined_status() == "spinner | context queued"
 
 
 def test_progress_alone_controls_status_visibility():

@@ -202,9 +202,9 @@ def _defer_undelivered_steers() -> None:
 
         moved = get_pause_controller().defer_pending_steer_now()
         if moved:
-            from . import emit_info
+            from . import emit_queued
 
-            emit_info(f"⏭ Queued {moved} steering message(s) for the next turn.")
+            emit_queued(f"for next turn: {moved} steer(s) that missed this run")
     except Exception:
         logger.debug("undelivered steer deferral failed", exc_info=True)
 

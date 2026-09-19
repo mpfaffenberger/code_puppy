@@ -25,7 +25,10 @@ class MessageType(Enum):
 
     # Basic content types
     INFO = "info"
-    QUEUED = "queued"
+    # Queued submissions use the status badge; explicit steering notices
+    # get a distinct, themed transcript acknowledgement.
+    QUEUED = "queued"  # parked for the next turn
+    STEER = "steer"  # injected into the current turn
     SUCCESS = "success"
     WARNING = "warning"
     ERROR = "error"
@@ -342,6 +345,11 @@ def emit_info(content: Any, **metadata):
 def emit_queued(content: Any, **metadata):
     """Emit a queued-for-next-turn acknowledgement."""
     emit_message(MessageType.QUEUED, content, **metadata)
+
+
+def emit_steer(content: Any, **metadata):
+    """Emit a steer-injected-now acknowledgement."""
+    emit_message(MessageType.STEER, content, **metadata)
 
 
 def emit_success(content: Any, **metadata):

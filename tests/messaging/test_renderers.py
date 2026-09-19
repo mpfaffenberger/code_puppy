@@ -235,6 +235,7 @@ def test_sync_renderer_render_messages(mq):
         (MessageType.WARNING, "warn"),
         (MessageType.SUCCESS, "ok"),
         (MessageType.QUEUED, "for next turn: later"),
+        (MessageType.STEER, "injecting now"),
         (MessageType.TOOL_OUTPUT, "tool"),
         (MessageType.AGENT_REASONING, "think"),
         (MessageType.AGENT_RESPONSE, "**bold**"),
@@ -256,21 +257,33 @@ def test_sync_renderer_queued_banner(mq):
     )
 
     output = console.file.getvalue()
-    assert output == ""
-    assert chr(0x23ED) not in output
+    assert output == ""  # The status badge is the only queued acknowledgement.
 
 
-def test_sync_renderer_queued_style_includes_trailing_padding(mq):
+@pytest.mark.parametrize(
+    ("message_type", "badge"),
+    [(MessageType.STEER, " STEER ")],
+)
+def test_sync_renderer_steer_banner_is_bright_and_themed(mq, message_type, badge):
     console = make_console()
     renderer = SynchronousInteractiveRenderer(mq, console=console)
 
-    with patch.object(console, "print") as mock_print:
-        renderer._render_message(
-            UIMessage(type=MessageType.QUEUED, content="for next turn: later")
-        )
+    with (
+        patch("code_puppy.config.get_banner_color", return_value="deep_pink3"),
+        patch.object(console, "print") as mock_print,
+    ):
+        renderer._render_message(UIMessage(type=message_type, content="later"))
 
-    mock_print.assert_not_called()
-
+    mock_print.assert_any_call()
+    banner = mock_print.call_args_list[1].args[0]
+    assert isinstance(banner, Text)
+    assert banner.plain == f"{badge} later"
+    assert banner.spans[0].start == 0
+    assert banner.spans[0].end == len(badge)
+    assert str(banner.spans[0].style) == "bold white on deep_pink3"
+    assert banner.spans[1].start == len(badge) + 1
+    # Bright, not dim: the user typed this and must be able to spot the ack.
+    assert banner.spans[1].style == "bold"
 
 
 def test_sync_renderer_version_dim(mq):

@@ -251,7 +251,7 @@ def test_status_prefix_paints_before_status(bar, tty):
     bar.set_status("tokens: 1234")
     drain(tty)
     bar.set_status_prefix("(pup) thinking... ")
-    assert "(pup) thinking... tokens: 1234" in written(tty)
+    assert "(pup) thinking... | tokens: 1234" in written(tty)
 
 
 def test_status_suffix_paints_after_status(bar, tty):
@@ -319,7 +319,7 @@ def test_status_prefix_and_status_are_independent_slots(bar, tty):
     bar.set_status_prefix("(pup) ")
     drain(tty)
     bar.set_status("tokens: 9")  # context writer repaints...
-    assert "(pup) tokens: 9" in written(tty)  # ...spinner survives
+    assert "(pup) | tokens: 9" in written(tty)  # ...spinner survives
     drain(tty)
     bar.set_status_prefix("")  # spinner clears...
     out = written(tty)

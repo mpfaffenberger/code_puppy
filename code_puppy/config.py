@@ -2310,6 +2310,8 @@ DEFAULT_BANNER_COLORS = {
     "shell_passthrough": "medium_sea_green",  # Green - user's own shell commands
     # LLM Judge - goal-mode verdict (distinct from agent reasoning)
     "llm_judge": "gold3",  # Gold - judicial authority / gavel
+    # User steering (QUEUED / STEER acks) - hot pink so it never hides in the scrollback
+    "steer": "deep_pink3",
 }
 
 

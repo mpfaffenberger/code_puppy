@@ -382,14 +382,10 @@ class TestChecklist1b_InformationalNotSuppressedInHighMode:
 
 
 class TestChecklist2_ToolCallArgs:
-    """High mode dumps streamed tool-call args (event_stream_handler PartEndEvent)."""
+    """Tool-call progress uses the status bar rather than dumping arguments."""
 
-    def test_is_high_mode_flag_gates_args_display(self):
-        """The is_high_mode flag controls tool args display at PartEndEvent.
-
-        Verified by source inspection: when is_high_mode is True, the
-        PartEndEvent handler pretty-prints tool_args_buffer.
-        """
+    def test_tool_args_use_stream_status(self):
+        """The handler delegates progress to the shared stream-status painter."""
         import inspect
 
         from code_puppy.agents.event_stream_handler import event_stream_handler
@@ -399,7 +395,7 @@ class TestChecklist2_ToolCallArgs:
         # never prints tool args itself; the execution wrapper renders one
         # summary line and streaming progress goes to the status bar.
         assert "is_high_mode" not in source
-        assert "set_tool_progress" in source
+        assert "stream_status.update(event)" in source
 
 
 # ===================================================================
