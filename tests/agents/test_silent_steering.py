@@ -22,7 +22,9 @@ def test_steering_is_injected_silently(monkeypatch):
     )
     emit = Mock()
     monkeypatch.setattr("code_puppy.messaging.message_queue.emit_message", emit)
-    original = ModelRequest(parts=[UserPromptPart(content="hello")], instructions="rules")
+    original = ModelRequest(
+        parts=[UserPromptPart(content="hello")], instructions="rules"
+    )
     agent = SimpleNamespace(_message_history=[original])
     result = _steer_processor.make_steer_history_processor(agent)([original])
     assert len(result) == 2
