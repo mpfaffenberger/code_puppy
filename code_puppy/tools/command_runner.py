@@ -921,10 +921,6 @@ def run_shell_command_streaming(
             if automatic
             else "The user backgrounded this command"
         )
-        if not silent:
-            emit_warning(
-                f"{cause} (PID {process.pid}) -- output continues in {log.path}"
-            )
         return ShellCommandOutput(
             success=True,
             command=command,
