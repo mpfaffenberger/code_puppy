@@ -43,6 +43,7 @@ async def test_thinking_markdown(monkeypatch, explicit_end, suppressed):
         assert not plain.strip()
     else:
         assert plain.count("● Thinking") == 1
+        assert not plain.startswith("\n")
         assert "Thinking  Finishing efficiently" in plain
         from rich.text import Text
         from code_puppy.messaging.tool_output import format_tool_call

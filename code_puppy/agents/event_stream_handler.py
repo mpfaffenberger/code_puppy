@@ -300,13 +300,14 @@ async def event_stream_handler(
             await writer.close()
         console.print()  # Blank line separating the response from what follows
 
-    async def _start_fresh_block() -> None:
+    async def _start_fresh_block(*, thinking: bool = False) -> None:
         """Open a thinking/response block on a clean line (banners are gone)."""
         nonlocal did_stream_anything
 
-        # Clear any \r-repainted progress line, then move below it
+        # Thinking follows the previous block's existing trailing spacing.
         erase_progress_line(console)
-        console.print()
+        if not thinking:
+            console.print()
         did_stream_anything = True
 
     def _abort_all_drainers() -> None:
@@ -377,7 +378,7 @@ async def event_stream_handler(
                     # (unless thinking is suppressed by output level or toggle).
                     if part.content and part.content.strip():
                         if not _suppress_thinking_stream():
-                            await _start_fresh_block()
+                            await _start_fresh_block(thinking=True)
                             _emit_thinking(event.index, part.content)
                         banner_printed.add(event.index)
                 elif isinstance(part, TextPart):
@@ -434,7 +435,7 @@ async def event_stream_handler(
                                 # suppress_thinking toggle.
                                 if not _suppress_thinking_stream():
                                     if event.index not in banner_printed:
-                                        await _start_fresh_block()
+                                        await _start_fresh_block(thinking=True)
                                         banner_printed.add(event.index)
                                     _emit_thinking(event.index, delta.content_delta)
                     elif isinstance(delta, ToolCallPartDelta):
