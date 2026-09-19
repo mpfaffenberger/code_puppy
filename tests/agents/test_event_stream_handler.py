@@ -318,13 +318,14 @@ class TestEventStreamHandler:
 
         console = MagicMock(spec=Console)
         set_streaming_console(console)
+        bar = MagicMock()
 
-        with contextlib.nullcontext():
-            with contextlib.nullcontext():
-                await event_stream_handler(mock_ctx, event_stream())
+        with patch("code_puppy.messaging.bottom_bar.get_bottom_bar", return_value=bar):
+            await event_stream_handler(mock_ctx, event_stream())
 
-        # Should have printed tool call info
-        assert console.print.called
+        # Tool progress lives in the status line; nothing hits the transcript.
+        assert not console.print.called
+        assert bar.set_tool_progress.called
 
     @pytest.mark.asyncio
     async def test_handles_part_end_event_for_text(self, mock_ctx):
@@ -574,17 +575,16 @@ class TestEventStreamHandler:
 
         console = MagicMock(spec=Console)
         set_streaming_console(console)
+        bar = MagicMock()
 
-        with contextlib.nullcontext():
-            with contextlib.nullcontext():
-                await event_stream_handler(mock_ctx, event_stream())
+        with patch("code_puppy.messaging.bottom_bar.get_bottom_bar", return_value=bar):
+            await event_stream_handler(mock_ctx, event_stream())
 
-        # Console should show token counts
-        assert console.print.called
-        # Check that token counter was printed (contains "token(s)")
-        call_args_list = [str(call) for call in console.print.call_args_list]
-        # Should have printed something with token(s)
-        assert any("token(s)" in str(call) for call in call_args_list)
+        # Each delta repaints the status slot; the final call clears it.
+        assert not console.print.called
+        progress_values = [c.args[0] for c in bar.set_tool_progress.call_args_list]
+        assert any("test_tool" in value for value in progress_values)
+        assert progress_values[-1] == ""
 
     @pytest.mark.asyncio
     async def test_thinking_part_without_initial_content_defers_banner(self, mock_ctx):

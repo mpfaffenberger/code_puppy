@@ -395,10 +395,11 @@ class TestChecklist2_ToolCallArgs:
         from code_puppy.agents.event_stream_handler import event_stream_handler
 
         source = inspect.getsource(event_stream_handler)
-        # Confirm the flag exists and gates args display
-        assert 'is_high_mode = get_output_level() == "high"' in source
-        assert "tool_args_buffer" in source
-        assert "tool_call" in source
+        # Compact tool output superseded the high-mode arg dump: the handler
+        # never prints tool args itself; the execution wrapper renders one
+        # summary line and streaming progress goes to the status bar.
+        assert "is_high_mode" not in source
+        assert "set_tool_progress" in source
 
 
 # ===================================================================
@@ -674,20 +675,16 @@ class TestChecklist8_NoRawAPIPayloads:
 class TestChecklist9_ShellExitAndDuration:
     """High mode shows exit_code and duration_seconds from ShellOutputMessage."""
 
-    def test_exit_code_and_duration_displayed(self):
+    def test_shell_output_body_hidden_even_in_high(self):
+        """Compact tool output: result bodies never reach the transcript."""
         renderer, console, _ = _make_renderer()
         msg = ShellOutputMessage(command="ls -la", exit_code=0, duration_seconds=2.5)
-        out = _render_high(renderer, console, msg)
-        assert "exit=" in out
-        assert "0" in out
-        assert "2.5s" in out
+        assert _render_high(renderer, console, msg) == ""
 
-    def test_nonzero_exit_code(self):
+    def test_nonzero_exit_code_body_hidden(self):
         renderer, console, _ = _make_renderer()
         msg = ShellOutputMessage(command="false", exit_code=1, duration_seconds=0.1)
-        out = _render_high(renderer, console, msg)
-        assert "exit=" in out
-        assert "1" in out
+        assert _render_high(renderer, console, msg) == ""
 
     def test_fields_trace_to_message(self):
         """exit_code and duration_seconds are pre-existing ShellOutputMessage fields."""
@@ -721,9 +718,8 @@ class TestChecklist10_ReadFileMetadata:
             total_lines=500,
             num_tokens=1200,
         )
-        out = _render_high(renderer, console, msg)
-        assert "500 total lines" in out
-        assert "1200 tokens" in out
+        # Compact tool output: file bodies never reach the transcript.
+        assert _render_high(renderer, console, msg) == ""
 
     def test_fields_trace_to_message(self):
         """total_lines and num_tokens are pre-existing FileContentMessage fields."""
@@ -761,9 +757,8 @@ class TestChecklist11_GrepMetadata:
             files_searched=150,
             verbose=False,
         )
-        out = _render_high(renderer, console, msg)
-        assert "150 files searched" in out
-        assert "1 matches" in out
+        # Compact tool output: grep bodies never reach the transcript.
+        assert _render_high(renderer, console, msg) == ""
 
     def test_fields_trace_to_message(self):
         """files_searched and total_matches are pre-existing GrepResultMessage fields."""
@@ -790,9 +785,8 @@ class TestChecklist11_GrepMetadata:
             files_searched=5,
             verbose=False,  # Would be concise in medium
         )
-        out = _render_high(renderer, console, msg)
-        # Verbose mode shows line content
-        assert "foo bar baz" in out
+        # Compact tool output: match lines never reach the transcript.
+        assert _render_high(renderer, console, msg) == ""
 
 
 # ===================================================================
@@ -815,11 +809,8 @@ class TestChecklist12_NoExtraAnnotations:
                 DiffLine(line_number=3, type="context", content="same"),
             ],
         )
-        out = _render_high(renderer, console, msg)
-        # Derived from existing diff_lines field (count of add/remove types)
-        assert "+1" in out
-        assert "-1" in out
-        assert "lines" in out
+        # Compact tool output: diff bodies never reach the transcript.
+        assert _render_high(renderer, console, msg) == ""
 
     def test_subagent_prompt_untruncated(self):
         """Full prompt display in high mode uses the existing msg.prompt field."""
@@ -831,10 +822,9 @@ class TestChecklist12_NoExtraAnnotations:
             prompt=long_prompt,
             is_new_session=True,
         )
-        out = _render_high(renderer, console, msg)
-        # In high mode the full 500-char prompt is shown, not truncated to 200
-        # At minimum, 300 x's should appear (200+100 past the truncation point)
-        assert out.count("x") > 300
+        # Compact tool output: sub-agent invocation bodies are hidden; the
+        # invoke_agent call summary line is the only transcript trace.
+        assert _render_high(renderer, console, msg) == ""
 
     def test_subagent_prompt_truncated_in_medium(self):
         """Contrast: medium truncates long prompts to 200 chars."""
@@ -846,8 +836,7 @@ class TestChecklist12_NoExtraAnnotations:
             prompt=long_prompt,
             is_new_session=True,
         )
-        out = _render_medium(renderer, console, msg)
-        assert "..." in out
+        assert _render_medium(renderer, console, msg) == ""
 
     def test_tools_with_renderer_show_duration_only(self):
         """High mode shows compact 'returned (N ms)' for rich-rendered tools."""

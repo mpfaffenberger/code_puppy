@@ -291,6 +291,7 @@ async def event_stream_handler(
         writer = termflow_writers.pop(index, None)
         if writer is not None:
             await writer.close()
+        console.print()  # Blank line separating the response from what follows
 
     async def _print_thinking_banner() -> None:
         """Print the THINKING banner on a fresh line."""
@@ -311,18 +312,12 @@ async def event_stream_handler(
         did_stream_anything = True
 
     async def _print_response_banner() -> None:
-        """Print the AGENT RESPONSE banner on a fresh line."""
+        """Start the response on a fresh line; the banner itself is gone."""
         nonlocal did_stream_anything
 
         # Clear any \r-repainted progress line, then move below it
         erase_progress_line(console)
-        console.print()  # Newline before banner
-        response_color = get_banner_color("agent_response")
-        console.print(
-            Text.from_markup(
-                f"[bold white on {response_color}] AGENT RESPONSE [/bold white on {response_color}]"
-            )
-        )
+        console.print()
         did_stream_anything = True
 
     def _abort_all_drainers() -> None:
