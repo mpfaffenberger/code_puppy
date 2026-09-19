@@ -1,4 +1,12 @@
 {
+  "stream.thinking": "\u25cf Thinking",
+  "stream.activity.thinking": "Thinking",
+  "stream.activity.writing": "Writing Response",
+  "stream.activity.calling": "Calling {tool}",
+  "stream.activity.tool": "Calling Tool",
+  "stream.activity.waiting": "Waiting",
+  "stream.activity.working": "Working",
+  "stream.activity.idle": "Idle",
   "stream.progress": "Streamed ~{count} tokens | {activity}",
   "tools.streaming_progress": "{tool} ~{count} tokens",
   "agent.model_settings.boolean_type": "model_settings[{key!r}] must be true or false (got {value!r})",

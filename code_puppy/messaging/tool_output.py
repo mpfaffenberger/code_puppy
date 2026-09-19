@@ -29,22 +29,32 @@ def _format_argument(value: object) -> str:
     return json.dumps(value, ensure_ascii=False, default=str)
 
 
-def format_tool_call(tool_name: str, arguments: object) -> Text:
-    """Build a styled, literal one-line summary rather than a JSON payload."""
+def format_activity_heading(label: str, *, secondary: bool = False) -> Text:
+    """Shared accent bullet and bold foreground label for transcript activity."""
     from rich.style import Style
 
     from code_puppy.callbacks import on_prompt_text_color
 
     from .bar_rendering import sanitize
 
-    name = sanitize(" ".join(tool_name.split()))
+    name = sanitize(" ".join(label.split()))
     summary = Text(no_wrap=True, overflow="ellipsis")
     # The theme installs the terminal ANSI palette; use its magenta accent
     # rather than a fixed RGB color so the marker follows theme switches.
-    accent = Style(color="magenta")
+    accent = Style(color="cyan" if secondary else "magenta")
     summary.append("●", accent)
     summary.append(" ")
-    summary.append(name, Style(color=on_prompt_text_color() or "cyan", bold=True))
+    label_color = "cyan" if secondary else (on_prompt_text_color() or "cyan")
+    summary.append(name, Style(color=label_color, bold=True))
+    return summary
+
+
+def format_tool_call(tool_name: str, arguments: object) -> Text:
+    """Build a styled, literal one-line summary rather than a JSON payload."""
+    from .bar_rendering import sanitize
+
+    summary = format_activity_heading(tool_name)
+    accent = "magenta"
     if isinstance(arguments, dict):
         for index, (key, value) in enumerate(arguments.items()):
             summary.append("  " if index == 0 else " · ", style="dim")

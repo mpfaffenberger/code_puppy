@@ -127,6 +127,7 @@ class TestEventStreamHandler:
             yield event
 
         console = MagicMock(spec=Console)
+        console.width = 80
         set_streaming_console(console)
 
         with contextlib.nullcontext():
@@ -145,6 +146,7 @@ class TestEventStreamHandler:
             yield event
 
         console = MagicMock(spec=Console)
+        console.width = 80
         set_streaming_console(console)
 
         with contextlib.nullcontext():
@@ -161,6 +163,7 @@ class TestEventStreamHandler:
             yield event
 
         console = MagicMock(spec=Console)
+        console.width = 80
         set_streaming_console(console)
 
         with contextlib.nullcontext():
@@ -184,6 +187,7 @@ class TestEventStreamHandler:
             yield event
 
         console = MagicMock(spec=Console)
+        console.width = 80
         set_streaming_console(console)
 
         with contextlib.nullcontext():
@@ -240,6 +244,7 @@ class TestEventStreamHandler:
             yield delta_event
 
         console = MagicMock(spec=Console)
+        console.width = 80
         set_streaming_console(console)
 
         with contextlib.nullcontext():
@@ -299,6 +304,7 @@ class TestEventStreamHandler:
             yield delta_event
 
         console = MagicMock(spec=Console)
+        console.width = 80
         set_streaming_console(console)
         bar = MagicMock()
 
@@ -350,6 +356,7 @@ class TestEventStreamHandler:
             yield end_event
 
         console = MagicMock(spec=Console)
+        console.width = 80
         set_streaming_console(console)
 
         with contextlib.nullcontext():
@@ -372,6 +379,7 @@ class TestEventStreamHandler:
             yield end_event
 
         console = MagicMock(spec=Console)
+        console.width = 80
         set_streaming_console(console)
 
         with contextlib.nullcontext():
@@ -512,6 +520,7 @@ class TestEventStreamHandler:
             yield delta_event
 
         console = MagicMock(spec=Console)
+        console.width = 80
         set_streaming_console(console)
 
         with contextlib.nullcontext():
@@ -540,17 +549,19 @@ class TestEventStreamHandler:
                 yield delta_event
 
         console = MagicMock(spec=Console)
+        console.width = 80
         set_streaming_console(console)
         bar = MagicMock()
 
         with patch("code_puppy.messaging.bottom_bar.get_bottom_bar", return_value=bar):
             await event_stream_handler(mock_ctx, event_stream())
 
-        # Each delta repaints the status slot; the final call clears it.
+        # Each delta repaints the slot; request completion preserves it.
         assert not console.print.called
         progress_values = [c.args[0] for c in bar.set_tool_progress.call_args_list]
         assert any("test_tool" in value for value in progress_values)
-        assert progress_values[-1] == ""
+        assert "tokens | Working" in progress_values[-1]
+        assert "" not in progress_values
 
     @pytest.mark.asyncio
     async def test_thinking_part_without_initial_content_defers_banner(self, mock_ctx):
@@ -562,6 +573,7 @@ class TestEventStreamHandler:
             yield start_event
 
         console = MagicMock(spec=Console)
+        console.width = 80
         set_streaming_console(console)
 
         with contextlib.nullcontext():
@@ -698,6 +710,7 @@ class TestSubAgentSuppression:
             yield PartEndEvent(index=1, part=text_part, next_part_kind=None)
 
         console = MagicMock(spec=Console)
+        console.width = 80
         set_streaming_console(console)
 
         # Run in sub-agent context
@@ -801,6 +814,7 @@ class TestSubAgentSuppression:
             yield PartEndEvent(index=0, part=tool_part, next_part_kind=None)
 
         console = MagicMock(spec=Console)
+        console.width = 80
         set_streaming_console(console)
 
         # Run in sub-agent context
@@ -831,6 +845,7 @@ class TestSubAgentSuppression:
                 yield PartStartEvent(index=i, part=TextPart(content=f"text {i}"))
 
         console = MagicMock(spec=Console)
+        console.width = 80
         set_streaming_console(console)
 
         # Run in sub-agent context
