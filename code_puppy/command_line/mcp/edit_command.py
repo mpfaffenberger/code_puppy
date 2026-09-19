@@ -11,6 +11,7 @@ from typing import List, Optional
 from rich.text import Text
 
 from code_puppy.config import MCP_SERVERS_FILE
+from code_puppy.i18n import t
 from code_puppy.messaging import emit_error, emit_info, emit_warning
 
 from .base import MCPCommandBase
@@ -41,11 +42,11 @@ class EditCommand(MCPCommandBase):
             # Need a server name
             if not args:
                 emit_info(
-                    Text.from_markup("[yellow]Usage: /mcp edit <server_name>[/yellow]"),
+                    Text(t("mcp.edit.usage"), style="yellow"),
                     message_group=group_id,
                 )
                 emit_info(
-                    "Use '/mcp list' to see available servers.",
+                    t("mcp.edit.list_hint"),
                     message_group=group_id,
                 )
                 return
@@ -79,7 +80,7 @@ class EditCommand(MCPCommandBase):
 
         except Exception as e:
             logger.error(f"Error editing server: {e}")
-            emit_error(f"Error: {e}", message_group=group_id)
+            emit_error(t("mcp.edit.config_error", error=e), message_group=group_id)
 
     def _load_server_config(
         self, server_name: str, group_id: str
@@ -95,11 +96,11 @@ class EditCommand(MCPCommandBase):
         """
         if not os.path.exists(MCP_SERVERS_FILE):
             emit_error(
-                "No MCP servers configured yet.",
+                t("mcp.edit.no_servers"),
                 message_group=group_id,
             )
             emit_info(
-                "Use '/mcp install' to add a server first.",
+                t("mcp.edit.install_hint"),
                 message_group=group_id,
             )
             return None
@@ -112,17 +113,19 @@ class EditCommand(MCPCommandBase):
 
             if server_name not in servers:
                 emit_error(
-                    f"Server '{server_name}' not found.",
+                    t("mcp.edit.not_found", server=server_name),
                     message_group=group_id,
                 )
                 # Show available servers
                 if servers:
                     emit_warning(
-                        "\nAvailable servers:",
+                        t("mcp.edit.available_servers"),
                         message_group=group_id,
                     )
                     for name in sorted(servers.keys()):
-                        emit_info(f"  • {name}", message_group=group_id)
+                        emit_info(
+                            t("mcp.edit.server_name", name=name), message_group=group_id
+                        )
                 return None
 
             config = servers[
@@ -136,13 +139,13 @@ class EditCommand(MCPCommandBase):
 
         except json.JSONDecodeError as e:
             emit_error(
-                f"Error reading config file: {e}",
+                t("mcp.edit.config_read_error", error=e),
                 message_group=group_id,
             )
             return None
         except Exception as e:
             emit_error(
-                f"Error loading server config: {e}",
+                t("mcp.edit.config_load_error", error=e),
                 message_group=group_id,
             )
             return None
