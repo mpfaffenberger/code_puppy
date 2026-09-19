@@ -595,33 +595,28 @@ class TestChecklist6_StatsFromAgentRunStats:
 
 
 class TestChecklist7_NoBannerModelName:
-    """THINKING and AGENT RESPONSE banners must not include model name."""
+    """Block openers must not inject model names into the transcript.
 
-    def test_thinking_banner_has_no_model(self):
+    The THINKING / AGENT RESPONSE banners themselves are gone; both
+    block types now share ``_start_fresh_block``, which only emits a
+    newline. Guard that opener so a banner can't quietly grow back.
+    """
+
+    def test_block_opener_has_no_banner_or_model(self):
         import inspect
 
         from code_puppy.agents.event_stream_handler import event_stream_handler
 
         source = inspect.getsource(event_stream_handler)
-        banner_section = source[
-            source.index("async def _print_thinking_banner") : source.index(
-                "async def _print_response_banner"
-            )
-        ]
-        assert "model" not in banner_section.lower()
-
-    def test_response_banner_has_no_model(self):
-        import inspect
-
-        from code_puppy.agents.event_stream_handler import event_stream_handler
-
-        source = inspect.getsource(event_stream_handler)
-        banner_section = source[
-            source.index("async def _print_response_banner") : source.index(
+        opener = source[
+            source.index("async def _start_fresh_block") : source.index(
                 "def _abort_all_drainers"
             )
         ]
-        assert "model" not in banner_section.lower()
+        assert "model" not in opener.lower()
+        assert "THINKING" not in opener
+        assert "AGENT RESPONSE" not in opener
+        assert "get_banner_color" not in source
 
     def test_display_non_streamed_banner_has_no_model(self):
         import inspect

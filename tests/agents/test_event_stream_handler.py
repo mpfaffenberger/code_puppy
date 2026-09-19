@@ -165,20 +165,14 @@ class TestEventStreamHandler:
 
         with contextlib.nullcontext():
             with contextlib.nullcontext():
-                with patch(
-                    "code_puppy.agents.event_stream_handler.get_banner_color",
-                    return_value="blue",
-                ):
-                    await event_stream_handler(mock_ctx, event_stream())
+                await event_stream_handler(mock_ctx, event_stream())
 
-        # The banner and initial content should print without a redundant icon.
+        # Initial content streams immediately; the THINKING banner is gone,
+        # so nothing printed should carry the label (or the old icon).
         assert console.print.called
-        thinking_banner = next(
-            call.args[0]
-            for call in console.print.call_args_list
-            if call.args and "THINKING" in str(call.args[0])
-        )
-        assert chr(0x26A1) not in str(thinking_banner)
+        printed = [str(c.args[0]) for c in console.print.call_args_list if c.args]
+        assert not any("THINKING" in text for text in printed)
+        assert not any(chr(0x26A1) in text for text in printed)
 
     @pytest.mark.asyncio
     async def test_handles_text_part_with_initial_content(self, mock_ctx):
@@ -194,13 +188,9 @@ class TestEventStreamHandler:
 
         with contextlib.nullcontext():
             with contextlib.nullcontext():
-                with patch(
-                    "code_puppy.agents.event_stream_handler.get_banner_color",
-                    return_value="blue",
-                ):
-                    with patch("termflow.Parser"):
-                        with patch("termflow.Renderer"):
-                            await event_stream_handler(mock_ctx, event_stream())
+                with patch("termflow.Parser"):
+                    with patch("termflow.Renderer"):
+                        await event_stream_handler(mock_ctx, event_stream())
 
         assert console.print.called
 
@@ -254,11 +244,7 @@ class TestEventStreamHandler:
 
         with contextlib.nullcontext():
             with contextlib.nullcontext():
-                with patch(
-                    "code_puppy.agents.event_stream_handler.get_banner_color",
-                    return_value="blue",
-                ):
-                    await event_stream_handler(mock_ctx, event_stream())
+                await event_stream_handler(mock_ctx, event_stream())
 
         # Should print the delta content
         assert console.print.called
@@ -288,18 +274,14 @@ class TestEventStreamHandler:
 
         with contextlib.nullcontext():
             with contextlib.nullcontext():
-                with patch(
-                    "code_puppy.agents.event_stream_handler.get_banner_color",
-                    return_value="blue",
-                ):
-                    with patch("termflow.Parser") as mock_parser_cls:
-                        mock_parser = MagicMock()
-                        mock_parser.parse_line.return_value = []
-                        mock_parser.finalize.return_value = []
-                        mock_parser_cls.return_value = mock_parser
+                with patch("termflow.Parser") as mock_parser_cls:
+                    mock_parser = MagicMock()
+                    mock_parser.parse_line.return_value = []
+                    mock_parser.finalize.return_value = []
+                    mock_parser_cls.return_value = mock_parser
 
-                        with patch("termflow.Renderer"):
-                            await event_stream_handler(mock_ctx, event_stream())
+                    with patch("termflow.Renderer"):
+                        await event_stream_handler(mock_ctx, event_stream())
 
         # Handler should process without error
         # The parser may or may not be called depending on newlines
@@ -394,11 +376,7 @@ class TestEventStreamHandler:
 
         with contextlib.nullcontext():
             with contextlib.nullcontext():
-                with patch(
-                    "code_puppy.agents.event_stream_handler.get_banner_color",
-                    return_value="blue",
-                ):
-                    await event_stream_handler(mock_ctx, event_stream())
+                await event_stream_handler(mock_ctx, event_stream())
 
         # Handler processed thinking part end event
         assert True  # Completed without error
@@ -455,18 +433,14 @@ class TestEventStreamHandler:
 
         with contextlib.nullcontext():
             with contextlib.nullcontext():
-                with patch(
-                    "code_puppy.agents.event_stream_handler.get_banner_color",
-                    return_value="blue",
-                ):
-                    with patch("termflow.Parser") as mock_parser_cls:
-                        mock_parser = MagicMock()
-                        mock_parser.parse_line.return_value = []
-                        mock_parser.finalize.return_value = []
-                        mock_parser_cls.return_value = mock_parser
+                with patch("termflow.Parser") as mock_parser_cls:
+                    mock_parser = MagicMock()
+                    mock_parser.parse_line.return_value = []
+                    mock_parser.finalize.return_value = []
+                    mock_parser_cls.return_value = mock_parser
 
-                        with patch("termflow.Renderer"):
-                            await event_stream_handler(mock_ctx, event_stream())
+                    with patch("termflow.Renderer"):
+                        await event_stream_handler(mock_ctx, event_stream())
 
         # Handler should process multiple deltas without error
 
@@ -487,10 +461,6 @@ class TestEventStreamHandler:
         set_streaming_console(console)
 
         with (
-            patch(
-                "code_puppy.agents.event_stream_handler.get_banner_color",
-                return_value="blue",
-            ),
             patch("termflow.Parser") as parser_cls,
             patch("termflow.Renderer"),
         ):
@@ -520,10 +490,6 @@ class TestEventStreamHandler:
         set_streaming_console(console)
 
         with (
-            patch(
-                "code_puppy.agents.event_stream_handler.get_banner_color",
-                return_value="blue",
-            ),
             patch("termflow.Parser") as parser_cls,
             patch("termflow.Renderer"),
         ):
@@ -600,11 +566,7 @@ class TestEventStreamHandler:
 
         with contextlib.nullcontext():
             with contextlib.nullcontext():
-                with patch(
-                    "code_puppy.agents.event_stream_handler.get_banner_color",
-                    return_value="blue",
-                ):
-                    await event_stream_handler(mock_ctx, event_stream())
+                await event_stream_handler(mock_ctx, event_stream())
 
         # Banner should not be printed immediately (deferred until delta arrives)
         # So console.print should not be called (or called less)
@@ -624,17 +586,13 @@ class TestEventStreamHandler:
 
         with contextlib.nullcontext():
             with contextlib.nullcontext():
-                with patch(
-                    "code_puppy.agents.event_stream_handler.get_banner_color",
-                    return_value="blue",
-                ):
-                    with patch("termflow.Parser") as mock_parser_cls:
-                        mock_parser = MagicMock()
-                        mock_parser.finalize.return_value = []
-                        mock_parser_cls.return_value = mock_parser
+                with patch("termflow.Parser") as mock_parser_cls:
+                    mock_parser = MagicMock()
+                    mock_parser.finalize.return_value = []
+                    mock_parser_cls.return_value = mock_parser
 
-                        with patch("termflow.Renderer"):
-                            await event_stream_handler(mock_ctx, event_stream())
+                    with patch("termflow.Renderer"):
+                        await event_stream_handler(mock_ctx, event_stream())
 
         # Banner should not be printed immediately (deferred)
 
@@ -655,17 +613,13 @@ class TestEventStreamHandler:
 
         with contextlib.nullcontext():
             with contextlib.nullcontext():
-                with patch(
-                    "code_puppy.agents.event_stream_handler.get_banner_color",
-                    return_value="blue",
-                ):
-                    with patch("termflow.Parser") as mock_parser_cls:
-                        mock_parser = MagicMock()
-                        mock_parser.finalize.return_value = []
-                        mock_parser_cls.return_value = mock_parser
+                with patch("termflow.Parser") as mock_parser_cls:
+                    mock_parser = MagicMock()
+                    mock_parser.finalize.return_value = []
+                    mock_parser_cls.return_value = mock_parser
 
-                        with patch("termflow.Renderer"):
-                            await event_stream_handler(mock_ctx, event_stream())
+                    with patch("termflow.Renderer"):
+                        await event_stream_handler(mock_ctx, event_stream())
 
         # Verify cleanup was called
         # finalize should be called for text parts
@@ -694,18 +648,14 @@ class TestEventStreamHandler:
 
         with contextlib.nullcontext():
             with contextlib.nullcontext():
-                with patch(
-                    "code_puppy.agents.event_stream_handler.get_banner_color",
-                    return_value="blue",
-                ):
-                    with patch("termflow.Parser") as mock_parser_cls:
-                        mock_parser = MagicMock()
-                        mock_parser.parse_line.return_value = []
-                        mock_parser.finalize.return_value = []
-                        mock_parser_cls.return_value = mock_parser
+                with patch("termflow.Parser") as mock_parser_cls:
+                    mock_parser = MagicMock()
+                    mock_parser.parse_line.return_value = []
+                    mock_parser.finalize.return_value = []
+                    mock_parser_cls.return_value = mock_parser
 
-                        with patch("termflow.Renderer"):
-                            await event_stream_handler(mock_ctx, event_stream())
+                    with patch("termflow.Renderer"):
+                        await event_stream_handler(mock_ctx, event_stream())
 
         # Both parts should be processed without error
         # Banners should be printed for both thinking and text
@@ -784,17 +734,13 @@ class TestSubAgentSuppression:
         with subagent_context("test-agent"):
             with contextlib.nullcontext():
                 with contextlib.nullcontext():
-                    with patch(
-                        "code_puppy.agents.event_stream_handler.get_banner_color",
-                        return_value="blue",
-                    ):
-                        with patch("termflow.Parser") as mock_parser_cls:
-                            mock_parser = MagicMock()
-                            mock_parser.finalize.return_value = []
-                            mock_parser_cls.return_value = mock_parser
+                    with patch("termflow.Parser") as mock_parser_cls:
+                        mock_parser = MagicMock()
+                        mock_parser.finalize.return_value = []
+                        mock_parser_cls.return_value = mock_parser
 
-                            with patch("termflow.Renderer"):
-                                await event_stream_handler(mock_ctx, mock_events())
+                        with patch("termflow.Renderer"):
+                            await event_stream_handler(mock_ctx, mock_events())
 
         # Verify output WAS printed (verbose=True overrides suppression)
         console.print.assert_called()
@@ -822,17 +768,13 @@ class TestSubAgentSuppression:
         # NOT in subagent_context - main agent
         with contextlib.nullcontext():
             with contextlib.nullcontext():
-                with patch(
-                    "code_puppy.agents.event_stream_handler.get_banner_color",
-                    return_value="blue",
-                ):
-                    with patch("termflow.Parser") as mock_parser_cls:
-                        mock_parser = MagicMock()
-                        mock_parser.finalize.return_value = []
-                        mock_parser_cls.return_value = mock_parser
+                with patch("termflow.Parser") as mock_parser_cls:
+                    mock_parser = MagicMock()
+                    mock_parser.finalize.return_value = []
+                    mock_parser_cls.return_value = mock_parser
 
-                        with patch("termflow.Renderer"):
-                            await event_stream_handler(mock_ctx, mock_events())
+                    with patch("termflow.Renderer"):
+                        await event_stream_handler(mock_ctx, mock_events())
 
         # Verify output WAS printed (main agent never suppresses)
         console.print.assert_called()

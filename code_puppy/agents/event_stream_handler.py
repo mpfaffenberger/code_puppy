@@ -17,7 +17,6 @@ from pydantic_ai.messages import (
 )
 from rich.console import Console
 from rich.markup import escape
-from rich.text import Text
 
 from code_puppy.agents.smooth_stream import (
     SmoothTermflowWriter,
@@ -26,7 +25,6 @@ from code_puppy.agents.smooth_stream import (
     make_thinking_smoother,
 )
 from code_puppy.config import (
-    get_banner_color,
     get_headless_mode,
     get_output_level,
     get_subagent_verbose,
@@ -293,26 +291,8 @@ async def event_stream_handler(
             await writer.close()
         console.print()  # Blank line separating the response from what follows
 
-    async def _print_thinking_banner() -> None:
-        """Print the THINKING banner on a fresh line."""
-        nonlocal did_stream_anything
-
-        # Clear any \r-repainted progress line, then move below it
-        erase_progress_line(console)
-        console.print()  # Newline before banner
-        # Bold banner with configurable color.
-        thinking_color = get_banner_color("thinking")
-
-        console.print(
-            Text.from_markup(
-                f"[bold white on {thinking_color}] THINKING [/bold white on {thinking_color}] "
-            ),
-            end="",
-        )
-        did_stream_anything = True
-
-    async def _print_response_banner() -> None:
-        """Start the response on a fresh line; the banner itself is gone."""
+    async def _start_fresh_block() -> None:
+        """Open a thinking/response block on a clean line (banners are gone)."""
         nonlocal did_stream_anything
 
         # Clear any \r-repainted progress line, then move below it
@@ -390,7 +370,7 @@ async def event_stream_handler(
                     # (unless thinking is suppressed by output level or toggle).
                     if part.content and part.content.strip():
                         if not _suppress_thinking_stream():
-                            await _print_thinking_banner()
+                            await _start_fresh_block()
                             _emit_thinking(event.index, part.content)
                         banner_printed.add(event.index)
                 elif isinstance(part, TextPart):
@@ -402,7 +382,7 @@ async def event_stream_handler(
                     termflow_line_buffers[event.index] = ""
                     # Handle initial content if present
                     if part.content and part.content.strip():
-                        await _print_response_banner()
+                        await _start_fresh_block()
                         banner_printed.add(event.index)
                         _render_text_content(event.index, part.content)
                 elif isinstance(part, ToolCallPart):
@@ -437,7 +417,7 @@ async def event_stream_handler(
                             if event.index in text_parts:
                                 # Print banner on first content
                                 if event.index not in banner_printed:
-                                    await _print_response_banner()
+                                    await _start_fresh_block()
                                     banner_printed.add(event.index)
 
                                 _render_text_content(event.index, delta.content_delta)
@@ -447,7 +427,7 @@ async def event_stream_handler(
                                 # suppress_thinking toggle.
                                 if not _suppress_thinking_stream():
                                     if event.index not in banner_printed:
-                                        await _print_thinking_banner()
+                                        await _start_fresh_block()
                                         banner_printed.add(event.index)
                                     _emit_thinking(event.index, delta.content_delta)
                     elif isinstance(delta, ToolCallPartDelta):
