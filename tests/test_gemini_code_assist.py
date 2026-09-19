@@ -166,8 +166,8 @@ class TestGeminiCodeAssistModel:
         decls = body["request"]["tools"][0]["functionDeclarations"]
         assert len(decls) == 2
         assert decls[0]["name"] == "my_tool"
-        assert "parametersJsonSchema" in decls[0]
-        assert "parametersJsonSchema" not in decls[1]
+        assert "parameters" in decls[0]
+        assert "parameters" not in decls[1]
 
     def test_build_request_with_generation_config(self, model, default_params):
         """Test that generationConfig is added when settings have values."""
