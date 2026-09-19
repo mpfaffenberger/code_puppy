@@ -173,6 +173,10 @@ async def event_stream_handler(
 
     # Use the module-level console (set via set_streaming_console)
     console = get_streaming_console()
+    from code_puppy.i18n import t
+    from code_puppy.messaging.bottom_bar import get_bottom_bar
+
+    progress_bar = None if is_subagent() else get_bottom_bar()
 
     # Track which part indices we're currently streaming (for Text/Thinking/Tool parts)
     streaming_parts: set[int] = set()
@@ -474,6 +478,15 @@ async def event_stream_handler(
                                 tool_names.get(event.index, "") + tool_name_delta
                             )
 
+                        if progress_bar is not None:
+                            progress_bar.set_tool_progress(
+                                t(
+                                    "tools.streaming_progress",
+                                    tool=tool_names.get(event.index, "tool"),
+                                    count=token_count[event.index],
+                                )
+                            )
+
             # PartEndEvent - finish the streaming with a newline
             elif isinstance(event, PartEndEvent):
                 # Fire stream event callback for part_end
@@ -489,7 +502,8 @@ async def event_stream_handler(
                     if event.index in text_parts:
                         await _finish_text_part(event.index)
                     elif event.index in tool_parts:
-                        pass  # Execution renders the single compact call summary.
+                        if progress_bar is not None:
+                            progress_bar.set_tool_progress("")
                     # For thinking parts, drain the smoother then print newline
                     elif event.index in thinking_parts:
                         _emit_thinking(event.index, "", final=True)
@@ -516,6 +530,9 @@ async def event_stream_handler(
         # background drain tasks that keep typing into the terminal. Abort them.
         _abort_all_drainers()
         raise
+    finally:
+        if progress_bar is not None:
+            progress_bar.set_tool_progress("")
 
     # Providers can end without PartEndEvent. Finalize those parsers too;
     # otherwise an unterminated fence or partial line disappears.

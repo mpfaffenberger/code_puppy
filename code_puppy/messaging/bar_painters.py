@@ -191,7 +191,16 @@ class BarPainterMixin:
 
     def _status_visible(self) -> bool:
         """The status row exists only while ANY slot has content."""
-        return bool(self._status_prefix or self._status or self._status_suffix)
+        return bool(
+            self._status_prefix
+            or self._status
+            or self._status_suffix
+            or self._tool_progress
+        )
+
+    def _combined_status(self) -> str:
+        progress = f"{self._tool_progress} | " if self._tool_progress else ""
+        return f"{self._status_prefix}{progress}{self._status}{self._status_suffix}"
 
     def _total_reserved(self) -> int:
         """Rows needed: top margin + panel + prompt + popup + status."""
@@ -302,7 +311,7 @@ class BarPainterMixin:
         if not self._status_visible():
             return ""
         _pt, _pop, status_row, _panel = self._row_anchors()
-        combined = f"{self._status_prefix}{self._status}{self._status_suffix}"
+        combined = self._combined_status()
         text = _dim(_clip_cells(_sanitize(combined), self._cols))
         return (
             f"{_SAVE_CURSOR}{_WRAP_OFF}\x1b[{status_row};1H{_CLEAR_LINE}{text}"

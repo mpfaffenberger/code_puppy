@@ -132,6 +132,7 @@ class BottomBar(TranscriptGuardMixin, BarPainterMixin):
         self._rows = 0
         self._cols = 0
         self._status = ""
+        self._tool_progress = ""  # transient tool argument streaming counter
         self._status_prefix = ""  # animated spinner slot (puppy_spinner)
         self._status_suffix = ""  # trailing slot (steer_queue's '(N queued)')
         self._panel_lines: list[str] = []
@@ -213,6 +214,12 @@ class BottomBar(TranscriptGuardMixin, BarPainterMixin):
         """Current status-line text (the cached :meth:`set_status` value)."""
         with self._lock:
             return self._status
+
+    def set_tool_progress(self, text: str) -> None:
+        """Update tool streaming progress without clobbering other status slots."""
+        with self._lock:
+            self._tool_progress = text or ""
+            self._sync_reserved(self._status_seq)
 
     def set_status_prefix(self, text: str) -> None:
         """Update the spinner slot painted BEFORE the status text.
