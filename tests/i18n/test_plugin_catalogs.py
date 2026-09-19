@@ -13,13 +13,14 @@ import pytest
 
 from code_puppy import i18n
 from code_puppy.i18n import catalog, translate
+from code_puppy.i18n.plugin_catalog import canonical_plugin_namespace
 from code_puppy.plugins import _plugin_loading_context
 
 
 def _write_catalogs(root: Path, owner: str, **catalogs: dict[str, object]) -> Path:
     locale_dir = root / "locales"
     locale_dir.mkdir(parents=True)
-    namespace = catalog._canonical_plugin_namespace(owner)
+    namespace = canonical_plugin_namespace(owner)
     for locale, messages in catalogs.items():
         qualified = {f"{namespace}{key}": value for key, value in messages.items()}
         (locale_dir / f"{locale}.json").write_text(
@@ -42,7 +43,7 @@ def _make_zip_plugin(
 ) -> tuple[Path, str]:
     package = f"fixture_{owner.replace('-', '_')}"
     wheel = tmp_path / f"{package}-1-py3-none-any.whl"
-    namespace = catalog._canonical_plugin_namespace(owner)
+    namespace = canonical_plugin_namespace(owner)
     register_source = (
         "from importlib.resources import files\n"
         "from code_puppy.i18n import register_plugin_catalog\n"

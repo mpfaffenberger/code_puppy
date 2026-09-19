@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import json
 import os
 import subprocess
@@ -17,13 +18,14 @@ import pytest
 from code_puppy import callbacks, i18n, plugins
 from code_puppy.callbacks import clear_loading_context, get_loading_context
 from code_puppy.i18n import catalog, plugin_catalog
+from code_puppy.i18n.plugin_catalog import canonical_plugin_namespace
 from code_puppy.plugins import _plugin_loading_context
 
 
 def _catalog_dir(root: Path, owner: str, value: object = "message") -> Path:
     directory = root / "locales"
     directory.mkdir(parents=True)
-    namespace = catalog._canonical_plugin_namespace(owner)
+    namespace = canonical_plugin_namespace(owner)
     (directory / "en-US.json").write_text(
         json.dumps({f"{namespace}message": value}), encoding="utf-8"
     )
@@ -101,6 +103,26 @@ def test_nested_different_owner_failed_outer_discards_both_transactions(tmp_path
             raise RuntimeError("outer failed")
 
     assert i18n.t("plugin.separate.message") == "plugin.separate.message"
+
+
+def test_thread_with_explicit_empty_context_cannot_register(tmp_path):
+    locale_dir = _catalog_dir(tmp_path, "raw_thread", "must not register")
+    accepted: list[bool] = []
+    empty_context = contextvars.Context()
+
+    def register_without_context() -> None:
+        empty_context.run(
+            lambda: accepted.append(i18n.register_plugin_catalog(locale_dir))
+        )
+
+    with _plugin_loading_context("raw_thread"):
+        worker = threading.Thread(target=register_without_context)
+        worker.start()
+        worker.join(timeout=5)
+
+    assert not worker.is_alive()
+    assert accepted == [False]
+    assert i18n.t("plugin.raw-thread.message") == "plugin.raw-thread.message"
 
 
 def test_context_copied_task_cannot_register_after_loader_exit(tmp_path):

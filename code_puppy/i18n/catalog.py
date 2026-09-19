@@ -26,14 +26,17 @@ import json
 import logging
 import os
 import threading
+from collections.abc import Iterable
 from importlib.resources.abc import Traversable
+from typing import TYPE_CHECKING
+
+from code_puppy._plugin_i18n_lifecycle import register_i18n_lifecycle_hooks
 
 from .locale import DEFAULT_LOCALE, fallback_chain
 from .plugin_catalog import (
     CatalogEntry,
     PluginCatalogProvider as _PluginCatalogProvider,
     _is_valid_entry,
-    canonical_plugin_namespace,
     is_safe_locale as _is_safe_locale,
     read_plugin_catalogs as _read_plugin_catalogs,
     resource_name as _resource_name,
@@ -41,8 +44,8 @@ from .plugin_catalog import (
 
 logger = logging.getLogger(__name__)
 
-# Kept private for existing tests and diagnostics that inspect canonical owners.
-_canonical_plugin_namespace = canonical_plugin_namespace
+if TYPE_CHECKING:
+    from code_puppy.callbacks import _PluginLoadingContext
 
 # A catalog entry is a bare string or a plural-forms mapping.
 Catalog = dict[str, CatalogEntry]
@@ -57,7 +60,7 @@ _extra_dirs: list[str] = []
 
 # Plugin contributions are staged while one plugin import executes and committed
 # only when the loader reports that the whole import completed. This keeps a
-# a plugin that registers a catalog and then crashes from leaking partial state.
+# plugin that registers a catalog and then crashes from leaking partial state.
 _plugin_catalogs: dict[str, _PluginCatalogProvider] = {}
 _pending_plugin_catalogs: dict[object, dict[str, _PluginCatalogProvider]] = {}
 
@@ -68,6 +71,9 @@ _cache: dict[str, Catalog] = {}
 # the lock for file I/O uses this to detect that its result went stale mid-flight
 # and must not poison the cache (see load_catalog).
 _generation = 0
+
+# Number of lock-free snapshot rebuilds attempted before the synchronized fallback.
+_MAX_OPTIMISTIC_CATALOG_BUILDS = 3
 
 # Guards all catalog registrations, _cache, and _generation. lookup() runs on
 # every t() call, which the message queue can dispatch from both the main thread
@@ -121,12 +127,113 @@ def _search_dirs() -> list[str]:
 
 def _error_text(error: Exception) -> str:
     """Render an exception defensively for a fail-soft public boundary."""
+    # Keep MemoryError explicit at each broad fail-soft boundary: a decorator or
+    # shared catcher would hide which ordinary errors each boundary translates.
     try:
         return str(error)
     except MemoryError:
         raise
     except Exception:  # noqa: BLE001 - broken third-party exception rendering.
         return f"<{type(error).__name__}>"
+
+
+def _read_plugin_provider(
+    owner: str, resource: Traversable | os.PathLike[str]
+) -> _PluginCatalogProvider | None:
+    """Validate one provider while preserving the fail-soft API boundary."""
+    try:
+        return _read_plugin_catalogs(owner, resource)
+    except MemoryError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - public registration is fail-soft.
+        resource_label = _resource_name(resource)
+        error_text = _error_text(exc)
+        logger.warning(
+            "Rejecting i18n catalogs for plugin %r from %s: %s",
+            owner,
+            resource_label,
+            error_text,
+        )
+        return None
+
+
+def _accept_provider(
+    provider: _PluginCatalogProvider,
+    owner_candidates: Iterable[_PluginCatalogProvider],
+    namespace_candidates: Iterable[_PluginCatalogProvider] | None = None,
+) -> tuple[bool, bool]:
+    """Return ``(accepted, already_present)`` against caller-owned views."""
+    owner_candidates = tuple(owner_candidates)
+    namespace_candidates = (
+        owner_candidates
+        if namespace_candidates is None
+        else tuple(namespace_candidates)
+    )
+    previous = next(
+        (other for other in owner_candidates if other.owner == provider.owner), None
+    )
+    if previous is not None:
+        if (
+            previous.namespace == provider.namespace
+            and previous.catalogs == provider.catalogs
+        ):
+            return True, True
+        logger.warning(
+            "Rejecting i18n catalogs for plugin %r from %s: owner already "
+            "registered a different catalog provider",
+            provider.owner,
+            provider.resource,
+        )
+        return False, False
+
+    for other in namespace_candidates:
+        if other.owner != provider.owner and other.namespace == provider.namespace:
+            logger.warning(
+                "Rejecting i18n catalogs for plugin %r from %s: namespace %r "
+                "collides with plugin %r",
+                provider.owner,
+                provider.resource,
+                provider.namespace,
+                other.owner,
+            )
+            return False, False
+    return True, False
+
+
+def _stage_plugin_provider(
+    transaction: _PluginLoadingContext, provider: _PluginCatalogProvider
+) -> bool:
+    """Stage a validated provider if its loader lineage remains active."""
+    with transaction.guard:
+        lineage = transaction.lineage()
+        if not all(context.active for context in lineage):
+            logger.warning(
+                "Rejecting i18n catalogs for plugin %r from %s: plugin loading "
+                "finished before registration completed",
+                transaction.owner,
+                provider.resource,
+            )
+            return False
+
+        with _lock:
+            pending = _pending_plugin_catalogs.get(transaction.transaction_id, {})
+            lineage_providers = [
+                other
+                for context in lineage
+                for other in _pending_plugin_catalogs.get(
+                    context.transaction_id, {}
+                ).values()
+            ]
+            accepted, already_present = _accept_provider(
+                provider, (*_plugin_catalogs.values(), *lineage_providers)
+            )
+            if not accepted or already_present:
+                return accepted
+
+            staged = dict(pending)
+            staged[transaction.owner] = provider
+            _pending_plugin_catalogs[transaction.transaction_id] = staged
+    return True
 
 
 def register_plugin_catalog(
@@ -154,116 +261,40 @@ def register_plugin_catalog(
         )
         return False
     owner = transaction.owner
-    transaction_id = transaction.transaction_id
 
     # Traversable implementations are plugin code and may block. Never pin the
     # transaction guard across I/O; parse into detached immutable state first,
     # then recheck/stage while loader deactivation is excluded.
-    try:
-        provider = _read_plugin_catalogs(owner, resource)
-    except MemoryError:
-        raise
-    except Exception as exc:  # noqa: BLE001 - public registration is fail-soft.
-        resource_label = _resource_name(resource)
-        error_text = _error_text(exc)
-        logger.warning(
-            "Rejecting i18n catalogs for plugin %r from %s: %s",
-            owner,
-            resource_label,
-            error_text,
-        )
+    provider = _read_plugin_provider(owner, resource)
+    if provider is None:
         return False
-
-    with transaction.guard:
-        if not all(context.active for context in transaction.lineage()):
-            logger.warning(
-                "Rejecting i18n catalogs for plugin %r from %s: plugin loading "
-                "finished before registration completed",
-                owner,
-                provider.resource,
-            )
-            return False
-
-        with _lock:
-            pending = _pending_plugin_catalogs.get(transaction_id, {})
-            lineage_providers = [
-                other
-                for context in transaction.lineage()
-                for other in _pending_plugin_catalogs.get(
-                    context.transaction_id, {}
-                ).values()
-            ]
-            previous = next(
-                (
-                    other
-                    for other in (*_plugin_catalogs.values(), *lineage_providers)
-                    if other.owner == owner
-                ),
-                None,
-            )
-            if previous is not None:
-                if (
-                    previous.namespace == provider.namespace
-                    and previous.catalogs == provider.catalogs
-                ):
-                    return True
-                logger.warning(
-                    "Rejecting i18n catalogs for plugin %r from %s: owner already "
-                    "registered a different catalog provider",
-                    owner,
-                    provider.resource,
-                )
-                return False
-
-            for other in (*_plugin_catalogs.values(), *lineage_providers):
-                if other.owner != owner and other.namespace == provider.namespace:
-                    logger.warning(
-                        "Rejecting i18n catalogs for plugin %r from %s: namespace "
-                        "%r collides with plugin %r",
-                        owner,
-                        provider.resource,
-                        provider.namespace,
-                        other.owner,
-                    )
-                    return False
-            staged = dict(pending)
-            staged[owner] = provider
-            _pending_plugin_catalogs[transaction_id] = staged
-    return True
+    return _stage_plugin_provider(transaction, provider)
 
 
 def _merge_pending_provider(
     target: dict[str, _PluginCatalogProvider], provider: _PluginCatalogProvider
 ) -> bool:
     """Merge one child savepoint into its parent without replacing conflicts."""
-    previous = target.get(provider.owner) or _plugin_catalogs.get(provider.owner)
-    if previous is not None:
-        if (
-            previous.namespace == provider.namespace
-            and previous.catalogs == provider.catalogs
-        ):
-            return True
-        logger.warning(
-            "Rejecting i18n catalogs for plugin %r from %s: owner already "
-            "registered a different catalog provider",
-            provider.owner,
-            provider.resource,
-        )
-        return False
+    accepted, already_present = _accept_provider(
+        provider,
+        (*target.values(), *_plugin_catalogs.values()),
+        (*_plugin_catalogs.values(), *target.values()),
+    )
+    if accepted and not already_present:
+        target[provider.owner] = provider
+    return accepted
 
-    for other in (*_plugin_catalogs.values(), *target.values()):
-        if other.owner != provider.owner and other.namespace == provider.namespace:
-            logger.warning(
-                "Rejecting i18n catalogs for plugin %r from %s: namespace %r "
-                "collides with plugin %r",
-                provider.owner,
-                provider.resource,
-                provider.namespace,
-                other.owner,
-            )
-            return False
-    target[provider.owner] = provider
-    return True
+
+def _merge_provider_copy(
+    existing: dict[str, _PluginCatalogProvider],
+    providers: Iterable[_PluginCatalogProvider],
+) -> dict[str, _PluginCatalogProvider] | None:
+    """Build a prospective provider mapping without mutating shared state."""
+    prospective = dict(existing)
+    for provider in providers:
+        if not _merge_pending_provider(prospective, provider):
+            return None
+    return prospective
 
 
 def _finish_plugin_catalog_load(
@@ -282,24 +313,23 @@ def _finish_plugin_catalog_load(
 
         try:
             if parent_transaction_id is not None:
-                prospective_parent = dict(
-                    _pending_plugin_catalogs.get(parent_transaction_id, {})
+                prospective_parent = _merge_provider_copy(
+                    _pending_plugin_catalogs.get(parent_transaction_id, {}),
+                    providers.values(),
                 )
-                for provider in providers.values():
-                    if not _merge_pending_provider(prospective_parent, provider):
-                        prospective_parent = None
-                        break
-            else:
-                prospective_registry = dict(_plugin_catalogs)
-                for provider in providers.values():
-                    if not _merge_pending_provider(prospective_registry, provider):
-                        prospective_registry = None
-                        break
-                changed = (
-                    prospective_registry is not None
-                    and prospective_registry != _plugin_catalogs
-                )
-                next_generation = _generation + 1 if changed else _generation
+                _pending_plugin_catalogs.pop(transaction_id, None)
+                if prospective_parent is not None:
+                    _pending_plugin_catalogs[parent_transaction_id] = prospective_parent
+                return
+
+            prospective_registry = _merge_provider_copy(
+                _plugin_catalogs, providers.values()
+            )
+            changed = (
+                prospective_registry is not None
+                and prospective_registry != _plugin_catalogs
+            )
+            next_generation = _generation + 1 if changed else _generation
         except BaseException:
             # A closed transaction is never eligible for retry. Discard only its
             # savepoint; prospective parent/registry copies kept globals intact.
@@ -307,10 +337,7 @@ def _finish_plugin_catalog_load(
             raise
 
         _pending_plugin_catalogs.pop(transaction_id, None)
-        if parent_transaction_id is not None:
-            if prospective_parent is not None:
-                _pending_plugin_catalogs[parent_transaction_id] = prospective_parent
-        elif changed and prospective_registry is not None:
+        if changed and prospective_registry is not None:
             _plugin_catalogs = prospective_registry
             _cache.clear()
             _generation = next_generation
@@ -322,6 +349,31 @@ def _plugin_state_changed() -> None:
     with _lock:
         _cache.clear()
         _generation += 1
+
+
+def _finish_plugin_catalog_load_hook(
+    transaction_id: object,
+    *,
+    parent_transaction_id: object | None,
+    succeeded: bool,
+) -> None:
+    """Resolve the finalizer dynamically so test fault injection remains useful."""
+    _finish_plugin_catalog_load(
+        transaction_id,
+        parent_transaction_id=parent_transaction_id,
+        succeeded=succeeded,
+    )
+
+
+def _plugin_state_changed_hook() -> None:
+    """Resolve cache invalidation dynamically for lifecycle tests."""
+    _plugin_state_changed()
+
+
+register_i18n_lifecycle_hooks(
+    finish_load=_finish_plugin_catalog_load_hook,
+    state_changed=_plugin_state_changed_hook,
+)
 
 
 def _disabled_plugin_owners() -> set[str]:
@@ -391,7 +443,7 @@ def load_catalog(locale: str) -> Catalog:
     # Usually one pass. A bounded optimistic retry avoids stale current-call
     # results if registrations change during I/O; pathological churn falls back
     # to one synchronized build rather than spinning forever.
-    for _attempt in range(3):
+    for _attempt in range(_MAX_OPTIMISTIC_CATALOG_BUILDS):
         with _lock:
             cached = _cache.get(locale)
             if cached is not None:

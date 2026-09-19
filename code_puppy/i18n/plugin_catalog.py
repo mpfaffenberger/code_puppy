@@ -17,6 +17,8 @@ from .plurals import CATEGORIES
 
 CatalogEntry = str | Mapping[str, str]
 
+# Traversable operations are fail-soft for ordinary provider errors, but each
+# broad boundary names MemoryError explicitly so process exhaustion propagates.
 _SAFE_LOCALE_RE = re.compile(r"^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$")
 _WIN_RESERVED = frozenset(
     {"con", "prn", "aux", "nul"}

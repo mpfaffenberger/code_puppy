@@ -11,6 +11,7 @@ from contextlib import contextmanager
 from importlib.metadata import entry_points
 from pathlib import Path
 
+from code_puppy._plugin_i18n_lifecycle import finish_i18n_plugin_load
 from code_puppy.callbacks import (
     _deactivate_loading_transaction,
     _get_loading_transaction,
@@ -20,6 +21,9 @@ from code_puppy.callbacks import (
 from code_puppy.plugins import trust as _trust
 
 logger = logging.getLogger(__name__)
+
+# Plugin loading isolates ordinary import/provider failures. Keep MemoryError
+# explicit at those local boundaries so process exhaustion always propagates.
 
 # User plugins directory
 USER_PLUGINS_DIR = Path.home() / ".code_puppy" / "plugins"
@@ -162,15 +166,13 @@ def _plugin_loading_context(plugin_name: str):
                 parent_transaction_id, ancestors_active = (
                     _deactivate_loading_transaction(transaction_id)
                 )
-                # Do not import i18n for plugins that never touched it. If loaded,
-                # publish only at the outer boundary; nested success is a savepoint.
-                catalog_module = sys.modules.get("code_puppy.i18n.catalog")
-                if catalog_module is not None:
-                    catalog_module._finish_plugin_catalog_load(
-                        transaction_id,
-                        parent_transaction_id=parent_transaction_id,
-                        succeeded=succeeded and ancestors_active,
-                    )
+                # The optional i18n module registers this hook only when imported;
+                # plugins with no catalogs pay only for this no-op adapter call.
+                finish_i18n_plugin_load(
+                    transaction_id,
+                    parent_transaction_id=parent_transaction_id,
+                    succeeded=succeeded and ancestors_active,
+                )
         finally:
             clear_loading_context(token)
 
@@ -501,7 +503,7 @@ def _find_path_entry_binary(path_entry: Path) -> Path | None:
 
 
 def _snapshot_project_modules() -> dict[str, object]:
-    """Snapshot module identities before one serialized project load attempt."""
+    """Snapshot all modules through an intentional failure-injection seam."""
     return dict(sys.modules)
 
 
@@ -555,6 +557,43 @@ def _restore_failed_project_modules(
             sys.modules.pop(name, None)
         else:
             sys.modules[name] = old_module
+
+
+def _execute_project_plugin(
+    plugin_dir: Path, plugin_name: str, callbacks_file: Path
+) -> bool:
+    """Execute one project plugin inside a single ownership transaction."""
+    if not callbacks_file.exists():
+        with _plugin_loading_context(plugin_name):
+            loaded_ok = _ensure_plugin_package(plugin_dir, plugin_name)
+        if not loaded_ok:
+            logger.warning(
+                "Could not load __init__.py for project plugin: %s",
+                plugin_name,
+            )
+        return loaded_ok
+
+    module_name = f"{_PROJECT_PLUGINS_NS}.{plugin_name}.register_callbacks"
+    spec = importlib.util.spec_from_file_location(
+        module_name,
+        callbacks_file,
+        loader=_ProjectPluginLoader(module_name, str(callbacks_file)),
+    )
+    if spec is None or spec.loader is None:
+        logger.warning(
+            "Could not create module spec for project plugin: %s",
+            plugin_name,
+        )
+        return False
+
+    # Package __init__ and eager imports share one ownership transaction with
+    # register_callbacks.py.
+    with _plugin_loading_context(plugin_name):
+        _ensure_plugin_package(plugin_dir, plugin_name)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module
+        spec.loader.exec_module(module)
+    return True
 
 
 def _load_one_project_plugin(plugin_dir: Path, plugin_name: str) -> bool:
@@ -620,42 +659,10 @@ def _load_one_project_plugin(plugin_dir: Path, plugin_name: str) -> bool:
             snapshot_complete = True
 
             try:
-                if callbacks_file.exists():
-                    module_name = (
-                        f"{_PROJECT_PLUGINS_NS}.{plugin_name}.register_callbacks"
-                    )
-                    spec = importlib.util.spec_from_file_location(
-                        module_name,
-                        callbacks_file,
-                        loader=_ProjectPluginLoader(module_name, str(callbacks_file)),
-                    )
-                    if spec is None or spec.loader is None:
-                        logger.warning(
-                            "Could not create module spec for project plugin: %s",
-                            plugin_name,
-                        )
-                        return False
-
-                    # Package __init__ and eager imports share one ownership
-                    # transaction with register_callbacks.py.
-                    with _plugin_loading_context(plugin_name):
-                        _ensure_plugin_package(plugin_dir, plugin_name)
-                        module = importlib.util.module_from_spec(spec)
-                        sys.modules[module_name] = module
-                        spec.loader.exec_module(module)
-                    load_succeeded = True
-                    return True
-
-                with _plugin_loading_context(plugin_name):
-                    loaded_ok = _ensure_plugin_package(plugin_dir, plugin_name)
-                if not loaded_ok:
-                    logger.warning(
-                        "Could not load __init__.py for project plugin: %s",
-                        plugin_name,
-                    )
-                load_succeeded = loaded_ok
-                return loaded_ok
-
+                load_succeeded = _execute_project_plugin(
+                    plugin_dir, plugin_name, callbacks_file
+                )
+                return load_succeeded
             except MemoryError:
                 raise
             except ImportError as e:

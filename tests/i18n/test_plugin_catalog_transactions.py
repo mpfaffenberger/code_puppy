@@ -12,6 +12,7 @@ import pytest
 
 from code_puppy import callbacks, i18n, plugins
 from code_puppy.i18n import catalog, plugin_catalog
+from code_puppy.i18n.plugin_catalog import canonical_plugin_namespace
 from code_puppy.plugins import _plugin_loading_context
 
 
@@ -41,7 +42,7 @@ class _BlockingDirectory:
 def _catalog_dir(root: Path, owner: str, message: str) -> Path:
     directory = root / "locales"
     directory.mkdir(parents=True)
-    namespace = catalog._canonical_plugin_namespace(owner)
+    namespace = canonical_plugin_namespace(owner)
     (directory / "en-US.json").write_text(
         f'{{"{namespace}message": "{message}"}}', encoding="utf-8"
     )

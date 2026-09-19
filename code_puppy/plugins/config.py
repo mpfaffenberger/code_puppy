@@ -12,8 +12,8 @@ from __future__ import annotations
 
 import json
 import logging
-import sys
 
+from code_puppy._plugin_i18n_lifecycle import notify_i18n_plugin_state_changed
 from code_puppy.config import get_value, set_value
 
 logger = logging.getLogger(__name__)
@@ -70,7 +70,5 @@ def set_plugin_disabled(plugin_name: str, disabled: bool) -> bool:
     # Plugin catalogs are merged into immutable per-locale snapshots. Rebuild
     # those lazily after a state transition instead of consulting config on
     # every translation lookup.
-    catalog_module = sys.modules.get("code_puppy.i18n.catalog")
-    if catalog_module is not None:
-        catalog_module._plugin_state_changed()
+    notify_i18n_plugin_state_changed()
     return True
