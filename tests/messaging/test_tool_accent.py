@@ -10,6 +10,6 @@ def test_tool_bullet_and_argument_keys_use_agent_accent():
     console = Console()
     for offset in (0, summary.plain.index("file_path")):
         style = summary.get_style_at_offset(console, offset)
-        assert style.color.number == 4
+        assert style.color.number == 12
         assert style.bgcolor is None
     assert summary.get_style_at_offset(console, summary.plain.index("example.py")).dim

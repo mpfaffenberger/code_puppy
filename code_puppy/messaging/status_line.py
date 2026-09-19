@@ -5,6 +5,7 @@ import re
 from code_puppy.i18n import t
 from rich.cells import cell_len
 from .bar_rendering import clip_cells, sanitize
+from .theme_accent import agent_accent_sgr
 
 
 def _render_body(body: str, width: int) -> str:
@@ -23,8 +24,7 @@ def _render_body(body: str, width: int) -> str:
     count_pattern = count_pattern.replace("__ACTIVITY__", r".*")
     count_match = re.search(r"(?:^|\| )" + count_pattern + r"$", safe)
     if count_match:
-        # ANSI blue is the theme-mapped agent-name accent, not fixed RGB.
-        spans.append((*count_match.span("count"), "1;34"))
+        spans.append((*count_match.span("count"), agent_accent_sgr()))
     text = clip_cells(safe, width)
     output = ["\x1b[2m"]
     cursor = 0

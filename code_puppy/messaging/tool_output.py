@@ -10,6 +10,8 @@ from contextvars import ContextVar
 
 from rich.text import Text
 
+from .theme_accent import agent_accent
+
 _tool_output_active: ContextVar[bool] = ContextVar("tool_output_active", default=False)
 
 
@@ -39,9 +41,8 @@ def format_activity_heading(label: str, *, secondary: bool = False) -> Text:
 
     name = sanitize(" ".join(label.split()))
     summary = Text(no_wrap=True, overflow="ellipsis")
-    # ANSI blue matches the prompt's agent-name slot; themes remap it.
-    # Thinking keeps the secondary cyan slot.
-    accent = Style(color="cyan" if secondary else "blue")
+    # Explicit RGB bypasses Rich's separate named-color remapping.
+    accent = Style(color="cyan" if secondary else agent_accent())
     summary.append("●", accent)
     summary.append(" ")
     label_color = "cyan" if secondary else (on_prompt_text_color() or "cyan")
@@ -54,7 +55,7 @@ def format_tool_call(tool_name: str, arguments: object) -> Text:
     from .bar_rendering import sanitize
 
     summary = format_activity_heading(tool_name)
-    accent = "blue"
+    accent = agent_accent()
     if isinstance(arguments, dict):
         for index, (key, value) in enumerate(arguments.items()):
             summary.append("  " if index == 0 else " · ", style="dim")

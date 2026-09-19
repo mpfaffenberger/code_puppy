@@ -16,7 +16,7 @@ def test_only_streamed_digits_and_commas_are_accented(suffix, activity):
     start = text.plain.index("3,209")
     for offset in range(start, start + 5):
         style = text.get_style_at_offset(console, offset)
-        assert style.color.number == 4
+        assert style.color.number == 12
         assert not style.dim
     for marker in ("120", "Streamed", "~", " tokens |"):
         style = text.get_style_at_offset(console, text.plain.index(marker))
