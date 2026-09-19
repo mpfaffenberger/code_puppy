@@ -45,6 +45,7 @@ from .messages import (
     FileContentMessage,
     FileListingMessage,
     GrepResultMessage,
+    MessageCategory,
     MessageLevel,
     SelectionRequest,
     ShellLineMessage,
@@ -461,7 +462,9 @@ class RichConsoleRenderer:
         """
         # Tool bodies never reach the transcript, even when emitted by worker
         # threads without the execution task's contextvars (e.g. shell pipes).
-        if message.category.value == "tool_output" or isinstance(
+        if getattr(
+            message, "category", None
+        ) == MessageCategory.TOOL_OUTPUT or isinstance(
             message, (SubAgentInvocationMessage, SubAgentResponseMessage)
         ):
             return

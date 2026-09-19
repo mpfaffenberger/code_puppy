@@ -97,8 +97,8 @@ async def test_event_stream_handler_pause_gates_rendering_and_resumes():
     with contextlib.nullcontext():
         with contextlib.nullcontext():
             with patch(
-                "code_puppy.agents.event_stream_handler.get_banner_color",
-                return_value="blue",
+                "code_puppy.agents.event_stream_handler.get_output_level",
+                return_value="medium",
             ):
                 with patch("termflow.Parser"):
                     with patch("termflow.Renderer"):
@@ -150,8 +150,8 @@ async def test_pause_timeout_auto_resumes_and_warns(monkeypatch):
     with contextlib.nullcontext():
         with contextlib.nullcontext():
             with patch(
-                "code_puppy.agents.event_stream_handler.get_banner_color",
-                return_value="blue",
+                "code_puppy.agents.event_stream_handler.get_output_level",
+                return_value="medium",
             ):
                 with patch("termflow.Parser"):
                     with patch("termflow.Renderer"):
@@ -206,8 +206,8 @@ async def test_pause_timeout_rearms_while_slash_drain_active(monkeypatch):
         yield ev
 
     with patch(
-        "code_puppy.agents.event_stream_handler.get_banner_color",
-        return_value="blue",
+        "code_puppy.agents.event_stream_handler.get_output_level",
+        return_value="medium",
     ):
         with patch("termflow.Parser"):
             with patch("termflow.Renderer"):
