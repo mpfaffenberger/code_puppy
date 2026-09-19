@@ -41,16 +41,18 @@ def format_tool_call(tool_name: str, arguments: object) -> Text:
     summary = Text(no_wrap=True, overflow="ellipsis")
     # The theme installs the terminal ANSI palette; use its magenta accent
     # rather than a fixed RGB color so the marker follows theme switches.
-    summary.append("●", Style(color="magenta", bold=False))
+    accent = Style(color="magenta")
+    summary.append("●", accent)
     summary.append(" ")
     summary.append(name, Style(color=on_prompt_text_color() or "cyan", bold=True))
     if isinstance(arguments, dict):
         for index, (key, value) in enumerate(arguments.items()):
             summary.append("  " if index == 0 else " · ", style="dim")
-            summary.append(f"{sanitize(str(key))}=", style="dim")
-            summary.append(_format_argument(value), style="not bold")
+            summary.append(sanitize(str(key)), accent)
+            summary.append("=", style="dim")
+            summary.append(_format_argument(value), style="dim")
     elif arguments is not None:
-        summary.append("  " + _format_argument(arguments), style="not bold")
+        summary.append("  " + _format_argument(arguments), style="dim")
     return summary
 
 
