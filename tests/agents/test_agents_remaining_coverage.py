@@ -638,7 +638,9 @@ def test_fire_stream_event_import_error():
     """Cover ImportError branch in _fire_stream_event."""
     from code_puppy.agents.event_stream_handler import _fire_stream_event
 
-    with patch("code_puppy.callbacks.on_stream_event", side_effect=ImportError):
+    with patch(
+        "code_puppy.callbacks.on_stream_event", new=MagicMock(side_effect=ImportError)
+    ):
         _fire_stream_event("test", {})  # Should not raise
 
 
@@ -646,7 +648,10 @@ def test_fire_stream_event_exception():
     """Cover Exception branch in _fire_stream_event."""
     from code_puppy.agents.event_stream_handler import _fire_stream_event
 
-    with patch("code_puppy.callbacks.on_stream_event", side_effect=Exception("boom")):
+    with patch(
+        "code_puppy.callbacks.on_stream_event",
+        new=MagicMock(side_effect=Exception("boom")),
+    ):
         _fire_stream_event("test", {})  # Should not raise
 
 

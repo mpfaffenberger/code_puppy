@@ -807,4 +807,4 @@ class TestRegisterCallbacks:
         ):
             result = _handle_theme("/theme", "theme")
         assert result is True
-        assert "unchanged" in str(mock_info.call_args)
+        mock_info.assert_not_called()

@@ -290,6 +290,10 @@ class SubAgentInvocationMessage(BaseMessage):
         default=False,
         description="Whether this invocation was started via /fork (renders a distinct banner)",
     )
+    background: bool = Field(
+        default=False,
+        description="Whether this invocation was launched as a background sub-agent",
+    )
 
 
 class SubAgentResponseMessage(BaseMessage):

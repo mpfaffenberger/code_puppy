@@ -50,6 +50,7 @@ class MCPCompleter(Completer):
             "search": "Search for available MCP servers",
             "silence-warning": "Silence the 'registered but not bound' MCP warning forever",
             "unsilence-warning": "Restore the 'registered but not bound' MCP warning",
+            "trust": "Manage trust for this repo's .code_puppy/mcp_servers.json",
             "help": "Show help for MCP commands",
         }
 

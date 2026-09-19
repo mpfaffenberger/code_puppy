@@ -17,7 +17,9 @@ def _i18n_isolate(monkeypatch):
     for var in _LOCALE_ENV_VARS:
         monkeypatch.delenv(var, raising=False)
     catalog.reset()
+    catalog._reset_plugin_catalogs_for_testing()
     translate.get_translator().set_locale("en-US")
     yield
     catalog.reset()
+    catalog._reset_plugin_catalogs_for_testing()
     translate.get_translator().set_locale("en-US")

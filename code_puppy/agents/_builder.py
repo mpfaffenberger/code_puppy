@@ -266,6 +266,9 @@ def _iter_autostart_targets(manager: Any, agent_name: str):
         if config is None:
             _warn_missing_server(agent_name, server_name)
             continue
+        suppressed = getattr(manager, "is_autostart_suppressed", None)
+        if suppressed is not None and suppressed(config.id) is True:
+            continue
         try:
             status = manager.get_server_status(config.id)
             state = status.get("state")
@@ -565,7 +568,10 @@ database or production mutations, or other actions without a clear rollback.
 
 
 def _is_gpt_5_6_family(model_name: Optional[str]) -> bool:
-    return bool(model_name and "gpt-5.6" in model_name.lower())
+    """GPT-5.6 and newer (incl. GPT-6) get the shell-safety guard."""
+    from code_puppy.model_utils import supports_gpt_responses_controls
+
+    return supports_gpt_responses_controls(model_name)
 
 
 def _agent_exposes_tool(agent: Any, tool_name: str) -> bool:

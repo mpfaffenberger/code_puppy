@@ -127,6 +127,14 @@ class TestBuildModelConfig:
             "top_p",
             "reasoning_effort",
         ]
+        fixed_effort = amm.build_model_config(
+            make_model(model_id="gpt-5-pro"), make_provider(id="openai")
+        )
+        assert fixed_effort["supported_settings"] == [
+            "temperature",
+            "seed",
+            "top_p",
+        ]
         default = amm.build_model_config(make_model(), make_provider(id="groq"))
         assert default["supported_settings"] == ["temperature", "seed", "top_p"]
 
@@ -135,6 +143,14 @@ class TestBuildModelConfig:
             make_model(context_length=42000), make_provider()
         )
         assert config["context_length"] == 42000
+
+    def test_max_output_tokens_carried_from_models_dev(self):
+        config = amm.build_model_config(make_model(max_output=64000), make_provider())
+        assert config["max_output_tokens"] == 64000
+
+    def test_max_output_tokens_omitted_when_unknown(self):
+        config = amm.build_model_config(make_model(max_output=0), make_provider())
+        assert "max_output_tokens" not in config
 
 
 class TestExtraModelsWrite:

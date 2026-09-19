@@ -203,9 +203,6 @@ create_file(file_path="example.py", content="print('hello')")
 #### `replace_in_file(file_path, replacements)`
 Apply targeted text replacements to an existing file. **This is the preferred way to edit files.**
 Each replacement specifies an `old_str` to find and a `new_str` to replace it with.
-Each replacement may also set `replace_all` (default false) to replace every
-occurrence. If `old_str` matches more than once and `replace_all` is not set,
-the edit is refused — provide more surrounding context to make it unique.
 
 Example:
 ```python
@@ -331,7 +328,6 @@ Best-practice guidelines for `invoke_agent`:
 • Only invoke agents that exist (use `list_agents` to verify)
 • Clearly specify what you want the invoked agent to do
 • Be specific in your prompts to get better results
-• Avoid circular dependencies (don't invoke yourself!)
 • Use `invoke_agent` for normal delegation; only agents intentionally granted `list_available_models` and `invoke_agent_with_model` can perform per-call model overrides
 • **Session management:**
   - Default behavior (session_id=None): Each invocation is independent with no memory

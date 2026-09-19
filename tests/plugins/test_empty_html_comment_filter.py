@@ -126,7 +126,7 @@ async def test_event_stream_filters_split_comment_in_both_render_paths(
     from pydantic_ai import PartDeltaEvent, PartEndEvent, PartStartEvent
     from pydantic_ai.messages import ThinkingPart, ThinkingPartDelta
 
-    from code_puppy.agents.smooth_stream import ThinkingStreamSmoother
+    from code_puppy.agents.smooth_stream import SmoothTermflowWriter
 
     handler = importlib.import_module("code_puppy.agents.event_stream_handler")
 
@@ -145,13 +145,15 @@ async def test_event_stream_filters_split_comment_in_both_render_paths(
     if smooth:
         monkeypatch.setattr(
             handler,
-            "make_thinking_smoother",
-            lambda target: ThinkingStreamSmoother(
+            "make_smooth_termflow_writer",
+            lambda target, **_kwargs: SmoothTermflowWriter(
                 target, tick_interval=0.001, catch_up_seconds=0.005
             ),
         )
     else:
-        monkeypatch.setattr(handler, "make_thinking_smoother", lambda _target: None)
+        monkeypatch.setattr(
+            handler, "make_smooth_termflow_writer", lambda _target, **_kwargs: None
+        )
 
     part = ThinkingPart(content="")
 

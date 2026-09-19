@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import shutil
 import unicodedata
+from functools import lru_cache
 from typing import List, Optional, Tuple
 
 from rich.cells import cell_len, chop_cells
@@ -160,6 +161,7 @@ def stylize_slice(text: str, start: Optional[int], sgrs: Optional[List[str]]) ->
     return "".join(out)
 
 
+@lru_cache(maxsize=1)
 def _prompt_visual_rows(prefix: str, buffer: str, cursor_pos: int, width: int) -> tuple:
     """Soft-wrap prompt content into visual rows (cell-accurate).
 
@@ -241,7 +243,11 @@ def _prompt_visual_rows(prefix: str, buffer: str, cursor_pos: int, width: int) -
         else:
             row_offsets.extend([None] * len(segments))
         rows.extend(segments)
-    return rows, cursor_row, cursor_offset, row_offsets
+    # A repaint asks for the same layout repeatedly (row budgets, anchors,
+    # then painting). Retain only the latest layout, with immutable values,
+    # instead of wrapping the entire prompt at each step. The key includes
+    # cursor and width so movement and terminal resize invalidate it.
+    return tuple(rows), cursor_row, cursor_offset, tuple(row_offsets)
 
 
 def count_prompt_rows(prefix: str, buffer: str, cursor_pos: int, width: int) -> int:

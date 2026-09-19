@@ -251,7 +251,7 @@ def test_status_prefix_paints_before_status(bar, tty):
     bar.set_status("tokens: 1234")
     drain(tty)
     bar.set_status_prefix("(pup) thinking... ")
-    assert "(pup) thinking... tokens: 1234" in written(tty)
+    assert "(pup) thinking... | tokens: 1234" in written(tty)
 
 
 def test_status_suffix_paints_after_status(bar, tty):
@@ -259,7 +259,11 @@ def test_status_suffix_paints_after_status(bar, tty):
     bar.set_status("tokens: 42")
     drain(tty)
     bar.set_status_suffix(" (2 queued)")
-    assert "tokens: 42 (2 queued)" in written(tty)
+    from rich.text import Text
+
+    output = Text.from_ansi(written(tty)).plain
+    assert "tokens: 42" in output
+    assert "(2 queued)" in output
 
 
 def test_status_suffix_alone_materializes_row(bar, tty):
@@ -315,7 +319,7 @@ def test_status_prefix_and_status_are_independent_slots(bar, tty):
     bar.set_status_prefix("(pup) ")
     drain(tty)
     bar.set_status("tokens: 9")  # context writer repaints...
-    assert "(pup) tokens: 9" in written(tty)  # ...spinner survives
+    assert "(pup) | tokens: 9" in written(tty)  # ...spinner survives
     drain(tty)
     bar.set_status_prefix("")  # spinner clears...
     out = written(tty)

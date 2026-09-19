@@ -21,6 +21,7 @@ Usage:
 """
 
 import importlib.metadata
+import json
 import logging
 import warnings
 from typing import Any
@@ -33,6 +34,108 @@ from code_puppy._pydantic_tool_helpers import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _repair_tool_call_json(raw: str) -> str:
+    """Repair malformed object JSON without accepting a changed top-level shape."""
+    try:
+        json.loads(raw)
+        return raw
+    except json.JSONDecodeError:
+        pass
+    except Exception:
+        return raw
+
+    try:
+        import json_repair
+
+        repaired = json_repair.repair_json(raw)
+        if repaired == raw:
+            return raw
+        parsed = json.loads(repaired)
+        if not isinstance(parsed, dict):
+            logger.warning(
+                "json_repair changed tool-call JSON shape (dict -> %s); "
+                "rejecting repair and leaving original malformed JSON in place",
+                type(parsed).__name__,
+            )
+            return raw
+        logger.debug("json_repair modified malformed tool-call JSON arguments")
+        return repaired
+    except Exception:
+        return raw
+
+
+def _resolve_tool_properties(manager: Any, call: Any) -> dict | None:
+    """Best-effort lookup of a tool's declared JSON-Schema properties.
+
+    Returns the ``properties`` mapping, or ``None`` when the tool (or its
+    schema) cannot be resolved — callers must treat ``None`` as "unknown".
+    Never raises: this runs on the validation hot path.
+    """
+    try:
+        tool_def = manager.get_tool_def(getattr(call, "tool_name", None))
+        schema = getattr(tool_def, "parameters_json_schema", None)
+        properties = schema.get("properties") if isinstance(schema, dict) else None
+        return properties if isinstance(properties, dict) else None
+    except Exception:
+        return None
+
+
+def _unwrap_arguments_envelope(tool_args: Any, properties: dict | None) -> Any:
+    """Collapse a spurious ``{"arguments": {...}}`` envelope into its payload.
+
+    Some models encode a tool call as the function-call envelope *itself* --
+    literally ``{"arguments": {}}`` -- rather than an empty argument object.
+    Because pydantic-ai declares every tool schema with
+    ``additionalProperties: false``, that stray key hard-fails validation and
+    the tool can never be called. Zero-parameter tools (e.g. ``list_agents``)
+    are hit hardest: the model has no real parameter to name, so it emits the
+    envelope and every call is rejected with ``extra_forbidden``.
+
+    Unwraps ONLY when ``arguments`` is the sole key *and* the tool does not
+    declare a real ``arguments`` property, so a legitimate parameter of that
+    name is never clobbered. Anything ambiguous is returned untouched.
+    """
+    if not isinstance(tool_args, dict) or list(tool_args) != ["arguments"]:
+        return tool_args
+    if isinstance(properties, dict) and "arguments" in properties:
+        return tool_args  # a real parameter -- hands off
+
+    inner = tool_args["arguments"]
+    if isinstance(inner, str):
+        try:
+            inner = json.loads(inner)
+        except Exception:
+            return tool_args
+    return inner if isinstance(inner, dict) else tool_args
+
+
+def _sanitize_tool_call_args(manager: Any, call: Any) -> None:
+    """Rewrite ``call.args`` in place if it carries the ``arguments`` envelope.
+
+    ``ToolCallPart.args`` may be a dict or a JSON string, so both shapes are
+    handled (and a string is re-serialized to preserve the original shape).
+    Invalid JSON strings are left for :func:`_repair_tool_call_json`.
+    """
+    args = getattr(call, "args", None)
+    properties = _resolve_tool_properties(manager, call)
+
+    if isinstance(args, dict):
+        unwrapped = _unwrap_arguments_envelope(args, properties)
+        if unwrapped is not args:
+            call.args = unwrapped
+    elif isinstance(args, str) and args:
+        try:
+            parsed = json.loads(args)
+        except Exception:
+            return
+        if not isinstance(parsed, dict):
+            return
+        unwrapped = _unwrap_arguments_envelope(parsed, properties)
+        if unwrapped is not parsed:
+            call.args = json.dumps(unwrapped)
+
 
 # Loud failures recorded during the current apply_all_patches() run, so the
 # summary line can distinguish real breakage from skipped optional deps.
@@ -151,10 +254,11 @@ def patch_tool_call_json_repair() -> bool:
     single validation entry point since pydantic-ai split validation from
     execution in the public ``pydantic_ai.tool_manager`` module) and runs
     json_repair on the raw arguments before validation, preventing
-    unnecessary retries.
+    unnecessary retries. Repairs are attempted only after strict parsing fails,
+    and are accepted only when they preserve the required object shape.
     """
     try:
-        import json_repair
+        import json_repair  # noqa: F401  (optional-dependency gate)
     except ImportError as exc:
         return _optional_lib_missing("patch_tool_call_json_repair", exc)
 
@@ -169,13 +273,11 @@ def patch_tool_call_json_repair() -> bool:
             """Repair malformed JSON args before pydantic-ai validates them."""
             # Only attempt repair if args is a string (JSON)
             if isinstance(call.args, str) and call.args:
-                try:
-                    repaired = json_repair.repair_json(call.args)
-                    if repaired != call.args:
-                        # Update the call args with repaired JSON
-                        call.args = repaired
-                except Exception:
-                    pass  # If repair fails, let original validation handle it
+                call.args = _repair_tool_call_json(call.args)
+
+            # Drop a stray {"arguments": ...} envelope (valid JSON, so the
+            # repair above never sees it) before strict validation runs.
+            _sanitize_tool_call_args(self, call)
 
             return await _original_validate_tool_call(self, call, **kwargs)
 
@@ -337,7 +439,12 @@ def patch_tool_call_callbacks() -> bool:
             error: Exception | None = None
             result = None
             try:
-                result = await _original_execute_tool_call(self, validated, **kwargs)
+                from code_puppy.messaging.tool_output import compact_tool_output
+
+                with compact_tool_output(tool_name, tool_args):
+                    result = await _original_execute_tool_call(
+                        self, validated, **kwargs
+                    )
                 # Prepend collected hook stdout (PreToolUse "additional
                 # context") so the model sees it as part of the tool result.
                 if hook_context_messages:
@@ -460,6 +567,102 @@ def patch_termflow_code_padding() -> bool:
         )
 
 
+def _render_table_header_rule(state, margin, style) -> str:
+    """Header/body divider using double-line chars (╞═╪═╡), mirroring
+    ``termflow.render.table.render_table_separator`` but visually heavier.
+
+    Once every body row also gets a rule (see below), a single-weight rule
+    after the header is no longer enough to mark it as different from a body
+    row -- bold text alone is an easy-to-miss signal. Same convention as
+    Rich's ``box.SQUARE_DOUBLE_HEAD``: double line under the header, single
+    lines everywhere else.
+    """
+    from termflow.ansi import RESET, fg_color
+
+    fg = fg_color(style.symbol)
+    parts = ["═" * (w + 2) for w in state.column_widths]
+    sep = "╪".join(parts)
+    return f"{margin}{fg}╞{sep}╡{RESET}"
+
+
+def _render_table_complete_with_row_rules(
+    header, rows, alignments, width, margin, style
+):
+    """Drop-in for termflow's ``render_table_complete`` with a rule after every
+    row, and a heavier double-line rule marking the header/body boundary.
+    """
+    from termflow.ansi import visible_length
+    from termflow.render.table import (
+        TableRenderState,
+        render_table_bottom,
+        render_table_row,
+        render_table_separator,
+        render_table_top,
+    )
+
+    state = TableRenderState()
+    state.update_widths(header)
+    for row in rows:
+        state.update_widths(row)
+    state.set_alignments(alignments)
+
+    margin_width = visible_length(margin)
+    state.cap_widths_to_max(margin_width, available_width=width + margin_width)
+
+    lines = [render_table_top(state, margin, style)]
+    lines.extend(render_table_row(header, state, width, margin, style, is_header=True))
+    lines.append(_render_table_header_rule(state, margin, style))
+    state.end_header()
+
+    last_index = len(rows) - 1
+    for i, row in enumerate(rows):
+        lines.extend(
+            render_table_row(row, state, width, margin, style, is_header=False)
+        )
+        if i != last_index:
+            lines.append(render_table_separator(state, margin, style))
+
+    lines.append(render_table_bottom(state, margin, style))
+    return lines
+
+
+def patch_termflow_table_row_separators() -> bool:
+    """Draw a rule between every table row, not just after the header.
+
+    termflow's ``render_table_complete`` draws exactly one horizontal rule --
+    right after the header -- and none between body rows, which makes wide
+    tables hard to scan row-by-row. This replaces it with an otherwise-
+    identical version that also draws a rule between consecutive body rows,
+    using a double-line rule under the header specifically so it stays
+    visually distinct from body-to-body rules.
+
+    Must patch both ``termflow.render.table`` (the definition) AND
+    ``termflow.render.renderer`` (did ``from ... import render_table_complete``,
+    so it holds a stale reference) -- same reason as ``patch_termflow_code_padding``.
+    """
+    try:
+        import termflow.render.renderer as _termflow_renderer
+        import termflow.render.table as _termflow_table
+    except ImportError as exc:
+        return _optional_lib_missing("patch_termflow_table_row_separators", exc)
+
+    try:
+        if not hasattr(_termflow_table, "render_table_complete") or not hasattr(
+            _termflow_renderer, "render_table_complete"
+        ):
+            raise AttributeError("termflow render_table_complete not found")
+        _termflow_table.render_table_complete = _render_table_complete_with_row_rules
+        _termflow_renderer.render_table_complete = _render_table_complete_with_row_rules
+        return True
+    except Exception as exc:
+        return _patch_failed(
+            "patch_termflow_table_row_separators",
+            exc,
+            "table rows render without separators between them (header rule only).",
+            target="termflow",
+        )
+
+
 def patch_silence_anthropic_sampling_warnings() -> bool:
     """Silence pydantic-ai's unsupported-sampling-parameter UserWarning.
 
@@ -493,6 +696,7 @@ _ALL_PATCHES = (
     patch_tool_call_callbacks,
     patch_termflow_clipboard,
     patch_termflow_code_padding,
+    patch_termflow_table_row_separators,
 )
 
 

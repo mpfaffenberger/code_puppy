@@ -209,9 +209,10 @@ class InlineBottomBar(BottomBar):
             marker = "› " if index == self._popup_selected else "  "
             lines.append(clip_cells(f"{marker}{line}", max_cells))
 
-        status = f"{self._status_prefix}{self._status}{self._status_suffix}"
-        if status:
-            lines.append(clip_cells(sanitize(status), max_cells))
+        if self._identity_row_count():
+            lines.append(self._render_identity_line(max_cells))
+        if self._status_visible():
+            lines.append(self._render_status_line(max_cells))
         return lines or [""]
 
     def _paint_inline(self) -> None:

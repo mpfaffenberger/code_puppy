@@ -4,9 +4,17 @@ import io
 import re
 import time
 
+import pytest
+
 from code_puppy import splash
 
 ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+
+
+@pytest.fixture(autouse=True)
+def fake_windows_vt(monkeypatch):
+    # StringIO animation tests must not depend on a real Windows console.
+    monkeypatch.setattr(splash, "_enable_windows_vt", lambda stream: True)
 
 
 class FakeTty(io.StringIO):
@@ -46,7 +54,7 @@ class TestGating:
         monkeypatch.setenv("TERM", "dumb")
         assert splash._wants_splash(["code-puppy"]) is False
 
-    def test_terminal_too_small_for_pyramid_gets_null_splash(self, monkeypatch):
+    def test_terminal_too_small_for_paw_gets_null_splash(self, monkeypatch):
         import os
 
         monkeypatch.setattr("sys.argv", ["code-puppy"])
@@ -67,6 +75,11 @@ FULL = splash._compose_rows(120, 50)
 
 
 class TestFrame:
+    def test_paw_raster_uses_valid_glow_tiers(self):
+        assert len(splash._PAW) == 20
+        assert splash._PAW_WIDTH == max(map(len, splash._PAW))
+        assert all(set(row) <= set("0123") for row in splash._PAW)
+
     def test_full_lockup_dimensions(self):
         frame = splash._build_frame(0, True, FULL)
         lines = frame.splitlines()
@@ -116,7 +129,7 @@ class TestFrame:
 class TestComposeRows:
     def test_wide_terminal_gets_full_lockup(self):
         kinds = [k for k, _ in splash._compose_rows(120, 50)]
-        assert kinds.count("art") == len(splash._PYRAMID)
+        assert kinds.count("art") == len(splash._PAW)
         assert kinds.count("text") == 1 + len(splash._BANNER_FULL)
 
     def test_medium_terminal_gets_compact_pup(self):
@@ -125,7 +138,7 @@ class TestComposeRows:
         assert len(text_rows) == len(splash._BANNER_COMPACT)
         assert "\u2588" in text_rows[0]
 
-    def test_narrow_terminal_gets_pyramid_only(self):
+    def test_narrow_terminal_gets_paw_only(self):
         rows = splash._compose_rows(45, 50)
         assert all(k == "art" for k, _ in rows)
 
@@ -133,12 +146,12 @@ class TestComposeRows:
         rows = splash._compose_rows(120, 22)
         assert all(k == "art" for k, _ in rows)
 
-    def test_pyramid_centered_over_text(self):
+    def test_paw_centered_over_text(self):
         rows = splash._compose_rows(120, 50)
         # Compare a row against its unpadded source: the pad is the diff.
-        idx = max(range(len(splash._PYRAMID)), key=lambda i: len(splash._PYRAMID[i]))
-        pad = len(rows[idx][1]) - len(splash._PYRAMID[idx])
-        assert pad == (splash._BANNER_FULL_WIDTH - splash._PYRAMID_WIDTH) // 2
+        idx = max(range(len(splash._PAW)), key=lambda i: len(splash._PAW[i]))
+        pad = len(rows[idx][1]) - len(splash._PAW[idx])
+        assert pad == (splash._BANNER_FULL_WIDTH - splash._PAW_WIDTH) // 2
 
     def test_center_rows_pads_both_kinds_with_their_blank(self):
         rows = [("art", "123"), ("text", "\u2588\u2588\u2588")]
@@ -150,10 +163,10 @@ class TestComposeRows:
         rows = [("art", "123")]
         assert splash._center_rows(rows, 2) == rows
 
-    def test_compact_pup_centered_under_pyramid(self):
+    def test_compact_pup_centered_under_paw(self):
         rows = splash._compose_rows(70, 50)
         text_lines = [c for k, c in rows if k == "text" and c]
-        expected_pad = (splash._PYRAMID_WIDTH - splash._BANNER_COMPACT_WIDTH) // 2
+        expected_pad = (splash._PAW_WIDTH - splash._BANNER_COMPACT_WIDTH) // 2
         for line in text_lines:
             assert line.startswith(" " * expected_pad)
             assert not line.startswith(" " * (expected_pad + 1))
@@ -169,7 +182,7 @@ class TestLifecycle:
         output = stream.getvalue()
         assert splash._HIDE_CURSOR in output
         assert splash._SHOW_CURSOR in output
-        assert "\u2588" in output  # some pyramid actually got drawn
+        assert "\u2588" in output  # some paw actually got drawn
         assert not handle._thread.is_alive()
         assert handle._height == len(handle._rows)
 

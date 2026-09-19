@@ -93,8 +93,10 @@ def test_overlong_rows_are_cell_clipped_below_terminal_width():
     bar.set_status_suffix(" | queued: 3")
     bar.set_panel_lines(["sub-agent panel line " * 5])
 
+    from rich.text import Text
+
     for line in bar._inline_lines():
-        assert cell_len(line) < cols
+        assert cell_len(Text.from_ansi(line).plain) < cols
 
 
 def test_inline_surface_retains_every_panel_row():

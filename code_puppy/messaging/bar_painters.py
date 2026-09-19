@@ -27,6 +27,8 @@ or empties (``_total_reserved`` changes → region grows/shrinks).
 
 from __future__ import annotations
 
+from .identity_line import IdentityLineMixin
+
 import re
 
 from .bar_rendering import (
@@ -55,9 +57,6 @@ from .bar_rendering import (
 )
 from .bar_rendering import (
     render_styled_line as _render_styled_line,
-)
-from .bar_rendering import (
-    sanitize as _sanitize,
 )
 
 #: Maximum rows for the multiline prompt viewport.
@@ -105,7 +104,7 @@ def _panel_overflow_row(hidden: int) -> str:
     return f"\u2026 +{hidden} more"
 
 
-class BarPainterMixin:
+class BarPainterMixin(IdentityLineMixin):
     """Layout math + reserved-row painters for :class:`BottomBar`."""
 
     def _prompt_row_count(self) -> int:
@@ -168,6 +167,7 @@ class BarPainterMixin:
             + len(self._visible_popup_lines())
             + self._visible_popup_slack()
             + (1 if self._status_visible() else 0)
+            + self._identity_row_count()
         )
         return max(0, rows - 1 - non_panel)
 
@@ -191,7 +191,27 @@ class BarPainterMixin:
 
     def _status_visible(self) -> bool:
         """The status row exists only while ANY slot has content."""
-        return bool(self._status_prefix or self._status or self._status_suffix)
+        return bool(
+            self._status_prefix
+            or self._status
+            or self._status_suffix
+            or self._tool_progress
+        )
+
+    def _status_body(self) -> str:
+        return " | ".join(
+            slot.strip()
+            for slot in (self._status_prefix, self._status, self._tool_progress)
+            if slot.strip()
+        )
+
+    def _combined_status(self) -> str:
+        return f"{self._status_body()}{self._status_suffix}"
+
+    def _render_status_line(self, width: int) -> str:
+        from .status_line import render_status_line
+
+        return render_status_line(self._status_body(), self._status_suffix, width)
 
     def _total_reserved(self) -> int:
         """Rows needed: top margin + panel + prompt + popup + status."""
@@ -202,6 +222,7 @@ class BarPainterMixin:
             + len(self._visible_popup_lines())
             + self._visible_popup_slack()
             + (1 if self._status_visible() else 0)
+            + self._identity_row_count()
         )
 
     def _row_anchors(self) -> tuple:
@@ -219,6 +240,7 @@ class BarPainterMixin:
         popup_top = (
             rows
             - status_rows
+            - self._identity_row_count()
             - self._visible_popup_slack()
             - len(self._visible_popup_lines())
             + 1
@@ -234,6 +256,7 @@ class BarPainterMixin:
             + self._panel_seq()
             + self._prompt_seq()
             + self._popup_seq()
+            + self._identity_seq()
             + self._status_seq()
         )
 
@@ -302,8 +325,7 @@ class BarPainterMixin:
         if not self._status_visible():
             return ""
         _pt, _pop, status_row, _panel = self._row_anchors()
-        combined = f"{self._status_prefix}{self._status}{self._status_suffix}"
-        text = _dim(_clip_cells(_sanitize(combined), self._cols))
+        text = self._render_status_line(self._cols)
         return (
             f"{_SAVE_CURSOR}{_WRAP_OFF}\x1b[{status_row};1H{_CLEAR_LINE}{text}"
             f"{_WRAP_ON}{_RESTORE_CURSOR}"

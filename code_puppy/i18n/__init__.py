@@ -21,7 +21,14 @@ To resolve the active locale from the environment/config at boot::
 See ``PUP-473`` (epic) and ``PUP-475`` (this foundation story) for scope.
 """
 
-from .catalog import add_catalog_dir, available_locales, load_catalog, lookup, reset
+from .catalog import (
+    add_catalog_dir,
+    available_locales,
+    load_catalog,
+    lookup,
+    register_plugin_catalog,
+    reset,
+)
 from .formats import format_datetime, format_number
 from .locale import (
     DEFAULT_LOCALE,
@@ -69,6 +76,7 @@ __all__ = [
     "format_number",
     "format_datetime",
     "add_catalog_dir",
+    "register_plugin_catalog",
     "available_locales",
     "load_catalog",
     "lookup",

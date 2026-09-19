@@ -4,6 +4,7 @@ import os
 import subprocess
 import sys
 import time
+from unittest.mock import Mock
 
 from code_puppy.tools import command_runner
 from code_puppy.tools.command_runner import run_shell_command_streaming
@@ -84,10 +85,12 @@ def test_foreground_limit_auto_backgrounds_instead_of_killing(monkeypatch):
     command_runner._register_process(process)
     result = None
     monkeypatch.setattr("code_puppy.config.get_command_timeout_seconds", lambda: 0)
+    warning = Mock()
+    monkeypatch.setattr(command_runner, "emit_warning", warning)
 
     try:
         result = run_shell_command_streaming(
-            process, timeout=30, command="long test suite", silent=True
+            process, timeout=30, command="long test suite", silent=False
         )
 
         assert result.background is True
@@ -96,6 +99,7 @@ def test_foreground_limit_auto_backgrounds_instead_of_killing(monkeypatch):
         assert result.exit_code is None
         assert result.pid == process.pid
         assert result.log_file and os.path.exists(result.log_file)
+        warning.assert_not_called()
         assert "Automatically backgrounded after 0s" in result.user_feedback
         assert process.poll() is None
         with command_runner._RUNNING_PROCESSES_LOCK:

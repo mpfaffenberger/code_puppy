@@ -11,7 +11,6 @@ from code_puppy.tools import (
     has_extended_thinking_active,
     register_all_tools,
     register_tools_for_agent,
-    should_use_codex_patch,
 )
 
 
@@ -110,62 +109,71 @@ class TestToolRegistration:
         # Test passed if no exception was raised
         assert True
 
+
+_FILE_TOOL_NAMES = {
+    "create_file",
+    "replace_in_file",
+    "delete_snippet",
+    "delete_file",
+    "edit",
+    "apply_patch",
+}
+
+
+class _CapturingAgent:
+    """Minimal stand-in recording the tool names pydantic-ai would see."""
+
+    def __init__(self):
+        self.names: list[str] = []
+
+    def tool(self, fn=None, **_kwargs):
+        if fn is None:
+            return lambda f: self.tool(f)
+        self.names.append(fn.__name__)
+        return fn
+
+    @property
+    def file_tools(self) -> list[str]:
+        """Only the file-editing surface; plugin ``register_agent_tools``
+        hooks left behind by other tests may add unrelated names."""
+        return [n for n in self.names if n in _FILE_TOOL_NAMES]
+
+
+class TestRetiredProviderEditors:
+    """``edit`` / ``apply_patch`` are gone; every model gets the granular tools."""
+
     @pytest.mark.parametrize(
-        "model_name, expected",
-        [
-            ("codex-gpt-5.4", True),
-            ("chatgpt-gpt-5", True),
-            ("gpt-5", True),
-            ("claude-sonnet-4", False),
-            ("gpt-4o", False),
-        ],
+        "model_name",
+        ["codex-gpt-5.4", "chatgpt-gpt-5", "claude-code-claude-opus-4-7", "qwen-q4"],
     )
-    def test_model_patch_capability(self, model_name, expected):
-        assert should_use_codex_patch(model_name) is expected
-
-    def test_codex_receives_only_apply_patch_for_file_mutations(self):
-        class CapturingAgent:
-            def __init__(self):
-                self.names = []
-
-            def tool(self, function):
-                self.names.append(function.__name__)
-                return function
-
-        agent = CapturingAgent()
+    def test_every_model_gets_the_same_file_tools(self, model_name):
+        agent = _CapturingAgent()
         register_tools_for_agent(
-            agent,
-            ["create_file", "replace_in_file", "delete_snippet", "delete_file"],
-            model_name="codex-gpt-5.4",
+            agent, ["create_file", "replace_in_file"], model_name=model_name
         )
+        # Plugin hooks left behind by other tests may add unrelated tools;
+        # only the file-editing surface matters here.
+        file_tools = [
+            n
+            for n in agent.names
+            if n in {"create_file", "replace_in_file", "edit", "apply_patch"}
+        ]
+        assert file_tools == ["create_file", "replace_in_file"]
 
-        assert "apply_patch" in agent.names
-        assert not {
-            "create_file",
-            "edit",
+    def test_retired_names_are_not_registrable(self):
+        assert "edit" not in TOOL_REGISTRY
+        assert "apply_patch" not in TOOL_REGISTRY
+
+    def test_retired_names_alias_to_granular_tools(self):
+        """Agent configs written during the provider-editor era keep working."""
+        agent = _CapturingAgent()
+        register_tools_for_agent(agent, ["edit", "apply_patch"], model_name="qwen-q4")
+        assert agent.file_tools == [
             "replace_in_file",
+            "create_file",
             "delete_snippet",
             "delete_file",
-        }.intersection(agent.names)
-
-    def test_claude_receives_edit_alias_for_targeted_replacement(self):
-        class CapturingAgent:
-            def __init__(self):
-                self.names = []
-
-            def tool(self, function):
-                self.names.append(function.__name__)
-                return function
-
-        agent = CapturingAgent()
-        register_tools_for_agent(
-            agent,
-            ["replace_in_file"],
-            model_name="claude-sonnet-4",
-        )
-
-        assert "edit" in agent.names
-        assert "replace_in_file" not in agent.names
+        ]
 
 
 class TestRemovedReasoningToolBehavior:

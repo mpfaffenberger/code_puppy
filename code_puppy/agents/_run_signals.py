@@ -207,9 +207,15 @@ def prepare_queued_steer_injection(agent: Any, result: Any) -> Optional[Any]:
         so the steer turn sees the just-completed turn's context.
       - Re-queues any leftover steers (we deliberately process ONE per
         loop iteration to keep turn boundaries clean for the model).
-      - Emits a diagnostic with a preview of the steer text.
     """
+    from code_puppy.agent_completion_inbox import pop_completion
     from code_puppy.messaging.pause_controller import get_pause_controller
+
+    completion = pop_completion(agent)
+    if completion is not None:
+        if hasattr(result, "all_messages"):
+            agent._message_history = list(result.all_messages())
+        return completion
 
     pc = get_pause_controller()
     pending = pc.drain_pending_steer_queued()
@@ -220,13 +226,7 @@ def prepare_queued_steer_injection(agent: Any, result: Any) -> Optional[Any]:
     steer_text = pending[0]
     for leftover in pending[1:]:
         pc.request_steer(leftover, mode="queue")
-    content, preview_text = resolve_steer_content(steer_text)
-    n_extras = len(content) - 1 if isinstance(content, list) else 0
-    suffix = f" (+{n_extras} attachment(s))" if n_extras else ""
-    preview = preview_text[:80] + ("..." if len(preview_text) > 80 else "")
-    emit_info(
-        f"Injecting queued steer between turns — agent will see: {preview!r}{suffix}"
-    )
+    content, _ = resolve_steer_content(steer_text)
     return content
 
 

@@ -173,12 +173,11 @@ You are the sub-agent `{agent_name}`, not the main agent. Your nesting depth is
 {depth} (main agent = 0). Invocation chain: {chain}. The configured maximum
 sub-agent depth is {limit}; {remaining} deeper level(s) remain.
 
-Complete your assigned task directly. NEVER invoke yourself, an agent already in
-the invocation chain, or another agent merely to repeat/continue your own role.
-Default to no further delegation. If delegation is truly essential, invoke at
-most one child level for a narrowly scoped task, tell that child to complete the
-work directly without further delegation, then finish the task yourself. Do not
-create recursive, cyclic, or open-ended agent chains."""
+Complete your assigned task directly. Prefer doing the work yourself over
+spawning more agents, but delegation is permitted -- including invoking an agent
+whose name matches your own -- as long as it serves the task. The recursion guard
+above enforces the depth cap automatically, so nesting beyond it is refused
+rather than forbidden by convention."""
 
 
 def _contains_cancellation(exc: BaseException) -> bool:
@@ -236,6 +235,7 @@ async def _invoke_agent_impl(
     emit_response_message: bool = True,
     include_usage_metrics: bool = False,
     is_fork: bool = False,
+    background: bool = False,
 ) -> AgentInvokeOutput:
     """Invoke a sub-agent, optionally suppressing its standard response message.
 
@@ -251,6 +251,11 @@ async def _invoke_agent_impl(
     this repo has no direct caller). It flags the emitted
     ``SubAgentInvocationMessage`` so renderers can show a distinct banner
     instead of the generic tool-call one.
+
+    ``background`` is set by the ``background_agents`` core plugin (which
+    feature-detects this kwarg via ``inspect.signature`` before passing it).
+    It flags the emitted ``SubAgentInvocationMessage`` so renderers can mark
+    the invocation as background -- it does not change execution semantics.
     """
     from code_puppy.agents.agent_manager import load_agent
 
@@ -321,6 +326,7 @@ async def _invoke_agent_impl(
             message_count=len(message_history),
             model_name=model_name,
             is_fork=is_fork,
+            background=background,
         )
     )
 
@@ -745,25 +751,38 @@ def register_invoke_agent(agent):
         agent_name: str,
         prompt: str,
         session_id: str | None = None,
+        background: bool = False,
         **_ignored_kwargs,
-    ) -> AgentInvokeOutput:
+    ) -> AgentInvokeOutput | dict:
         """Invoke a specific sub-agent using its configured model.
 
-        Delegation safety: never invoke yourself or an agent already in the
-        invocation chain. Default to doing the work directly. If delegation is
-        essential, go at most one level deeper for one narrowly scoped task and
-        explicitly tell that child not to delegate further. Never create cyclic,
-        recursive, or open-ended delegation chains.
+        Prefer doing the work directly, but delegation is allowed -- including
+        to an agent whose name matches the caller's. Nesting is capped by the
+        recursion guard rather than by convention.
 
         Args:
             agent_name: Name of the sub-agent to invoke.
             prompt: Task prompt for the sub-agent.
             session_id: Optional kebab-case session id for continuing memory.
+            background: Return immediately and deliver completion automatically
+                to the main agent, even after its turn ends. Defaults to False.
 
         Returns:
             AgentInvokeOutput: Contains response, agent_name, session_id,
             effective model_name, and error fields.
         """
+        if background:
+            try:
+                from code_puppy_core_plugins.background_agents.register_callbacks import (
+                    launch_background_agent,
+                )
+            except ImportError:
+                return {
+                    "error": "Background delegation requires an updated core plugin bundle."
+                }
+            return await launch_background_agent(
+                context, agent_name, prompt, session_id
+            )
         return await _invoke_agent_impl(
             context=context,
             agent_name=agent_name,
@@ -798,10 +817,9 @@ def register_invoke_agent_with_model(agent):
 
         Use this only when a model override is intentionally required. For
         normal delegation, use invoke_agent so the sub-agent's configured model
-        is respected. Never invoke yourself or an agent already in the invocation
-        chain. Default to doing the work directly; if delegation is essential,
-        go at most one level deeper for one narrowly scoped task, tell that child
-        not to delegate further, and never create recursive or cyclic chains.
+        is respected. Prefer doing the work directly, but delegation is allowed
+        -- including to an agent whose name matches the caller's. Nesting is
+        capped by the recursion guard rather than by convention.
 
         Args:
             agent_name: Name of the sub-agent to invoke.

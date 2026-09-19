@@ -21,6 +21,7 @@ import asyncio
 import json
 import re
 import signal
+import ssl
 import sys
 import threading
 import uuid
@@ -145,6 +146,33 @@ _RETRYABLE_EXCEPTIONS: tuple = (
     httpcore.RemoteProtocolError,
 )
 
+# AnyIO normally translates TLS failures through httpcore/httpx, but a failure
+# while reading an established stream can escape as a raw ``ssl.SSLError``.
+# Keep this allowlist narrow: certificate and protocol errors need user action,
+# while a corrupted TLS record on an existing SSE stream is safe to retry.
+# Only the reason observed escaping raw from AnyIO is included; add another
+# reason only after confirming that it can bypass the httpx/httpcore wrappers.
+_RETRYABLE_TLS_REASONS = frozenset({"DECRYPTION_FAILED_OR_BAD_RECORD_MAC"})
+
+
+def _is_retryable_tls_stream_error(exc: BaseException) -> bool:
+    """Return whether ``exc`` is a known transient raw TLS stream failure."""
+    if not isinstance(exc, ssl.SSLError):
+        return False
+
+    reason = getattr(exc, "reason", None)
+    if isinstance(reason, str) and reason.upper() in _RETRYABLE_TLS_REASONS:
+        return True
+    if reason is not None:
+        return False
+
+    # Hand-built exceptions and some Python/OpenSSL combinations omit
+    # ``.reason`` but preserve its stable symbolic name in the message.
+    message = str(exc).upper()
+    return any(
+        f"[SSL: {tls_reason}]" in message for tls_reason in _RETRYABLE_TLS_REASONS
+    )
+
 
 def _matches_retryable_snippet(msg: str) -> bool:
     """Return True if ``msg`` matches any known transient pattern.
@@ -228,6 +256,8 @@ def _is_retryable_one(exc: BaseException) -> bool:
     job, kept as a separate concern so each piece stays independently testable.
     """
     if isinstance(exc, _RETRYABLE_EXCEPTIONS):
+        return True
+    if _is_retryable_tls_stream_error(exc):
         return True
 
     msg = str(exc)
@@ -785,23 +815,18 @@ async def _run_with_mcp_impl(
         # honoured), built once so a run has consistent backoff behaviour.
         from code_puppy.agents.retry_profiles import make_streaming_retry
 
-        _main_retry = make_streaming_retry(
-            "main",
-            agent.get_model_name(),
-            # Completed steps are checkpointed into _message_history, so a
-            # growing history means real progress → refresh the budget.
-            progress_fn=lambda: len(agent._message_history or []),
-        )
+        from code_puppy.agents.retry_checkpoint import RetryCheckpoint, resumable_call
 
-        @_main_retry
-        async def _call() -> Any:
-            return await pydantic_agent.run(
-                prompt_to_use,
-                message_history=agent._message_history,
-                usage_limits=usage_limits,
-                event_stream_handler=stream_handler,
-                **kwargs,
-            )
+        checkpoint = RetryCheckpoint(agent)
+        _main_retry = make_streaming_retry(
+            "main", agent.get_model_name(), progress_fn=checkpoint.progress
+        )
+        run_options = dict(
+            usage_limits=usage_limits, event_stream_handler=stream_handler, **kwargs
+        )
+        _call = _main_retry(
+            resumable_call(agent, pydantic_agent, prompt_to_use, **run_options)
+        )
 
         async def _call_with_exception_recovery() -> Any:
             """Run ``_call`` and let plugins request one exception retry."""
@@ -832,17 +857,10 @@ async def _run_with_mcp_impl(
         # (before every model call); ``queue``-mode ones drain between runs
         # below — additive, won't interrupt in-progress work.
         async def _follow_up_run(follow_up_prompt: Any) -> Any:
-            @_main_retry
-            async def _call_follow_up() -> Any:
-                return await pydantic_agent.run(
-                    follow_up_prompt,
-                    message_history=agent._message_history,
-                    usage_limits=usage_limits,
-                    event_stream_handler=stream_handler,
-                    **kwargs,
-                )
-
-            return await _call_follow_up()
+            call = _main_retry(
+                resumable_call(agent, pydantic_agent, follow_up_prompt, **run_options)
+            )
+            return await call()
 
         hook_retries_used = 0
         queued_steers_used = 0

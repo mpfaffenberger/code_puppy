@@ -11,7 +11,7 @@ Covers:
 
 import contextlib
 from io import StringIO
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 from pydantic_ai import PartDeltaEvent, PartEndEvent, PartStartEvent, RunContext
@@ -127,6 +127,7 @@ class TestEventStreamHandler:
             yield event
 
         console = MagicMock(spec=Console)
+        console.width = 80
         set_streaming_console(console)
 
         with contextlib.nullcontext():
@@ -145,6 +146,7 @@ class TestEventStreamHandler:
             yield event
 
         console = MagicMock(spec=Console)
+        console.width = 80
         set_streaming_console(console)
 
         with contextlib.nullcontext():
@@ -161,24 +163,19 @@ class TestEventStreamHandler:
             yield event
 
         console = MagicMock(spec=Console)
+        console.width = 80
         set_streaming_console(console)
 
         with contextlib.nullcontext():
             with contextlib.nullcontext():
-                with patch(
-                    "code_puppy.agents.event_stream_handler.get_banner_color",
-                    return_value="blue",
-                ):
-                    await event_stream_handler(mock_ctx, event_stream())
+                await event_stream_handler(mock_ctx, event_stream())
 
-        # The banner and initial content should print without a redundant icon.
+        # Initial content streams immediately; the THINKING banner is gone,
+        # so nothing printed should carry the label (or the old icon).
         assert console.print.called
-        thinking_banner = next(
-            call.args[0]
-            for call in console.print.call_args_list
-            if call.args and "THINKING" in str(call.args[0])
-        )
-        assert chr(0x26A1) not in str(thinking_banner)
+        printed = [str(c.args[0]) for c in console.print.call_args_list if c.args]
+        assert not any("THINKING" in text for text in printed)
+        assert not any(chr(0x26A1) in text for text in printed)
 
     @pytest.mark.asyncio
     async def test_handles_text_part_with_initial_content(self, mock_ctx):
@@ -190,19 +187,49 @@ class TestEventStreamHandler:
             yield event
 
         console = MagicMock(spec=Console)
+        console.width = 80
         set_streaming_console(console)
 
         with contextlib.nullcontext():
             with contextlib.nullcontext():
-                with patch(
-                    "code_puppy.agents.event_stream_handler.get_banner_color",
-                    return_value="blue",
-                ):
-                    with patch("termflow.Parser"):
-                        with patch("termflow.Renderer"):
-                            await event_stream_handler(mock_ctx, event_stream())
+                with patch("termflow.Parser"):
+                    with patch("termflow.Renderer"):
+                        await event_stream_handler(mock_ctx, event_stream())
 
         assert console.print.called
+
+    @pytest.mark.asyncio
+    async def test_multiline_initial_text_is_parsed_line_by_line(self, mock_ctx):
+        """A complete provider response must not become one Markdown line."""
+        text_part = TextPart(content="### Heading\n\nbody tail")
+        events = (
+            PartStartEvent(index=0, part=text_part),
+            PartEndEvent(index=0, part=text_part, next_part_kind=None),
+        )
+
+        async def event_stream():
+            for event in events:
+                yield event
+
+        console = MagicMock(spec=Console, width=80)
+        console.file = StringIO()
+        set_streaming_console(console)
+
+        with (
+            patch("termflow.Parser") as parser_cls,
+            patch("termflow.Renderer"),
+        ):
+            parser = parser_cls.return_value
+            parser.parse_line.return_value = []
+            parser.finalize.return_value = []
+            await event_stream_handler(mock_ctx, event_stream())
+
+        assert parser.parse_line.call_args_list == [
+            call("### Heading"),
+            call(""),
+            call("body tail"),
+        ]
+        parser.finalize.assert_called_once_with()
 
     @pytest.mark.asyncio
     async def test_handles_thinking_part_delta_event(self, mock_ctx):
@@ -217,15 +244,12 @@ class TestEventStreamHandler:
             yield delta_event
 
         console = MagicMock(spec=Console)
+        console.width = 80
         set_streaming_console(console)
 
         with contextlib.nullcontext():
             with contextlib.nullcontext():
-                with patch(
-                    "code_puppy.agents.event_stream_handler.get_banner_color",
-                    return_value="blue",
-                ):
-                    await event_stream_handler(mock_ctx, event_stream())
+                await event_stream_handler(mock_ctx, event_stream())
 
         # Should print the delta content
         assert console.print.called
@@ -255,18 +279,14 @@ class TestEventStreamHandler:
 
         with contextlib.nullcontext():
             with contextlib.nullcontext():
-                with patch(
-                    "code_puppy.agents.event_stream_handler.get_banner_color",
-                    return_value="blue",
-                ):
-                    with patch("termflow.Parser") as mock_parser_cls:
-                        mock_parser = MagicMock()
-                        mock_parser.parse_line.return_value = []
-                        mock_parser.finalize.return_value = []
-                        mock_parser_cls.return_value = mock_parser
+                with patch("termflow.Parser") as mock_parser_cls:
+                    mock_parser = MagicMock()
+                    mock_parser.parse_line.return_value = []
+                    mock_parser.finalize.return_value = []
+                    mock_parser_cls.return_value = mock_parser
 
-                        with patch("termflow.Renderer"):
-                            await event_stream_handler(mock_ctx, event_stream())
+                    with patch("termflow.Renderer"):
+                        await event_stream_handler(mock_ctx, event_stream())
 
         # Handler should process without error
         # The parser may or may not be called depending on newlines
@@ -284,14 +304,16 @@ class TestEventStreamHandler:
             yield delta_event
 
         console = MagicMock(spec=Console)
+        console.width = 80
         set_streaming_console(console)
+        bar = MagicMock()
 
-        with contextlib.nullcontext():
-            with contextlib.nullcontext():
-                await event_stream_handler(mock_ctx, event_stream())
+        with patch("code_puppy.messaging.bottom_bar.get_bottom_bar", return_value=bar):
+            await event_stream_handler(mock_ctx, event_stream())
 
-        # Should have printed tool call info
-        assert console.print.called
+        # Tool progress lives in the status line; nothing hits the transcript.
+        assert not console.print.called
+        assert bar.set_tool_progress.called
 
     @pytest.mark.asyncio
     async def test_handles_part_end_event_for_text(self, mock_ctx):
@@ -334,6 +356,7 @@ class TestEventStreamHandler:
             yield end_event
 
         console = MagicMock(spec=Console)
+        console.width = 80
         set_streaming_console(console)
 
         with contextlib.nullcontext():
@@ -356,15 +379,12 @@ class TestEventStreamHandler:
             yield end_event
 
         console = MagicMock(spec=Console)
+        console.width = 80
         set_streaming_console(console)
 
         with contextlib.nullcontext():
             with contextlib.nullcontext():
-                with patch(
-                    "code_puppy.agents.event_stream_handler.get_banner_color",
-                    return_value="blue",
-                ):
-                    await event_stream_handler(mock_ctx, event_stream())
+                await event_stream_handler(mock_ctx, event_stream())
 
         # Handler processed thinking part end event
         assert True  # Completed without error
@@ -421,20 +441,73 @@ class TestEventStreamHandler:
 
         with contextlib.nullcontext():
             with contextlib.nullcontext():
-                with patch(
-                    "code_puppy.agents.event_stream_handler.get_banner_color",
-                    return_value="blue",
-                ):
-                    with patch("termflow.Parser") as mock_parser_cls:
-                        mock_parser = MagicMock()
-                        mock_parser.parse_line.return_value = []
-                        mock_parser.finalize.return_value = []
-                        mock_parser_cls.return_value = mock_parser
+                with patch("termflow.Parser") as mock_parser_cls:
+                    mock_parser = MagicMock()
+                    mock_parser.parse_line.return_value = []
+                    mock_parser.finalize.return_value = []
+                    mock_parser_cls.return_value = mock_parser
 
-                        with patch("termflow.Renderer"):
-                            await event_stream_handler(mock_ctx, event_stream())
+                    with patch("termflow.Renderer"):
+                        await event_stream_handler(mock_ctx, event_stream())
 
         # Handler should process multiple deltas without error
+
+    @pytest.mark.asyncio
+    async def test_finalizes_text_when_stream_ends_without_part_end(self, mock_ctx):
+        """An abrupt provider EOF must not drop buffered Markdown."""
+        start_event = PartStartEvent(index=0, part=TextPart(content=""))
+        delta_event = PartDeltaEvent(
+            index=0, delta=TextPartDelta(content_delta="```python\nprint(1)")
+        )
+
+        async def event_stream():
+            yield start_event
+            yield delta_event
+
+        console = MagicMock(spec=Console, width=80)
+        console.file = StringIO()
+        set_streaming_console(console)
+
+        with (
+            patch("termflow.Parser") as parser_cls,
+            patch("termflow.Renderer"),
+        ):
+            parser = parser_cls.return_value
+            parser.parse_line.return_value = []
+            parser.finalize.return_value = []
+            await event_stream_handler(mock_ctx, event_stream())
+
+        assert parser.parse_line.call_args_list == [
+            call("```python"),
+            call("print(1)"),
+        ]
+        parser.finalize.assert_called_once_with()
+
+    @pytest.mark.asyncio
+    async def test_skips_whitespace_only_text_tail(self, mock_ctx):
+        """Whitespace-only trailing buffers must not create Markdown content."""
+        start_event = PartStartEvent(index=0, part=TextPart(content=""))
+        delta_event = PartDeltaEvent(index=0, delta=TextPartDelta(content_delta="   "))
+
+        async def event_stream():
+            yield start_event
+            yield delta_event
+
+        console = MagicMock(spec=Console, width=80)
+        console.file = StringIO()
+        set_streaming_console(console)
+
+        with (
+            patch("termflow.Parser") as parser_cls,
+            patch("termflow.Renderer"),
+        ):
+            parser = parser_cls.return_value
+            parser.parse_line.return_value = []
+            parser.finalize.return_value = []
+            await event_stream_handler(mock_ctx, event_stream())
+
+        parser.parse_line.assert_not_called()
+        parser.finalize.assert_called_once_with()
 
     @pytest.mark.asyncio
     async def test_streaming_ignores_delta_for_unknown_part_index(self, mock_ctx):
@@ -447,6 +520,7 @@ class TestEventStreamHandler:
             yield delta_event
 
         console = MagicMock(spec=Console)
+        console.width = 80
         set_streaming_console(console)
 
         with contextlib.nullcontext():
@@ -475,18 +549,19 @@ class TestEventStreamHandler:
                 yield delta_event
 
         console = MagicMock(spec=Console)
+        console.width = 80
         set_streaming_console(console)
+        bar = MagicMock()
 
-        with contextlib.nullcontext():
-            with contextlib.nullcontext():
-                await event_stream_handler(mock_ctx, event_stream())
+        with patch("code_puppy.messaging.bottom_bar.get_bottom_bar", return_value=bar):
+            await event_stream_handler(mock_ctx, event_stream())
 
-        # Console should show token counts
-        assert console.print.called
-        # Check that token counter was printed (contains "token(s)")
-        call_args_list = [str(call) for call in console.print.call_args_list]
-        # Should have printed something with token(s)
-        assert any("token(s)" in str(call) for call in call_args_list)
+        # Each delta repaints the slot; request completion preserves it.
+        assert not console.print.called
+        progress_values = [c.args[0] for c in bar.set_tool_progress.call_args_list]
+        assert any("test_tool" in value for value in progress_values)
+        assert "tokens | Working" in progress_values[-1]
+        assert "" not in progress_values
 
     @pytest.mark.asyncio
     async def test_thinking_part_without_initial_content_defers_banner(self, mock_ctx):
@@ -498,15 +573,12 @@ class TestEventStreamHandler:
             yield start_event
 
         console = MagicMock(spec=Console)
+        console.width = 80
         set_streaming_console(console)
 
         with contextlib.nullcontext():
             with contextlib.nullcontext():
-                with patch(
-                    "code_puppy.agents.event_stream_handler.get_banner_color",
-                    return_value="blue",
-                ):
-                    await event_stream_handler(mock_ctx, event_stream())
+                await event_stream_handler(mock_ctx, event_stream())
 
         # Banner should not be printed immediately (deferred until delta arrives)
         # So console.print should not be called (or called less)
@@ -526,17 +598,13 @@ class TestEventStreamHandler:
 
         with contextlib.nullcontext():
             with contextlib.nullcontext():
-                with patch(
-                    "code_puppy.agents.event_stream_handler.get_banner_color",
-                    return_value="blue",
-                ):
-                    with patch("termflow.Parser") as mock_parser_cls:
-                        mock_parser = MagicMock()
-                        mock_parser.finalize.return_value = []
-                        mock_parser_cls.return_value = mock_parser
+                with patch("termflow.Parser") as mock_parser_cls:
+                    mock_parser = MagicMock()
+                    mock_parser.finalize.return_value = []
+                    mock_parser_cls.return_value = mock_parser
 
-                        with patch("termflow.Renderer"):
-                            await event_stream_handler(mock_ctx, event_stream())
+                    with patch("termflow.Renderer"):
+                        await event_stream_handler(mock_ctx, event_stream())
 
         # Banner should not be printed immediately (deferred)
 
@@ -557,17 +625,13 @@ class TestEventStreamHandler:
 
         with contextlib.nullcontext():
             with contextlib.nullcontext():
-                with patch(
-                    "code_puppy.agents.event_stream_handler.get_banner_color",
-                    return_value="blue",
-                ):
-                    with patch("termflow.Parser") as mock_parser_cls:
-                        mock_parser = MagicMock()
-                        mock_parser.finalize.return_value = []
-                        mock_parser_cls.return_value = mock_parser
+                with patch("termflow.Parser") as mock_parser_cls:
+                    mock_parser = MagicMock()
+                    mock_parser.finalize.return_value = []
+                    mock_parser_cls.return_value = mock_parser
 
-                        with patch("termflow.Renderer"):
-                            await event_stream_handler(mock_ctx, event_stream())
+                    with patch("termflow.Renderer"):
+                        await event_stream_handler(mock_ctx, event_stream())
 
         # Verify cleanup was called
         # finalize should be called for text parts
@@ -596,18 +660,14 @@ class TestEventStreamHandler:
 
         with contextlib.nullcontext():
             with contextlib.nullcontext():
-                with patch(
-                    "code_puppy.agents.event_stream_handler.get_banner_color",
-                    return_value="blue",
-                ):
-                    with patch("termflow.Parser") as mock_parser_cls:
-                        mock_parser = MagicMock()
-                        mock_parser.parse_line.return_value = []
-                        mock_parser.finalize.return_value = []
-                        mock_parser_cls.return_value = mock_parser
+                with patch("termflow.Parser") as mock_parser_cls:
+                    mock_parser = MagicMock()
+                    mock_parser.parse_line.return_value = []
+                    mock_parser.finalize.return_value = []
+                    mock_parser_cls.return_value = mock_parser
 
-                        with patch("termflow.Renderer"):
-                            await event_stream_handler(mock_ctx, event_stream())
+                    with patch("termflow.Renderer"):
+                        await event_stream_handler(mock_ctx, event_stream())
 
         # Both parts should be processed without error
         # Banners should be printed for both thinking and text
@@ -650,6 +710,7 @@ class TestSubAgentSuppression:
             yield PartEndEvent(index=1, part=text_part, next_part_kind=None)
 
         console = MagicMock(spec=Console)
+        console.width = 80
         set_streaming_console(console)
 
         # Run in sub-agent context
@@ -686,17 +747,13 @@ class TestSubAgentSuppression:
         with subagent_context("test-agent"):
             with contextlib.nullcontext():
                 with contextlib.nullcontext():
-                    with patch(
-                        "code_puppy.agents.event_stream_handler.get_banner_color",
-                        return_value="blue",
-                    ):
-                        with patch("termflow.Parser") as mock_parser_cls:
-                            mock_parser = MagicMock()
-                            mock_parser.finalize.return_value = []
-                            mock_parser_cls.return_value = mock_parser
+                    with patch("termflow.Parser") as mock_parser_cls:
+                        mock_parser = MagicMock()
+                        mock_parser.finalize.return_value = []
+                        mock_parser_cls.return_value = mock_parser
 
-                            with patch("termflow.Renderer"):
-                                await event_stream_handler(mock_ctx, mock_events())
+                        with patch("termflow.Renderer"):
+                            await event_stream_handler(mock_ctx, mock_events())
 
         # Verify output WAS printed (verbose=True overrides suppression)
         console.print.assert_called()
@@ -724,17 +781,13 @@ class TestSubAgentSuppression:
         # NOT in subagent_context - main agent
         with contextlib.nullcontext():
             with contextlib.nullcontext():
-                with patch(
-                    "code_puppy.agents.event_stream_handler.get_banner_color",
-                    return_value="blue",
-                ):
-                    with patch("termflow.Parser") as mock_parser_cls:
-                        mock_parser = MagicMock()
-                        mock_parser.finalize.return_value = []
-                        mock_parser_cls.return_value = mock_parser
+                with patch("termflow.Parser") as mock_parser_cls:
+                    mock_parser = MagicMock()
+                    mock_parser.finalize.return_value = []
+                    mock_parser_cls.return_value = mock_parser
 
-                        with patch("termflow.Renderer"):
-                            await event_stream_handler(mock_ctx, mock_events())
+                    with patch("termflow.Renderer"):
+                        await event_stream_handler(mock_ctx, mock_events())
 
         # Verify output WAS printed (main agent never suppresses)
         console.print.assert_called()
@@ -761,6 +814,7 @@ class TestSubAgentSuppression:
             yield PartEndEvent(index=0, part=tool_part, next_part_kind=None)
 
         console = MagicMock(spec=Console)
+        console.width = 80
         set_streaming_console(console)
 
         # Run in sub-agent context
@@ -791,6 +845,7 @@ class TestSubAgentSuppression:
                 yield PartStartEvent(index=i, part=TextPart(content=f"text {i}"))
 
         console = MagicMock(spec=Console)
+        console.width = 80
         set_streaming_console(console)
 
         # Run in sub-agent context
@@ -801,3 +856,87 @@ class TestSubAgentSuppression:
         assert events_consumed == 10
         # But nothing was printed
         console.print.assert_not_called()
+
+
+class TestHeadlessToolProgressSuppression:
+    """Headless (``-p``) runs must never emit the tool-progress counter.
+
+    Regression: the counter repaints itself with a bare ``\\r``, which only
+    overwrites on a real terminal. Redirected into a file or CI log, every
+    repaint became its own line, flooding the transcript with
+    ``Calling <tool>... N token(s)`` rows.
+    """
+
+    @pytest.fixture
+    def mock_ctx(self):
+        """Create a mock RunContext."""
+        return MagicMock(spec=RunContext)
+
+    def test_headless_suppresses_even_in_high_output_mode(self, monkeypatch):
+        from code_puppy.agents.event_stream_handler import _suppress_tool_progress
+
+        monkeypatch.setattr(
+            "code_puppy.agents.event_stream_handler.get_headless_mode", lambda: True
+        )
+        monkeypatch.setattr(
+            "code_puppy.agents.event_stream_handler.get_output_level", lambda: "high"
+        )
+
+        assert _suppress_tool_progress() is True
+
+    @pytest.mark.parametrize(
+        ("headless", "level", "expected"),
+        [
+            (False, "normal", False),
+            (False, "high", False),
+            (False, "low", True),
+            (True, "normal", True),
+            (True, "low", True),
+        ],
+    )
+    def test_suppression_matrix(self, monkeypatch, headless, level, expected):
+        from code_puppy.agents.event_stream_handler import _suppress_tool_progress
+
+        monkeypatch.setattr(
+            "code_puppy.agents.event_stream_handler.get_headless_mode",
+            lambda: headless,
+        )
+        monkeypatch.setattr(
+            "code_puppy.agents.event_stream_handler.get_output_level", lambda: level
+        )
+
+        assert _suppress_tool_progress() is expected
+
+    @pytest.mark.asyncio
+    async def test_headless_run_never_prints_calling_lines(self, mock_ctx, monkeypatch):
+        """The user-visible regression: no ``Calling ... token(s)`` in output."""
+        monkeypatch.setattr(
+            "code_puppy.agents.event_stream_handler.get_headless_mode", lambda: True
+        )
+        monkeypatch.setattr(
+            "code_puppy.agents.event_stream_handler.get_output_level",
+            lambda: "normal",
+        )
+
+        # Capture real text rather than asserting on call counts.
+        output = StringIO()
+        set_streaming_console(Console(file=output, width=80))
+
+        tool_part = ToolCallPart(
+            tool_call_id="tool_1", tool_name="create_file", args={}
+        )
+
+        async def mock_events():
+            yield PartStartEvent(index=0, part=tool_part)
+            # Several deltas -> several counter repaints when interactive.
+            for _ in range(5):
+                yield PartDeltaEvent(
+                    index=0, delta=ToolCallPartDelta(tool_name_delta="create_file")
+                )
+            yield PartEndEvent(index=0, part=tool_part, next_part_kind=None)
+
+        await event_stream_handler(mock_ctx, mock_events())
+
+        rendered = output.getvalue()
+        assert "Calling" not in rendered
+        assert "token(s)" not in rendered

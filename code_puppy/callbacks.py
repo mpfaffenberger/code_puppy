@@ -1,6 +1,11 @@
 import asyncio
+import inspect
 import logging
+import threading
 import traceback
+from contextlib import nullcontext
+from contextvars import ContextVar, Token
+from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Literal, Optional, Set, Tuple
 
 from pydantic_ai.messages import ModelMessage
@@ -16,7 +21,6 @@ PhaseType = Literal[
     "replace_in_file",
     "delete_snippet",
     "delete_file",
-    "apply_patch",
     "run_shell_command",
     "run_shell_command_output",
     "load_model_config",
@@ -79,6 +83,7 @@ PhaseType = Literal[
     "git_branch_provider",
     "feature_capability",
     "transform_model_messages",
+    "error_logged",
 ]
 CallbackFunc = Callable[..., Any]
 
@@ -107,7 +112,6 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "replace_in_file": [],
     "delete_snippet": [],
     "delete_file": [],
-    "apply_patch": [],
     "run_shell_command": [],
     "run_shell_command_output": [],
     "load_model_config": [],
@@ -170,6 +174,7 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "git_branch_provider": [],
     "feature_capability": [],
     "transform_model_messages": [],
+    "error_logged": [],
 }
 
 logger = logging.getLogger(__name__)
@@ -217,31 +222,105 @@ def _failure_result(
     }
 
 
-# Set by the plugin loader before importing each plugin's register_callbacks.py,
-# cleared immediately after.  register_callback() reads this to record ownership.
-_current_loading_plugin: Optional[str] = None
+@dataclass
+class _PluginLoadingContext:
+    """Shared lifecycle and lineage state for one plugin-import transaction."""
+
+    owner: str
+    transaction_id: object
+    parent: "_PluginLoadingContext | None"
+    active: bool = True
+    guard: threading.RLock = field(default_factory=threading.RLock)
+
+    @property
+    def parent_transaction_id(self) -> object | None:
+        """Retain the transaction-id view used by catalog finalization."""
+        return self.parent.transaction_id if self.parent is not None else None
+
+    def lineage(self) -> tuple["_PluginLoadingContext", ...]:
+        """Return this transaction and every ancestor, nearest first."""
+        result = []
+        current: _PluginLoadingContext | None = self
+        while current is not None:
+            result.append(current)
+            current = current.parent
+        return tuple(result)
 
 
-def set_loading_context(plugin_name: str) -> None:
+# Context-local rather than process-global: nested imports restore their parent,
+# and concurrent loader threads/tasks cannot steal one another's ownership.
+_current_loading_plugin: ContextVar[_PluginLoadingContext | None] = ContextVar(
+    "current_loading_plugin", default=None
+)
+
+
+def set_loading_context(
+    plugin_name: str, transaction_id: object | None = None
+) -> Token[_PluginLoadingContext | None]:
     """Mark *plugin_name* as the plugin currently being loaded.
 
     Called by the plugin loader before importing a plugin's
-    ``register_callbacks`` module.  Any callbacks registered while this
-    context is active are associated with *plugin_name*.
+    ``register_callbacks`` module. Any callbacks registered while this context
+    is active are associated with *plugin_name*. The returned token lets the
+    loader restore a nested parent context exactly.
     """
-    global _current_loading_plugin
-    _current_loading_plugin = plugin_name
+    parent = _current_loading_plugin.get()
+    if parent is not None:
+        with parent.guard:
+            if not parent.active:
+                parent = None
+    context = _PluginLoadingContext(
+        plugin_name,
+        transaction_id if transaction_id is not None else object(),
+        parent,
+        guard=parent.guard if parent is not None else threading.RLock(),
+    )
+    return _current_loading_plugin.set(context)
 
 
-def clear_loading_context() -> None:
-    """Clear the current plugin loading context."""
-    global _current_loading_plugin
-    _current_loading_plugin = None
+def clear_loading_context(
+    token: Token[_PluginLoadingContext | None] | None = None,
+) -> None:
+    """Restore a prior loading context, or clear the current one for callers."""
+    context = _current_loading_plugin.get()
+    if context is not None:
+        with context.guard:
+            context.active = False
+    if token is None:
+        _current_loading_plugin.set(None)
+    else:
+        _current_loading_plugin.reset(token)
 
 
 def get_loading_context() -> Optional[str]:
     """Return the plugin currently being loaded, if any."""
-    return _current_loading_plugin
+    context = _current_loading_plugin.get()
+    if context is None:
+        return None
+    with context.guard:
+        return context.owner if context.active else None
+
+
+def _get_loading_transaction() -> _PluginLoadingContext | None:
+    """Return active owner/transaction state for catalog registration."""
+    context = _current_loading_plugin.get()
+    if context is None:
+        return None
+    with context.guard:
+        return context if context.active else None
+
+
+def _deactivate_loading_transaction(
+    transaction_id: object,
+) -> tuple[object | None, bool]:
+    """Close one transaction and report its parent and ancestor viability."""
+    context = _current_loading_plugin.get()
+    if context is None or context.transaction_id is not transaction_id:
+        return None, False
+    with context.guard:
+        ancestors_active = all(parent.active for parent in context.lineage()[1:])
+        context.active = False
+        return context.parent_transaction_id, ancestors_active
 
 
 def get_callback_owner(func: CallbackFunc) -> Optional[str]:
@@ -294,28 +373,63 @@ def register_callback(
             f"receive a dict it does not understand."
         )
 
-    # Prevent duplicate registration of the same callback function
-    # This can happen if plugins are accidentally loaded multiple times
-    if func in _callbacks[phase]:
-        # A repeat registration may still be tightening the policy; honor that
-        # rather than silently keeping the weaker fail-open behavior.
-        if fail_closed:
-            _fail_closed_callbacks.add((phase, func))
-        logger.debug(
-            f"Callback {func.__name__} already registered for phase '{phase}', skipping"
+    loading_context = _current_loading_plugin.get()
+    registration_guard = (
+        loading_context.guard if loading_context is not None else nullcontext()
+    )
+    with registration_guard:
+        lineage_active = loading_context is None or all(
+            context.active for context in loading_context.lineage()
         )
-        return
+        if not lineage_active:
+            logger.warning(
+                "Ignoring callback %s registered after plugin %r finished loading",
+                func.__name__,
+                loading_context.owner,
+            )
+            return
 
-    _callbacks[phase].append(func)
+        # Keep lifecycle recheck, insertion, policy, and ownership attribution in
+        # one transaction guard. Loader deactivation takes the same guard, so a
+        # registration cannot cross the active/inactive boundary half-owned.
+        if func in _callbacks[phase]:
+            if fail_closed:
+                _fail_closed_callbacks.add((phase, func))
+            logger.debug(
+                f"Callback {func.__name__} already registered for phase "
+                f"'{phase}', skipping"
+            )
+            return
 
-    if fail_closed:
-        _fail_closed_callbacks.add((phase, func))
+        missing_owner = object()
+        previous_owner: object = missing_owner
+        owner_recorded = False
+        fail_closed_recorded = False
+        try:
+            # Publish ownership/policy before the callback becomes visible in
+            # the list. If either operation fails, there is no unowned callback
+            # for concurrent readers to observe.
+            if loading_context is not None:
+                previous_owner = _callback_owners.get(func, missing_owner)
+                _callback_owners[func] = loading_context.owner
+                owner_recorded = True
 
-    # Record ownership if we know which plugin is loading.
-    if _current_loading_plugin is not None:
-        _callback_owners[func] = _current_loading_plugin
+            if fail_closed:
+                _fail_closed_callbacks.add((phase, func))
+                fail_closed_recorded = True
 
-    logger.debug(f"Registered async callback {func.__name__} for phase '{phase}'")
+            _callbacks[phase].append(func)
+        except BaseException:
+            if fail_closed_recorded:
+                _fail_closed_callbacks.discard((phase, func))
+            if owner_recorded:
+                if previous_owner is missing_owner:
+                    _callback_owners.pop(func, None)
+                else:
+                    _callback_owners[func] = previous_owner  # type: ignore[assignment]
+            raise
+
+        logger.debug(f"Registered async callback {func.__name__} for phase '{phase}'")
 
 
 def unregister_callback(phase: PhaseType, func: CallbackFunc) -> bool:
@@ -478,7 +592,13 @@ async def _trigger_callbacks(phase: PhaseType, *args, **kwargs) -> List[Any]:
     results = []
     for callback in callbacks:
         try:
-            result = callback(*args, **kwargs)
+            if phase in {
+                "refresh_claude_oauth_token",
+                "check_claude_oauth_token_expiry",
+            } and not inspect.iscoroutinefunction(callback):
+                result = await asyncio.to_thread(callback, *args, **kwargs)
+            else:
+                result = callback(*args, **kwargs)
             if asyncio.iscoroutine(result):
                 result = await result
             results.append(result)
@@ -572,11 +692,6 @@ def on_delete_snippet(*args, **kwargs) -> Any:
 
 def on_delete_file(*args, **kwargs) -> Any:
     return _trigger_callbacks_sync("delete_file", *args, **kwargs)
-
-
-def on_apply_patch(*args, **kwargs) -> Any:
-    """Notify plugins about the provider-native multi-file edit operation."""
-    return _trigger_callbacks_sync("apply_patch", *args, **kwargs)
 
 
 async def on_run_shell_command(*args, **kwargs) -> Any:
@@ -707,6 +822,62 @@ def on_file_permission(
         preview,
         message_group,
         operation_data,
+    )
+
+
+def on_error_logged(
+    error: Exception,
+    *,
+    context: Optional[str] = None,
+    include_traceback: bool = True,
+) -> List[Any]:
+    """Fired whenever ``error_logging.log_error()`` records an exception.
+
+    Observers only. Code Puppy itself does nothing with the results -- the
+    phase exists so an out-of-tree plugin can *observe* errors that were
+    written to the local error log (for example, to forward them to an
+    internal error-reporting service in a corporate distribution).
+
+    Core ships **no** subscriber and performs **no** network I/O here. With no
+    plugin registered this is a dictionary lookup that returns ``[]``, so the
+    zero-telemetry guarantee in the README is preserved by construction.
+
+    Deliberately **synchronous**: ``log_error()`` is called from arbitrary
+    contexts, including exception handlers on the way out of the process,
+    where no event loop is guaranteed to exist. ``agent_exception`` is *not* a
+    substitute -- it is async, it fires for recovered errors, and it does not
+    cover every ``log_error()`` call site.
+
+    Note this is **not** fired by ``log_error_message()``. That function
+    records non-exception forensic events (including telemetry's own
+    failures), and hooking it would let a reporting plugin generate reports
+    about its own reporting.
+
+    Re-entrancy: dispatch is latched per-thread, so a subscriber that itself
+    calls ``log_error()`` will not re-trigger this phase. ``log_error_message()``
+    does not fire it at all.
+
+    Subscribers must return promptly. Dispatch is synchronous and on the error
+    path -- a blocking network call here adds its full latency to every logged
+    error, including during interpreter shutdown. Queue and drain off-thread.
+
+    The payload is unsanitised: ``error.args`` and the traceback may contain
+    file paths, request bodies, or credentials. A subscriber that forwards it
+    off-box owns that redaction.
+
+    Args:
+        error: The exception that was logged.
+        context: Optional context string describing where the error occurred.
+        include_traceback: Whether the caller logged a full traceback.
+
+    Returns:
+        Results from each subscriber; empty when nothing is registered.
+    """
+    return _trigger_callbacks_sync(
+        "error_logged",
+        error,
+        context=context,
+        include_traceback=include_traceback,
     )
 
 

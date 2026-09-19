@@ -25,7 +25,10 @@ class MessageType(Enum):
 
     # Basic content types
     INFO = "info"
-    QUEUED = "queued"
+    # Queued submissions use the status badge; explicit steering notices
+    # get a distinct, themed transcript acknowledgement.
+    QUEUED = "queued"  # parked for the next turn
+    STEER = "steer"  # injected into the current turn
     SUCCESS = "success"
     WARNING = "warning"
     ERROR = "error"
@@ -118,6 +121,11 @@ class MessageQueue:
 
     def emit(self, message: UIMessage):
         """Emit a message to the queue."""
+        from .tool_output import suppress_tool_message
+
+        if suppress_tool_message(message):
+            return
+
         # If no renderer is active yet, buffer the message for startup
         if not self._has_active_renderer:
             self._startup_buffer.append(message)
@@ -320,6 +328,11 @@ def emit_message(message_type: MessageType, content: Any, **metadata):
     """
     if isinstance(content, LazyTranslation):
         content = str(content)
+    if message_type in (MessageType.INFO, MessageType.SUCCESS):
+        from .menu_lifecycle import is_menu_close_notice
+
+        if is_menu_close_notice(content):
+            return
     queue = get_global_queue()
     queue.emit_simple(message_type, content, **metadata)
 
@@ -332,6 +345,11 @@ def emit_info(content: Any, **metadata):
 def emit_queued(content: Any, **metadata):
     """Emit a queued-for-next-turn acknowledgement."""
     emit_message(MessageType.QUEUED, content, **metadata)
+
+
+def emit_steer(content: Any, **metadata):
+    """Emit a steer-injected-now acknowledgement."""
+    emit_message(MessageType.STEER, content, **metadata)
 
 
 def emit_success(content: Any, **metadata):

@@ -120,6 +120,45 @@ async def settle():
         await asyncio.sleep(0.01)
 
 
+async def test_typing_then_enter_never_accepts_old_replace_range():
+    editor, engine = make_engine(["/help"])
+    editor.feed("/h")
+    await settle()
+    assert engine.is_open()
+    editor.feed("e")
+    # The previous query was anchored after /h. Accepting it now leaves
+    # the newly typed e behind, producing /helpe.
+    assert not engine.accept()
+    assert editor.buffer == "/he"
+    await settle()
+    assert engine.accept()
+    assert editor.buffer == "/help"
+
+
+async def test_nontriggering_edit_invalidates_pending_query():
+    editor, engine = make_engine(["/help"])
+    engine.on_edit("/h", 2)
+    engine.on_edit("plain text", 10)
+    await settle()
+    assert not engine.is_open()
+
+
+async def test_rapid_edits_create_only_one_query_task():
+    from unittest.mock import AsyncMock
+
+    editor, engine = make_engine(["/help"])
+    query = AsyncMock()
+    engine._query_task = query
+    for length in range(1, 101):
+        engine.on_edit("/" + "h" * length, length + 1)
+        # Let each edit reach the loop; they must reset one timer rather
+        # than launch a sleeping coroutine for every intermediate buffer.
+        await asyncio.sleep(0)
+    await settle()
+    query.assert_awaited_once()
+    assert query.call_args.args[1:3] == ("/" + "h" * 100, 101)
+
+
 # =========================================================================
 # Adapter
 # =========================================================================
