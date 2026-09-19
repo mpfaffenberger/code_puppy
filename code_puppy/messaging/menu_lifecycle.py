@@ -17,6 +17,7 @@ _LEGACY_CLOSE_NOTICES = frozenset(
         "Exited MCP server browser",
         "Exited UC tool browser",
         "Queue is empty",
+        "\U0001f3a8 Theme unchanged.",
         "Exited skills install browser",
         "\u2713 Exited judges menu",
     }

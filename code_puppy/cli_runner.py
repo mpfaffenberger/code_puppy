@@ -1346,7 +1346,7 @@ async def run_prompt_with_attachments(
     """
     import asyncio
 
-    from code_puppy.messaging import emit_system_message, emit_warning
+    from code_puppy.messaging import emit_warning
 
     # Shared resolver: file paths, URLs, and pending clipboard images.
     # (Same helper powers mid-run steering injection — keep them in sync.)
@@ -1354,28 +1354,6 @@ async def run_prompt_with_attachments(
 
     for warning in resolved.warnings:
         emit_warning(warning)
-
-    # Build summary of all attachments
-    summary_parts = []
-    if resolved.file_attachments:
-        summary_parts.append(
-            t("cli.attachments.files", count=len(resolved.file_attachments))
-        )
-    if resolved.clipboard_images:
-        summary_parts.append(
-            t(
-                "cli.attachments.clipboard_images",
-                count=len(resolved.clipboard_images),
-            )
-        )
-    if resolved.link_attachments:
-        summary_parts.append(
-            t("cli.attachments.urls", count=len(resolved.link_attachments))
-        )
-    if summary_parts:
-        emit_system_message(
-            t("cli.attachments.detected", summary=", ".join(summary_parts))
-        )
 
     cleaned_prompt = resolved.text
     if not cleaned_prompt:
