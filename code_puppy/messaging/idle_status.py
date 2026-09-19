@@ -9,6 +9,12 @@ _refresh_lock = threading.Lock()
 
 def refresh_context_status() -> None:
     """Schedule best-effort context initialization without blocking the prompt."""
+    from code_puppy.i18n import t
+    from code_puppy.messaging.bottom_bar import get_bottom_bar
+
+    bar = get_bottom_bar()
+    if not bar.get_status():
+        bar.set_status(t("stream.context.loading"))
     if not _refresh_lock.acquire(blocking=False):
         return
 

@@ -1,4 +1,5 @@
 {
+  "stream.context.loading": "Context loading\u2026",
   "stream.thinking": "\u25cf Thinking",
   "stream.activity.thinking": "Thinking",
   "stream.activity.writing": "Writing Response",

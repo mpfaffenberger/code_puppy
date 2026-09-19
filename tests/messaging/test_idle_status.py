@@ -37,6 +37,9 @@ def test_refresh_returns_while_worker_is_blocked_and_deduplicates(monkeypatch):
     import threading
     from code_puppy.messaging import idle_status
 
+    bar = Mock()
+    bar.get_status.return_value = ""
+    monkeypatch.setattr("code_puppy.messaging.bottom_bar.get_bottom_bar", lambda: bar)
     entered = threading.Event()
     release = threading.Event()
     done = threading.Event()
@@ -51,6 +54,7 @@ def test_refresh_returns_while_worker_is_blocked_and_deduplicates(monkeypatch):
     monkeypatch.setattr(idle_status, "_refresh_context_status", slow_refresh)
     try:
         idle_status.refresh_context_status()
+        bar.set_status.assert_called_with("Context loading…")
         assert entered.wait(2)
         assert not done.is_set()
         idle_status.refresh_context_status()

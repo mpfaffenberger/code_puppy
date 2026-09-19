@@ -24,7 +24,7 @@ def _render_body(body: str, width: int) -> str:
     count_match = re.search(r"(?:^|\| )" + count_pattern + r"$", safe)
     if count_match:
         # ANSI blue is the theme-mapped agent-name accent, not fixed RGB.
-        spans.append((*count_match.span("count"), "34"))
+        spans.append((*count_match.span("count"), "1;34"))
     text = clip_cells(safe, width)
     output = ["\x1b[2m"]
     cursor = 0
@@ -33,7 +33,7 @@ def _render_body(body: str, width: int) -> str:
             break
         end = min(end, len(text))
         output.extend(
-            (text[cursor:start], f"\x1b[22;{color}m", text[start:end], "\x1b[39;2m")
+            (text[cursor:start], f"\x1b[22;{color}m", text[start:end], "\x1b[22;39;2m")
         )
         cursor = end
     output.extend((text[cursor:], "\x1b[22m"))
