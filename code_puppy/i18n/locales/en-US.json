@@ -1,4 +1,5 @@
 {
+  "stream.progress": "Streamed ~{count} tokens | {activity}",
   "tools.streaming_progress": "{tool} ~{count} tokens",
   "agent.model_settings.boolean_type": "model_settings[{key!r}] must be true or false (got {value!r})",
   "agent.model_settings.choice": "model_settings[{key!r}] must be one of {choices} (got {value!r})",
