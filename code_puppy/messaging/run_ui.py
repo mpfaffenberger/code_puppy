@@ -119,8 +119,12 @@ def start_run_ui() -> Optional[RunningLineEditor]:
     from idle-turn to steer/slash-drain).
     """
     global _editor, _loop, _run_active
+    from code_puppy.agents.stream_status import get_stream_status
+
     with _lock:
         if _persistent:
+            if not _run_active:
+                get_stream_status(get_bottom_bar(), reset=True)
             _run_active = True
             return _editor
         if _editor is not None:
@@ -129,6 +133,7 @@ def start_run_ui() -> Optional[RunningLineEditor]:
         bar.start()
         if not bar.is_active():
             return None  # non-TTY: no bar, no editor
+        get_stream_status(bar, reset=True)
         editor = RunningLineEditor()
         _editor = editor
         # Capture the main loop for the slash-command consumer: feed() runs
@@ -205,15 +210,12 @@ def _defer_undelivered_steers() -> None:
 
 
 def _clear_status_row() -> None:
-    """Run over (finished OR cancelled): drop the token/context line.
-
-    The status row only means something while an agent is working; a
-    stale '5.5k/500k tokens' under an idle prompt is just noise — and
-    clearing both slots collapses the row entirely (the bar reclaims
-    it for the scroll region). Never raises: this runs on finally paths.
-    """
+    """Finish activity while retaining context and the final streamed total."""
     try:
-        get_bottom_bar().set_status("")
+        from code_puppy.agents.stream_status import finish_stream_status
+
+        bar = get_bottom_bar()
+        finish_stream_status(bar)
     except Exception:
         logger.debug("status clear failed", exc_info=True)
 
@@ -274,6 +276,11 @@ def start_persistent_ui(
         _idle_queue = asyncio.Queue()
     if prompt_prefix:
         editor.set_prompt_prefix(prompt_prefix, prefix_sgrs)
+    from .idle_status import refresh_context_status
+    from code_puppy.agents.stream_status import finish_stream_status
+
+    refresh_context_status()
+    finish_stream_status(get_bottom_bar())
     editor.set_submit_router(_persistent_router)
     editor.set_eof_handler(_handle_eof)
     editor.set_ctrl_c_handler(_handle_raw_ctrl_c)
@@ -354,6 +361,9 @@ def set_idle_prompt_prefix(prefix: str, prefix_sgrs: Optional[list] = None) -> N
     editor = get_run_editor()
     if editor is not None:
         editor.set_prompt_prefix(prefix, prefix_sgrs)
+        from .idle_status import refresh_context_status
+
+        refresh_context_status()
 
 
 def clear_idle_buffer() -> None:
