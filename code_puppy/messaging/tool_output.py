@@ -1,7 +1,9 @@
 """Compact tool-call display and task-local suppression of tool chatter.
 
-Results still flow to the model. Only UI messages emitted during execution
-are silenced; input/confirmation requests and warnings/errors remain visible.
+Results still flow to the model. By default only UI messages emitted during
+execution are silenced; input/confirmation requests and warnings/errors
+remain visible. Enabling ``show_tool_output`` keeps the full result bodies
+visible too. On Windows, shell output is always silenced regardless.
 """
 
 import json
@@ -10,9 +12,41 @@ from contextvars import ContextVar
 
 from rich.text import Text
 
+from code_puppy.platform_utils import is_windows
+
 from .theme_accent import agent_accent
 
 _tool_output_active: ContextVar[bool] = ContextVar("tool_output_active", default=False)
+
+# Queue message types that carry shell command output.
+_SHELL_MESSAGE_TYPES = frozenset({"command_output"})
+
+
+def is_shell_message(message: object) -> bool:
+    """Return True for shell command output (stdout/stderr lines & summary).
+
+    Handles both the structured bus messages (:class:`ShellLineMessage` etc.)
+    and the legacy queue ``UIMessage`` types, so every emit path can apply
+    the Windows shell-output guard uniformly.
+    """
+    from .messages import ShellLineMessage, ShellOutputMessage, ShellStartMessage
+
+    if isinstance(message, (ShellStartMessage, ShellLineMessage, ShellOutputMessage)):
+        return True
+    kind = getattr(message, "type", None)
+    return getattr(kind, "value", kind) in _SHELL_MESSAGE_TYPES
+
+
+def tool_output_visible() -> bool:
+    """Return True when the user opted into full tool-call results.
+
+    Backed by the ``show_tool_output`` setting (default off). Keeping the
+    lookup in one place means the emit-time and render-time gates can never
+    disagree about whether results are shown.
+    """
+    from code_puppy.config import get_show_tool_output
+
+    return get_show_tool_output()
 
 
 def _format_argument(value: object) -> str:
@@ -68,9 +102,24 @@ def format_tool_call(tool_name: str, arguments: object) -> Text:
 
 
 def suppress_tool_message(message: object) -> bool:
-    """Keep consent and diagnostics visible while dropping execution chatter."""
+    """Keep consent and diagnostics visible while dropping execution chatter.
+
+    On Windows, shell output is *always* dropped -- PowerShell control
+    characters brick SIGINT and make Code Puppy impossible to cancel.
+    When ``show_tool_output`` is enabled, execution chatter is kept so the
+    full tool results reach the renderer.
+    """
+    # Windows shells can corrupt the terminal and swallow Ctrl+C.
+    if is_shell_message(message) and is_windows():
+        return True
+
     if not _tool_output_active.get():
         return False
+
+    # User opted into full tool results: nothing is suppressed mid-run.
+    if tool_output_visible():
+        return False
+
     category = getattr(message, "category", None)
     kind = getattr(message, "type", None)
     level = getattr(message, "level", None)

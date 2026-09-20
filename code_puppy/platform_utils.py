@@ -14,6 +14,16 @@ _FULL_BANNER_WIDTH = 79
 _COMPACT_BANNER = "PUP"
 
 
+def is_windows() -> bool:
+    """Return whether Code Puppy is running on Windows.
+
+    Windows shells (cmd/PowerShell) can emit control characters that
+    corrupt the terminal and swallow SIGINT, so UI callers use this to
+    keep shell output off the transcript entirely.
+    """
+    return os.name == "nt"
+
+
 def is_android() -> bool:
     """Return whether Code Puppy is running on Android or in Termux.
 

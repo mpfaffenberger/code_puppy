@@ -8,7 +8,9 @@ from code_puppy import config
 def test_autosave_success_is_silent(monkeypatch):
     agent = Mock()
     agent.get_message_history.return_value = ["history"]
-    monkeypatch.setattr("code_puppy.agents.agent_manager.get_current_agent", lambda: agent)
+    monkeypatch.setattr(
+        "code_puppy.agents.agent_manager.get_current_agent", lambda: agent
+    )
     monkeypatch.setattr(config, "get_current_session_name", lambda: "test-session")
     save = Mock()
     record = Mock()
@@ -16,7 +18,9 @@ def test_autosave_success_is_silent(monkeypatch):
     emit = Mock()
     monkeypatch.setattr(config, "save_session", save)
     monkeypatch.setattr(config, "record_quick_resume_sessions", record)
-    monkeypatch.setattr("code_puppy.session_lifecycle.fire_post_autosave_callback", hook)
+    monkeypatch.setattr(
+        "code_puppy.session_lifecycle.fire_post_autosave_callback", hook
+    )
     monkeypatch.setattr("code_puppy.messaging.emit_info", emit)
     assert config.auto_save_session_if_enabled(force=True)
     save.assert_called_once()

@@ -26,6 +26,7 @@ from code_puppy.config import (
     get_suppress_thinking_messages,
 )
 from code_puppy.i18n import ngettext, t
+from code_puppy.platform_utils import is_windows
 from code_puppy.tools.common import stream_diff_ansi_lines
 from code_puppy.tools.subagent_context import is_subagent
 
@@ -62,6 +63,7 @@ from .messages import (
     UserInputRequest,
     VersionCheckMessage,
 )
+from .tool_output import is_shell_message, tool_output_visible
 
 # Note: Text and Tree were removed - no longer used in this implementation
 
@@ -387,6 +389,25 @@ class RichConsoleRenderer:
                 f"[dim red]{t('renderer.render_error', error=safe_error)}[/dim red]"
             )
 
+    def _should_drop_tool_output(self, message: AnyMessage) -> bool:
+        """Return True if this message must never reach the transcript.
+
+        Tool-call results stay collapsed by default; the user opts into the
+        full bodies with ``show_tool_output``. This gate lives here (not in
+        the emit path) so worker-thread emissions without the execution
+        task's contextvars (e.g. shell pipes) are covered too.
+
+        Sub-agent invocation/response banners always drop here -- they render
+        through their own path. On Windows, shell output is *always* dropped:
+        PowerShell control characters brick SIGINT and make Code Puppy
+        impossible to cancel.
+        """
+        if is_shell_message(message) and is_windows():
+            return True
+        if getattr(message, "category", None) == MessageCategory.TOOL_OUTPUT:
+            return not tool_output_visible()
+        return isinstance(message, (SubAgentInvocationMessage, SubAgentResponseMessage))
+
     def _should_silence_during_pause(self, message: AnyMessage) -> bool:
         """Return True iff this message must be silently dropped right now.
 
@@ -460,13 +481,7 @@ class RichConsoleRenderer:
         so paused messages are dropped before we bother classifying them.
         Individual suppress toggles are also checked here.
         """
-        # Tool bodies never reach the transcript, even when emitted by worker
-        # threads without the execution task's contextvars (e.g. shell pipes).
-        if getattr(
-            message, "category", None
-        ) == MessageCategory.TOOL_OUTPUT or isinstance(
-            message, (SubAgentInvocationMessage, SubAgentResponseMessage)
-        ):
+        if self._should_drop_tool_output(message):
             return
         if self._should_silence_during_pause(message):
             return
