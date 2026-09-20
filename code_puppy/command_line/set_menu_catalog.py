@@ -15,8 +15,8 @@ from __future__ import annotations
 
 from typing import Tuple
 
-from code_puppy.command_line.set_menu_schema import Setting, SettingsCategory
 from code_puppy.callbacks import get_feature_capability
+from code_puppy.command_line.set_menu_schema import Setting, SettingsCategory
 from code_puppy.command_line.set_menu_shims import (
     get_disable_mcp_servers_effective,
     get_goal_max_iterations_effective,
@@ -72,7 +72,6 @@ from code_puppy.config import (
     get_yolo_mode,
 )
 from code_puppy.keymap import get_cancel_agent_key
-
 
 # ---------------------------------------------------------------------------
 # Category definitions
