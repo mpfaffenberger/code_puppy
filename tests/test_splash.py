@@ -77,8 +77,16 @@ FULL = splash._compose_rows(120, 50)
 class TestFrame:
     def test_paw_raster_uses_valid_glow_tiers(self):
         assert len(splash._PAW) == 20
-        assert splash._PAW_WIDTH == max(map(len, splash._PAW))
         assert all(set(row) <= set("0123") for row in splash._PAW)
+
+    def test_paw_ink_spans_its_declared_width(self):
+        # _PAW_WIDTH drives both the centring pad and the too-small-terminal
+        # gate, so dead columns on the right edge silently shove the paw off
+        # centre and over-tighten the gate. Asserting the widest row is also
+        # the widest *inked* row is the guard with teeth here; comparing
+        # _PAW_WIDTH to max(map(len, _PAW)) would only restate its definition.
+        assert max(len(row.rstrip("0")) for row in splash._PAW) == splash._PAW_WIDTH
+        assert len(set(map(len, splash._PAW))) == 1
 
     def test_full_lockup_dimensions(self):
         frame = splash._build_frame(0, True, FULL)
@@ -139,8 +147,16 @@ class TestComposeRows:
         assert "\u2588" in text_rows[0]
 
     def test_narrow_terminal_gets_paw_only(self):
-        rows = splash._compose_rows(45, 50)
+        # Derived rather than hardcoded: the compact lockup needs
+        # _PAW_WIDTH + 2 columns, so one below that is the widest
+        # terminal that still gets bare art. Pinning a literal here is
+        # what made this test encode the old 44-wide raster's threshold.
+        rows = splash._compose_rows(splash._PAW_WIDTH + 1, 50)
         assert all(k == "art" for k, _ in rows)
+
+    def test_compact_lockup_fits_at_the_gate_width(self):
+        rows = splash._compose_rows(splash._PAW_WIDTH + 2, 50)
+        assert any(k == "text" for k, _ in rows)
 
     def test_short_terminal_drops_text(self):
         rows = splash._compose_rows(120, 22)
