@@ -292,6 +292,10 @@ class BaseAgent(ABC):
         return probe
 
     # ---- Orchestration (thin delegations) ---------------------------------
+    def refresh_config(self) -> None:
+        """Refresh external configuration; static agents have nothing to do."""
+        return None
+
     def reload_code_generation_agent(self, message_group: Optional[str] = None) -> Any:
         return build_pydantic_agent(self, output_type=str, message_group=message_group)
 
