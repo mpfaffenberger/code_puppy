@@ -25,7 +25,7 @@ class TestToolRegistration:
             "grep",
             "edit_file",
             "delete_file",
-            "agent_run_shell_command",
+            "shell",
             "list_agents",
             "invoke_agent",
             "invoke_agent_with_model",
@@ -99,7 +99,7 @@ class TestToolRegistration:
         register_tools_for_agent(mock_agent, ["edit_file"])
 
         # Test command runner
-        register_tools_for_agent(mock_agent, ["agent_run_shell_command"])
+        register_tools_for_agent(mock_agent, ["shell"])
 
         # Test mixed categories
         register_tools_for_agent(

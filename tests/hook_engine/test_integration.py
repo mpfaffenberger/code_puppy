@@ -49,15 +49,15 @@ class TestCrossProviderMatching:
     """
     Verifies that a hook configured with a Claude Code tool name ("Bash") fires
     correctly when code_puppy calls the equivalent internal tool
-    ("agent_run_shell_command"), and vice-versa.
+    ("shell"), and vice-versa.
     """
 
-    # Bash ↔ agent_run_shell_command
+    # Bash ↔ shell
     def test_bash_matches_internal_shell(self):
-        assert matches("Bash", "agent_run_shell_command", {}) is True
+        assert matches("Bash", "shell", {}) is True
 
     def test_internal_shell_matches_bash(self):
-        assert matches("agent_run_shell_command", "Bash", {}) is True
+        assert matches("shell", "Bash", {}) is True
 
     # Glob ↔ list_files
     def test_glob_matches_list_files(self):
@@ -113,10 +113,10 @@ class TestCrossProviderMatching:
 
     # Case-insensitive alias matching
     def test_bash_lowercase_matches_internal(self):
-        assert matches("bash", "agent_run_shell_command", {}) is True
+        assert matches("bash", "shell", {}) is True
 
     def test_bash_uppercase_matches_internal(self):
-        assert matches("BASH", "agent_run_shell_command", {}) is True
+        assert matches("BASH", "shell", {}) is True
 
     # Non-aliases should NOT cross-match
     def test_bash_does_not_match_replace_in_file(self):
@@ -148,7 +148,7 @@ class TestAliasMatchingInEngine:
         engine = HookEngine(config)
         event_data = EventData(
             event_type="PreToolUse",
-            tool_name="agent_run_shell_command",
+            tool_name="shell",
             tool_args={"command": "ls"},
         )
         result = await engine.process_event("PreToolUse", event_data)
@@ -160,7 +160,7 @@ class TestAliasMatchingInEngine:
         config = {
             "PreToolUse": [
                 {
-                    "matcher": "agent_run_shell_command",
+                    "matcher": "shell",
                     "hooks": [
                         {
                             "type": "command",

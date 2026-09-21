@@ -1550,11 +1550,11 @@ def share_your_reasoning(
     return ReasoningOutput(success=True)
 
 
-def register_agent_run_shell_command(agent):
-    """Register only the agent_run_shell_command tool."""
+def register_shell(agent):
+    """Register only the shell tool."""
 
     @agent.tool
-    async def agent_run_shell_command(
+    async def shell(
         context: RunContext,
         command: str,
         cwd: str | None = None,

@@ -548,7 +548,7 @@ Agents can access these tools based on their configuration:
 - **`replace_in_file`**: Targeted text replacements in existing files
 - **`delete_snippet`**: Remove a text snippet from a file
 - **`delete_file`**: File deletion
-- **`agent_run_shell_command`**: Shell command execution
+- **`shell`**: Shell command execution
 - **`agent_share_your_reasoning`**: Share reasoning with user
 
 ### Tool Access Examples
@@ -630,7 +630,7 @@ Agents can access these tools based on their configuration:
     "read_file",
     "create_file",
     "replace_in_file",
-    "agent_run_shell_command",
+    "shell",
     "agent_share_your_reasoning"
   ],
   "user_prompt": "What DevOps task can I help you with today?"
@@ -747,7 +747,7 @@ class MyCustomAgent(BaseAgent):
             "replace_in_file",
             "delete_snippet",
             "delete_file",
-            "agent_run_shell_command",
+            "shell",
             "agent_share_your_reasoning"
         ]
 

@@ -166,7 +166,7 @@ A model pin is completely optional. If the user does not request one, omit the `
 - `grep` - Search for text patterns across files
 
 ### 💻 **Command Execution** (for agents running programs):
-- `agent_run_shell_command` - Execute terminal commands and scripts
+- `shell` - Execute terminal commands and scripts
 
 ### 🧠 **Communication & Coordination**:
 - `list_agents` - List all available sub-agents (recommended for agent managers)
@@ -244,7 +244,7 @@ Best-practice guidelines for file modifications:
 **Note:** The legacy `edit_file` tool name still works (it auto-expands to these three tools), but prefer using the individual tools directly in new agent configs.
 
 
-#### `agent_run_shell_command(command, cwd=None, timeout=60)`
+#### `shell(command, cwd=None, timeout=60)`
 Use this to execute commands, run tests, or start services
 
 For running shell commands, in the event that a user asks you to run tests - it is necessary to suppress output, when
@@ -361,7 +361,7 @@ Available templates for tools:
 - `delete_snippet`: Standard snippet removal operations
 - `delete_file`: Standard file deletion operations
 - `grep`: Standard text search operations
-- `agent_run_shell_command`: Standard shell command execution
+- `shell`: Standard shell command execution
 - `list_agents`: Standard agent listing operations
 - `invoke_agent`: Standard agent invocation operations
 - `invoke_agent_with_model`: Explicit model-override agent invocation for power-user orchestrators
@@ -430,9 +430,9 @@ This detailed documentation should be copied verbatim into any agent that will b
 
 ## Tool Suggestion Examples:
 
-**For "Python code helper":** → Suggest `read_file`, `create_file`, `replace_in_file`, `list_files`, `agent_run_shell_command`
+**For "Python code helper":** → Suggest `read_file`, `create_file`, `replace_in_file`, `list_files`, `shell`
 **For "Documentation writer":** → Suggest `read_file`, `create_file`, `replace_in_file`, `list_files`, `grep`
-**For "System admin helper":** → Suggest `agent_run_shell_command`, `list_files`, `read_file`
+**For "System admin helper":** → Suggest `shell`, `list_files`, `read_file`
 **For "Code reviewer":** → Suggest `list_files`, `read_file`, `grep`
 **For "File organizer":** → Suggest `list_files`, `read_file`, `create_file`, `replace_in_file`, `delete_snippet`, `delete_file`
 **For "Agent orchestrator":** → Suggest `list_agents`, `invoke_agent`

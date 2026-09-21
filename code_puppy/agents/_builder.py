@@ -561,7 +561,7 @@ def _build_gpt_5_6_invoke_agent_guard_text() -> str:
 _GPT_5_6_RUN_SHELL_COMMAND_GUARD_TEXT = """
 
 ## Shell Safety (GPT-5.6)
-Before using `agent_run_shell_command`, prefer inspection and dry runs. Confirm
+Before using `shell`, prefer inspection and dry runs. Confirm
 with the user before irreversible deletion, overwrites, history rewrites,
 database or production mutations, or other actions without a clear rollback.
 """
@@ -598,7 +598,7 @@ def _assemble_instructions(agent: Any, resolved_model_name: str) -> PreparedProm
     if _is_gpt_5_6_family(resolved_model_name):
         if _agent_exposes_tool(agent, "invoke_agent"):
             instructions += _build_gpt_5_6_invoke_agent_guard_text()
-        if _agent_exposes_tool(agent, "agent_run_shell_command"):
+        if _agent_exposes_tool(agent, "shell"):
             instructions += _GPT_5_6_RUN_SHELL_COMMAND_GUARD_TEXT
 
     return prepare_prompt_for_model(

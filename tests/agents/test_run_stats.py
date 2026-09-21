@@ -637,9 +637,9 @@ class TestHighModeToolResult:
         assert "match 1" not in out
 
     def test_shell_shows_compact_summary(self):
-        """agent_run_shell_command is in _TOOLS_WITH_RENDERER."""
-        out = self._capture("agent_run_shell_command", "output here")
-        assert "agent_run_shell_command" in out
+        """shell is in _TOOLS_WITH_RENDERER."""
+        out = self._capture("shell", "output here")
+        assert "shell" in out
         assert "returned" in out
         assert "output here" not in out
 

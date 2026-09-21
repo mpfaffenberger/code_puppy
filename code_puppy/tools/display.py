@@ -25,7 +25,7 @@ def erase_progress_line(console: Console) -> None:
 
     Replaces the old ``console.print(" " * 50, end="\\r")`` idiom, which
     assumed progress lines never exceed 50 cells. Longer lines (e.g.
-    ``  \U0001f527 Calling agent_run_shell_command... 348 token(s)`` = 52+
+    ``  \U0001f527 Calling shell... 348 token(s)`` = 52+
     cells) left right-edge ghost tails like ``s)`` in the transcript.
     Erase-in-line clears the whole row regardless of length.
     """

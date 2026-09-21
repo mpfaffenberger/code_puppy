@@ -135,7 +135,7 @@ def test_pre_tool_call_strips_shell_command():
     module = _plugin_module()
     args = {"command": "echo 🐶 hello"}
     with patch.object(module, "is_enabled", return_value=True):
-        module._on_pre_tool_call("agent_run_shell_command", args)
+        module._on_pre_tool_call("shell", args)
     assert args["command"] == "echo  hello"
 
 
@@ -209,7 +209,7 @@ def test_pre_tool_call_context_message_for_shell_command():
     module = _plugin_module()
     args = {"command": "echo \U0001f436 hi"}
     with patch.object(module, "is_enabled", return_value=True):
-        result = module._on_pre_tool_call("agent_run_shell_command", args)
+        result = module._on_pre_tool_call("shell", args)
     assert isinstance(result, dict)
     assert "command" in result["context_message"]
 
