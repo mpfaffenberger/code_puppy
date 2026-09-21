@@ -16,7 +16,7 @@ def test_parse_usage_payload_formats_remaining_percentages():
     assert parsed is not None
     assert parsed.primary_remaining == 66
     assert parsed.secondary_remaining == 90
-    assert parsed.format_status() == "week 90% remaining"
+    assert parsed.format_status() == "66% remaining · week 90% remaining"
 
 
 def test_parse_usage_payload_rejects_missing_windows():
@@ -38,8 +38,7 @@ def test_refresh_usage_fetches_wham_endpoint_in_background():
         with patch.object(usage.requests, "get", return_value=response) as get:
             usage._fetch("token", "account")
 
-        assert usage.get_usage_status() == ""
-        assert usage._cached_usage.primary_remaining == 75
+        assert usage.get_usage_status() == "75% remaining"
         get.assert_called_once_with(
             "https://chatgpt.com/backend-api/wham/usage",
             headers={
