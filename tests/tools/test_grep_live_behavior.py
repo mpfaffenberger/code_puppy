@@ -212,21 +212,20 @@ def test_grep_truncation_survives_context_lines(tmp_path):
 
 
 def test_grep_match_budget_is_configurable(tmp_path, monkeypatch):
-    """`grep_max_matches` moves the cap; truncation semantics follow it."""
+    """`grep_max_matches` sets the page size without weakening pagination."""
     import code_puppy.config as cp_config
 
     monkeypatch.setattr(cp_config, "get_grep_max_matches", lambda: 5)
-    _write_hits(tmp_path / "a.py", 6)
+    _write_hits(tmp_path / "a.py", 11)
 
-    out = _grep(None, "hit", str(tmp_path))
-    assert len(out.matches) == 5
-    assert out.truncated is True
+    first = _grep(None, "hit", str(tmp_path))
+    second = _grep(None, "hit", str(tmp_path), offset=first.next_offset)
+    third = _grep(None, "hit", str(tmp_path), offset=second.next_offset)
 
-    (tmp_path / "a.py").unlink()
-    _write_hits(tmp_path / "b.py", 5)
-    out = _grep(None, "hit", str(tmp_path))
-    assert len(out.matches) == 5
-    assert out.truncated is False
+    assert [len(first.matches), len(second.matches), len(third.matches)] == [5, 5, 1]
+    assert [first.next_offset, second.next_offset, third.next_offset] == [5, 10, None]
+    assert [first.truncated, second.truncated, third.truncated] == [True, True, False]
+    assert [match.line_number for match in third.matches] == [11]
 
 
 def test_emit_grep_result_forwards_truncated_to_ui(monkeypatch):
@@ -242,3 +241,30 @@ def test_emit_grep_result_forwards_truncated_to_ui(monkeypatch):
 
     assert out.truncated is True
     assert captured["msg"].truncated is True
+
+
+def test_grep_exhausts_all_pages_without_duplicates_or_omissions(tmp_path):
+    (tmp_path / "many.py").write_text(
+        "".join(f"target-{line_number:03d}\n" for line_number in range(1, 442))
+    )
+
+    offsets = []
+    page_sizes = []
+    line_numbers = []
+    offset = 0
+    while True:
+        page = _grep(None, "target", str(tmp_path), offset=offset)
+        offsets.append(offset)
+        page_sizes.append(len(page.matches))
+        line_numbers.extend(match.line_number for match in page.matches)
+        if page.next_offset is None:
+            assert page.truncated is False
+            break
+        assert page.truncated is True
+        assert page.next_offset == offset + len(page.matches)
+        offset = page.next_offset
+
+    assert offsets == list(range(0, 401, 50))
+    assert page_sizes == [50] * 8 + [41]
+    assert line_numbers == list(range(1, 442))
+    assert len(set(line_numbers)) == 441
