@@ -279,6 +279,7 @@
   "model_menu.extra_models.invalid_format": "extra_models.json doit être un dictionnaire, pas une liste",
   "model_menu.extra_models.parse_error": "Erreur d'analyse de extra_models.json : {error}",
   "model_menu.registry.load_error": "Erreur lors du chargement du registre des modèles : {error}",
+  "model_menu.registry.loaded": "{providers} fournisseurs et {models} modèles chargés",
   "model_menu.registry.no_providers": "Aucun fournisseur trouvé dans la base de données des modèles",
   "model_menu.registry.unavailable": "Base de données des modèles indisponible : {error}",
   "model_menu.vllm.api_key_empty": "La clé enregistrée {env_var} est vide : définissez-la (ou choisissez « nouvelle clé API ») et relancez /add_model.",

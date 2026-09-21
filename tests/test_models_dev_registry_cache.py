@@ -47,6 +47,21 @@ def test_get_registry_is_cached_per_process():
     assert first is second
 
 
+def test_startup_registry_build_is_silent():
+    """Nobody typed anything to get here, so nothing may be printed.
+
+    The catalog size used to be announced from inside the parser, which made
+    every cold start claim ~1300 models the user had neither asked for nor
+    could select. Only ``/add_model`` narrates that now.
+    """
+    with (
+        patch.object(ModelsDevRegistry, "_fetch_from_api", side_effect=_no_network),
+        patch.object(models_dev_parser, "emit_info") as emit,
+    ):
+        assert get_registry() is not None
+    emit.assert_not_called()
+
+
 def test_missing_snapshot_yields_none_not_an_error(tmp_path):
     missing = tmp_path / "nope.json"
     with patch.object(models_dev_parser, "bundled_json_path", return_value=missing):

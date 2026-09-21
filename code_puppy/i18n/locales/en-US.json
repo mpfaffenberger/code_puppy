@@ -406,6 +406,7 @@
   "model_menu.extra_models.invalid_format": "extra_models.json must be a dictionary, not a list",
   "model_menu.extra_models.parse_error": "Error parsing extra_models.json: {error}",
   "model_menu.registry.load_error": "Error loading models registry: {error}",
+  "model_menu.registry.loaded": "Loaded {providers} providers and {models} models",
   "model_menu.registry.no_providers": "No providers found in models database",
   "model_menu.registry.unavailable": "Models database unavailable: {error}",
   "model_menu.vllm.api_key_empty": "Saved key {env_var} is empty - set it (or pick 'new API key') and try /add_model again.",
