@@ -9,7 +9,6 @@ Covers:
 
 import ast
 from pathlib import Path
-from types import ModuleType
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -245,20 +244,6 @@ _private = 42
             result = reg._load_module(tmp_path / "fake.py")
             assert result is None
 
-    def test_find_tool_function_by_execute(self):
-        mod = ModuleType("test_mod")
-        mod.execute = lambda: None
-        reg = UCRegistry()
-        func, name = reg._find_tool_function(mod, "nonexistent")
-        assert name == "execute"
-
-    def test_find_tool_function_fallback_public(self):
-        mod = ModuleType("test_mod")
-        mod.something = lambda: None
-        reg = UCRegistry()
-        func, name = reg._find_tool_function(mod, "nonexistent")
-        assert name == "something"
-
     def test_list_tools_auto_scans(self, tmp_path):
         reg = UCRegistry(tools_dir=tmp_path / "empty")
         tools = reg.list_tools()
@@ -303,12 +288,21 @@ def func_tool(): return 42
         reg = UCRegistry(tools_dir=tmp_path / "empty")
         assert reg.get_tool_function("nonexistent") is None
 
-    def test_get_tool_function_no_module(self, tmp_path):
-        """Tool exists but module is missing from cache."""
+    def test_get_tool_function_load_failure(self, tmp_path):
+        """A valid tool whose module fails at import is unavailable."""
+        tool_file = tmp_path / "broken.py"
+        tool_file.write_text(
+            """
+TOOL_META = {"name": "broken", "description": "test"}
+import nonexistent_xyz_module
+
+def broken():
+    return 1
+"""
+        )
         reg = UCRegistry(tools_dir=tmp_path)
-        reg._tools["fake"] = MagicMock()
-        reg._modules = {}  # no module
-        assert reg.get_tool_function("fake") is None
+        assert reg.scan() == 1
+        assert reg.get_tool_function("broken") is None
 
     def test_load_tool_module(self, tmp_path):
         tool_code = """
@@ -351,8 +345,8 @@ def tool(): pass
         (tmp_path / "tools").mkdir()
         # The file is outside tools_dir, relative_to will raise ValueError
         result = reg._load_tool_file(tool_file)
-        # Should still work with empty namespace
-        assert result is not None or result is None  # just exercising the path
+        assert result is not None
+        assert result.meta.namespace == ""
 
     def test_load_tool_file_module_none(self, tmp_path):
         """Line 104: module load returns None."""
@@ -371,25 +365,23 @@ def tool(): pass
         count = reg.scan()
         assert count == 0
 
-    def test_load_tool_file_signature_fails(self, tmp_path):
-        """Lines 136-137: inspect.signature raises."""
+    def test_load_tool_file_static_signature(self, tmp_path):
+        """The signature is extracted without importing the module."""
         tool_code = """
 TOOL_META = {"name": "sig_tool", "description": "test"}
 
-# Use a builtin as the tool function - inspect.signature may fail
-def sig_tool(*a, **kw): pass
+def sig_tool(value: int = 1, *args: str, flag: bool = True, **kwargs: float) -> str:
+    return str(value)
 """
         (tmp_path / "sig_tool.py").write_text(tool_code)
         reg = UCRegistry(tools_dir=tmp_path)
-        # Patch inspect.signature to raise
-        with patch(
-            "code_puppy_core_plugins.universal_constructor.registry.inspect.signature",
-            side_effect=ValueError("no sig"),
-        ):
-            count = reg.scan()
-            assert count == 1
-            tool = reg.get_tool("sig_tool")
-            assert "(...)" in tool.signature
+        count = reg.scan()
+        assert count == 1
+        tool = reg.get_tool("sig_tool")
+        assert (
+            "sig_tool(value: int=1, *args: str, flag: bool=True, **kwargs: float)"
+            in tool.signature
+        )
 
     def test_namespaced_tool(self, tmp_path):
         """Tool in subdirectory gets namespace."""
@@ -408,11 +400,6 @@ def weather(): pass
         reg.scan()
         tool = reg.get_tool("api.weather")
         assert tool is not None
-
-    def test_signature_extraction_failure(self, tmp_path):
-        """Tool where inspect.signature fails - tested via scan with patched inspect."""
-        # This is covered by test_load_tool_file_signature_fails above
-        pass
 
 
 # ============================================================
