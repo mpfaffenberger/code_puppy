@@ -196,6 +196,13 @@ class ModelsDevRegistry:
 
     Fetches data from the live models.dev API first, falling back to a bundled
     JSON file if the API is unavailable.
+
+    Loading a catalog is not itself newsworthy, and only the caller knows
+    whether a human asked to browse models or whether a resolver is quietly
+    looking up one output cap. So the registry does not announce its size;
+    callers that a human is watching narrate it from ``get_providers()`` and
+    ``get_models()``. Malformed-entry warnings are the exception -- those are
+    data defects no caller can see for itself.
     """
 
     def __init__(self, json_path: str | Path | None = None) -> None:
@@ -321,10 +328,6 @@ class ModelsDevRegistry:
             except Exception as e:
                 emit_warning(f"Skipping malformed provider {provider_id}: {e}")
                 continue
-
-        emit_info(
-            f"Loaded {len(self.providers)} providers and {len(self.models)} models"
-        )
 
     def _parse_provider(self, provider_id: str, data: Dict[str, Any]) -> ProviderInfo:
         """Parse provider data from JSON."""
@@ -558,6 +561,10 @@ def get_registry() -> Optional[ModelsDevRegistry]:
     on demand, so the snapshot only ever lags until the user asks for fresh
     data. The first caller pays the parse cost once; everyone after reuses
     the instance.
+
+    It is silent, too. Nobody typed anything to get here, so announcing the
+    snapshot's size at startup only claims a catalog the user cannot see and
+    did not ask for.
 
     Returns:
         The shared registry, or ``None`` when the snapshot is missing or

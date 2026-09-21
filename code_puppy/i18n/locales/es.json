@@ -279,6 +279,7 @@
   "model_menu.extra_models.invalid_format": "extra_models.json debe ser un diccionario, no una lista",
   "model_menu.extra_models.parse_error": "Error al analizar extra_models.json: {error}",
   "model_menu.registry.load_error": "Error al cargar el registro de modelos: {error}",
+  "model_menu.registry.loaded": "Se cargaron {providers} proveedores y {models} modelos",
   "model_menu.registry.no_providers": "No se encontraron proveedores en la base de datos de modelos",
   "model_menu.registry.unavailable": "Base de datos de modelos no disponible: {error}",
   "model_menu.vllm.api_key_empty": "La clave guardada {env_var} está vacía: configúrala (o elige 'nueva clave API') y vuelve a ejecutar /add_model.",
