@@ -1303,9 +1303,18 @@ class ModelFactory:
                         if callable(handler):
                             try:
                                 return handler(model_name, model_config, config)
-                            except Exception as e:
+                            except Exception:
+                                # exc_info is load-bearing: without it the only
+                                # diagnostic is str(e), which for an
+                                # AttributeError/TypeError carries no file or
+                                # line and makes handler bugs near-impossible
+                                # to place from a log alone.
                                 logger.error(
-                                    f"Plugin handler for model type '{model_type}' failed: {e}"
+                                    "Plugin handler for model type '%s' failed "
+                                    "to create model '%s'",
+                                    model_type,
+                                    model_name,
+                                    exc_info=True,
                                 )
                                 return None
 
