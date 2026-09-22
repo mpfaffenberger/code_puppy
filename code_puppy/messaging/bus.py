@@ -58,6 +58,9 @@ from .messages import (
 )
 
 
+T = TypeVar("T")  # Auto-detect variable type.
+
+
 class MessageBus:
     """Central coordinator for bidirectional Agent <-> UI communication.
 
@@ -75,11 +78,11 @@ class MessageBus:
         self._maxsize = maxsize
         self._lock = threading.Lock()
 
-        # Use sync queues by default (works in any context)
+        # Use sync queues by default (works in any context).
         self._outgoing: queue.Queue[AnyMessage] = queue.Queue(maxsize=maxsize)
         self._incoming: queue.Queue[AnyCommand] = queue.Queue(maxsize=maxsize)
 
-        # Startup buffering
+        # Startup buffering.
         self._startup_buffer: List[AnyMessage] = []
         self._has_active_renderer = False
 
@@ -88,8 +91,23 @@ class MessageBus:
             str, Tuple[asyncio.AbstractEventLoop, asyncio.Future[Any]]
         ] = {}
 
-        # Session context for multi-agent tracking
+        # Session context for multi-agent tracking.
         self._current_session_id: Optional[str] = None
+
+    @staticmethod
+    def _put_item_into_queue(q: "queue.Queue[T]", item: T) -> None:
+        """Put item into queue. If queue is full, use FIFO to drop oldest and retry."""
+
+        try:
+            q.put_nowait(item)
+
+        except queue.Full:
+            try:
+                q.get_nowait()
+                q.put_nowait(item)
+
+            except queue.Empty:
+                pass
 
     # =========================================================================
     # Outgoing Messages (Agent → UI)
@@ -110,7 +128,7 @@ class MessageBus:
         if suppress_tool_message(message):
             return
 
-        # Auto-tag message with current session if not already set
+        # Auto-tag message with current session if not already set.
         with self._lock:
             if message.session_id is None and self._current_session_id is not None:
                 message.session_id = self._current_session_id
@@ -118,23 +136,13 @@ class MessageBus:
             if not self._has_active_renderer:
                 self._startup_buffer.append(message)
 
-                # Prevent unbounded buffer growth in headless mode
+                # Prevent unbounded buffer growth in headless mode.
                 if len(self._startup_buffer) > self._maxsize:
                     self._startup_buffer = self._startup_buffer[-self._maxsize :]
                 return
 
-            # Direct put into thread-safe queue - inside lock to prevent race
-            try:
-                self._outgoing.put_nowait(message)
-
-            except queue.Full:
-                # Drop oldest and retry
-                try:
-                    self._outgoing.get_nowait()
-                    self._outgoing.put_nowait(message)
-
-                except queue.Empty:
-                    pass
+            # Direct put into thread-safe queue: inside lock to prevent race.
+            self._put_item_into_queue(self._outgoing, message)
 
     def emit_text(
         self,
@@ -358,7 +366,7 @@ class MessageBus:
         Args:
             command: The response command (UserInputResponse, etc.).
         """
-        # Handle user interaction responses
+        # Handle user interaction responses.
         if isinstance(command, UserInputResponse):
             self._complete_request(command.prompt_id, command.value)
 
@@ -388,19 +396,10 @@ class MessageBus:
             get_pause_controller().request_steer(command.text, mode=command.mode)
 
         else:
-            # For non-response commands (CancelAgentCommand, etc.),
-            # put them in the incoming queue for the agent to process
-            try:
-                self._incoming.put_nowait(command)
-
-            except queue.Full:
-                # Drop oldest and retry
-                try:
-                    self._incoming.get_nowait()
-                    self._incoming.put_nowait(command)
-
-                except queue.Empty:
-                    pass
+            with self._lock:
+                # For non-response commands, like CancelAgentCommand, etc.,
+                # put them into incoming queue for the agent to process.
+                self._put_item_into_queue(self._incoming, command)
 
     def _complete_request(self, prompt_id: str, result: object) -> None:
         """Complete a pending request on the Future's owning event loop."""
@@ -428,8 +427,6 @@ class MessageBus:
     # =========================================================================
     # Queue Access (for renderers/consumers)
     # =========================================================================
-
-    T = TypeVar("T")
 
     @staticmethod
     async def _get_nowait_with_backoff(q: "queue.Queue[T]") -> T:
