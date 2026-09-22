@@ -15,8 +15,8 @@ from __future__ import annotations
 
 from typing import Tuple
 
-from code_puppy.command_line.set_menu_schema import Setting, SettingsCategory
 from code_puppy.callbacks import get_feature_capability
+from code_puppy.command_line.set_menu_schema import Setting, SettingsCategory
 from code_puppy.command_line.set_menu_shims import (
     get_disable_mcp_servers_effective,
     get_goal_max_iterations_effective,
@@ -58,6 +58,7 @@ from code_puppy.config import (
     get_retry_main_strategy,
     get_retry_subagent_max_attempts,
     get_retry_subagent_strategy,
+    get_show_tool_output,
     get_smooth_response_stream,
     get_smooth_thinking_stream,
     get_subagent_recursion_limit,
@@ -71,7 +72,6 @@ from code_puppy.config import (
     get_yolo_mode,
 )
 from code_puppy.keymap import get_cancel_agent_key
-
 
 # ---------------------------------------------------------------------------
 # Category definitions
@@ -557,6 +557,19 @@ _OUTPUT = SettingsCategory(
             type_hint="choice",
             valid_values=("low", "medium", "high"),
             effective_getter=get_output_level,
+        ),
+        Setting(
+            key="show_tool_output",
+            display_name="Show Tool Results",
+            description=(
+                "When True, tool-call result messages (directory listings, "
+                "grep results, diffs, shell output, etc.) render in the "
+                "transcript instead of collapsing to the one-line call "
+                "summary. Default off. On Windows, shell output stays "
+                "hidden regardless."
+            ),
+            type_hint="bool",
+            effective_getter=get_show_tool_output,
         ),
         Setting(
             key="smooth_response_stream",

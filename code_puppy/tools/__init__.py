@@ -17,9 +17,7 @@ register_invoke_agent_with_model = lazy_registration(
 register_ask_user_question = lazy_registration(
     "code_puppy.tools.ask_user_question", "register_ask_user_question"
 )
-register_agent_run_shell_command = lazy_registration(
-    "code_puppy.tools.command_runner", "register_agent_run_shell_command"
-)
+register_shell = lazy_registration("code_puppy.tools.command_runner", "register_shell")
 register_agent_share_your_reasoning = lazy_registration(
     "code_puppy.tools.command_runner", "register_agent_share_your_reasoning"
 )
@@ -73,7 +71,7 @@ TOOL_REGISTRY = {
     "delete_snippet": register_delete_snippet,
     "delete_file": register_delete_file,
     # Command Runner
-    "agent_run_shell_command": register_agent_run_shell_command,
+    "shell": register_shell,
     "agent_share_your_reasoning": register_agent_share_your_reasoning,
     # User Interaction
     "ask_user_question": register_ask_user_question,

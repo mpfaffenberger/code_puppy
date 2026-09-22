@@ -3,7 +3,7 @@
 The token-accounting *implementation* tests moved to
 ``tests/test_token_usage.py`` when the estimator relocated to the core
 module ``code_puppy.token_usage``. This file keeps the plugin-level tests:
-the bottom-bar status patch, the ``/context`` slash command, and the
+registration without startup decoration, the ``/context`` slash command, and the
 ``_format_usage_report`` rendering. It also keeps a single compatibility
 test proving the old import path still re-exports the same core objects.
 
@@ -63,85 +63,21 @@ def test_usage_shim_reexports_core_objects():
 
 
 # ---------------------------------------------------------------------------
-# Status-line patch
+# Registration: no startup decoration
 # ---------------------------------------------------------------------------
-def test_install_status_patch_is_idempotent():
-    module = _plugin_module()
+def test_plugin_registers_only_context_commands():
     from code_puppy.agents import _compaction
 
+    module = _plugin_module()
     original = _compaction.update_spinner_context
-    try:
-        module._install_status_patch()
-        first = _compaction.update_spinner_context
-        module._install_status_patch()
-        second = _compaction.update_spinner_context
-        assert first is second
-        assert getattr(_compaction, "_context_indicator_original") is original
-    finally:
-        _compaction.update_spinner_context = original
-        if hasattr(_compaction, "_context_indicator_original"):
-            delattr(_compaction, "_context_indicator_original")
-
-
-def test_patched_status_writer_forwards_decorated_info():
-    """The installed patch forwards ``_decorate_status(info)`` to the original."""
-    module = _plugin_module()
-    from code_puppy.agents import _compaction
-
-    original = _compaction.update_spinner_context
-    captured = []
-    fake_usage = _usage_module().ContextUsage(
-        used_tokens=100, overhead_tokens=0, capacity=10000
-    )
-    try:
-        _compaction.update_spinner_context = captured.append
-        module._install_status_patch()
-        with patch(
-            "code_puppy_core_plugins.context_indicator.register_callbacks.get_current_usage",
-            return_value=fake_usage,
-        ):
-            _compaction.update_spinner_context("5k/10k tokens (50%)")
-    finally:
-        _compaction.update_spinner_context = original
-        if hasattr(_compaction, "_context_indicator_original"):
-            delattr(_compaction, "_context_indicator_original")
-
-    assert captured == [f"{GREEN_CIRCLE} 5k/10k tokens (50%)"]
-
-
-def test_decorate_status_returns_unchanged_when_usage_none():
-    module = _plugin_module()
-    with patch(
-        "code_puppy_core_plugins.context_indicator.register_callbacks.get_current_usage",
-        return_value=None,
-    ):
-        assert module._decorate_status("5k/10k tokens (50%)") == "5k/10k tokens (50%)"
-
-
-def test_decorate_status_prepends_circle():
-    module = _plugin_module()
-    fake_usage = _usage_module().ContextUsage(
-        used_tokens=100, overhead_tokens=0, capacity=10000
-    )
-    with patch(
-        "code_puppy_core_plugins.context_indicator.register_callbacks.get_current_usage",
-        return_value=fake_usage,
-    ):
-        result = module._decorate_status("5k/10k tokens (50%)")
-    assert result == f"{GREEN_CIRCLE} 5k/10k tokens (50%)"
-
-
-def test_decorate_status_leaves_clear_calls_empty():
-    """Empty info means 'clear the row' -- no lone circle haunting idle prompts."""
-    module = _plugin_module()
-    fake_usage = _usage_module().ContextUsage(
-        used_tokens=100, overhead_tokens=0, capacity=10000
-    )
-    with patch(
-        "code_puppy_core_plugins.context_indicator.register_callbacks.get_current_usage",
-        return_value=fake_usage,
-    ):
-        assert module._decorate_status("") == ""
+    with patch("code_puppy.callbacks.register_callback") as register:
+        importlib.reload(module)
+    assert [call.args[0] for call in register.call_args_list] == [
+        "custom_command",
+        "custom_command_help",
+    ]
+    assert _compaction.update_spinner_context is original
+    assert not hasattr(module, "_on_startup")
 
 
 # ---------------------------------------------------------------------------
@@ -175,7 +111,9 @@ def test_handle_context_command_emits_info_when_usage_present():
     mock_info.assert_called_once()
     msg = mock_info.call_args[0][0]
     assert "25.0%" in msg
-    assert GREEN_CIRCLE in msg
+    assert not any(
+        circle in msg for circle in (GREEN_CIRCLE, YELLOW_CIRCLE, RED_CIRCLE)
+    )
 
 
 def test_handle_context_command_emits_friendly_message_when_no_usage():
@@ -201,7 +139,11 @@ def test_format_usage_report_includes_progress_bar():
         used_tokens=6000, overhead_tokens=1000, capacity=10000
     )
     report = module._format_usage_report(usage)
-    assert RED_CIRCLE in report
+    assert not any(
+        circle in report for circle in (GREEN_CIRCLE, YELLOW_CIRCLE, RED_CIRCLE)
+    )
+    assert report.startswith("Context usage:")
+    assert "Buckets" not in report
     assert "70.0%" in report
     assert BAR_FULL in report
     assert BAR_EMPTY in report

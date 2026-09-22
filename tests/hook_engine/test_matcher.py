@@ -29,9 +29,9 @@ _MATCH_CASES = [
     ("Edit || Write", "Write", {}, True),
     ("Edit || Write", "Bash", {}, False),
     # pipe regex as OR
-    ("Bash|agent_run_shell_command", "Bash", {}, True),
-    ("Bash|agent_run_shell_command", "agent_run_shell_command", {}, True),
-    ("Bash|agent_run_shell_command", "Edit", {}, False),
+    ("Bash|shell", "Bash", {}, True),
+    ("Bash|shell", "shell", {}, True),
+    ("Bash|shell", "Edit", {}, False),
     # wildcard inside a name
     ("Edit*", "EditFile", {}, True),
     ("*git*", "run_git_command", {}, True),

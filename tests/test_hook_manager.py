@@ -24,7 +24,7 @@ import pytest
 SAMPLE_CONFIG: Dict[str, Any] = {
     "PreToolUse": [
         {
-            "matcher": "Bash || agent_run_shell_command",
+            "matcher": "Bash || shell",
             "hooks": [
                 {
                     "type": "command",

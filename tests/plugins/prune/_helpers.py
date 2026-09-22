@@ -123,7 +123,7 @@ def _menu_with_history():
         _user_msg("step 1"),
         _assistant_with_tool(
             text="running tests",
-            tool_name="agent_run_shell_command",
+            tool_name="shell",
             tool_call_id="tc1",
             args='{"command": "pytest"}',
         ),

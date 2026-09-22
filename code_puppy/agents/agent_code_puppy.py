@@ -79,7 +79,7 @@ class CodePuppyAgent(BaseAgent):
             "replace_in_file",
             "delete_snippet",
             "delete_file",
-            "agent_run_shell_command",
+            "shell",
             "ask_user_question",
             "activate_skill",
             "list_or_search_skills",

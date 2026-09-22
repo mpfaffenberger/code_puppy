@@ -197,6 +197,11 @@ def prepare_queued_steer_injection(agent: Any, result: Any) -> Optional[Any]:
     """Drain ONE queue-mode steer and prep for between-turns injection.
 
     Called from ``_runtime._do_run``'s while-loop after each ``agent.run()``.
+    ONLY from a top-level run: the queues are process-wide, so a nested run
+    draining them would hand the user's message to an agent the user is not
+    talking to (and whose result is discarded). ``_do_run`` gates the call
+    on ``is_nested_run``.
+
     Returns the steer content to inject as the next user turn — a plain
     string, or a multimodal list when the steer carries attachments
     (clipboard images, ``@file`` paths, URLs) — or ``None`` if no

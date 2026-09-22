@@ -8,9 +8,18 @@ from rich.console import Console
 
 from code_puppy.messaging.bus import MessageBus
 from code_puppy.messaging.message_queue import MessageQueue, MessageType, UIMessage
-from code_puppy.messaging.messages import MessageLevel, ShellLineMessage, TextMessage
+from code_puppy.messaging.messages import (
+    FileContentMessage,
+    MessageLevel,
+    ShellLineMessage,
+    TextMessage,
+)
 from code_puppy.messaging.rich_renderer import RichConsoleRenderer
-from code_puppy.messaging.tool_output import compact_tool_output, format_tool_call
+from code_puppy.messaging.tool_output import (
+    compact_tool_output,
+    format_tool_call,
+    suppress_tool_message,
+)
 
 
 def test_summary_is_one_literal_line():
@@ -113,4 +122,73 @@ def test_thread_emitted_shell_output_is_hidden(level):
         "code_puppy.messaging.rich_renderer.get_output_level", return_value=level
     ):
         renderer._do_render(ShellLineMessage(line="never display tool results"))
+    assert output.getvalue() == ""
+
+
+def test_show_tool_output_emits_execution_chatter():
+    """Enabling show_tool_output stops the emit-time suppression."""
+    with (
+        patch("code_puppy.messaging.tool_output.is_windows", return_value=False),
+        patch(
+            "code_puppy.messaging.tool_output.tool_output_visible",
+            return_value=True,
+        ),
+        patch(
+            "code_puppy.agents.event_stream_handler._should_suppress_output",
+            return_value=True,
+        ),
+    ):
+        with compact_tool_output("read_file", {"path": "x.py"}):
+            assert (
+                suppress_tool_message(TextMessage(level=MessageLevel.INFO, text="hi"))
+                is False
+            )
+
+
+def test_windows_always_drops_shell_even_when_showing():
+    """The Windows shell-output guard ignores show_tool_output entirely."""
+    with (
+        patch("code_puppy.messaging.tool_output.is_windows", return_value=True),
+        patch(
+            "code_puppy.messaging.tool_output.tool_output_visible",
+            return_value=True,
+        ),
+    ):
+        assert suppress_tool_message(ShellLineMessage(line="pwsh garbage")) is True
+        # File/diff results are not shell output and stay visible.
+        assert (
+            suppress_tool_message(
+                FileContentMessage(
+                    path="x.py", content="hi", total_lines=1, num_tokens=1
+                )
+            )
+            is False
+        )
+
+
+def test_renderer_renders_shell_output_when_enabled_on_non_windows():
+    output = StringIO()
+    renderer = RichConsoleRenderer(bus=MessageBus(), console=Console(file=output))
+    with (
+        patch("code_puppy.messaging.rich_renderer.is_windows", return_value=False),
+        patch(
+            "code_puppy.messaging.rich_renderer.tool_output_visible",
+            return_value=True,
+        ),
+    ):
+        renderer._do_render(ShellLineMessage(line="hello from shell"))
+    assert "hello from shell" in output.getvalue()
+
+
+def test_renderer_drops_shell_on_windows_even_when_enabled():
+    output = StringIO()
+    renderer = RichConsoleRenderer(bus=MessageBus(), console=Console(file=output))
+    with (
+        patch("code_puppy.messaging.rich_renderer.is_windows", return_value=True),
+        patch(
+            "code_puppy.messaging.rich_renderer.tool_output_visible",
+            return_value=True,
+        ),
+    ):
+        renderer._do_render(ShellLineMessage(line="pwsh garbage"))
     assert output.getvalue() == ""

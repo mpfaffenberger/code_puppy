@@ -867,9 +867,17 @@ async def _run_with_mcp_impl(
         max_hook_retries = get_max_hook_retries()
         max_queued_steers = 50  # safety cap to prevent runaway loops
 
+        # A nested run (structured-output assessments, model judges, ...)
+        # shares the process-wide PauseController with the outer run, but the
+        # user is talking to the OUTER agent. Letting a nested run drain the
+        # queue feeds the user's message to a throwaway agent whose output is
+        # discarded -- the message is simply lost. Same invariant the cancel
+        # path already enforces via ``drain_pause_state_on_cancel``.
+        may_drain_queued_steers = not is_nested_run
+
         while True:
             # 1) Drain queue-mode steers FIRST (user-priority over hook retries).
-            if queued_steers_used < max_queued_steers:
+            if may_drain_queued_steers and queued_steers_used < max_queued_steers:
                 steer_text = prepare_queued_steer_injection(agent, result)
                 if steer_text is not None:
                     queued_steers_used += 1
