@@ -227,6 +227,11 @@ def _resolved_system_prompt(agent) -> str:
     Mirrors what ``_estimate_context_overhead`` does, so the bucket counts
     line up with what actually gets shipped to the model.
     """
+    from code_puppy.agents._session_prompt import saved_system_text
+
+    saved = saved_system_text(agent)
+    if saved is not None:
+        return saved
     system_prompt = agent.get_full_system_prompt()
     try:
         from code_puppy.model_utils import prepare_prompt_for_model
@@ -317,6 +322,12 @@ def compute_overhead_breakdown(agent) -> OverheadBreakdown:
     when switching between models.
     """
     from code_puppy.agents._builder import load_puppy_rules
+    from code_puppy.agents._session_prompt import saved_system_text
+
+    # Frozen preparation already includes project rules and plugin fragments.
+    # Their original contribution cannot be recovered after arbitrary hooks;
+    # keep one truthful system bucket rather than add live inputs a second time.
+    frozen = saved_system_text(agent) is not None
 
     # Resolved system prompt already includes load_prompt plugin fragments
     # (notably kennel memory) — carve those out below to avoid double-counting.
@@ -329,7 +340,7 @@ def compute_overhead_breakdown(agent) -> OverheadBreakdown:
     # Carve kennel memory out of the system prompt (own line in /context),
     # clamped to zero if the resolved prompt lacks it (get_system_prompt override).
     try:
-        kennel_tokens = _raw_estimate_tokens(_kennel_memory_block())
+        kennel_tokens = 0 if frozen else _raw_estimate_tokens(_kennel_memory_block())
     except Exception:
         kennel_tokens = 0
     system_tokens = max(0, system_tokens - kennel_tokens)
@@ -337,7 +348,7 @@ def compute_overhead_breakdown(agent) -> OverheadBreakdown:
     # AGENTS.md / puppy rules — separate bucket so users can see how much of
     # their context budget is being eaten by project rules.
     try:
-        rules = load_puppy_rules() or ""
+        rules = "" if frozen else (load_puppy_rules() or "")
         agents_md_tokens = _raw_estimate_tokens(rules) if rules else 0
     except Exception:
         agents_md_tokens = 0
