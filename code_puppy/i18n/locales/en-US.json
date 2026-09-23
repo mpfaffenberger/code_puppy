@@ -553,7 +553,7 @@
     "one": "{count} hit",
     "other": "{count} hits"
   },
-  "speculation.label": "spec",
+  "speculation.label": "Speculative Execution",
   "speculation.misses": {
     "one": "{count} miss",
     "other": "{count} misses"

@@ -5,7 +5,7 @@ printing the streamed `run_code` source or a final code panel. Switching to
 another agent hides the row; switching back keeps the session totals.
 
 ```
-spec  29 hits · 0 misses · 0 wasted    saved ≥ 7.0s   spec 0.5s · eager 6.5s
+Speculative Execution  29 hits · 0 misses · 0 wasted    saved ≥ 7.0s   spec 0.5s · eager 6.5s
 ```
 
 The label uses the agent accent. Counts light up only when non-zero (hits
