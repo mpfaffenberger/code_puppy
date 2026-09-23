@@ -162,7 +162,7 @@ def get_speculative_code_mode_enabled() -> bool:
     """Return True if speculative CodeMode is enabled (default True).
 
     Applies only to agents that opt in with ``speculative_code_mode = True``
-    (currently the Monty agent): their whole tool surface folds into a
+    (currently Speculative Puppy): their whole tool surface folds into a
     harness CodeMode `run_code` sandbox with speculative execution, so calls
     with literal arguments start executing while the model is still streaming
     the snippet. Dogfoods pydantic-ai-harness#699.

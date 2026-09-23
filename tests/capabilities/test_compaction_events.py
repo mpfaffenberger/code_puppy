@@ -111,7 +111,7 @@ class _EmitRecorder:
         self.events: List[Any] = []
         self.cancel_compaction = cancel_compaction
 
-    async def emit_event(self, event):
+    async def emit(self, event):
         self.events.append(event)
         if self.cancel_compaction and isinstance(event, BeforeCompactionEvent):
             event.cancel("recorder said no")
@@ -191,9 +191,9 @@ def _minimal_kwargs(cls):
 
 
 def test_decision_events_dispatch_inline():
-    assert BeforeCompactionEvent.event_dispatch == "inline"
-    assert HistoryProcessingStartedEvent.event_dispatch == "inline"
-    assert HistoryProcessingCompletedEvent.event_dispatch == "inline"
+    assert BeforeCompactionEvent.event_dispatch == "immediate"
+    assert HistoryProcessingStartedEvent.event_dispatch == "immediate"
+    assert HistoryProcessingCompletedEvent.event_dispatch == "immediate"
     # Observe-only events stay at stream position.
     assert ContextUsageMeasuredEvent.event_dispatch == "stream"
     assert CompactionCompletedEvent.event_dispatch == "stream"
@@ -298,11 +298,11 @@ class TestCancellation:
 
 
 class TestSafeEmit:
-    async def test_synthetic_context_without_emit_event_does_not_break(self):
+    async def test_synthetic_context_without_emit_does_not_break(self):
         """compact_now-style contexts have no event stream; compaction must
         proceed exactly as before, fail-open."""
         store = _Store(model_max=1_000)
-        ctx = SimpleNamespace(usage=None)  # no emit_event at all
+        ctx = SimpleNamespace(usage=None)  # no emit at all
         msgs = _history(10)
         result = await _fire(_capability(store, threshold=0.1), ctx, msgs)
         assert len(result) < len(msgs)  # compaction still ran

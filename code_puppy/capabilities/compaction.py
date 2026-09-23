@@ -37,7 +37,7 @@ COMPACTION_NAMESPACE = "compaction"
 
 @dataclass(kw_only=True)
 class HistoryProcessingStartedEvent(
-    CapabilityEvent, namespace=COMPACTION_NAMESPACE, dispatch="inline"
+    CapabilityEvent, namespace=COMPACTION_NAMESPACE, dispatch="immediate"
 ):
     """History processing is about to begin for a model request.
 
@@ -71,7 +71,7 @@ class ContextUsageMeasuredEvent(CapabilityEvent, namespace=COMPACTION_NAMESPACE)
 
 @dataclass(kw_only=True)
 class BeforeCompactionEvent(
-    CapabilityEvent, namespace=COMPACTION_NAMESPACE, dispatch="inline"
+    CapabilityEvent, namespace=COMPACTION_NAMESPACE, dispatch="immediate"
 ):
     """Compaction is about to run. Inline decision event: listeners may
     :meth:`cancel` before history is mutated."""
@@ -113,7 +113,7 @@ class CompactionFailedEvent(CapabilityEvent, namespace=COMPACTION_NAMESPACE):
 
 @dataclass(kw_only=True)
 class HistoryProcessingCompletedEvent(
-    CapabilityEvent, namespace=COMPACTION_NAMESPACE, dispatch="inline"
+    CapabilityEvent, namespace=COMPACTION_NAMESPACE, dispatch="immediate"
 ):
     """History processing finished; the outbound history is committed.
 
@@ -201,7 +201,7 @@ async def _safe_emit(ctx: RunContext[Any], event: Any) -> Any:
     impossible the operation proceeds as if no listener objected.
     """
     try:
-        return await ctx.emit_event(event)
+        return await ctx.emit(event)
     except Exception:
         return event
 

@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
+from pydantic_ai.messages import PartStartEvent, TextPart
 from rich.console import Console
 
 from pydantic_ai_harness.code_mode import (
-    EagerPrefixCommittedEvent,
     SpeculativeCallClaimedEvent,
     SpeculativeCallEvictedEvent,
     SpeculativeCallLaunchedEvent,
@@ -34,7 +36,9 @@ def _update(code: str, closed: int) -> SpeculativeCodeUpdateEvent:
 
 
 def _launch(
-    launch_id: str = "p1__spec_1", line: int = 1
+    launch_id: str = "p1__spec_1",
+    line: int = 1,
+    phase: Literal["streaming", "execution"] = "streaming",
 ) -> SpeculativeCallLaunchedEvent:
     return SpeculativeCallLaunchedEvent(
         tool_call_id="p1",
@@ -44,6 +48,7 @@ def _launch(
         arguments={"search_string": "Speculation"},
         line_start=line,
         line_end=line,
+        phase=phase,
     )
 
 
@@ -76,7 +81,8 @@ class TestSpeculationPanelLifecycle:
 
     def test_non_speculation_events_fall_through(self):
         panel = SpeculationPanel()
-        assert not panel.handle_event(object(), _console())
+        other = PartStartEvent(index=0, part=TextPart(content="hello"))
+        assert not panel.handle_event(other, _console())
         assert not panel.active
 
     def test_launch_settle_claim_reveal(self):
@@ -391,6 +397,67 @@ class TestSpeculationPanelLifecycle:
         assert not panel.active
 
 
+class TestExecutionPhaseLaunch:
+    def test_prefetch_launch_renders_like_streaming(self):
+        """Execution-phase prefetch launches get the same gutter treatment.
+
+        The released harness also launches eligible calls at execution start
+        (`phase='execution'`), parallelizing the snippet's sequential awaits.
+        The panel is still live then, so the launch settles and is claimed
+        through the ordinary cycle.
+        """
+        panel = SpeculationPanel()
+        console = _console()
+
+        panel.handle_event(_update(CODE, 2), console)
+        panel.on_part_end()
+        panel.handle_event(_launch("p1__spec_1", line=1, phase="execution"), console)
+        panel.handle_event(
+            SpeculativeCallSettledEvent(
+                tool_call_id="p1",
+                launch_id="p1__spec_1",
+                outcome="ready",
+                elapsed_ms=12.0,
+            ),
+            console,
+        )
+        panel.handle_event(
+            SpeculativeCallClaimedEvent(
+                tool_call_id="p1",
+                launch_id="p1__spec_1",
+                nested_tool_call_id="p1__1",
+                wrapped_tool_name="grep",
+                ready_at_claim=True,
+                elapsed_ms=12.0,
+            ),
+            console,
+        )
+        panel.finalize()
+
+        output = console.export_text()
+        assert "hit" in output
+        assert "hits 1 (12ms hidden)" in output
+
+    def test_orphan_launch_without_a_cycle_is_dropped(self):
+        """A launch with no live cycle can't attach anywhere; the bridge owns it.
+
+        Kept out of `_launches` so it can't leak into the next cycle's gutter
+        or session totals.
+        """
+        panel = SpeculationPanel()
+        console = _console()
+
+        panel.handle_event(_launch("p0__spec_1", phase="execution"), console)
+        assert not panel.active
+
+        panel.handle_event(_update(CODE, 1), console)
+        panel.finalize()
+
+        output = console.export_text()
+        assert "speculation this session: hits 0" in output
+        assert "misses 0 - wasted 0" in output
+
+
 class TestSingleton:
     def test_shared_instance(self):
         assert get_speculation_panel() is get_speculation_panel()
@@ -437,64 +504,6 @@ class TestHandlerRouting:
         # handler invocation, so the handler defers to on_stream_end.
         assert ("stream_end", None) in handled
         assert ("finalize", None) not in handled
-
-
-class TestEagerCommitReveal:
-    def test_eager_commit_shows_in_reveal_and_session_totals(self):
-        panel = SpeculationPanel()
-
-        console = _console()
-        panel.handle_event(_update(CODE, 1), console)
-        panel.on_part_end()
-        handled = panel.handle_event(
-            EagerPrefixCommittedEvent(
-                tool_call_id="p1",
-                statements=4,
-                executed_ms=5200.0,
-                waited_ms=200.0,
-            ),
-            console,
-        )
-        assert handled
-        panel.finalize()
-        text = console.export_text()
-        assert "eager ran 4 stmts during generation (5.0s hidden)" in text
-        assert "eager 5.0s hidden" in text
-
-        second = _console()
-        panel.handle_event(_update(CODE, 1), second)
-        panel.on_part_end()
-        panel.handle_event(
-            EagerPrefixCommittedEvent(
-                tool_call_id="p2",
-                statements=1,
-                executed_ms=1300.0,
-                waited_ms=300.0,
-            ),
-            second,
-        )
-        panel.finalize()
-        assert "eager 6.0s hidden" in second.export_text()
-
-    def test_wait_dominated_commit_reports_zero_hidden(self):
-        """A prefix the dispatch fully waited for hid nothing; never show negative time."""
-        panel = SpeculationPanel()
-        console = _console()
-        panel.handle_event(_update(CODE, 1), console)
-        panel.on_part_end()
-        panel.handle_event(
-            EagerPrefixCommittedEvent(
-                tool_call_id="p3",
-                statements=2,
-                executed_ms=100.0,
-                waited_ms=900.0,
-            ),
-            console,
-        )
-        panel.finalize()
-        assert (
-            "eager ran 2 stmts during generation (0.0s hidden)" in console.export_text()
-        )
 
 
 class TestDimmedCode:

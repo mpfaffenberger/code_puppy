@@ -13,7 +13,7 @@ hook coverage audit):
   (pydantic-ai #7794). The application subscribes with ``@on_event``
   listeners (see ``code_puppy.events.bridge``) or its event stream
   handler; capabilities never call back into the application.
-* Decision points are inline-dispatched events (``dispatch='inline'``)
+* Decision points are inline-dispatched events (``dispatch='immediate'``)
   that listeners may cancel before the operation commits. Everything
   else is observe-only stream dispatch.
 

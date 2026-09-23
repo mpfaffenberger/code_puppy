@@ -1,4 +1,4 @@
-"""Live CLI panel for speculative CodeMode (pydantic-ai-harness#699).
+"""Live CLI panel for speculative CodeMode (pydantic-ai-harness 0.33.0).
 
 While the model streams a speculative ``run_code`` snippet, this panel owns
 the terminal region the plain ``Calling run_code... N token(s)`` progress line
@@ -12,8 +12,8 @@ would have used, and renders the speculation lifecycle from the run's typed
   ticking while the call runs ahead of the model's own writing;
 * when the launch settles the clock freezes (ready or failed, with latency);
 * when the snippet finally executes, gutter markers become outcomes (``hit``
-  for adopted launches, ``x`` for wasted ones) and the footer totals the
-  hidden latency.
+  for adopted launches, ``wasted`` for the ones never claimed) and the footer
+  totals the hidden latency.
 
 One panel instance lives per streaming console (module singleton, matching
 ``event_stream_handler``'s console handling). A cycle spans one ``run_code``
@@ -22,6 +22,16 @@ part ends, absorbs the outcome events the capability flushes after execution,
 and prints a permanent record into the scrollback when the next part starts
 or the stream ends. Outcome events with no live cycle (e.g. flushed after a
 retry) degrade to one-line prints.
+
+Two notes on the released event surface:
+
+* `SpeculativeCallLaunchedEvent.phase` distinguishes `streaming` launches
+  (they overlap the model's own generation) from `execution` launches (the
+  pre-sandbox prefetch that starts the snippet's remaining eligible calls at
+  execution time). The panel is live through execution, so both render the
+  same gutter clock.
+* The POC's eager-prefix-commit event did not ship: released eager execution
+  emits no events, so the panel renders nothing for it.
 
 Rendering is fail-open like every other observation surface: an exception
 here must never break the run.
@@ -33,7 +43,7 @@ import ast
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Literal
 
 from rich.box import Box
 from rich.console import Console, ConsoleOptions, RenderResult
@@ -42,8 +52,8 @@ from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.text import Text
 
+from pydantic_ai.messages import AgentStreamEvent
 from pydantic_ai_harness.code_mode import (
-    EagerPrefixCommittedEvent,
     SpeculativeCallClaimedEvent,
     SpeculativeCallEvictedEvent,
     SpeculativeCallLaunchedEvent,
@@ -75,7 +85,9 @@ def _closed_boundary_line(code: str, closed_statements: int) -> int:
     for end in range(len(lines), 0, -1):
         try:
             body = ast.parse("\n".join(lines[:end])).body
-        except SyntaxError:
+        except (SyntaxError, ValueError, RecursionError, MemoryError):
+            # Same guard set as the harness's scanner: a NUL byte is a
+            # ValueError, not a SyntaxError.
             continue
         if not body:
             return 0
@@ -84,15 +96,14 @@ def _closed_boundary_line(code: str, closed_statements: int) -> int:
     return 0
 
 
-@dataclass
+@dataclass(kw_only=True)
 class _Launch:
     line_start: int
-    line_end: int
     label: str
-    state: str = "running"  # running | ready | failed | hit | wasted
+    state: Literal["running", "ready", "failed", "hit", "wasted"] = "running"
     started: float = field(default_factory=time.monotonic)
-    elapsed_ms: Optional[float] = None
-    ready_at_claim: Optional[bool] = None
+    elapsed_ms: float | None = None
+    ready_at_claim: bool | None = None
     """For hits: True when the result was already waiting at claim time (the
     full call latency was hidden); False when the snippet had to wait for the
     tail of the call (partial overlap)."""
@@ -110,28 +121,26 @@ class SpeculationPanel:
         if max_code_lines < 1:
             raise ValueError("max_code_lines must be at least 1")
         self._max_code_lines = max_code_lines
-        self._live: Optional[Live] = None
-        self._console: Optional[Console] = None
+        self._live: Live | None = None
+        self._console: Console | None = None
         self._code: str = ""
         self._closed_line: int = 0
         self._closed_count: int = -1
-        self._highlight_cache: Optional[tuple[str, List[Text]]] = None
-        self._launches: Dict[str, _Launch] = {}
-        self._misses: List[str] = []
-        self._eager_commit: Optional[EagerPrefixCommittedEvent] = None
-        self._phase: str = "idle"  # idle | streaming | executing
+        self._highlight_cache: tuple[str, list[Text]] | None = None
+        self._launches: dict[str, _Launch] = {}
+        self._misses: list[str] = []
+        self._phase: Literal["idle", "streaming", "executing"] = "idle"
         # Session-cumulative speculation record, across every cycle this
         # process has rendered; shown in each final reveal's footer.
         self._session_hits = 0
         self._session_hidden_ms = 0.0
         self._session_misses = 0
         self._session_wasted = 0
-        self._session_eager_hidden_ms = 0.0
 
     # -- event intake ---------------------------------------------------
 
-    def handle_event(self, event: Any, console: Console) -> bool:
-        """Consume a speculation event; returns True when the event was ours."""
+    def handle_event(self, event: AgentStreamEvent, console: Console) -> bool:
+        """Consume one run-stream event; returns True when the event was ours."""
         try:
             if isinstance(event, SpeculativeCodeUpdateEvent):
                 self._on_update(event, console)
@@ -145,10 +154,6 @@ class SpeculationPanel:
                 self._on_missed(event, console)
             elif isinstance(event, SpeculativeCallEvictedEvent):
                 self._on_evicted(event, console)
-            elif isinstance(event, EagerPrefixCommittedEvent):
-                # Arrives with the outcome flush after the snippet ran; the
-                # reveal's footer reports it, so storing is enough here.
-                self._eager_commit = event
             else:
                 return False
             return True
@@ -201,10 +206,6 @@ class SpeculationPanel:
             self._session_wasted += sum(
                 1 for c in self._launches.values() if c.state == "wasted"
             )
-            if self._eager_commit is not None:
-                self._session_eager_hidden_ms += max(
-                    0.0, self._eager_commit.executed_ms - self._eager_commit.waited_ms
-                )
             live, console = self._live, self._console
             self._live = None
             if live is not None:
@@ -244,9 +245,15 @@ class SpeculationPanel:
         self._ensure_live(console)
 
     def _on_launched(self, event: SpeculativeCallLaunchedEvent) -> None:
+        if self._phase == "idle":
+            # Orphan launch with no live cycle to attach to; the capability
+            # bridge already printed its one-liner for this case.
+            return
+        # Execution-phase launches (the pre-sandbox prefetch) reuse the same
+        # clock: from the terminal's view they are just calls that started
+        # running before the snippet asked for them.
         self._launches[event.launch_id] = _Launch(
             line_start=event.line_start,
-            line_end=event.line_end,
             label=event.wrapped_tool_name,
         )
 
@@ -360,7 +367,7 @@ class SpeculationPanel:
                 return Text("wasted   ", style="grey50")
         return Text(" " * (_GUTTER_WIDTH - 1))
 
-    def _highlighted_lines(self) -> List[Text]:
+    def _highlighted_lines(self) -> list[Text]:
         """Pygments over the whole snippet, cached per code revision.
 
         Rendering happens on the auto-refresh thread at 10fps; between deltas
@@ -418,44 +425,35 @@ class SpeculationPanel:
         failed = sum(1 for c in self._launches.values() if c.state == "failed")
         hits = [c for c in self._launches.values() if c.state == "hit"]
         wasted = sum(1 for c in self._launches.values() if c.state == "wasted")
-        parts: List[str] = []
+        parts: list[str] = []
         if self._phase == "streaming":
             parts.append("speculating while the model writes")
-            if running:
-                parts.append(f"{running} in flight")
-            if ready:
-                parts.append(f"{ready} ready")
-            if failed:
-                parts.append(f"{failed} failed")
-        else:
-            if self._eager_commit is not None:
-                commit = self._eager_commit
-                hidden_s = max(0.0, commit.executed_ms - commit.waited_ms) / 1000.0
-                parts.append(
-                    f"eager ran {commit.statements} stmts during generation "
-                    f"({hidden_s:.1f}s hidden)"
-                )
-            if hits:
-                hidden = sum(c.elapsed_ms or 0.0 for c in hits)
-                partial = sum(1 for c in hits if c.ready_at_claim is False)
-                detail = f"{hidden:.0f}ms hidden"
-                if partial:
-                    detail += f", {partial} partial"
-                parts.append(f"hits {len(hits)} ({detail})")
-            if self._misses:
-                parts.append(f"misses {len(self._misses)} ({', '.join(self._misses)})")
-            if wasted:
-                parts.append(f"wasted {wasted}")
-            if not parts and self._phase == "executing":
-                parts.append("executing...")
+        if running:
+            parts.append(f"{running} in flight")
+        if ready:
+            parts.append(f"{ready} ready")
+        if failed:
+            parts.append(f"{failed} failed")
+        if hits:
+            hidden = sum(c.elapsed_ms or 0.0 for c in hits)
+            partial = sum(1 for c in hits if c.ready_at_claim is False)
+            detail = f"{hidden:.0f}ms hidden"
+            if partial:
+                detail += f", {partial} partial"
+            parts.append(f"hits {len(hits)} ({detail})")
+        if self._misses:
+            parts.append(f"misses {len(self._misses)} ({', '.join(self._misses)})")
+        if wasted:
+            parts.append(f"wasted {wasted}")
+        if not parts and self._phase == "executing":
+            parts.append("executing...")
         return Text("  " + " - ".join(parts) if parts else "", style="dim")
 
     def _session_line(self) -> Text:
         return Text(
             f"  speculation this session: hits {self._session_hits} "
             f"({self._session_hidden_ms / 1000.0:.1f}s hidden) - "
-            f"misses {self._session_misses} - wasted {self._session_wasted} - "
-            f"eager {self._session_eager_hidden_ms / 1000.0:.1f}s hidden",
+            f"misses {self._session_misses} - wasted {self._session_wasted}",
             style="dim",
         )
 
@@ -467,11 +465,10 @@ class SpeculationPanel:
         self._highlight_cache = None
         self._launches = {}
         self._misses = []
-        self._eager_commit = None
         self._phase = "idle"
 
 
-_panel: Optional[SpeculationPanel] = None
+_panel: SpeculationPanel | None = None
 
 
 def get_speculation_panel(*, max_code_lines: int = 10) -> SpeculationPanel:

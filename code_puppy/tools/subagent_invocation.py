@@ -486,7 +486,7 @@ async def _invoke_agent_impl(
                     # so position is inert.
                     *build_subagent_recursion_guard(agent_tools),
                     # Speculative CodeMode for opted-in agents (currently
-                    # Monty): the whole tool surface folds into run_code with
+                    # Speculative Puppy): the whole tool surface folds into run_code with
                     # early launches during streaming (harness#699 dogfood);
                     # same wiring as the main builder.
                     *build_speculative_code_mode(agent_config, agent_tools),

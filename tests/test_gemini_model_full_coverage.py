@@ -2,11 +2,13 @@
 
 import uuid
 from datetime import datetime
+from types import SimpleNamespace
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
 from pydantic_ai.messages import (
+    BinaryContent,
     ModelRequest,
     ModelResponse,
     RetryPromptPart,
@@ -354,9 +356,7 @@ class TestMapUserPrompt:
 
     @pytest.mark.anyio
     async def test_list_content_media(self, model):
-        media = MagicMock()
-        media.media_type = "image/png"
-        media.data = b"\x89PNG"
+        media = BinaryContent(media_type="image/png", data=b"\x89PNG")
         part = UserPromptPart(content=[media])
         result = await model._map_user_prompt(part)
         assert "inline_data" in result[0]
@@ -367,19 +367,20 @@ class TestMapUserPrompt:
         media = MagicMock()
         media.media_type = "image/jpeg"
         media.data = "already-base64"
-        part = UserPromptPart(content=[media])
+        # Exercise legacy adapter input without the SDK's stricter validation.
+        part = SimpleNamespace(content=[media])
         result = await model._map_user_prompt(part)
         assert result[0]["inline_data"]["data"] == "already-base64"
 
     @pytest.mark.anyio
     async def test_list_content_other(self, model):
-        part = UserPromptPart(content=[42])
+        part = SimpleNamespace(content=[42])
         result = await model._map_user_prompt(part)
         assert result == [{"text": "42"}]
 
     @pytest.mark.anyio
     async def test_non_string_non_list(self, model):
-        part = UserPromptPart(content=123)
+        part = SimpleNamespace(content=123)
         result = await model._map_user_prompt(part)
         assert result == [{"text": "123"}]
 
@@ -587,7 +588,7 @@ class TestMapMessages:
     async def test_active_steer_is_transient_current_task_guidance(
         self, model, default_params
     ):
-        media = MagicMock(media_type="image/png", data=b"image")
+        media = BinaryContent(media_type="image/png", data=b"image")
         msgs = [
             ModelRequest(parts=[UserPromptPart(content="start")]),
             ModelResponse(

@@ -10,7 +10,7 @@ from code_puppy.agents._code_mode import (
     SilenceToolOutput,
     build_speculative_code_mode,
 )
-from code_puppy.agents.agent_monty import MontyAgent
+from code_puppy.agents.agent_speculative_puppy import SpeculativePuppyAgent
 
 
 def _leaves(capability):
@@ -42,7 +42,9 @@ class TestBuildSpeculativeCodeMode:
             lambda: False,
         )
         assert (
-            build_speculative_code_mode(MontyAgent(), list(SANDBOXED_READ_ONLY_TOOLS))
+            build_speculative_code_mode(
+                SpeculativePuppyAgent(), list(SANDBOXED_READ_ONLY_TOOLS)
+            )
             == []
         )
 
@@ -53,7 +55,7 @@ class TestBuildSpeculativeCodeMode:
             "code_puppy.agents._code_mode.get_speculative_code_mode_enabled",
             lambda: True,
         )
-        agent = MontyAgent()
+        agent = SpeculativePuppyAgent()
 
         code_mode, silencer = build_speculative_code_mode(
             agent, agent.get_available_tools()
@@ -71,7 +73,7 @@ class TestBuildSpeculativeCodeMode:
             "code_puppy.agents._code_mode.get_speculative_code_mode_enabled",
             lambda: True,
         )
-        agent = MontyAgent()
+        agent = SpeculativePuppyAgent()
 
         code_mode, _ = build_speculative_code_mode(agent, agent.get_available_tools())
 
@@ -88,30 +90,37 @@ class TestBuildSpeculativeCodeMode:
             lambda: True,
         )
         capability, _ = build_speculative_code_mode(
-            MontyAgent(), ["read_file", "grep", "some_future_tool"]
+            SpeculativePuppyAgent(), ["read_file", "grep", "some_future_tool"]
         )
 
         assert capability.tools == "all"
         assert capability.speculate == ["read_file", "grep"]
 
 
-class TestMontyAgent:
+class TestSpeculativePuppyAgent:
+    def test_identity(self):
+        agent = SpeculativePuppyAgent()
+        assert agent.name == "speculative-puppy"
+        assert agent.display_name == "Speculative Puppy"
+        assert "You are Speculative Puppy," in agent.get_system_prompt()
+
     def test_carries_the_full_code_puppy_toolkit(self):
         from code_puppy.agents.agent_code_puppy import CodePuppyAgent
 
         assert (
-            MontyAgent().get_available_tools() == CodePuppyAgent().get_available_tools()
+            SpeculativePuppyAgent().get_available_tools()
+            == CodePuppyAgent().get_available_tools()
         )
 
     def test_toolkit_includes_the_speculatable_trio(self):
-        tools = MontyAgent().get_available_tools()
+        tools = SpeculativePuppyAgent().get_available_tools()
         assert all(name in tools for name in SANDBOXED_READ_ONLY_TOOLS)
 
     def test_opts_into_speculative_code_mode(self):
-        assert MontyAgent.speculative_code_mode is True
+        assert SpeculativePuppyAgent.speculative_code_mode is True
 
     def test_prompt_teaches_the_single_tool_contract(self):
-        prompt = MontyAgent().get_system_prompt()
+        prompt = SpeculativePuppyAgent().get_system_prompt()
         assert "run_code" in prompt
         assert "literal" in prompt
 
@@ -138,8 +147,8 @@ class TestBuilderIntegration:
         ):
             return _builder.build_pydantic_agent(agent)
 
-    def test_monty_gets_code_mode(self):
-        pydantic_agent = self._build(MontyAgent())
+    def test_speculative_puppy_gets_code_mode(self):
+        pydantic_agent = self._build(SpeculativePuppyAgent())
 
         code_modes = [
             leaf

@@ -1,6 +1,6 @@
-"""Monty - the speculative REPL agent.
+"""Speculative Puppy - the speculative REPL agent.
 
-The dedicated home for speculative CodeMode (pydantic-ai-harness#699): Monty
+The dedicated home for speculative CodeMode (pydantic-ai-harness#699): Speculative Puppy
 carries the same tools as Code-Puppy, but every one of them is folded into a
 single ``run_code`` Monty sandbox -- the model sees exactly one tool, and the
 read-only calls with literal arguments start executing while the snippet is
@@ -8,22 +8,38 @@ still streaming. The rest of Code Puppy's agents keep their ordinary native
 tools.
 """
 
+import warnings
+
+import pydantic_ai
+
 from .agent_code_puppy import CodePuppyAgent
 from .base_agent import BaseAgent
 
 
-class MontyAgent(BaseAgent):
+# Code Puppy owns terminal output, including when observability is disabled.
+pydantic_ai.BANNER_ENABLED = False
+
+# Streaming AST probes repeatedly warn about the same generated string literal.
+warnings.filterwarnings(
+    "ignore",
+    message=r".*is an invalid escape sequence.*",
+    category=SyntaxWarning,
+    module=r"^<unknown>$",
+)
+
+
+class SpeculativePuppyAgent(BaseAgent):
     """Full coding agent that drives a Monty REPL as its only visible tool."""
 
     speculative_code_mode = True
 
     @property
     def name(self) -> str:
-        return "monty"
+        return "speculative-puppy"
 
     @property
     def display_name(self) -> str:
-        return "Monty"
+        return "Speculative Puppy"
 
     @property
     def description(self) -> str:
@@ -36,16 +52,14 @@ class MontyAgent(BaseAgent):
     def get_available_tools(self) -> list[str]:
         """Same toolkit as Code-Puppy; every tool is folded into `run_code`.
 
-        Only the read-only trio (`list_files`, `read_file`, `grep`) is
-        allowlisted for speculation (see ``agents/_code_mode.py``), so the
-        side-effectful tools here never launch early -- they run normally
-        when the snippet executes.
+        Only `list_files`, `read_file`, and `grep` may speculate.
+        Eager execution can still run side effects before streaming ends.
         """
         return CodePuppyAgent().get_available_tools()
 
     def get_system_prompt(self) -> str:
         return """
-You are Monty, a coding agent. You do everything other coding agents do:
+You are Speculative Puppy, a coding agent. You do everything other coding agents do:
 read and modify code, run commands, and answer questions about codebases.
 
 You have exactly ONE tool: `run_code`, a persistent sandboxed Python REPL.
@@ -66,21 +80,22 @@ The sandbox also has direct capabilities, no function call needed:
 - There is NO network in the sandbox: anything remote goes through a
   function like `agent_run_shell_command` (e.g. `curl`) or an agent.
 
+Use raw Python strings for regex patterns so backslashes are not invalid escapes.
+
 How to work. The runtime watches your code AS YOU WRITE IT and starts
 eligible calls before the snippet is finished, so the SHAPE of your code
 determines how fast it runs:
 
 1. Emit small, flat statements, one per line. A read call (`list_files`,
    `read_file`, `grep`) starts executing the moment its line is complete,
-   but only when it is a simple one-line assignment with all-literal
-   keyword arguments:
+   when its call has all-literal keyword arguments:
 
        hits = await grep(search_string="SpeculationState")
        src = await read_file(file_path="code_puppy/agents/_code_mode.py")
 
    Each such line runs while you are still writing the lines below it.
-   Nesting the call inside an expression, spreading it across lines, or
-   computing its arguments forfeits that head start.
+   Computing arguments forfeits that speculative head start. Literal
+   calls can also be detected inside expressions or across multiple lines.
 2. Go BIG in one `run_code` call. Do not split work across many small
    snippets: every extra round trip to the model wastes the runway that
    makes early execution pay. 60-100 lines with ten, twenty, thirty tool
@@ -97,8 +112,10 @@ determines how fast it runs:
    `grep(search_string=q)` runs cold; `grep(search_string="x")` runs
    early. Repeat the literal even if it feels less DRY -- here, DRY
    loses to speed.
-5. For calls that cannot start early -- computed arguments, writes,
-   shell commands -- run independent ones concurrently with
+5. Writes and shell commands never speculate, but eager execution can
+   execute them as soon as their statements close, before generation ends.
+   Obtain required approval BEFORE emitting a side-effectful statement;
+   later code cannot undo it. Run independent calls concurrently with
    `await asyncio.gather(...)` (positional awaitables only; no other
    task-creation APIs exist in the sandbox).
 6. Keep mutable state small and local: assign results to short fresh

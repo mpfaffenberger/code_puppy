@@ -691,7 +691,7 @@ def build_pydantic_agent(
                 # position is inert.
                 *build_subagent_recursion_guard(agent_tools),
                 # Speculative CodeMode, for agents that opt in (currently
-                # Monty): folds the agent's whole tool surface into a
+                # Speculative Puppy): folds the agent's whole tool surface into a
                 # run_code sandbox and launches literal-argument calls while
                 # the snippet is still streaming (harness#699 dogfood). Its
                 # own ordering is declared outermost by the capability, so

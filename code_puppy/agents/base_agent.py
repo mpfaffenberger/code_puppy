@@ -72,7 +72,7 @@ class BaseAgent(ABC):
     and read-only calls with literal arguments start executing while the
     snippet is still streaming. Speculation itself is capped to the
     side-effect-free allowlist in ``agents/_code_mode.py``, so the rest of
-    the tool surface is sandboxed but never launched early. See the Monty
+    the tool surface is sandboxed but never launched early. See Speculative Puppy
     agent for the resident example.
     """
 

@@ -1,8 +1,6 @@
 """Speculative CodeMode capability wiring for agents that opt in.
 
-Dogfoods speculative programmatic tool calling (sPTC) from
-https://github.com/pydantic/pydantic-ai-harness/pull/699 (design notes in
-pydantic-ai-notes#14, idea from https://alexzhang13.github.io/blog/2026/spec-ptc/).
+Uses speculative programmatic tool calling from pydantic-ai-harness 0.33.0.
 
 This is deliberately not wired into every agent. An agent opts in by setting
 ``speculative_code_mode = True`` (see ``BaseAgent``). For an opted-in agent,
@@ -20,7 +18,7 @@ the sandbox, so anything remote goes through a wrapped tool, which is also
 the FFI story -- any host Python function CodeMode wraps becomes an async
 function inside the snippet.
 
-The Monty agent (``agent_monty.py``) is the resident example; everything else
+The Speculative Puppy agent (``agent_speculative_puppy.py``) is the resident example; everything else
 keeps ordinary native tool calls, where models are strongest for single
 actions.
 """
