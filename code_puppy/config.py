@@ -172,6 +172,14 @@ def get_speculative_code_mode_enabled() -> bool:
     return get_truthy_bool_value("enable_speculative_code_mode", True)
 
 
+def set_speculative_code_mode_enabled(enabled: bool) -> None:
+    """Persist the speculative CodeMode switch (Ctrl+X Ctrl+S toggles it).
+
+    Takes effect the next time an opted-in agent's pydantic agent is built.
+    """
+    set_value("enable_speculative_code_mode", "true" if enabled else "false")
+
+
 def set_universal_constructor_enabled(enabled: bool) -> None:
     """Enable or disable the Universal Constructor.
 

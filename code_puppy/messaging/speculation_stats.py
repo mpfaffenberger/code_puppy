@@ -119,11 +119,15 @@ def get_speculation_stats() -> SpeculationStats:
 
 
 def get_speculation_status() -> Text | None:
-    """Return chrome only for the currently selected Speculative Puppy agent."""
+    """Return chrome only for Speculative Puppy, and only while speculation is on."""
     try:
         from code_puppy.agents.agent_manager import get_current_agent_name
+        from code_puppy.config import get_speculative_code_mode_enabled
 
-        if get_current_agent_name() == "speculative-puppy":
+        if (
+            get_current_agent_name() == "speculative-puppy"
+            and get_speculative_code_mode_enabled()
+        ):
             return _stats.render()
     except Exception:
         logger.debug("could not read speculation status", exc_info=True)

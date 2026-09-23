@@ -549,6 +549,8 @@
   "renderer.user_input_async": "User input requested (requires async)",
   "renderer.working_directory": "Working directory: {cwd}",
   "speculation.breakdown": "spec {speculative_seconds}s \u00b7 eager {eager_seconds}s",
+  "speculation.disabled": "Speculative execution off. Next turn uses plain tool calls. Ctrl+X Ctrl+S to re-enable.",
+  "speculation.enabled": "Speculative execution on. Next turn runs literal reads while the model is still typing.",
   "speculation.hits": {
     "one": "{count} hit",
     "other": "{count} hits"

@@ -117,6 +117,7 @@ cancels the chord; unbound keys are then processed normally.
 | `Ctrl+X Ctrl+E` | Edit the prompt buffer in `$VISUAL`/`$EDITOR` | `run_ui` | Always (UI lifetime) |
 | `Ctrl+X Ctrl+X` | Kill all running shell commands | `command_runner` | While shell commands run |
 | `Ctrl+X Ctrl+B` | Background all running shell commands | `command_runner` | While shell commands run |
+| `Ctrl+X Ctrl+S` | Toggle speculative execution (`enable_speculative_code_mode`), rebuilds the current agent for the next turn | `run_ui` | Always (UI lifetime) |
 
 **Design notes:**
 
