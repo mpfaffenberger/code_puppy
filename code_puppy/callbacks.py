@@ -84,6 +84,7 @@ PhaseType = Literal[
     "feature_capability",
     "transform_model_messages",
     "error_logged",
+    "resolve_custom_endpoint_url",
 ]
 CallbackFunc = Callable[..., Any]
 
@@ -175,6 +176,7 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "feature_capability": [],
     "transform_model_messages": [],
     "error_logged": [],
+    "resolve_custom_endpoint_url": [],
 }
 
 logger = logging.getLogger(__name__)
@@ -1776,6 +1778,37 @@ def on_wrap_pydantic_agent(
         if r is not None:
             return r
     return pydantic_agent
+
+
+def on_resolve_custom_endpoint_url(url: str) -> str:
+    """Allow plugins to redirect a custom model endpoint URL before a model
+    client is constructed (e.g. through a local compression/caching proxy).
+
+    Runs from ``get_custom_config()`` in ``model_factory.py`` -- the single
+    choke point shared by every ``custom_*``/``codex`` model type -- so one
+    registration covers all current and future custom providers with no
+    per-provider wiring.
+
+    Fires fresh on every call (main agent, every sub-agent invocation, every
+    retry), so a plugin can key its decision off live state (e.g. is a local
+    proxy currently healthy?) rather than a value cached once at startup.
+
+    Each callback receives ``(url,)`` and returns a replacement URL string,
+    or ``None`` to leave it unchanged. The last non-``None`` result wins.
+    Always returns something -- falls back to the input ``url`` if no
+    plugin handled it.
+
+    Security note: headers (including resolved bearer tokens/API keys) are
+    parsed *after* this hook runs and are sent to whatever host the winning
+    result points at. Only register callbacks you'd trust with that traffic.
+    """
+    results = _trigger_callbacks_sync("resolve_custom_endpoint_url", url)
+    for r in reversed(results):
+        if isinstance(r, str) and r.strip():
+            if r != url:
+                logger.debug("resolve_custom_endpoint_url: %s -> %s", url, r)
+            return r
+    return url
 
 
 def on_agent_run_context(agent, pydantic_agent, group_id, mcp_servers) -> List[Any]:

@@ -614,6 +614,12 @@ def get_custom_config(model_config):
     if not url:
         raise ValueError("Custom endpoint requires 'url' field")
 
+    # Single choke point for every custom_*/codex model type: let plugins
+    # redirect the resolved URL (e.g. through a local compression proxy)
+    # right before a client is built. Fires fresh on every call so it can
+    # react to live state instead of a value cached at process startup.
+    url = callbacks.on_resolve_custom_endpoint_url(url)
+
     headers = {}
     for key, value in custom_config.get("headers", {}).items():
         if value.startswith("$"):
