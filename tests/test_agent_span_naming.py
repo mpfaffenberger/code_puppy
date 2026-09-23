@@ -57,6 +57,11 @@ class _FakeAgentConfig:
         return lambda *a, **k: 0
 
 
+def _disable_mcp_only(key: str):
+    """Only the MCP switch is forced; every other config key keeps its default."""
+    return "true" if key == "disable_mcp_servers" else None
+
+
 def _fake_load_model_with_fallback(*_args, **_kwargs):
     return TestModel(custom_output_text="woof"), "test-model"
 
@@ -103,7 +108,7 @@ async def test_invoke_agent_impl_sets_subagent_name():
             _fake_load_model_with_fallback,
         ),
         patch("code_puppy.model_factory.make_model_settings", lambda *a, **k: None),
-        patch("code_puppy.config.get_value", return_value="true"),  # no MCP
+        patch("code_puppy.config.get_value", _disable_mcp_only),
         patch.object(si, "on_wrap_pydantic_agent", capture_wrap),
     ):
         out = await si._invoke_agent_impl(

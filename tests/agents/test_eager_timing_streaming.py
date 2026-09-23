@@ -15,7 +15,6 @@ from pydantic_ai.messages import (
 from pydantic_ai.models.function import AgentInfo, DeltaToolCall, FunctionModel
 
 from code_puppy.agents._code_mode import build_speculative_code_mode
-from code_puppy.agents.agent_speculative_puppy import SpeculativePuppyAgent
 from code_puppy.capabilities.eager_timing import EagerExecutionCompletedEvent
 
 
@@ -88,7 +87,7 @@ async def test_real_eager_overlap_excludes_speculative_launches(
     agent = Agent(
         FunctionModel(stream_function=stream),
         tools=[slow_tool],
-        capabilities=build_speculative_code_mode(SpeculativePuppyAgent(), [tool_name]),
+        capabilities=build_speculative_code_mode([tool_name]),
     )
     result = await agent.run("demo", event_stream_handler=capture)
     assert result.output == "done"

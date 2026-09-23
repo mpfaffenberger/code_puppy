@@ -147,58 +147,49 @@ def test_non_speculation_event_falls_through():
     )
 
 
-@pytest.mark.parametrize(
-    "agent_name, visible",
-    [
-        ("speculative-puppy", True),
-        ("code-puppy", False),
-        ("custom", False),
-    ],
-)
-def test_status_is_agent_scoped(monkeypatch, agent_name, visible):
+_FLAG = "code_puppy.config.get_speculative_code_mode_enabled"
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_status_follows_the_config_flag_for_any_agent(monkeypatch, enabled):
     from code_puppy.messaging.speculation_stats import get_speculation_status
 
-    monkeypatch.setattr(
-        "code_puppy.agents.agent_manager.get_current_agent_name",
-        lambda: agent_name,
-    )
-    assert (get_speculation_status() is not None) is visible
-
-
-def test_refresh_hides_row_after_switch(monkeypatch):
-    from code_puppy.messaging.speculation_stats import refresh_speculation_status
-
-    bar = Mock()
-    monkeypatch.setattr("code_puppy.messaging.bottom_bar.get_bottom_bar", lambda: bar)
+    monkeypatch.setattr(_FLAG, lambda: enabled)
     monkeypatch.setattr(
         "code_puppy.agents.agent_manager.get_current_agent_name",
         lambda: "code-puppy",
     )
+    assert (get_speculation_status() is not None) is enabled
+
+
+def test_refresh_hides_row_when_flag_is_off(monkeypatch):
+    from code_puppy.messaging.speculation_stats import refresh_speculation_status
+
+    bar = Mock()
+    monkeypatch.setattr("code_puppy.messaging.bottom_bar.get_bottom_bar", lambda: bar)
+    monkeypatch.setattr(_FLAG, lambda: False)
     refresh_speculation_status()
     bar.set_speculation_status.assert_called_once_with(None)
 
 
-def test_agent_switch_changes_reserved_rows_without_headless_output(monkeypatch):
+def test_toggle_changes_reserved_rows_without_headless_output(monkeypatch):
     from code_puppy.messaging.bottom_bar import BottomBar
     import code_puppy.messaging.speculation_stats as telemetry
 
     output = StringIO()
     bar = BottomBar(stream=output, get_size=lambda: (120, 24))
     stats = SpeculationStats(hits=3)
-    selected = ["speculative-puppy"]
+    flag = [True]
     monkeypatch.setattr(telemetry, "_stats", stats)
     monkeypatch.setattr("code_puppy.messaging.bottom_bar.get_bottom_bar", lambda: bar)
-    monkeypatch.setattr(
-        "code_puppy.agents.agent_manager.get_current_agent_name",
-        lambda: selected[0],
-    )
+    monkeypatch.setattr(_FLAG, lambda: flag[0])
     baseline = bar._total_reserved()
     telemetry.refresh_speculation_status()
     assert bar._total_reserved() == baseline + 1
-    selected[0] = "code-puppy"
+    flag[0] = False
     telemetry.refresh_speculation_status()
     assert bar._total_reserved() == baseline
-    selected[0] = "speculative-puppy"
+    flag[0] = True
     telemetry.refresh_speculation_status()
     assert bar._total_reserved() == baseline + 1
     assert stats.hits == 3
@@ -211,7 +202,7 @@ def test_status_lookup_failure_is_harmless(monkeypatch):
     def fail():
         raise RuntimeError("unavailable")
 
-    monkeypatch.setattr("code_puppy.agents.agent_manager.get_current_agent_name", fail)
+    monkeypatch.setattr(_FLAG, fail)
     assert get_speculation_status() is None
 
 
@@ -230,10 +221,7 @@ async def test_stream_handler_updates_chrome_without_printing_code(
     monkeypatch.setattr(handler, "is_subagent", lambda: subagent)
     monkeypatch.setattr(handler, "get_streaming_console", lambda: console)
     monkeypatch.setattr("code_puppy.messaging.bottom_bar.get_bottom_bar", lambda: bar)
-    monkeypatch.setattr(
-        "code_puppy.agents.agent_manager.get_current_agent_name",
-        lambda: "speculative-puppy",
-    )
+    monkeypatch.setattr(_FLAG, lambda: True)
 
     async def updates():
         yield SpeculativeCodeUpdateEvent(

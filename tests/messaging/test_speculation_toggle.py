@@ -134,10 +134,6 @@ def test_row_collapses_while_speculation_is_off(monkeypatch):
     from code_puppy.messaging.speculation_stats import get_speculation_status
 
     monkeypatch.setattr(
-        "code_puppy.agents.agent_manager.get_current_agent_name",
-        lambda: "speculative-puppy",
-    )
-    monkeypatch.setattr(
         "code_puppy.config.get_speculative_code_mode_enabled", lambda: False
     )
     assert get_speculation_status() is None

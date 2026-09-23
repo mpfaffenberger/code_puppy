@@ -1,20 +1,27 @@
-"""Tests for the opt-in speculative CodeMode wiring (`code_puppy.agents._code_mode`)."""
+"""Tests for the flag-switched speculative CodeMode wiring (`code_puppy.agents._code_mode`)."""
 
+import ast
+import importlib
+import warnings
 from unittest.mock import Mock, patch
 
+import pytest
 from pydantic_ai import RunContext
-from pydantic_ai.tools import ToolDefinition
-
 from pydantic_ai.models.test import TestModel
+from pydantic_ai.tools import ToolDefinition
 from pydantic_ai_harness.code_mode import CodeMode
 
+from code_puppy.agents import _code_mode
 from code_puppy.agents._code_mode import (
     SANDBOXED_READ_ONLY_TOOLS,
     SilenceToolOutput,
     _sandbox_tool,
     build_speculative_code_mode,
 )
-from code_puppy.agents.agent_speculative_puppy import SpeculativePuppyAgent
+from code_puppy.agents._code_mode_guidance import CODE_MODE_GUIDANCE, CodeModeGuidance
+from code_puppy.agents._wire_tool_names import StreamedToolNameNormalizer
+from code_puppy.agents.agent_code_puppy import CodePuppyAgent
+from code_puppy.capabilities.eager_timing import EagerTiming
 
 
 def _leaves(capability):
@@ -27,8 +34,14 @@ def _leaves(capability):
     return out
 
 
-class _OrdinaryAgent:
-    """An agent that never opted in; the attribute may not even exist."""
+@pytest.fixture
+def flag(monkeypatch):
+    state = {"enabled": True}
+    monkeypatch.setattr(
+        "code_puppy.agents._code_mode.get_speculative_code_mode_enabled",
+        lambda: state["enabled"],
+    )
+    return state
 
 
 class TestBuildSpeculativeCodeMode:
@@ -45,60 +58,31 @@ class TestBuildSpeculativeCodeMode:
         ):
             assert _sandbox_tool(ctx, ToolDefinition(name=name))
 
-    def test_agent_without_opt_in_gets_nothing(self):
-        assert (
-            build_speculative_code_mode(
-                _OrdinaryAgent(), list(SANDBOXED_READ_ONLY_TOOLS)
-            )
-            == []
-        )
+    def test_disabled_by_config_returns_empty(self, flag):
+        flag["enabled"] = False
+        assert build_speculative_code_mode(list(SANDBOXED_READ_ONLY_TOOLS)) == []
 
-    def test_disabled_by_config_returns_empty(self, monkeypatch):
-        monkeypatch.setattr(
-            "code_puppy.agents._code_mode.get_speculative_code_mode_enabled",
-            lambda: False,
-        )
-        assert (
-            build_speculative_code_mode(
-                SpeculativePuppyAgent(), list(SANDBOXED_READ_ONLY_TOOLS)
-            )
-            == []
-        )
+    def test_no_agent_opt_in_is_required(self, flag):
+        """The flag alone decides; there is no per-agent attribute to set."""
+        tools = CodePuppyAgent().get_available_tools()
 
-    def test_opted_in_agent_selects_tools_and_speculates_the_read_only_trio(
-        self, monkeypatch
-    ):
-        monkeypatch.setattr(
-            "code_puppy.agents._code_mode.get_speculative_code_mode_enabled",
-            lambda: True,
-        )
-        agent = SpeculativePuppyAgent()
-
-        code_mode, silencer, timing, normalizer = build_speculative_code_mode(
-            agent, agent.get_available_tools()
+        code_mode, silencer, timing, normalizer, guidance = build_speculative_code_mode(
+            tools
         )
 
         assert isinstance(code_mode, CodeMode)
         assert code_mode.tools is _sandbox_tool
+        assert code_mode.eager is True
         assert code_mode.speculate == list(SANDBOXED_READ_ONLY_TOOLS)
         assert isinstance(silencer, SilenceToolOutput)
-        from code_puppy.capabilities.eager_timing import EagerTiming
-
         assert isinstance(timing, EagerTiming)
-        from code_puppy.agents._wire_tool_names import StreamedToolNameNormalizer
-
         assert isinstance(normalizer, StreamedToolNameNormalizer)
+        assert isinstance(guidance, CodeModeGuidance)
 
-    def test_sandbox_gets_workspace_mount_and_os_access(self, monkeypatch):
+    def test_sandbox_gets_workspace_mount_and_os_access(self, flag):
         import os
 
-        monkeypatch.setattr(
-            "code_puppy.agents._code_mode.get_speculative_code_mode_enabled",
-            lambda: True,
-        )
-        agent = SpeculativePuppyAgent()
-
-        code_mode, *_ = build_speculative_code_mode(agent, agent.get_available_tools())
+        code_mode, *_ = build_speculative_code_mode(["read_file"])
 
         assert code_mode.mount is not None
         assert code_mode.mount.host_path == os.getcwd()
@@ -106,48 +90,47 @@ class TestBuildSpeculativeCodeMode:
         assert code_mode.mount.mode == "read-write"
         assert code_mode.os_access is not None
 
-    def test_speculation_never_exceeds_the_read_only_trio(self, monkeypatch):
-        """A tool added to an opted-in agent later is sandboxed but not launched early."""
-        monkeypatch.setattr(
-            "code_puppy.agents._code_mode.get_speculative_code_mode_enabled",
-            lambda: True,
-        )
+    def test_speculation_never_exceeds_the_read_only_trio(self, flag):
+        """A tool the agent does not declare is never launched early."""
         capability, *_ = build_speculative_code_mode(
-            SpeculativePuppyAgent(), ["read_file", "grep", "some_future_tool"]
+            ["read_file", "grep", "some_future_tool"]
         )
 
         assert capability.tools is _sandbox_tool
         assert capability.speculate == ["read_file", "grep"]
 
 
-class TestSpeculativePuppyAgent:
-    def test_identity(self):
-        agent = SpeculativePuppyAgent()
-        assert agent.name == "speculative-puppy"
-        assert agent.display_name == "Speculative Puppy"
-        assert "You are Speculative Puppy," in agent.get_system_prompt()
+class TestCodeModeGuidance:
+    def test_guidance_rides_as_capability_instructions(self):
+        assert CodeModeGuidance().get_instructions() is CODE_MODE_GUIDANCE
 
-    def test_carries_the_full_code_puppy_toolkit(self):
-        from code_puppy.agents.agent_code_puppy import CodePuppyAgent
-
-        assert (
-            SpeculativePuppyAgent().get_available_tools()
-            == CodePuppyAgent().get_available_tools()
+    def test_guidance_teaches_the_native_write_contract(self):
+        assert "run_code" in CODE_MODE_GUIDANCE
+        assert "literal" in CODE_MODE_GUIDANCE
+        assert "Use `create_file` and `replace_in_file` as\nnative tools" in (
+            CODE_MODE_GUIDANCE
         )
+        assert "Speculative Puppy" not in CODE_MODE_GUIDANCE
 
-    def test_toolkit_includes_the_speculatable_trio(self):
-        tools = SpeculativePuppyAgent().get_available_tools()
-        assert all(name in tools for name in SANDBOXED_READ_ONLY_TOOLS)
 
-    def test_opts_into_speculative_code_mode(self):
-        assert SpeculativePuppyAgent.speculative_code_mode is True
+def test_only_generated_invalid_escape_warnings_are_suppressed():
+    """Streaming AST probes must not flood the terminal with SyntaxWarnings."""
+    with warnings.catch_warnings(record=True) as captured:
+        warnings.simplefilter("always")
+        importlib.reload(_code_mode)
 
-    def test_prompt_teaches_the_native_write_contract(self):
-        prompt = SpeculativePuppyAgent().get_system_prompt()
-        assert "run_code" in prompt
-        assert "literal" in prompt
-        assert "Use `create_file` and `replace_in_file` as native tools" in prompt
-        assert "exactly ONE tool" not in prompt
+        for _ in range(3):
+            ast.parse(r'pattern = "\("')
+        assert not captured
+
+        ast.parse(r'pattern = "\("', filename="project_file.py")
+        warnings.warn("another syntax warning", SyntaxWarning)
+        warnings.warn("runtime warning", RuntimeWarning)
+
+    assert len(captured) == 3
+    assert "invalid escape sequence" in str(captured[0].message)
+    assert str(captured[1].message) == "another syntax warning"
+    assert captured[2].category is RuntimeWarning
 
 
 class TestBuilderIntegration:
@@ -172,25 +155,21 @@ class TestBuilderIntegration:
         ):
             return _builder.build_pydantic_agent(agent)
 
-    def test_speculative_puppy_gets_code_mode(self):
-        pydantic_agent = self._build(SpeculativePuppyAgent())
-
-        code_modes = [
+    def _code_modes(self, pydantic_agent):
+        return [
             leaf
             for leaf in _leaves(pydantic_agent._root_capability)
             if isinstance(leaf, CodeMode)
         ]
+
+    def test_any_agent_gets_code_mode_when_flag_is_on(self, flag):
+        code_modes = self._code_modes(self._build(CodePuppyAgent()))
+
         assert len(code_modes) == 1
-        assert code_modes[0].tools is _sandbox_tool
+        # Name, not identity: the warnings test above reloads the module.
+        assert code_modes[0].tools.__name__ == _sandbox_tool.__name__
         assert code_modes[0].speculate == list(SANDBOXED_READ_ONLY_TOOLS)
 
-    def test_code_puppy_agent_does_not(self):
-        from code_puppy.agents.agent_code_puppy import CodePuppyAgent
-
-        pydantic_agent = self._build(CodePuppyAgent())
-
-        assert not [
-            leaf
-            for leaf in _leaves(pydantic_agent._root_capability)
-            if isinstance(leaf, CodeMode)
-        ]
+    def test_flag_off_keeps_native_tools(self, flag):
+        flag["enabled"] = False
+        assert not self._code_modes(self._build(CodePuppyAgent()))

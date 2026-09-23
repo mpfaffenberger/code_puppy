@@ -15,7 +15,6 @@ from pydantic_ai_harness.code_mode import (
 )
 
 from code_puppy.agents._code_mode import build_speculative_code_mode
-from code_puppy.agents.agent_speculative_puppy import SpeculativePuppyAgent
 
 
 @pytest.mark.asyncio
@@ -89,7 +88,7 @@ async def test_streamed_read_is_claimed_once_and_write_is_not_speculated(monkeyp
         FunctionModel(stream_function=stream),
         tools=[read_file, create_file, replace_in_file],
         capabilities=build_speculative_code_mode(
-            SpeculativePuppyAgent(), ["read_file", "create_file", "replace_in_file"]
+            ["read_file", "create_file", "replace_in_file"]
         ),
     )
     result = await agent.run("read then save", event_stream_handler=capture)

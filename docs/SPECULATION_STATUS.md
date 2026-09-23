@@ -1,8 +1,12 @@
-# Speculative Puppy status row
+# Speculative execution status row
 
-Speculative Puppy shows session counters in a pinned terminal row instead of
-printing the streamed `run_code` source or a final code panel. Switching to
-another agent hides the row; switching back keeps the session totals.
+Speculative execution is a global switch (`enable_speculative_code_mode`,
+off by default, `Ctrl+X Ctrl+S` toggles it). While it is on, every agent
+folds its tools into a `run_code` sandbox except `create_file` and
+`replace_in_file`, which stay native, and the sandbox guidance rides along as
+capability instructions. Session counters show in a pinned terminal row
+instead of the streamed `run_code` source or a final code panel. Toggling
+off hides the row; toggling back on keeps the session totals.
 
 ```
 Speculative Execution  29 hits · 0 misses · 0 wasted    saved ≥ 7.0s   spec 0.5s · eager 6.5s

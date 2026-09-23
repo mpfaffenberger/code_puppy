@@ -1,76 +1,22 @@
-"""Speculative Puppy - the speculative REPL agent.
+"""Model-facing instructions for working inside speculative CodeMode.
 
-The dedicated home for speculative CodeMode (pydantic-ai-harness#699): Speculative Puppy
-carries the same tools as Code-Puppy, with creation and replacement exposed
-as native tools and the rest folded into a ``run_code`` Monty sandbox. The
-read-only calls with literal arguments start executing while the snippet is
-still streaming. The rest of Code Puppy's agents keep their ordinary native
-tools.
+Attached as a capability so any agent running with the mode on receives
+the same guidance. Deliberately not routed through i18n: translating a
+system prompt changes model behavior.
 """
 
-import warnings
+from __future__ import annotations
 
-import pydantic_ai
+from typing import Any
 
-from .agent_code_puppy import CodePuppyAgent
-from .base_agent import BaseAgent
+from pydantic_ai.capabilities import AbstractCapability
 
-
-# Code Puppy owns terminal output, including when observability is disabled.
-pydantic_ai.BANNER_ENABLED = False
-
-# Streaming AST probes repeatedly warn about the same generated string literal.
-warnings.filterwarnings(
-    "ignore",
-    message=r".*is an invalid escape sequence.*",
-    category=SyntaxWarning,
-    module=r"^<unknown>$",
-)
-
-
-class SpeculativePuppyAgent(BaseAgent):
-    """Full coding agent with a Monty REPL and native creation/replacement tools."""
-
-    speculative_code_mode = True
-
-    @property
-    def name(self) -> str:
-        return "speculative-puppy"
-
-    @property
-    def display_name(self) -> str:
-        return "Speculative Puppy"
-
-    @property
-    def description(self) -> str:
-        return (
-            "Speculative REPL agent: does everything Code-Puppy does, but by "
-            "writing Python in a Monty sandbox where read-only calls run "
-            "ahead of its own streaming"
-        )
-
-    def get_available_tools(self) -> list[str]:
-        """Same toolkit as Code-Puppy; creation and replacement stay native.
-
-        Only `list_files`, `read_file`, and `grep` may speculate.
-        Eager execution can still run side effects before streaming ends.
-        """
-        return CodePuppyAgent().get_available_tools()
-
-    def get_system_prompt(self) -> str:
-        return """
-You are Speculative Puppy, a coding agent. You do everything other coding agents do:
-read and modify code, run commands, and answer questions about codebases.
-
-Use `create_file` and `replace_in_file` as native tools, outside `run_code`.
-They are not available as functions inside the sandbox.
-All other capabilities are async functions inside `run_code`, a persistent
-sandboxed Python REPL: reading files (`list_files`, `read_file`, `grep`),
-deleting content (`delete_snippet`, `delete_file`), running commands
-(`agent_run_shell_command`), asking the user (`ask_user_question`), agents
-(`list_agents`, `invoke_agent`), and skills (`activate_skill`,
-`list_or_search_skills`). Call `run_code` with a Python snippet to use them;
-do not attempt to call those functions as native tools.
+CODE_MODE_GUIDANCE = """\
+Speculative execution is on. Use `create_file` and `replace_in_file` as
+native tools, outside `run_code`; they are not available as functions inside
+the sandbox. Every other tool is an async function inside `run_code`, a
+persistent sandboxed Python REPL. Call `run_code` with a Python snippet to
+use them; do not attempt to call those functions as native tools.
 
 The sandbox also has direct capabilities, no function call needed:
 
@@ -79,7 +25,7 @@ The sandbox also has direct capabilities, no function call needed:
 - Environment variables (isolated), in-memory scratch files, and the real
   clock (`time` module) work.
 - There is NO network in the sandbox: anything remote goes through a
-  function like `agent_run_shell_command` (e.g. `curl`) or an agent.
+  function like `shell` (e.g. `curl`) or an agent.
 
 Use raw Python strings for regex patterns so backslashes are not invalid escapes.
 
@@ -129,8 +75,11 @@ determines how fast it runs:
    use `pathlib` for surgical follow-ups on paths you already hold.
 8. Read before you write, and verify after you change: re-read the file
    or run the tests in a follow-up snippet.
-
-Be pedantic about DRY, YAGNI, and SOLID. Obey the Zen of Python. Keep
-files under 600 lines. Answer from evidence you actually read, cite paths,
-and keep answers tight.
 """
+
+
+class CodeModeGuidance(AbstractCapability[Any]):
+    """Teach the model the fast-path snippet shape when the mode is on."""
+
+    def get_instructions(self) -> str:
+        return CODE_MODE_GUIDANCE

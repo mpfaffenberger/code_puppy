@@ -31,7 +31,7 @@ def terminal():
     output = TerminalOutput(screen)
     bar = BottomBar(stream=output, get_size=lambda: tuple(size))
     bar.start()
-    bar.set_prompt_text("[model] speculative-puppy >>> ", "", 0)
+    bar.set_prompt_text("[model] code-puppy >>> ", "", 0)
     bar.set_status("Context 100/1000 | Idle")
     try:
         yield bar, screen, output, size
@@ -45,7 +45,7 @@ def test_row_sits_immediately_above_identity_and_context(terminal):
     bar.set_speculation_status("Spec | hits 2 | misses 1 | wasted 0")
     assert bar._reserved == original + 1
     assert screen.display[-3].strip() == "Spec | hits 2 | misses 1 | wasted 0"
-    assert screen.display[-2].strip() == "[model] speculative-puppy"
+    assert screen.display[-2].strip() == "[model] code-puppy"
     assert screen.display[-1].strip() == "Context 100/1000 | Idle"
     assert screen.display[-4].startswith(">>>")
     with bar.output_transaction():
@@ -83,7 +83,7 @@ def test_hiding_row_restores_two_bottom_rows_without_ghosts(terminal):
     bar.set_speculation_status(None)
     assert bar._reserved == original
     assert not any("UNIQUE_STATS" in row for row in screen.display)
-    assert screen.display[-2].strip() == "[model] speculative-puppy"
+    assert screen.display[-2].strip() == "[model] code-puppy"
     assert screen.display[-1].strip() == "Context 100/1000 | Idle"
 
 
@@ -105,7 +105,7 @@ def test_resize_and_popup_keep_stats_in_place(terminal):
     assert bar._region_up
     assert bar._reserved < 10
     assert screen.display[-3].strip() == "Spec stats"
-    assert screen.display[-2].strip() == "[model] speculative-puppy"
+    assert screen.display[-2].strip() == "[model] code-puppy"
     assert screen.display[-1].strip() == "Context 100/1000 | Idle"
     assert sum("Spec stats" in row for row in screen.display) == 1
 
@@ -133,10 +133,10 @@ def test_wide_text_is_clipped_and_controls_are_stripped(bar_type):
 def test_inline_fallback_places_stats_before_identity():
     bar = InlineBottomBar(stream=StringIO(), get_size=lambda: (120, 24))
     bar._cols, bar._rows = 120, 24
-    bar.set_prompt_text("[model] speculative-puppy >>> ", "", 0)
+    bar.set_prompt_text("[model] code-puppy >>> ", "", 0)
     bar.set_status("Context | Idle")
     bar.set_speculation_status("Spec stats")
     lines = [Text.from_ansi(line).plain for line in bar._inline_lines()]
-    assert lines[-3:] == ["Spec stats", "[model] speculative-puppy", "Context | Idle"]
+    assert lines[-3:] == ["Spec stats", "[model] code-puppy", "Context | Idle"]
     bar.set_speculation_status(None)
     assert len(bar._inline_lines()) == len(lines) - 1

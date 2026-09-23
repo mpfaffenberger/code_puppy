@@ -693,14 +693,14 @@ def build_pydantic_agent(
                 # tool body runs). Sole wrap_tool_execute implementer, so
                 # position is inert.
                 *build_subagent_recursion_guard(agent_tools),
-                # Speculative CodeMode, for agents that opt in (currently
-                # Speculative Puppy): folds the agent's whole tool surface into a
-                # run_code sandbox and launches literal-argument calls while
-                # the snippet is still streaming (harness#699 dogfood). Its
-                # own ordering is declared outermost by the capability, so
-                # list position is inert; its speculation lifecycle leaves as
-                # typed code_mode.* CapabilityEvents for the bridge below.
-                *build_speculative_code_mode(agent, agent_tools),
+                # Speculative CodeMode, when the config flag is on: folds the
+                # agent's whole tool surface into a run_code sandbox and
+                # launches literal-argument calls while the snippet is still
+                # streaming (harness#699 dogfood). Its own ordering is
+                # declared outermost by the capability, so list position is
+                # inert; its speculation lifecycle leaves as typed
+                # code_mode.* CapabilityEvents for the bridge below.
+                *build_speculative_code_mode(agent_tools),
                 # LAST: the app-side event bridge. Capabilities above emit
                 # typed CapabilityEvents; the bridge's @on_event listeners
                 # translate them into legacy callbacks/spinner/messaging.

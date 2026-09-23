@@ -175,8 +175,8 @@ class CapabilityEventBridge(AbstractCapability[Any]):
     # ------------------------------------------------------------------
     # code_mode.* family (speculative execution, harness#699)
     # ------------------------------------------------------------------
-    # Speculative Puppy reports outcomes in pinned chrome, not the transcript.
-    # Other agents retain the fallback event messages.
+    # With speculative execution on, outcomes land in the pinned chrome row,
+    # not the transcript. Headless or flag-off runs keep the event messages.
 
     @staticmethod
     def _uses_speculation_status() -> bool:

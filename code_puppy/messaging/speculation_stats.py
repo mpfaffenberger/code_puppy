@@ -119,15 +119,11 @@ def get_speculation_stats() -> SpeculationStats:
 
 
 def get_speculation_status() -> Text | None:
-    """Return chrome only for Speculative Puppy, and only while speculation is on."""
+    """Return chrome only while speculative execution is switched on."""
     try:
-        from code_puppy.agents.agent_manager import get_current_agent_name
         from code_puppy.config import get_speculative_code_mode_enabled
 
-        if (
-            get_current_agent_name() == "speculative-puppy"
-            and get_speculative_code_mode_enabled()
-        ):
+        if get_speculative_code_mode_enabled():
             return _stats.render()
     except Exception:
         logger.debug("could not read speculation status", exc_info=True)
@@ -135,7 +131,7 @@ def get_speculation_status() -> Text | None:
 
 
 def refresh_speculation_status() -> None:
-    """Synchronize pinned chrome at prompt boundaries, including agent switches."""
+    """Synchronize pinned chrome at prompt boundaries and after toggles."""
     try:
         from code_puppy.messaging.bottom_bar import get_bottom_bar
 

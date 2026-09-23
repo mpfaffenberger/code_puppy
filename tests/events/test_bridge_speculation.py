@@ -185,7 +185,7 @@ def test_preview_arguments_truncates():
 
 
 async def test_listeners_defer_to_speculation_status(monkeypatch):
-    """Speculative Puppy outcomes never duplicate the pinned status row."""
+    """With the row visible, outcomes never duplicate it in the transcript."""
     messages = _capture(monkeypatch, "emit_info")
     success = _capture(monkeypatch, "emit_success")
 

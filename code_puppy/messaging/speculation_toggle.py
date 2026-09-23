@@ -1,4 +1,4 @@
-"""Ctrl+X Ctrl+S: toggle speculative execution for opted-in agents.
+"""Ctrl+X Ctrl+S: toggle speculative execution for every agent.
 
 Flips ``enable_speculative_code_mode`` in config and rebuilds the current
 agent so the very next turn honours the new setting; a run already in

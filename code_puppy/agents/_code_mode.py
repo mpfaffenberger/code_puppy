@@ -1,14 +1,14 @@
-"""Speculative CodeMode capability wiring for agents that opt in.
+"""Speculative CodeMode capability wiring, switched by one config flag.
 
 Uses speculative programmatic tool calling from pydantic-ai-harness 0.33.0.
 
-This is deliberately not wired into every agent. An agent opts in by setting
-``speculative_code_mode = True`` (see ``BaseAgent``). For an opted-in agent,
-its tools fold into ``run_code`` except ``create_file`` and
-``replace_in_file``, which remain native. Only the read-only trio below
-speculates. That allowlist is the safety contract: an early launch may run
-for a branch the snippet never takes, so it is reserved for calls that are
-harmless to re-run or discard; everything else waits for real execution.
+When ``enable_speculative_code_mode`` is on, every agent (main and sub-agent)
+has its whole tool surface, MCP servers and plugin tools included, folded
+into ``run_code`` except ``create_file`` and ``replace_in_file``, which
+remain native. Only the read-only trio below speculates. That allowlist is
+the safety contract: an early launch may run for a branch the snippet never
+takes, so it is reserved for calls that are harmless to re-run or discard;
+everything else waits for real execution.
 
 The sandbox is not fully sealed either: the workspace mounts read-write so
 snippets can drive real project files through ``pathlib`` directly, and an
@@ -18,16 +18,18 @@ the sandbox, so anything remote goes through a wrapped tool, which is also
 the FFI story -- any host Python function CodeMode wraps becomes an async
 function inside the snippet.
 
-The Speculative Puppy agent (``agent_speculative_puppy.py``) is the resident example; everything else
-keeps ordinary native tool calls, where models are strongest for single
-actions.
+With the flag off, agents keep ordinary native tool calls, where models are
+strongest for single actions. ``Ctrl+X Ctrl+S`` flips the flag and rebuilds
+the current agent.
 """
 
 from __future__ import annotations
 
 import os
+import warnings
 from typing import Any, List, Sequence
 
+import pydantic_ai
 from pydantic_ai import RunContext
 from pydantic_ai.capabilities import AbstractCapability
 from pydantic_ai.tools import ToolDefinition
@@ -35,9 +37,21 @@ from pydantic_monty import MountDir, OSAccess
 
 from pydantic_ai_harness.code_mode import CodeMode
 
+from code_puppy.agents._code_mode_guidance import CodeModeGuidance
 from code_puppy.agents._wire_tool_names import StreamedToolNameNormalizer
 from code_puppy.capabilities.eager_timing import EagerTiming
 from code_puppy.config import get_speculative_code_mode_enabled
+
+# Code Puppy owns terminal output, including when observability is disabled.
+pydantic_ai.BANNER_ENABLED = False
+
+# Streaming AST probes repeatedly warn about the same generated string literal.
+warnings.filterwarnings(
+    "ignore",
+    message=r".*is an invalid escape sequence.*",
+    category=SyntaxWarning,
+    module=r"^<unknown>$",
+)
 
 # The read-only trio: pure with respect to the workspace, safe to re-run or discard.
 SANDBOXED_READ_ONLY_TOOLS = ("list_files", "read_file", "grep")
@@ -69,20 +83,15 @@ class SilenceToolOutput(AbstractCapability[Any]):
             bus.pop_tool_output_quiet()
 
 
-def build_speculative_code_mode(agent: Any, agent_tools: Sequence[str]) -> List[Any]:
-    """Build the speculative CodeMode capabilities for an opted-in agent, else ``[]``.
+def build_speculative_code_mode(agent_tools: Sequence[str]) -> List[Any]:
+    """Build the speculative CodeMode capabilities when the flag is on, else ``[]``.
 
     Returned as a list so the caller can splice it into ``capabilities=[...]``
     unconditionally. Creation and replacement stay native; all other tools fold
     into ``run_code``. ``speculate`` stays restricted to the read-only trio the
-    agent actually declares, so a tool added to an opted-in agent later is
-    sandboxed but never launched early without showing up here first.
+    agent actually declares, so a tool added to an agent later is sandboxed but
+    never launched early without showing up here first.
     """
-    # Identity check, not truthiness: the opt-in is an explicit class-level
-    # `True`, and duck-typed agent stand-ins (tests, plugins) with permissive
-    # `__getattr__` must not opt in by accident.
-    if getattr(agent, "speculative_code_mode", False) is not True:
-        return []
     if not get_speculative_code_mode_enabled():
         return []
     speculate = [name for name in SANDBOXED_READ_ONLY_TOOLS if name in agent_tools]
@@ -107,4 +116,5 @@ def build_speculative_code_mode(agent: Any, agent_tools: Sequence[str]) -> List[
         SilenceToolOutput(),
         EagerTiming(),
         StreamedToolNameNormalizer(),
+        CodeModeGuidance(),
     ]
