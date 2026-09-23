@@ -10,7 +10,6 @@ import time
 from pathlib import Path
 from typing import Callable, Iterator, Optional, Tuple
 
-from rapidfuzz.distance import JaroWinkler
 from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Prompt
@@ -22,7 +21,9 @@ from termflow.diff import DiffRenderer, DiffStream, DiffTheme
 from termflow.diff import brighten_hex as brighten_hex  # re-export (public API)
 from termflow.syntax import Highlighter as TermflowHighlighter
 
+from code_puppy.i18n import t
 from code_puppy.tools.file_permission_state import set_diff_already_shown
+from code_puppy.tools import fs_access
 
 # =============================================================================
 # Approval queueing locks
@@ -68,7 +69,7 @@ def _stdin_supports_interactive_approval() -> bool:
 
 def _deny_noninteractive_approval(title: str) -> tuple[bool, None]:
     """Fail closed when approval is requested without an interactive stdin."""
-    emit_warning(f"Approval for '{title}' rejected: stdin is not interactive.")
+    emit_warning(t("tools.common.approval.noninteractive", title=title))
     return False, None
 
 
@@ -866,7 +867,7 @@ def _get_user_approval_impl(
     # Add preview if provided
     if preview:
         panel_content.append("\n\n", style="")
-        panel_content.append("Preview of changes:", style="bold underline")
+        panel_content.append(t("tools.common.approval.preview"), style="bold underline")
         panel_content.append("\n", style="")
         formatted_preview = format_diff_with_colors(preview)
 
@@ -917,24 +918,25 @@ def _get_user_approval_impl(
         sys.stdout.flush()
 
         # Show arrow-key selector
+        approve_choice = "\u2713 " + t("tools.common.approval.approve")
+        reject_choice = "\u2717 " + t("tools.common.approval.reject")
+        feedback_choice = "\U0001f4ac " + t(
+            "tools.common.approval.reject_feedback", puppy_name=puppy_name
+        )
         choice = arrow_select(
-            "💭 What would you like to do?",
-            [
-                "✓ Approve",
-                "✗ Reject",
-                f"💬 Reject with feedback (tell {puppy_name} what to change)",
-            ],
+            "\U0001f4ad " + t("tools.common.approval.prompt"),
+            [approve_choice, reject_choice, feedback_choice],
         )
 
-        if choice == "✓ Approve":
+        if choice == approve_choice:
             confirmed = True
-        elif choice == "✗ Reject":
+        elif choice == reject_choice:
             confirmed = False
         else:
             # User wants to provide feedback
             confirmed = False
             emit_info("")
-            emit_info(f"Tell {puppy_name} what to change:")
+            emit_info(t("tools.common.approval.tell", puppy_name=puppy_name))
             # Rich's Prompt.ask reads stdin -- suspend the key listener
             # so it doesn't fight us for keystrokes.
             from code_puppy.agents._key_listeners import suspended_key_listener
@@ -949,7 +951,7 @@ def _get_user_approval_impl(
                 user_feedback = None
 
     except (KeyboardInterrupt, EOFError):
-        emit_error("Cancelled by user")
+        emit_error(t("tools.common.approval.cancelled"))
         confirmed = False
 
     finally:
@@ -977,12 +979,18 @@ def _get_user_approval_impl(
     emit_info("")
     if not confirmed:
         if user_feedback:
-            emit_error("Rejected with feedback!")
-            emit_warning(f'Telling {puppy_name}: "{user_feedback}"')
+            emit_error(t("tools.common.approval.rejected_feedback"))
+            emit_warning(
+                t(
+                    "tools.common.approval.telling_feedback",
+                    puppy_name=puppy_name,
+                    feedback=user_feedback,
+                )
+            )
         else:
-            emit_error("Rejected.")
+            emit_error(t("tools.common.approval.rejected"))
     else:
-        emit_success("Approved!")
+        emit_success(t("tools.common.approval.approved"))
 
     return confirmed, user_feedback
 
@@ -1058,7 +1066,7 @@ async def _get_user_approval_async_impl(
     # Add preview if provided
     if preview:
         panel_content.append("\n\n", style="")
-        panel_content.append("Preview of changes:", style="bold underline")
+        panel_content.append(t("tools.common.approval.preview"), style="bold underline")
         panel_content.append("\n", style="")
         formatted_preview = format_diff_with_colors(preview)
 
@@ -1109,24 +1117,25 @@ async def _get_user_approval_async_impl(
         sys.stdout.flush()
 
         # Show arrow-key selector (ASYNC VERSION)
+        approve_choice = "\u2713 " + t("tools.common.approval.approve")
+        reject_choice = "\u2717 " + t("tools.common.approval.reject")
+        feedback_choice = "\U0001f4ac " + t(
+            "tools.common.approval.reject_feedback", puppy_name=puppy_name
+        )
         choice = await arrow_select_async(
-            "💭 What would you like to do?",
-            [
-                "✓ Approve",
-                "✗ Reject",
-                f"💬 Reject with feedback (tell {puppy_name} what to change)",
-            ],
+            "\U0001f4ad " + t("tools.common.approval.prompt"),
+            [approve_choice, reject_choice, feedback_choice],
         )
 
-        if choice == "✓ Approve":
+        if choice == approve_choice:
             confirmed = True
-        elif choice == "✗ Reject":
+        elif choice == reject_choice:
             confirmed = False
         else:
             # User wants to provide feedback
             confirmed = False
             emit_info("")
-            emit_info(f"Tell {puppy_name} what to change:")
+            emit_info(t("tools.common.approval.tell", puppy_name=puppy_name))
             # Prompt.ask reads stdin — suspend the key listener or it eats
             # roughly half the keystrokes (feedback box looks "broken").
             from code_puppy.agents._key_listeners import suspended_key_listener
@@ -1141,7 +1150,7 @@ async def _get_user_approval_async_impl(
                 user_feedback = None
 
     except (KeyboardInterrupt, EOFError):
-        emit_error("Cancelled by user")
+        emit_error(t("tools.common.approval.cancelled"))
         confirmed = False
 
     finally:
@@ -1169,14 +1178,57 @@ async def _get_user_approval_async_impl(
     emit_info("")
     if not confirmed:
         if user_feedback:
-            emit_error("Rejected with feedback!")
-            emit_warning(f'Telling {puppy_name}: "{user_feedback}"')
+            emit_error(t("tools.common.approval.rejected_feedback"))
+            emit_warning(
+                t(
+                    "tools.common.approval.telling_feedback",
+                    puppy_name=puppy_name,
+                    feedback=user_feedback,
+                )
+            )
         else:
-            emit_error("Rejected.")
+            emit_error(t("tools.common.approval.rejected"))
     else:
-        emit_success("Approved!")
+        emit_success(t("tools.common.approval.approved"))
 
     return confirmed, user_feedback
+
+
+def _sanitize_string(text: str) -> str:
+    """Sanitize a string to remove invalid Unicode surrogates.
+    This handles encoding issues common on Windows with copy-paste operations.
+    """
+    if not text:
+        return text
+
+    try:
+        # Try encoding — if it works, string is clean.
+        text.encode("utf-8")
+        return text
+
+    except UnicodeEncodeError:
+        pass
+
+    try:
+        # Encode allowing surrogates, then decode replacing them.
+        return text.encode("utf-8", errors="surrogatepass").decode(
+            "utf-8", errors="replace"
+        )
+
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        # Last resort: filter out surrogate characters.
+        return "".join(
+            char if ord(char) < 0xD800 or ord(char) > 0xDFFF else "\ufffd"
+            for char in text
+        )
+
+
+def read_text_sanitized(
+    path: str, line: int | None = None, limit: int | None = None
+) -> str:
+    """Read text via fs_access (backend-aware), then sanitize surrogates."""
+    text = fs_access.read_text(path, line=line, limit=limit)
+    return _sanitize_string(text)
 
 
 def atomic_write_text(
@@ -1276,36 +1328,6 @@ def write_project_file(
         backend.write_text_file(resolve_path(file_path), content)
         return
     atomic_write_text(file_path, content, encoding=encoding)
-
-
-def _find_best_window(
-    haystack_lines: list[str],
-    needle: str,
-) -> Tuple[Optional[Tuple[int, int]], float]:
-    """
-    Return (start, end) indices of the window with the highest
-    Jaro-Winkler similarity to `needle`, along with that score.
-    If nothing clears JW_THRESHOLD, return (None, score).
-
-    Note: the edit engine no longer fuzzy-matches (Claude Code parity —
-    see ``file_modifications.apply_replacements_to_content``). This helper
-    remains part of the plugin API surface (``code-puppy-core-plugins``
-    permission previews on released versions import it).
-    """
-    needle = needle.rstrip("\n")
-    needle_lines = needle.splitlines()
-    win_size = len(needle_lines)
-    best_score = 0.0
-    best_span: Optional[Tuple[int, int]] = None
-    # Pre-join the needle once; join windows on the fly
-    for i in range(len(haystack_lines) - win_size + 1):
-        window = "\n".join(haystack_lines[i : i + win_size])
-        score = JaroWinkler.normalized_similarity(window, needle)
-        if score > best_score:
-            best_score = score
-            best_span = (i, i + win_size)
-
-    return best_span, best_score
 
 
 def generate_group_id(tool_name: str, extra_context: str = "") -> str:

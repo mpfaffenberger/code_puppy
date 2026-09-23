@@ -47,7 +47,7 @@ def _match_single(pattern: str, tool_name: str, tool_args: Dict[str, Any]) -> bo
         return True
 
     # Check cross-provider aliases: a hook written for "Bash" (Claude Code) should
-    # fire when code_puppy calls "agent_run_shell_command", and vice-versa.
+    # fire when code_puppy calls "shell", and vice-versa.
     tool_aliases = get_aliases(tool_name)
     pattern_aliases = get_aliases(pattern)
     if tool_aliases & pattern_aliases:  # non-empty intersection → same logical tool

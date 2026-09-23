@@ -119,8 +119,12 @@ def start_run_ui() -> Optional[RunningLineEditor]:
     from idle-turn to steer/slash-drain).
     """
     global _editor, _loop, _run_active
+    from code_puppy.agents.stream_status import get_stream_status
+
     with _lock:
         if _persistent:
+            if not _run_active:
+                get_stream_status(get_bottom_bar(), reset=True)
             _run_active = True
             return _editor
         if _editor is not None:
@@ -129,6 +133,7 @@ def start_run_ui() -> Optional[RunningLineEditor]:
         bar.start()
         if not bar.is_active():
             return None  # non-TTY: no bar, no editor
+        get_stream_status(bar, reset=True)
         editor = RunningLineEditor()
         _editor = editor
         # Capture the main loop for the slash-command consumer: feed() runs
@@ -197,23 +202,20 @@ def _defer_undelivered_steers() -> None:
 
         moved = get_pause_controller().defer_pending_steer_now()
         if moved:
-            from . import emit_info
+            from . import emit_queued
 
-            emit_info(f"⏭ Queued {moved} steering message(s) for the next turn.")
+            emit_queued(f"for next turn: {moved} steer(s) that missed this run")
     except Exception:
         logger.debug("undelivered steer deferral failed", exc_info=True)
 
 
 def _clear_status_row() -> None:
-    """Run over (finished OR cancelled): drop the token/context line.
-
-    The status row only means something while an agent is working; a
-    stale '5.5k/500k tokens' under an idle prompt is just noise — and
-    clearing both slots collapses the row entirely (the bar reclaims
-    it for the scroll region). Never raises: this runs on finally paths.
-    """
+    """Finish activity while retaining context and the final streamed total."""
     try:
-        get_bottom_bar().set_status("")
+        from code_puppy.agents.stream_status import finish_stream_status
+
+        bar = get_bottom_bar()
+        finish_stream_status(bar)
     except Exception:
         logger.debug("status clear failed", exc_info=True)
 
@@ -274,6 +276,11 @@ def start_persistent_ui(
         _idle_queue = asyncio.Queue()
     if prompt_prefix:
         editor.set_prompt_prefix(prompt_prefix, prefix_sgrs)
+    from .idle_status import refresh_context_status
+    from code_puppy.agents.stream_status import finish_stream_status
+
+    refresh_context_status()
+    finish_stream_status(get_bottom_bar())
     editor.set_submit_router(_persistent_router)
     editor.set_eof_handler(_handle_eof)
     editor.set_ctrl_c_handler(_handle_raw_ctrl_c)
@@ -340,7 +347,10 @@ async def wait_for_idle_submission() -> str:
         q = _idle_queue
     if q is None:
         raise EOFError  # persistent UI gone -> treat as end of input
-    item = await q.get()
+    from code_puppy.agent_completion_inbox import wait_for_completion_or_input
+    from code_puppy.agents.agent_manager import get_current_agent
+
+    item = await wait_for_completion_or_input(get_current_agent(), q)
     if item is _EOF:
         raise EOFError
     return item
@@ -351,6 +361,9 @@ def set_idle_prompt_prefix(prefix: str, prefix_sgrs: Optional[list] = None) -> N
     editor = get_run_editor()
     if editor is not None:
         editor.set_prompt_prefix(prefix, prefix_sgrs)
+        from .idle_status import refresh_context_status
+
+        refresh_context_status()
 
 
 def clear_idle_buffer() -> None:
@@ -617,7 +630,7 @@ async def _run_paused_commands(editor: RunningLineEditor, first_cmd: str) -> Non
     """Pause → execute queued command(s) → resume. Exception-safe."""
     from .bus import get_message_bus
     from .commands import PauseAgentCommand, ResumeAgentCommand
-    from .message_queue import emit_info, emit_warning
+    from .message_queue import emit_warning
     from .pause_controller import get_pause_controller
 
     bus = get_message_bus()
@@ -639,23 +652,18 @@ async def _run_paused_commands(editor: RunningLineEditor, first_cmd: str) -> Non
             elif not pc.is_paused():
                 # wait_if_paused timeout / cancel resumed behind our back; the
                 # window is gone, so running now would interleave with streaming.
-                emit_warning(
-                    f"⏸ pause expired before {cmd} could run — skipped; "
-                    "run it again when the agent finishes."
-                )
+                logger.debug("pause expired before %s could run; skipped", cmd)
             else:
-                emit_info(f"⏸ agent paused — running {cmd}")
                 with suspended_run_ui():
                     result = _execute_command(cmd)
                 _handle_command_result(cmd, result)
             cmd = editor.get_pending_command()
     finally:
-        # ALWAYS resume + let the transcript know, even on exceptions.
+        # ALWAYS resume silently, even on exceptions.
         try:
             bus.provide_response(ResumeAgentCommand())
         except Exception:
             pc.resume()
-        emit_info("▶ resumed")
 
 
 async def _await_parked(pc, timeout: float) -> bool:

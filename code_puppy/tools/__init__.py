@@ -17,9 +17,7 @@ register_invoke_agent_with_model = lazy_registration(
 register_ask_user_question = lazy_registration(
     "code_puppy.tools.ask_user_question", "register_ask_user_question"
 )
-register_agent_run_shell_command = lazy_registration(
-    "code_puppy.tools.command_runner", "register_agent_run_shell_command"
-)
+register_shell = lazy_registration("code_puppy.tools.command_runner", "register_shell")
 register_agent_share_your_reasoning = lazy_registration(
     "code_puppy.tools.command_runner", "register_agent_share_your_reasoning"
 )
@@ -38,14 +36,8 @@ register_delete_snippet = lazy_registration(
 register_edit_file = lazy_registration(
     "code_puppy.tools.file_modifications", "register_edit_file"
 )
-register_claude_edit = lazy_registration(
-    "code_puppy.tools.file_modifications", "register_claude_edit"
-)
 register_replace_in_file = lazy_registration(
     "code_puppy.tools.file_modifications", "register_replace_in_file"
-)
-register_apply_patch = lazy_registration(
-    "code_puppy.tools.apply_patch", "register_apply_patch"
 )
 register_grep = lazy_registration("code_puppy.tools.file_operations", "register_grep")
 register_list_files = lazy_registration(
@@ -74,14 +66,12 @@ TOOL_REGISTRY = {
     "grep": register_grep,
     # File Modifications
     "edit_file": register_edit_file,  # DEPRECATED: auto-expanded to create_file, replace_in_file, delete_snippet
-    "edit": register_claude_edit,
     "create_file": register_create_file,
     "replace_in_file": register_replace_in_file,
     "delete_snippet": register_delete_snippet,
     "delete_file": register_delete_file,
-    "apply_patch": register_apply_patch,
     # Command Runner
-    "agent_run_shell_command": register_agent_run_shell_command,
+    "shell": register_shell,
     "agent_share_your_reasoning": register_agent_share_your_reasoning,
     # User Interaction
     "ask_user_question": register_ask_user_question,
@@ -106,32 +96,12 @@ TOOL_REGISTRY.update(_load_browser_tool_registry())
 # registers the expansions INSTEAD (the original is not registered).
 TOOL_EXPANSIONS: dict[str, list[str]] = {
     "edit_file": ["create_file", "replace_in_file", "delete_snippet"],
+    # Compat aliases for the retired provider-specific editors (the Claude
+    # ``edit`` dialect and the Codex ``apply_patch`` envelope). Agent configs
+    # that still list them get the granular tools instead of a silent drop.
+    "edit": ["replace_in_file"],
+    "apply_patch": ["create_file", "replace_in_file", "delete_snippet", "delete_file"],
 }
-
-# File-writing tools that Codex-style models receive through one native patch
-# envelope. The legacy names remain available to custom agents and configs.
-_FILE_MUTATION_TOOLS = frozenset(
-    {"edit", "replace_in_file", "create_file", "delete_snippet", "delete_file"}
-)
-
-
-def should_use_codex_patch(model_name: str | None) -> bool:
-    """Return whether a model should receive the Codex patch interface.
-
-    This deliberately uses Code Puppy's model aliases rather than a broad
-    provider substring. The built-in Codex/OpenAI Responses aliases are named
-    ``codex-*`` / ``chatgpt-*`` or ``gpt-5*``; GPT-4 and generic OpenAI
-    Chat-Completions models keep the granular tools.
-    """
-    if not model_name:
-        return False
-    normalized = model_name.lower()
-    return (
-        "codex" in normalized
-        or normalized.startswith("chatgpt-")
-        or normalized.startswith("gpt-5")
-    )
-
 
 # Legacy tool names we silently ignore. Truly removed tools only — working
 # aliases belong in TOOL_REGISTRY.
@@ -285,21 +255,6 @@ def register_tools_for_agent(
                 expanded_tools.append(tool_name)
                 seen.add(tool_name)
     tool_names = expanded_tools
-
-    use_codex_patch = should_use_codex_patch(model_name)
-    selected_tools: list[str] = []
-    for tool_name in tool_names:
-        if use_codex_patch and tool_name in _FILE_MUTATION_TOOLS:
-            if "apply_patch" not in selected_tools:
-                selected_tools.append("apply_patch")
-            continue
-        # ``edit`` is the Claude/OpenCode-facing name. Keep the old
-        # replace_in_file name as a registry/config compatibility alias.
-        if not use_codex_patch and tool_name == "replace_in_file":
-            tool_name = "edit"
-        if tool_name not in selected_tools:
-            selected_tools.append(tool_name)
-    tool_names = selected_tools
 
     for tool_name in tool_names:
         # Handle UC tools (prefixed with "uc:")

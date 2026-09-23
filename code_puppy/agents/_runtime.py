@@ -21,6 +21,7 @@ import asyncio
 import json
 import re
 import signal
+import ssl
 import sys
 import threading
 import uuid
@@ -145,6 +146,33 @@ _RETRYABLE_EXCEPTIONS: tuple = (
     httpcore.RemoteProtocolError,
 )
 
+# AnyIO normally translates TLS failures through httpcore/httpx, but a failure
+# while reading an established stream can escape as a raw ``ssl.SSLError``.
+# Keep this allowlist narrow: certificate and protocol errors need user action,
+# while a corrupted TLS record on an existing SSE stream is safe to retry.
+# Only the reason observed escaping raw from AnyIO is included; add another
+# reason only after confirming that it can bypass the httpx/httpcore wrappers.
+_RETRYABLE_TLS_REASONS = frozenset({"DECRYPTION_FAILED_OR_BAD_RECORD_MAC"})
+
+
+def _is_retryable_tls_stream_error(exc: BaseException) -> bool:
+    """Return whether ``exc`` is a known transient raw TLS stream failure."""
+    if not isinstance(exc, ssl.SSLError):
+        return False
+
+    reason = getattr(exc, "reason", None)
+    if isinstance(reason, str) and reason.upper() in _RETRYABLE_TLS_REASONS:
+        return True
+    if reason is not None:
+        return False
+
+    # Hand-built exceptions and some Python/OpenSSL combinations omit
+    # ``.reason`` but preserve its stable symbolic name in the message.
+    message = str(exc).upper()
+    return any(
+        f"[SSL: {tls_reason}]" in message for tls_reason in _RETRYABLE_TLS_REASONS
+    )
+
 
 def _matches_retryable_snippet(msg: str) -> bool:
     """Return True if ``msg`` matches any known transient pattern.
@@ -228,6 +256,8 @@ def _is_retryable_one(exc: BaseException) -> bool:
     job, kept as a separate concern so each piece stays independently testable.
     """
     if isinstance(exc, _RETRYABLE_EXCEPTIONS):
+        return True
+    if _is_retryable_tls_stream_error(exc):
         return True
 
     msg = str(exc)
@@ -837,9 +867,17 @@ async def _run_with_mcp_impl(
         max_hook_retries = get_max_hook_retries()
         max_queued_steers = 50  # safety cap to prevent runaway loops
 
+        # A nested run (structured-output assessments, model judges, ...)
+        # shares the process-wide PauseController with the outer run, but the
+        # user is talking to the OUTER agent. Letting a nested run drain the
+        # queue feeds the user's message to a throwaway agent whose output is
+        # discarded -- the message is simply lost. Same invariant the cancel
+        # path already enforces via ``drain_pause_state_on_cancel``.
+        may_drain_queued_steers = not is_nested_run
+
         while True:
             # 1) Drain queue-mode steers FIRST (user-priority over hook retries).
-            if queued_steers_used < max_queued_steers:
+            if may_drain_queued_steers and queued_steers_used < max_queued_steers:
                 steer_text = prepare_queued_steer_injection(agent, result)
                 if steer_text is not None:
                     queued_steers_used += 1

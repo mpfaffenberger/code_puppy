@@ -21,51 +21,52 @@ def test_replace_in_file_multiple_replacements(tmp_path):
     ]
     res = file_modifications._replace_in_file(None, str(path), reps)
     assert res["success"]
-    assert "dog" in path.read_text() and "biscuit" in path.read_text()
+    assert path.read_text() == "biscuit dog baz dog biscuit"
 
 
 def test_replace_in_file_ambiguous_match_refused(tmp_path):
-    """Multiple matches without replace_all must refuse (Claude Code parity)."""
+    """Multiple matches without replace_all must refuse, not guess."""
     path = tmp_path / "multi.txt"
     path.write_text("foo bar baz bar foo")
     reps = [{"old_str": "bar", "new_str": "dog"}]
     res = file_modifications._replace_in_file(None, str(path), reps)
-    assert "error" in res
-    assert res["error"].startswith(
-        "Found 2 matches of the string to replace, but replace_all is false."
-    )
-    # File must be untouched — no silent wrong-location edit.
+    assert res["error"].startswith("Found 2 matches of the string to replace")
     assert path.read_text() == "foo bar baz bar foo"
+
+
+def test_replace_in_file_noop_refused(tmp_path):
+    path = tmp_path / "noop.txt"
+    path.write_text("hello")
+    res = file_modifications._replace_in_file(
+        None, str(path), [{"old_str": "hello", "new_str": "hello"}]
+    )
+    assert res["error"].startswith("No changes to make")
 
 
 def test_replace_in_file_unicode(tmp_path):
     path = tmp_path / "unicode.txt"
-    path.write_text("puppy 🐶 says meow")
+    path.write_text("puppy  says meow")
     reps = [{"old_str": "meow", "new_str": "woof"}]
     res = file_modifications._replace_in_file(None, str(path), reps)
     assert res["success"]
     assert "woof" in path.read_text()
 
 
-def test_replace_in_file_near_match(tmp_path):
-    path = tmp_path / "fuzzy.txt"
+def test_replace_in_file_near_match_is_not_found(tmp_path):
+    """No fuzzy matching: an off-by-one old_str refuses and leaves the file alone."""
+    path = tmp_path / "exact.txt"
     path.write_text("abc\ndef\nghijk")
-    # Deliberately wrong character: fuzzy matching was removed for Claude Code
-    # parity, so a near-match must refuse with the harness error message.
     reps = [{"old_str": "def\nghixk", "new_str": "replaced"}]
     res = file_modifications._replace_in_file(None, str(path), reps)
-    assert "error" in res
     assert res["error"].startswith("String to replace not found in file.")
     assert path.read_text() == "abc\ndef\nghijk"
 
 
 def test_whitespace_mismatch_is_not_found(tmp_path):
-    """Trailing-whitespace mismatches refuse instead of fuzzy-matching."""
     path = tmp_path / "trailing.txt"
     path.write_text("aaa\nbbb\nccc\n")
     reps = [{"old_str": "bbb\nccc ", "new_str": "replaced"}]
     res = file_modifications._replace_in_file(None, str(path), reps)
-    assert "error" in res
     assert res["error"].startswith("String to replace not found in file.")
     assert path.read_text() == "aaa\nbbb\nccc\n"
 

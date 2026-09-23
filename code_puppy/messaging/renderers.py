@@ -274,8 +274,40 @@ def _classify_style(message: UIMessage) -> Optional[str]:
     return style
 
 
+# User-steering acks: badge label per type. Both share the ``steer`` banner
+# color so they read as one family ("you typed this, I heard you").
+_STEER_BADGES = {
+    MessageType.QUEUED: " QUEUED ",
+    MessageType.STEER: " STEER ",
+}
+
+
+def _steer_banner(message: UIMessage) -> Text:
+    """Build the loud, themed ``[ BADGE ] content`` line for steering acks.
+
+    The body is bold (not dim) on purpose: the user just typed this and
+    needs to spot the ack in a busy transcript. It stays in the default
+    foreground -- theme banner colors can be dark, and dark-on-dark is
+    the opposite of "easy to see".
+    """
+    from code_puppy.config import get_banner_color
+
+    banner = Text()
+    banner.append(
+        _STEER_BADGES[message.type],
+        style=f"bold white on {get_banner_color('steer')}",
+    )
+    banner.append(" ")
+    banner.append(str(message.content), style="bold")
+    return banner
+
+
 def _print_message(console: Console, message: UIMessage) -> None:
     """Print one message while coordinating with the live prompt surface."""
+    # Pending submissions are represented by the status badge, not scrollback.
+    if message.type == MessageType.QUEUED:
+        return
+
     from contextlib import nullcontext
 
     try:
@@ -294,18 +326,9 @@ def _print_message_uncoordinated(console: Console, message: UIMessage) -> None:
     # message (see notify_transcript_output). Guarded — must never break a render thread.
     style = _classify_style(message)
     content = message.content
-    if message.type == MessageType.QUEUED:
-        from code_puppy.config import get_banner_color
-
-        queued = Text()
-        queued.append(
-            " QUEUED ",
-            style=f"bold white on {get_banner_color('thinking')}",
-        )
-        queued.append(" ")
-        queued.append(str(content), style="dim")
+    if message.type in _STEER_BADGES:
         console.print()
-        console.print(queued)
+        console.print(_steer_banner(message))
     elif isinstance(content, str):
         if message.type == MessageType.AGENT_RESPONSE:
             try:

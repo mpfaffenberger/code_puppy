@@ -12,6 +12,62 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from rich.text import Text
 
+from code_puppy.tools.common import _sanitize_string
+
+# ---------------------------------------------------------------------------
+# _sanitize_string
+# ---------------------------------------------------------------------------
+
+
+class TestSanitizeString:
+    """Test the _sanitize_string Unicode sanitization function."""
+
+    def test_clean_string_passes_through(self):
+        """Test that clean strings pass through unchanged."""
+        clean = "Hello, World! 123"
+        result = _sanitize_string(clean)
+        assert result == clean
+
+    def test_empty_string(self):
+        """Test empty string handling."""
+        assert _sanitize_string("") == ""
+
+    def test_none_like_empty(self):
+        """Test falsy string values."""
+        # The function checks 'if not text' first.
+        result = _sanitize_string("")
+        assert result == ""
+
+    def test_unicode_characters_preserved(self):
+        """Test that valid unicode characters are preserved."""
+        unicode_str = "Hello 世界 🐾 café"
+        result = _sanitize_string(unicode_str)
+        assert result == unicode_str
+
+    def test_surrogate_characters_replaced(self):
+        """Test that surrogate characters are replaced."""
+        # Create a string with surrogate characters (invalid standalone).
+        # Surrogates are in range 0xD800 to 0xDFFF.
+        surrogate_str = "Hello" + chr(0xD800) + "World"
+        result = _sanitize_string(surrogate_str)
+
+        # Should replace surrogate with replacement character.
+        assert "\ufffd" in result or result == "HelloWorld"
+        assert chr(0xD800) not in result
+
+    def test_mixed_valid_invalid(self):
+        """Test string with mix of valid and invalid characters."""
+        mixed = "Valid" + chr(0xDC00) + "Text" + chr(0xDFFF) + "End"
+        result = _sanitize_string(mixed)
+
+        # Surrogates should be replaced.
+        assert chr(0xDC00) not in result
+        assert chr(0xDFFF) not in result
+        assert "Valid" in result
+        assert "Text" in result
+        assert "End" in result
+
+
 # ---------------------------------------------------------------------------
 # should_suppress_browser
 # ---------------------------------------------------------------------------
@@ -331,37 +387,6 @@ class TestFormatDiffWithColors:
         diff = "--- a/f.py\n+++ b/f.py\n@@ -1 +1 @@\n-old\n+new"
         result = format_diff_with_colors(diff)
         assert isinstance(result, Text)
-
-
-# ---------------------------------------------------------------------------
-# _find_best_window (plugin preview API surface — engine no longer uses it)
-# ---------------------------------------------------------------------------
-
-
-class TestFindBestWindow:
-    def test_exact_match(self):
-        from code_puppy.tools.common import _find_best_window
-
-        haystack = ["line1", "line2", "line3"]
-        span, score = _find_best_window(haystack, "line2")
-        assert span is not None
-        assert score > 0.9
-
-    def test_no_match(self):
-        from code_puppy.tools.common import _find_best_window
-
-        haystack = ["aaa", "bbb", "ccc"]
-        span, score = _find_best_window(haystack, "zzzzzzzzzzzzzzz")
-        # Score should be low
-        assert score < 0.9
-
-    def test_multi_line_needle(self):
-        from code_puppy.tools.common import _find_best_window
-
-        haystack = ["def foo():", "    return 1", "", "def bar():"]
-        span, score = _find_best_window(haystack, "def foo():\n    return 1")
-        assert span is not None
-        assert span[0] == 0
 
 
 # ---------------------------------------------------------------------------

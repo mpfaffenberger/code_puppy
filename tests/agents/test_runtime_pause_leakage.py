@@ -246,6 +246,53 @@ async def test_paused_state_cleared_on_cancel(_isolated_runtime, monkeypatch):
 
 
 # =============================================================================
+# Bug A.3 - a nested run must not swallow the outer run's queued steer
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_nested_run_does_not_swallow_queued_steer(_isolated_runtime):
+    """Queue-mode steers belong to the run the user is talking to.
+
+    Mid-turn the agent triggers nested ``run_with_mcp`` calls (the
+    shell-safety plugin's structured-output assessment, model judges, ...).
+    Those share the process-wide PauseController, so without a nesting guard
+    the nested run drains the queue and feeds the user's message to a
+    throwaway agent whose result is discarded -- the message vanishes and
+    the outer agent never sees it.
+    """
+    inner_pydantic = _ScriptedPydanticAgent(_DummyResult("nested-verdict"))
+    inner_agent = _DummyAgent(inner_pydantic)
+
+    outer_pydantic = _ScriptedPydanticAgent(
+        _DummyResult("outer-first"), _DummyResult("outer-after-steer")
+    )
+    outer_agent = _DummyAgent(outer_pydantic)
+    outer_run = outer_pydantic.run
+
+    async def _steer_then_nest(prompt: Any, **kwargs: Any) -> Any:
+        # First model call only: the user hits Alt+Enter while the agent
+        # works, and the agent then fires a nested assessment run.
+        outer_pydantic.run = outer_run  # type: ignore[assignment]
+        get_pause_controller().request_steer("also update the docs", mode="queue")
+        await _runtime.run_with_mcp(inner_agent, "assess: rm -rf /tmp/x")
+        return await outer_run(prompt, **kwargs)
+
+    outer_pydantic.run = _steer_then_nest  # type: ignore[assignment]
+
+    await _runtime.run_with_mcp(outer_agent, "do the thing")
+
+    assert [call["prompt"] for call in inner_pydantic.calls] == [
+        "assess: rm -rf /tmp/x"
+    ], "nested run swallowed the outer run's queued steer"
+    assert [call["prompt"] for call in outer_pydantic.calls] == [
+        "do the thing",
+        "also update the docs",
+    ]
+    assert get_pause_controller().drain_pending_steer() == []
+
+
+# =============================================================================
 # Wiring: confirm the steer history processor is actually attached
 # =============================================================================
 

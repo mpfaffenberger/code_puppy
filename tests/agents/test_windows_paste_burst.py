@@ -225,6 +225,21 @@ class TestRouteBurst:
         _route(_chars("line one\rline two"))
         assert editor._buffer == "line one\nline two"
 
+    def test_large_paste_continuations_are_fed_once_per_batch(
+        self, editor, monkeypatch
+    ):
+        from unittest.mock import Mock
+
+        payload = "long line\r\n" * 20_000
+        wire = _PASTE_OPEN + payload + _PASTE_CLOSE
+        feed = Mock(wraps=editor.feed)
+        monkeypatch.setattr(editor, "feed", feed)
+        for start in range(0, len(wire), 4096):
+            _route(_chars(wire[start : start + 4096]))
+        assert editor._buffer == payload.replace("\r\n", "\n")
+        assert feed.call_count == (len(wire) + 4095) // 4096
+        assert not editor.paste_active
+
     def test_split_bracketed_paste_across_poll_ticks(self, editor):
         _route(_chars(_PASTE_OPEN + "first "))
         assert editor.paste_active

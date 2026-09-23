@@ -43,7 +43,9 @@ class FakeRegistry:
     def get_providers(self):
         return self._providers
 
-    def get_models(self, provider_id):
+    def get_models(self, provider_id=None):
+        if provider_id is None:
+            return list(self._models)
         return [m for m in self._models if m.provider_id == provider_id]
 
 
@@ -126,6 +128,14 @@ class TestBuildModelConfig:
             "temperature",
             "top_p",
             "reasoning_effort",
+        ]
+        fixed_effort = amm.build_model_config(
+            make_model(model_id="gpt-5-pro"), make_provider(id="openai")
+        )
+        assert fixed_effort["supported_settings"] == [
+            "temperature",
+            "seed",
+            "top_p",
         ]
         default = amm.build_model_config(make_model(), make_provider(id="groq"))
         assert default["supported_settings"] == ["temperature", "seed", "top_p"]
@@ -490,6 +500,26 @@ class TestRunAddModelFlow:
             )
             is False
         )
+
+    def test_self_loaded_registry_reports_catalog_size(self):
+        registry, *_ = self._registry()
+        with (
+            patch.object(amm, "ModelsDevRegistry", return_value=registry),
+            patch.object(amm, "emit_info") as emit,
+        ):
+            amm.run_add_model_flow(
+                provider_menu_factory=scripted(amm.build_provider_menu, ["escape"]),
+            )
+        assert "1 providers and 1 models" in emit.call_args_list[0].args[0]
+
+    def test_injected_registry_is_not_narrated(self):
+        registry, *_ = self._registry()
+        with patch.object(amm, "emit_info") as emit:
+            amm.run_add_model_flow(
+                registry=registry,
+                provider_menu_factory=scripted(amm.build_provider_menu, ["escape"]),
+            )
+        emit.assert_not_called()
 
     def test_escape_in_models_returns_to_providers(self):
         registry, *_ = self._registry()

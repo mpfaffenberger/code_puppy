@@ -523,6 +523,53 @@ def _coerce_positive_int(value: Any) -> Optional[int]:
     return parsed if parsed > 0 else None
 
 
+def _models_dev_output_tokens(
+    model_name: str, model_config: dict[str, Any]
+) -> Optional[int]:
+    """Authoritative output cap for one catalog entry, per models.dev.
+
+    The last stop before the 15% heuristic. Hand-written entries -- and every
+    model added before ``/add_model`` started stamping limits -- carry no
+    ``max_output_tokens``, and a guessed cap is actively dangerous for
+    adaptive-thinking models: their reasoning shares the output budget, so
+    guessing low leaves them unable to emit even one tool call. (Opus 5 really
+    does support 128000 output tokens; the heuristic handed it 19200 and it
+    hard-failed mid-thought, having produced no tool call at all.)
+
+    Args:
+        model_name: Catalog key, reused as a provider-scoped lookup key.
+        model_config: Catalog entry; its ``name`` is the bare model id.
+
+    Returns:
+        The cap when models.dev vouches for it, else ``None`` so the caller
+        falls through to the heuristic. Never raises, and never guesses: an
+        ambiguous or unknown model yields ``None``.
+    """
+    name = str(model_config.get("name") or "")
+    if not name:
+        return None
+    try:
+        from code_puppy.models_dev_parser import (
+            get_registry,
+            index_limits,
+            match_limits,
+        )
+
+        registry = get_registry()
+        if registry is None:
+            return None
+        by_key, by_name = index_limits(registry.get_models())
+        # Mirrors extra_model_key() over a "provider/model" alias so the
+        # provider-scoped match applies whenever we can identify the provider.
+        key = model_name.replace("/", "-").replace(":", "-")
+        match = match_limits(by_key, by_name, key, name)
+        if match.limits is None:
+            return None
+        return _coerce_positive_int(match.limits.max_output)
+    except Exception:
+        return None
+
+
 def get_model_max_output_tokens(
     model_name: Optional[str] = None,
     models_config: Optional[dict[str, Any]] = None,
@@ -535,7 +582,10 @@ def get_model_max_output_tokens(
     2. ``max_output_tokens`` in the model's catalog entry
        (``models.json`` / ``extra_models.json``; ``/add_model`` fills this
        from models.dev's ``limit.output``).
-    3. Heuristic: 15% of ``context_length``, clamped to [2048, 65536].
+    3. ``limit.output`` for that model id from models.dev, so entries that
+       predate ``/add_model`` stamping limits (or were written by hand) still
+       get a real cap rather than a guess.
+    4. Heuristic: 15% of ``context_length``, clamped to [2048, 65536].
 
     Args:
         model_name: Model key; defaults to the current global model.
@@ -562,6 +612,9 @@ def get_model_max_output_tokens(
         )
         if catalog_value is not None:
             return catalog_value
+        dev_value = _models_dev_output_tokens(model_name, model_config)
+        if dev_value is not None:
+            return dev_value
         context_length = int(model_config.get("context_length", context_length))
     except Exception:
         pass
@@ -948,6 +1001,19 @@ def model_supports_setting(
         if setting in ("reasoning_context", "reasoning_mode"):
             if supports_gpt_responses_controls(underlying_name):
                 return True
+        if setting == "reasoning_effort":
+            # Resolve OpenAI model IDs and aliases without letting another
+            # provider opt in merely because its key contains an OpenAI tag.
+            from code_puppy.model_factory import _OPENAI_COMPATIBLE_MODEL_TYPES
+            from code_puppy.model_utils import resolve_openai_reasoning_effort_choices
+
+            model_type = model_config.get("type")
+            if model_type is None or model_type in _OPENAI_COMPATIBLE_MODEL_TYPES:
+                choices = resolve_openai_reasoning_effort_choices(
+                    model_name, model_config
+                )
+                if choices:
+                    return True
         if setting == "thinking_display":
             if get_anthropic_thinking_display_choices(model_name, underlying_name):
                 return True
@@ -2242,8 +2308,6 @@ DEFAULT_BANNER_COLORS = {
     "edit_file": "dark_goldenrod",  # Gold - modifications (legacy)
     "create_file": "dark_goldenrod",  # Gold - file creation
     "replace_in_file": "dark_goldenrod",  # Gold - file modifications
-    "edit": "dark_goldenrod",  # Claude/OpenCode targeted file edit
-    "apply_patch": "dark_goldenrod",  # Codex/OpenCode multi-file patch
     "delete_snippet": "dark_goldenrod",  # Gold - snippet removal
     "grep": "grey37",  # Silver - search results
     "directory_listing": "dodger_blue2",  # Sky - navigation
@@ -2260,6 +2324,8 @@ DEFAULT_BANNER_COLORS = {
     "shell_passthrough": "medium_sea_green",  # Green - user's own shell commands
     # LLM Judge - goal-mode verdict (distinct from agent reasoning)
     "llm_judge": "gold3",  # Gold - judicial authority / gavel
+    # User steering (QUEUED / STEER acks) - hot pink so it never hides in the scrollback
+    "steer": "deep_pink3",
 }
 
 
@@ -2485,7 +2551,6 @@ def auto_save_session_if_enabled(*, force: bool = False) -> bool:
         import pathlib
 
         from code_puppy.agents.agent_manager import get_current_agent
-        from code_puppy.messaging import emit_info
 
         current_agent = get_current_agent()
         history = current_agent.get_message_history()
@@ -2509,24 +2574,6 @@ def auto_save_session_if_enabled(*, force: bool = False) -> bool:
         # Point quick-resume at this save; every turn/exit/finalize routes through
         # this chokepoint. Best-effort, never blocks the autosave.
         record_quick_resume_sessions(session_name)
-
-        # Append conversation-wide TTFT + TG averages if we have any data.
-        stats_suffix = ""
-        try:
-            from code_puppy.agents.run_stats import AgentRunStats
-
-            avg_ttft, avg_gen = AgentRunStats.get_conversation_stats()
-            formatted = AgentRunStats.format_conversation_stats(avg_ttft, avg_gen)
-            if formatted:
-                stats_suffix = f" | {formatted}"
-        except Exception:
-            # Stats are decorative; never block the auto-save line on them.
-            pass
-
-        emit_info(
-            f"\U0001f43e Auto-saved session: {metadata.message_count} messages "
-            f"({metadata.total_tokens} tokens){stats_suffix}"
-        )
 
         # Fire post_autosave so plugins can append lines (token quota) without
         # us knowing about them. See session_lifecycle's docstring re executor wrap.
@@ -3045,6 +3092,29 @@ def set_output_level(level: str) -> None:
             f"Invalid output_level {level!r}; choose from low, medium, high"
         )
     set_config_value("output_level", normalised)
+
+
+def get_show_tool_output() -> bool:
+    """Return True if full tool-call results are shown in the transcript.
+
+    Default is False: tool-call results stay collapsed to the compact
+    one-line call summary. Set ``show_tool_output`` in ``puppy.cfg`` (or via
+    ``/set``) to render the full result bodies the tools emit.
+
+    Note: on Windows, shell output is *always* hidden regardless of this
+    flag -- PowerShell control characters brick SIGINT and make Code Puppy
+    impossible to cancel.
+    """
+    return get_truthy_bool_value("show_tool_output", False)
+
+
+def set_show_tool_output(enabled: bool) -> None:
+    """Set whether full tool-call results are rendered.
+
+    Args:
+        enabled: Whether to show full tool results in the transcript.
+    """
+    set_config_value("show_tool_output", "true" if enabled else "false")
 
 
 # API Key management functions

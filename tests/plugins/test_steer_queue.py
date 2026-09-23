@@ -289,9 +289,16 @@ class FakeBar:
 def test_suffix_updates_and_clears(monkeypatch):
     fake = FakeBar()
     monkeypatch.setattr("code_puppy.messaging.bottom_bar.get_bottom_bar", lambda: fake)
-    rc._update_status_suffix(3)
+    from code_puppy.messaging.pause_controller import get_pause_controller
+
+    pc = get_pause_controller()
+    pc.request_steer("now", mode="now")
+    pc.request_steer("later", mode="queue")
+    rc._update_status_suffix(2)
+    pc.drain_pending_steer_now()
+    pc.drain_pending_steer_queued()
     rc._update_status_suffix(0)
-    assert fake.suffixes == [" (3 pending)", ""]
+    assert fake.suffixes == [" (1 steering · 1 queued)", ""]
 
 
 def test_startup_wires_listener_end_to_end(monkeypatch):
@@ -303,7 +310,7 @@ def test_startup_wires_listener_end_to_end(monkeypatch):
     pc = get_pause_controller()
     pc.request_steer("queued thing", mode="queue")
     pc.drain_pending_steer_queued()
-    assert fake.suffixes == [" (1 pending)", ""]
+    assert fake.suffixes == [" (1 queued)", ""]
 
 
 def test_startup_wires_steer_listener_for_now_mode(monkeypatch):
@@ -316,4 +323,4 @@ def test_startup_wires_steer_listener_for_now_mode(monkeypatch):
     pc = get_pause_controller()
     pc.request_steer("focus on the tests", mode="now")
     pc.drain_pending_steer_now()
-    assert fake.suffixes == [" (1 pending)", ""]
+    assert fake.suffixes == [" (1 steering)", ""]

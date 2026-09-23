@@ -15,6 +15,14 @@ from code_puppy.command_line.attachments import (
 )
 
 
+@pytest.fixture(autouse=True)
+def restore_streaming_console(monkeypatch):
+    # run_prompt_with_attachments installs a process-global console.
+    monkeypatch.setattr(
+        "code_puppy.agents.event_stream_handler._streaming_console", None
+    )
+
+
 @pytest.mark.parametrize("extension", sorted(DEFAULT_ACCEPTED_IMAGE_EXTENSIONS))
 def test_parse_prompt_attachments_handles_images(
     tmp_path: Path, extension: str
@@ -180,7 +188,8 @@ async def test_run_prompt_with_attachments_passes_binary(tmp_path: Path) -> None
     assert isinstance(kwargs["attachments"][0], BinaryContent)
     assert kwargs["link_attachments"] == []
     mock_warn.assert_not_called()
-    mock_system.assert_called_once()
+    # Attachment summaries no longer add transcript chatter.
+    mock_system.assert_not_called()
 
 
 @pytest.mark.asyncio

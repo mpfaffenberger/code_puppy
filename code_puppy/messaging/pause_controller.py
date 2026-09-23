@@ -318,6 +318,11 @@ class PauseController:
         self._fire_steer_queue_listeners(total)
         return item
 
+    def pending_steer_counts(self) -> tuple[int, int]:
+        """Atomic snapshot of (steering this turn, queued for later turns)."""
+        with self._lock:
+            return len(self._steer_queue_now), len(self._steer_queue_queued)
+
     def peek_pending_steer_queued(self) -> List[str]:
         """Copy of the queued-mode queue WITHOUT draining (for the /queue TUI)."""
         with self._lock:

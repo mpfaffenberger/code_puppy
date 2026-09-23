@@ -132,6 +132,7 @@ class BottomBar(TranscriptGuardMixin, BarPainterMixin):
         self._rows = 0
         self._cols = 0
         self._status = ""
+        self._tool_progress = ""  # transient tool argument streaming counter
         self._status_prefix = ""  # animated spinner slot (puppy_spinner)
         self._status_suffix = ""  # trailing slot (steer_queue's '(N queued)')
         self._panel_lines: list[str] = []
@@ -213,6 +214,12 @@ class BottomBar(TranscriptGuardMixin, BarPainterMixin):
         """Current status-line text (the cached :meth:`set_status` value)."""
         with self._lock:
             return self._status
+
+    def set_tool_progress(self, text: str) -> None:
+        """Update tool streaming progress without clobbering other status slots."""
+        with self._lock:
+            self._tool_progress = text or ""
+            self._sync_reserved(self._status_seq)
 
     def set_status_prefix(self, text: str) -> None:
         """Update the spinner slot painted BEFORE the status text.
@@ -321,12 +328,18 @@ class BottomBar(TranscriptGuardMixin, BarPainterMixin):
         ``prefix_sgrs``: per-char SGR codes for the prefix (out-of-band
         — in-band escapes would be sanitized away).
         """
+        from .identity_line import split_identity
+
         with self._lock:
-            self._prompt_prefix = prefix or ""
-            self._prompt_prefix_sgrs = list(prefix_sgrs or [])
+            (
+                self._prompt_prefix,
+                self._prompt_prefix_sgrs,
+                self._identity_text,
+                self._identity_sgrs,
+            ) = split_identity(prefix or "", list(prefix_sgrs or []))
             self._prompt_buffer = buffer or ""
             self._prompt_cursor = max(0, cursor_pos)
-            self._sync_reserved(self._prompt_seq)
+            self._sync_reserved(lambda: self._prompt_seq() + self._identity_seq())
 
     def _sync_reserved(self, painter) -> None:
         """Repaint (or resize the reserved area) after a state change.
@@ -389,7 +402,16 @@ class BottomBar(TranscriptGuardMixin, BarPainterMixin):
         Windows (no SIGWINCH there).
         """
         cols, rows = self._safe_size()
-        if (cols, rows) != (self._cols, self._rows):
+        if (cols, rows) == (self._cols, self._rows):
+            return
+        if self._region_up and rows == self._rows:
+            # Horizontal dragging is not a fresh allocation. Re-establishing
+            # feeds a whole footer's worth of LFs on EVERY width change,
+            # pushing blank rows / chrome into scrollback. Reuse the existing
+            # band; only wrapped input or panel changes may alter its height.
+            self._cols = cols
+            self._resize_reserved(self._reserved)
+        else:
             self._establish()
 
     def _on_resize(self) -> None:

@@ -24,6 +24,7 @@ from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 import httpx2
 
 from .claude_oauth_transport import ClaudeOAuthTransport
+from .http_retry import describe_exception
 
 logger = logging.getLogger(__name__)
 
@@ -162,8 +163,9 @@ class ClaudeCacheAsyncClient(ClaudeOAuthTransport, httpx2.AsyncClient):
             return None
         system = data.get("system")
         if isinstance(system, str):
-            if system.startswith(CLAUDE_CODE_SYSTEM_PROMPT):
+            if system == CLAUDE_CODE_SYSTEM_PROMPT:
                 return None
+            system = system.removeprefix(CLAUDE_CODE_SYSTEM_PROMPT)
             blocks: list[Any] = [{"type": "text", "text": CLAUDE_CODE_SYSTEM_PROMPT}]
             if system:
                 blocks.append({"type": "text", "text": system})
@@ -171,8 +173,17 @@ class ClaudeCacheAsyncClient(ClaudeOAuthTransport, httpx2.AsyncClient):
         elif isinstance(system, list):
             first = system[0] if system else None
             text = first.get("text") if isinstance(first, dict) else None
-            if isinstance(text, str) and text.startswith(CLAUDE_CODE_SYSTEM_PROMPT):
+            if text == CLAUDE_CODE_SYSTEM_PROMPT:
                 return None
+            # Compaction adds a SystemPromptPart that the SDK joins to the
+            # signature. A matching prefix is not a standalone identity block.
+            # Keep metadata (including cache_control) on the remainder so its
+            # cache boundary still follows all the original content.
+            if isinstance(text, str) and text.startswith(CLAUDE_CODE_SYSTEM_PROMPT):
+                system = [
+                    {**first, "text": text.removeprefix(CLAUDE_CODE_SYSTEM_PROMPT)},
+                    *system[1:],
+                ]
             data["system"] = [
                 {"type": "text", "text": CLAUDE_CODE_SYSTEM_PROMPT},
                 *system,
@@ -431,7 +442,9 @@ class ClaudeCacheAsyncClient(ClaudeOAuthTransport, httpx2.AsyncClient):
             if status_code is None:
                 logger.warning(
                     "HTTP connection error: %s. Retrying in %.1fs (attempt %d/%d)",
-                    last_exception,
+                    describe_exception(last_exception)
+                    if last_exception is not None
+                    else "unknown connection error",
                     wait_time,
                     attempt + 1,
                     MAX_RETRIES,

@@ -58,6 +58,9 @@ from .messages import (
 )
 
 
+T = TypeVar("T")  # Auto-detect variable type.
+
+
 class MessageBus:
     """Central coordinator for bidirectional Agent <-> UI communication.
 
@@ -80,22 +83,36 @@ class MessageBus:
         # would duplicate what the snippet already returns to the model.
         self._tool_output_quiet_depth = 0
 
-        # Use sync queues by default (works in any context)
+        # Use sync queues by default (works in any context).
         self._outgoing: queue.Queue[AnyMessage] = queue.Queue(maxsize=maxsize)
         self._incoming: queue.Queue[AnyCommand] = queue.Queue(maxsize=maxsize)
 
-        # Event loop reference for async request/response (optional)
-        self._event_loop: Optional[asyncio.AbstractEventLoop] = None
-
-        # Startup buffering
+        # Startup buffering.
         self._startup_buffer: List[AnyMessage] = []
         self._has_active_renderer = False
 
-        # Request/Response correlation: prompt_id → Future (for async usage)
-        self._pending_requests: Dict[str, asyncio.Future[Any]] = {}
+        # Request/Response correlation: prompt_id → owning loop and Future.
+        self._pending_requests: Dict[
+            str, Tuple[asyncio.AbstractEventLoop, asyncio.Future[Any]]
+        ] = {}
 
-        # Session context for multi-agent tracking
+        # Session context for multi-agent tracking.
         self._current_session_id: Optional[str] = None
+
+    @staticmethod
+    def _put_item_into_queue(q: "queue.Queue[T]", item: T) -> None:
+        """Put item into queue. If queue is full, use FIFO to drop oldest and retry."""
+
+        try:
+            q.put_nowait(item)
+
+        except queue.Full:
+            try:
+                q.get_nowait()
+                q.put_nowait(item)
+
+            except queue.Empty:
+                pass
 
     # =========================================================================
     # Outgoing Messages (Agent → UI)
@@ -128,7 +145,12 @@ class MessageBus:
         Args:
             message: The message to emit.
         """
-        # Auto-tag message with current session if not already set
+        from .tool_output import suppress_tool_message
+
+        if suppress_tool_message(message):
+            return
+
+        # Auto-tag message with current session if not already set.
         with self._lock:
             if (
                 self._tool_output_quiet_depth > 0
@@ -143,23 +165,13 @@ class MessageBus:
             if not self._has_active_renderer:
                 self._startup_buffer.append(message)
 
-                # Prevent unbounded buffer growth in headless mode
+                # Prevent unbounded buffer growth in headless mode.
                 if len(self._startup_buffer) > self._maxsize:
                     self._startup_buffer = self._startup_buffer[-self._maxsize :]
                 return
 
-            # Direct put into thread-safe queue - inside lock to prevent race
-            try:
-                self._outgoing.put_nowait(message)
-
-            except queue.Full:
-                # Drop oldest and retry
-                try:
-                    self._outgoing.get_nowait()
-                    self._outgoing.put_nowait(message)
-
-                except queue.Empty:
-                    pass
+            # Direct put into thread-safe queue: inside lock to prevent race.
+            self._put_item_into_queue(self._outgoing, message)
 
     def emit_text(
         self,
@@ -263,7 +275,7 @@ class MessageBus:
         future: asyncio.Future[str] = loop.create_future()
 
         with self._lock:
-            self._pending_requests[prompt_id] = future
+            self._pending_requests[prompt_id] = (loop, future)
 
         # Emit the request
         request = UserInputRequest(
@@ -310,7 +322,7 @@ class MessageBus:
         future: asyncio.Future[Tuple[bool, Optional[str]]] = loop.create_future()
 
         with self._lock:
-            self._pending_requests[prompt_id] = future
+            self._pending_requests[prompt_id] = (loop, future)
 
         request = ConfirmationRequest(
             prompt_id=prompt_id,
@@ -353,7 +365,7 @@ class MessageBus:
         future: asyncio.Future[Tuple[int, str]] = loop.create_future()
 
         with self._lock:
-            self._pending_requests[prompt_id] = future
+            self._pending_requests[prompt_id] = (loop, future)
 
         request = SelectionRequest(
             prompt_id=prompt_id,
@@ -383,7 +395,7 @@ class MessageBus:
         Args:
             command: The response command (UserInputResponse, etc.).
         """
-        # Handle user interaction responses
+        # Handle user interaction responses.
         if isinstance(command, UserInputResponse):
             self._complete_request(command.prompt_id, command.value)
 
@@ -413,42 +425,30 @@ class MessageBus:
             get_pause_controller().request_steer(command.text, mode=command.mode)
 
         else:
-            # For non-response commands (CancelAgentCommand, etc.),
-            # put them in the incoming queue for the agent to process
-            try:
-                self._incoming.put_nowait(command)
-
-            except queue.Full:
-                # Drop oldest and retry
-                try:
-                    self._incoming.get_nowait()
-                    self._incoming.put_nowait(command)
-
-                except queue.Empty:
-                    pass
+            with self._lock:
+                # For non-response commands, like CancelAgentCommand, etc.,
+                # put them into incoming queue for the agent to process.
+                self._put_item_into_queue(self._incoming, command)
 
     def _complete_request(self, prompt_id: str, result: object) -> None:
-        """Complete a pending request with the given result."""
+        """Complete a pending request on the Future's owning event loop."""
         with self._lock:
-            future = self._pending_requests.get(prompt_id)
+            pending = self._pending_requests.pop(prompt_id, None)
 
-        if future is not None and not future.done():
-            # Must set result from the event loop thread if we have one
-            if self._event_loop is not None:
-                try:
-                    self._event_loop.call_soon_threadsafe(
-                        self._set_future_result, future, result
-                    )
+        if pending is None:
+            return
 
-                except RuntimeError:
-                    # Event loop closed - try direct set
-                    self._set_future_result(future, result)
+        loop, future = pending
+        try:
+            loop.call_soon_threadsafe(self._set_future_result, future, result)
 
-            else:
-                # No event loop - try direct set
-                self._set_future_result(future, result)
+        except RuntimeError:
+            # A closed loop cannot resume its waiter. Never mutate its Future
+            # directly from this potentially foreign thread.
+            return
 
-    def _set_future_result(self, future: asyncio.Future[Any], result: object) -> None:
+    @staticmethod
+    def _set_future_result(future: asyncio.Future[Any], result: object) -> None:
         """Set a future's result if not already done."""
         if not future.done():
             future.set_result(result)
@@ -456,8 +456,6 @@ class MessageBus:
     # =========================================================================
     # Queue Access (for renderers/consumers)
     # =========================================================================
-
-    T = TypeVar("T")
 
     @staticmethod
     async def _get_nowait_with_backoff(q: "queue.Queue[T]") -> T:

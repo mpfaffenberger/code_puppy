@@ -921,10 +921,6 @@ def run_shell_command_streaming(
             if automatic
             else "The user backgrounded this command"
         )
-        if not silent:
-            emit_warning(
-                f"{cause} (PID {process.pid}) -- output continues in {log.path}"
-            )
         return ShellCommandOutput(
             success=True,
             command=command,
@@ -1554,11 +1550,11 @@ def share_your_reasoning(
     return ReasoningOutput(success=True)
 
 
-def register_agent_run_shell_command(agent):
-    """Register only the agent_run_shell_command tool."""
+def register_shell(agent):
+    """Register only the shell tool."""
 
     @agent.tool
-    async def agent_run_shell_command(
+    async def shell(
         context: RunContext,
         command: str,
         cwd: str | None = None,
@@ -1568,6 +1564,11 @@ def register_agent_run_shell_command(agent):
         """Execute a shell command with comprehensive monitoring and safety features.
 
         Supports streaming output, timeout handling, and background execution.
+
+        Write commands for human readers, not code golf. Avoid nested subshells,
+        one-letter variables, and obscure flags. Simple pipe chains are
+        encouraged. Split into separate commands when one line stops making
+        sense.
         """
         result = await run_shell_command(context, command, cwd, timeout, background)
         await on_run_shell_command_output(result)

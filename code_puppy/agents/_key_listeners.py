@@ -563,8 +563,7 @@ def _route_windows_burst(
     """
     payload = _coalesce_paste_burst(items)
     if _editor_paste_active():
-        for _, value in items:
-            _feed_line_editor(value)
+        _feed_line_editor("".join(value for _, value in items))
     elif payload is not None and (_PASTE_OPEN in payload or _PASTE_CLOSE in payload):
         _feed_line_editor(payload)
     elif payload is not None:
@@ -657,7 +656,10 @@ def _listen_windows_loop(
                 pass
 
         try:
-            if msvcrt.kbhit():
+            from code_puppy.agents._windows_console import read_vt_burst
+
+            items = read_vt_burst(_WIN_BURST_CAP)
+            if items is None and msvcrt.kbhit():
                 # Drain the WHOLE pending burst this tick (one char per
                 # 50ms tick made a 200-char paste take ten seconds). Note
                 # the pair's second half sits in the CRT pushback buffer
@@ -666,6 +668,7 @@ def _listen_windows_loop(
                 # the editor); unknown pairs are swallowed. Wart: a
                 # literal typed 'à' is indistinguishable and blocks briefly.
                 items = _drain_windows_burst(msvcrt)
+            if items:
                 _route_windows_burst(
                     items, on_escape, cancel_agent_char, on_cancel_agent
                 )
@@ -689,7 +692,10 @@ def _listen_windows_loop(
             in_outage = False
             backoff = _RECOVERY_INITIAL_BACKOFF_S
             emit_info("Windows key listener recovered.")
-        time.sleep(0.05)
+        # Check stop/suspend between batches, but don't throttle a paste
+        # while input is available. Only idle polls need a sleep.
+        if not items:
+            stop_event.wait(0.05)
 
 
 # =============================================================================

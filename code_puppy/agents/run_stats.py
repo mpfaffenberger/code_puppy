@@ -335,7 +335,7 @@ _TOOLS_WITH_RENDERER = frozenset(
         "delete_file",
         "delete_snippet",
         "edit_file",
-        "agent_run_shell_command",
+        "shell",
         "ask_user_question",
         "activate_skill",
         "list_or_search_skills",

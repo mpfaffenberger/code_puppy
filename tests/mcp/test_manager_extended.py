@@ -11,7 +11,7 @@ Uses simple mocking to keep tests focused and maintainable.
 """
 
 from datetime import datetime, timedelta
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, Mock, call, patch
 
 import pytest
 
@@ -267,7 +267,10 @@ class TestMCPManagerExtended:
 
             assert result is True
             mock_server.enable.assert_called_once()
-            mock_set_status.assert_called_once_with("test-id", ServerState.RUNNING)
+            assert mock_set_status.call_args_list == [
+                call("test-id", ServerState.STARTING),
+                call("test-id", ServerState.RUNNING),
+            ]
             mock_record_start.assert_called_once_with("test-id")
             mock_lifecycle.start_server.assert_called_once()
 
@@ -282,7 +285,7 @@ class TestMCPManagerExtended:
 
     @pytest.mark.asyncio
     async def test_start_server_handles_lifecycle_failure(self):
-        """Test that lifecycle manager failure doesn't prevent server enable."""
+        """Lifecycle failures must not be reported as successful startup."""
         manager = MCPManager()
 
         mock_server = Mock()
@@ -306,10 +309,10 @@ class TestMCPManagerExtended:
         ):
             result = await manager.start_server("test-id")
 
-            # Should still succeed (server enabled even if process start failed)
-            assert result is True
-            mock_server.enable.assert_called_once()
-            mock_set_status.assert_called_once_with("test-id", ServerState.RUNNING)
+            assert result is False
+            mock_server.enable.assert_not_called()
+            mock_server.disable.assert_called_once()
+            mock_set_status.assert_called_with("test-id", ServerState.ERROR)
 
     def test_start_server_sync_success(self):
         """Test synchronous server start."""
@@ -330,10 +333,10 @@ class TestMCPManagerExtended:
         ):
             result = manager.start_server_sync("test-id")
 
-            assert result is True
-            mock_server.enable.assert_called_once()
-            mock_set_status.assert_called_once_with("test-id", ServerState.RUNNING)
-            mock_record_start.assert_called_once_with("test-id")
+            assert result is False
+            mock_server.enable.assert_not_called()
+            mock_set_status.assert_not_called()
+            mock_record_start.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_stop_server_success(self):
@@ -365,7 +368,7 @@ class TestMCPManagerExtended:
 
             assert result is True
             mock_server.disable.assert_called_once()
-            mock_set_status.assert_called_once_with("test-id", ServerState.STOPPED)
+            mock_set_status.assert_called_with("test-id", ServerState.STOPPED)
             mock_record_stop.assert_called_once_with("test-id")
             mock_lifecycle.stop_server.assert_called_once()
 
@@ -390,7 +393,7 @@ class TestMCPManagerExtended:
 
             assert result is True
             mock_server.disable.assert_called_once()
-            mock_set_status.assert_called_once_with("test-id", ServerState.STOPPED)
+            mock_set_status.assert_called_with("test-id", ServerState.STOPPED)
             mock_record_stop.assert_called_once_with("test-id")
 
     def test_reload_server_success(self):
@@ -425,7 +428,7 @@ class TestMCPManagerExtended:
             assert result is True
             # Old server should be removed, new one added
             assert manager._managed_servers["test-id"] is new_mock_server
-            mock_set_status.assert_called_once_with("test-id", ServerState.STOPPED)
+            mock_set_status.assert_called_with("test-id", ServerState.STOPPED)
 
     def test_reload_server_not_found(self):
         """Test reloading non-existent server."""

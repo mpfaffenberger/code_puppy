@@ -23,7 +23,12 @@ from code_puppy.config import (
 )
 from code_puppy.i18n import t
 from code_puppy.messaging import emit_error, emit_info, emit_warning
-from code_puppy.models_dev_parser import ModelInfo, ModelsDevRegistry, ProviderInfo
+from code_puppy.models_dev_parser import (
+    ModelInfo,
+    ModelsDevRegistry,
+    ProviderInfo,
+    extra_model_key,
+)
 from code_puppy.provider_credentials import (
     credential_display,
     save_credential,
@@ -98,8 +103,14 @@ ENV_VAR_HINTS = {
     "XAI_API_KEY": "Get your API key from https://console.x.ai/",
 }
 
-_CUSTOM_MODEL_VALUE = "__custom_model__"
-_EDIT_CREDENTIALS = "__edit_credentials__"
+from code_puppy.command_line.add_model_menus import (  # noqa: E402,F401
+    _CUSTOM_MODEL_VALUE,
+    _EDIT_CREDENTIALS,
+    _VLLM_PROVIDER_VALUE,
+    build_models_menu,
+    build_provider_menu,
+    confirm_no_tool_call,
+)
 
 
 def derive_provider_identity(provider: ProviderInfo) -> str:
@@ -207,30 +218,36 @@ def build_model_config(model: ModelInfo, provider: ProviderInfo) -> dict:
             "extended_thinking",
             "budget_tokens",
         ]
-    elif model_type == "openai" and "gpt-5" in model.model_id:
-        if "codex" in model.model_id:
-            config["supported_settings"] = ["temperature", "top_p", "reasoning_effort"]
-        else:
+    elif model_type == "openai":
+        # Share OpenAI effort capabilities with config and settings menus.
+        # Empty means fixed effort; None means an unrecognized model.
+        from code_puppy.model_utils import get_openai_reasoning_effort_choices
+
+        effort_choices = get_openai_reasoning_effort_choices(model.model_id)
+        if effort_choices:
             config["supported_settings"] = [
                 "temperature",
                 "top_p",
                 "reasoning_effort",
-                "verbosity",
             ]
+            # Verbosity is a GPT-5-family Responses/Chat option; codex
+            # variants and o-series models don't support it.
+            if "gpt-5" in model.model_id and "codex" not in model.model_id:
+                config["supported_settings"].append("verbosity")
+        else:
+            config["supported_settings"] = ["temperature", "seed", "top_p"]
     else:
         config["supported_settings"] = ["temperature", "seed", "top_p"]
 
     return config
 
 
-def extra_model_key(provider_id: str, model_id: str) -> str:
-    """The ``extra_models.json`` key ``/add_model`` assigns to a catalog model."""
-    return f"{provider_id}-{model_id}".replace("/", "-").replace(":", "-")
+def add_config_to_extra_config(model_key: str, config: dict) -> bool:
+    """Persist one pre-built model config (locked, atomic read-modify-write).
 
-
-def add_model_to_extra_config(model: ModelInfo, provider: ProviderInfo) -> bool:
-    """Add a model to extra_models.json (locked, atomic read-modify-write)."""
-    model_key = extra_model_key(provider.id, model.model_id)
+    Shared by the catalog browser and the vLLM path so both go through the
+    same locking, corruption handling, and duplicate reporting.
+    """
     already_present = False
 
     def _mutate(current):
@@ -240,7 +257,7 @@ def add_model_to_extra_config(model: ModelInfo, provider: ProviderInfo) -> bool:
         if model_key in current:
             already_present = True
             return current
-        current[model_key] = build_model_config(model, provider)
+        current[model_key] = config
         return current
 
     try:
@@ -262,84 +279,24 @@ def add_model_to_extra_config(model: ModelInfo, provider: ProviderInfo) -> bool:
     return True
 
 
+def add_model_to_extra_config(model: ModelInfo, provider: ProviderInfo) -> bool:
+    """Add a catalog model to extra_models.json (locked, atomic write)."""
+    return add_config_to_extra_config(
+        extra_model_key(provider.id, model.model_id),
+        build_model_config(model, provider),
+    )
+
+
 def missing_env_vars(provider: ProviderInfo) -> List[str]:
     """Required env vars for ``provider`` that are not currently set."""
     return [env_var for env_var in provider.env if not os.environ.get(env_var)]
 
 
-from code_puppy.command_line.add_model_details import (  # noqa: E402
+from code_puppy.command_line.add_model_details import (  # noqa: E402,F401
     custom_model_details,
     model_details,
     provider_details,
 )
-
-
-# -- menus -------------------------------------------------------------------
-
-
-def _edit_credentials_key(builder):
-    """Bind Ctrl+E to exit the menu with an edit-credentials sentinel."""
-    from termflow.tui import MenuItem
-    from termflow.tui.menu import MenuResult
-
-    def handler(_menu, item):
-        return MenuResult(item=MenuItem("", value=(_EDIT_CREDENTIALS, item.value)))
-
-    builder.on_key("ctrl-e", handler)
-    return builder
-
-
-def build_provider_menu(providers: List[ProviderInfo], **overrides):
-    """Searchable provider list with a details preview pane."""
-    from termflow.tui import MenuBuilder, MenuItem
-
-    from code_puppy.command_line.tui_style import themed
-
-    items = [
-        MenuItem(f"{p.name} ({p.model_count})", value=p, description=p.id)
-        for p in providers
-    ]
-    builder = themed(
-        MenuBuilder("Add Model - Providers")
-        .items(items)
-        .searchable()
-        .list_width(36)
-        .alt_screen(False)
-        .preview(lambda item: provider_details(item.value))
-        .footer_hint("type filter - Enter open - Ctrl+E credentials - Esc cancel")
-    )
-    _edit_credentials_key(builder)
-    for name, value in overrides.items():
-        getattr(builder, name)(value)
-    return builder.build()
-
-
-def build_models_menu(provider: ProviderInfo, models: List[ModelInfo], **overrides):
-    """Searchable model list for one provider, custom-model entry last."""
-    from termflow.tui import MenuBuilder, MenuItem
-
-    from code_puppy.command_line.tui_style import themed
-
-    def preview(item):
-        if item.value == _CUSTOM_MODEL_VALUE:
-            return custom_model_details(provider)
-        return model_details(item.value, provider)
-
-    items = [MenuItem(m.name, value=m, description=m.model_id) for m in models]
-    items.append(MenuItem("+ Custom model...", value=_CUSTOM_MODEL_VALUE))
-    builder = themed(
-        MenuBuilder(f"Add Model - {provider.name}")
-        .items(items)
-        .searchable()
-        .list_width(36)
-        .alt_screen(False)
-        .preview(preview)
-        .footer_hint("type filter - Enter add - Ctrl+E credentials - Esc back")
-    )
-    _edit_credentials_key(builder)
-    for name, value in overrides.items():
-        getattr(builder, name)(value)
-    return builder.build()
 
 
 # -- TextInput flows ---------------------------------------------------------
@@ -476,29 +433,6 @@ def prompt_for_custom_model(
     return (name_result.value.strip(), context_length or 128000)
 
 
-def confirm_no_tool_call(model: ModelInfo, **overrides) -> bool:
-    """Explicit opt-in for models without tool calling."""
-    from termflow.tui import MenuBuilder, MenuItem
-
-    from code_puppy.command_line.tui_style import themed
-
-    builder = themed(
-        MenuBuilder(f"{model.name} has NO tool calling - add anyway?")
-        .items(
-            [
-                MenuItem("No - pick something else", value=False),
-                MenuItem("Yes - add it regardless", value=True),
-            ]
-        )
-        .alt_screen(False)
-        .footer_hint("Enter confirm - Esc cancel")
-    )
-    for name, value in overrides.items():
-        getattr(builder, name)(value)
-    result = builder.build().run()
-    return bool(result.item and result.item.value is True and not result.cancelled)
-
-
 # -- orchestration -----------------------------------------------------------
 
 
@@ -530,6 +464,16 @@ def run_add_model_flow(
         except Exception as e:
             emit_error(t("model_menu.registry.load_error", error=e))
             return False
+        # Only narrate the catalog size when we did the loading for a human
+        # who is about to browse it. An injected registry belongs to a caller
+        # that can speak for itself.
+        emit_info(
+            t(
+                "model_menu.registry.loaded",
+                providers=len(registry.get_providers()),
+                models=len(registry.get_models()),
+            )
+        )
     providers = registry.get_providers()
     if not providers:
         emit_error(t("model_menu.registry.no_providers"))
@@ -544,6 +488,12 @@ def run_add_model_flow(
             if provider.env and not credentials_editor(provider):
                 return False
             continue
+
+        if result.item.value == _VLLM_PROVIDER_VALUE:
+            from code_puppy.command_line.add_model_vllm import run_vllm_flow
+
+            return run_vllm_flow()
+
         provider = result.item.value
 
         back_to_providers = False
