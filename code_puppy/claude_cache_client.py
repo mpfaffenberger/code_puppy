@@ -39,7 +39,7 @@ MAX_RETRIES = 5
 TOOL_PREFIX = "cp_"
 FINE_GRAINED_TOOL_STREAMING_BETA = "fine-grained-tool-streaming-2025-05-14"
 
-CLAUDE_CLI_USER_AGENT = "claude-cli/2.1.251 (external, cli)"
+CLAUDE_CLI_USER_AGENT = "claude-cli/2.1.280 (external, cli)"
 
 # The Claude Code OAuth endpoint fingerprints this exact string as the FIRST
 # system block; requests that lead with anything else get rejected. Mirrors

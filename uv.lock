@@ -465,7 +465,7 @@ requires-dist = [
     { name = "azure-identity", specifier = ">=1.15.0" },
     { name = "boto3", specifier = ">=1.43.9" },
     { name = "boto3", marker = "extra == 'bedrock'", specifier = ">=1.35.0" },
-    { name = "code-puppy-core-plugins", specifier = ">=0.0.58" },
+    { name = "code-puppy-core-plugins", specifier = ">=0.0.62" },
     { name = "dbos", marker = "extra == 'durable'", specifier = ">=2.11.0" },
     { name = "httpx", extras = ["http2"], specifier = ">=0.24.1" },
     { name = "httpx2", specifier = ">=2.7" },
@@ -506,15 +506,15 @@ dev = [
 
 [[package]]
 name = "code-puppy-core-plugins"
-version = "0.0.58"
+version = "0.0.62"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
     { name = "pydantic-ai-slim", extra = ["anthropic", "mcp", "openai"] },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/b2/15/d6b55458e8b6e9f8eaa44960891a56c3bd387340c47d0672fd05f6acbe1f/code_puppy_core_plugins-0.0.58.tar.gz", hash = "sha256:604d238264f53568fce8e7e5baa4c5af11cde9ad7e3b6fdb78de8e6cb5d2d6fa", size = 568000, upload-time = "2026-09-21T19:06:09.74Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/02/34/e0d504f642c40863393b214ae846264d47401df9e6804c77b18df5cc12d9/code_puppy_core_plugins-0.0.62.tar.gz", hash = "sha256:3c67cd8da2237881bd6dd6f615a17951b75cf6e1ad3367568a749bc6e4883501", size = 573246, upload-time = "2026-09-23T13:54:51.836Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/04/f0/401703d23c745949a67f1b1b258b3197d29b71706a1346e4bc7bc0eb8e47/code_puppy_core_plugins-0.0.58-py3-none-any.whl", hash = "sha256:3810050a7ee5c1c172ff06a58da91275c15cbe4b47a55ebfe751d40f354750df", size = 768997, upload-time = "2026-09-21T19:06:08.369Z" },
+    { url = "https://files.pythonhosted.org/packages/63/ab/c022061a7fa1345a08f7989c4b58d2402be401f992d6f2a8956af0f6e30f/code_puppy_core_plugins-0.0.62-py3-none-any.whl", hash = "sha256:24e53cc8879e02214177e555604627c88e99fd4ff0cabb90a001df888352c870", size = 774911, upload-time = "2026-09-23T13:54:50.215Z" },
 ]
 
 [[package]]
