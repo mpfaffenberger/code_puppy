@@ -126,6 +126,8 @@
   "cli.resume.none_found": "No previous session found for this scope; starting fresh.",
   "cli.resume.quick_searching": "🔍 Quick Resume selected - finding latest session for {scope}",
   "cli.resume.resumed": "Resumed: {messages} messages ({tokens} tokens) from {session}",
+  "cli.speculation.off": "NEW: Speculative execution is OFF. Press Ctrl+X Ctrl+S and tool calls start running while the model is still typing them.",
+  "cli.speculation.on": "Speculative execution is ON: tool calls run while the model is still typing them. Ctrl+X Ctrl+S toggles it.",
   "cli.turn.cancelled": "Cancelled",
   "cli.version.update_disabled": "Update phase disabled because NO_VERSION_UPDATE is set to 1 or true",
   "cmd.add_model.failed": "Failed to launch model browser: {error}",
@@ -548,7 +550,7 @@
   "renderer.unknown_message": "Unknown message: {message_type}",
   "renderer.user_input_async": "User input requested (requires async)",
   "renderer.working_directory": "Working directory: {cwd}",
-  "speculation.breakdown": "spec {speculative_seconds}s \u00b7 eager {eager_seconds}s",
+  "speculation.breakdown": "spec {speculative_seconds}s · eager {eager_seconds}s",
   "speculation.disabled": "Speculative execution off. Next turn uses plain tool calls. Ctrl+X Ctrl+S to re-enable.",
   "speculation.enabled": "Speculative execution on. Next turn runs literal reads while the model is still typing.",
   "speculation.hits": {
@@ -560,7 +562,7 @@
     "one": "{count} miss",
     "other": "{count} misses"
   },
-  "speculation.saved": "saved \u2265 {seconds}s",
+  "speculation.saved": "saved ≥ {seconds}s",
   "speculation.wasted": {
     "one": "{count} wasted",
     "other": "{count} wasted"
