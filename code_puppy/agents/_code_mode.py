@@ -46,12 +46,15 @@ from code_puppy.config import get_speculative_code_mode_enabled
 pydantic_ai.BANNER_ENABLED = False
 
 # Streaming AST probes repeatedly warn about the same generated string literal.
-warnings.filterwarnings(
-    "ignore",
-    message=r".*is an invalid escape sequence.*",
-    category=SyntaxWarning,
-    module=r"^<unknown>$",
-)
+# Python 3.12+ raises these as SyntaxWarning ("... is an invalid escape
+# sequence"); 3.11 uses DeprecationWarning ("invalid escape sequence '...'").
+for _invalid_escape_category in (SyntaxWarning, DeprecationWarning):
+    warnings.filterwarnings(
+        "ignore",
+        message=r".*invalid escape sequence.*",
+        category=_invalid_escape_category,
+        module=r"^<unknown>$",
+    )
 
 # The read-only trio: pure with respect to the workspace, safe to re-run or discard.
 SANDBOXED_READ_ONLY_TOOLS = ("list_files", "read_file", "grep")
