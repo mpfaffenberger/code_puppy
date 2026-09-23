@@ -35,6 +35,7 @@ class FakeClient:
 
     def __init__(self, active: bool = True) -> None:
         self.active = active
+        self.pane_id = "test-pane"
         self.states: list[tuple[str, str | None]] = []
         self.activity: list[tuple[str, str | None, bool]] = []
         self.sessions: list[tuple[str, str]] = []
