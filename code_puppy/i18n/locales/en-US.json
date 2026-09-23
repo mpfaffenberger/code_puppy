@@ -548,7 +548,21 @@
   "renderer.unknown_message": "Unknown message: {message_type}",
   "renderer.user_input_async": "User input requested (requires async)",
   "renderer.working_directory": "Working directory: {cwd}",
-  "speculation.status": "Spec | hits {hits} | misses {misses} | wasted {wasted} | spec saved >= {speculative_seconds}s | eager saved >= {eager_seconds}s",
+  "speculation.breakdown": "spec {speculative_seconds}s \u00b7 eager {eager_seconds}s",
+  "speculation.hits": {
+    "one": "{count} hit",
+    "other": "{count} hits"
+  },
+  "speculation.label": "spec",
+  "speculation.misses": {
+    "one": "{count} miss",
+    "other": "{count} misses"
+  },
+  "speculation.saved": "saved \u2265 {seconds}s",
+  "speculation.wasted": {
+    "one": "{count} wasted",
+    "other": "{count} wasted"
+  },
   "startup.ready": "Ready to fetch some code. 🐶",
   "startup.welcome": "Welcome to Code Puppy, {name}!",
   "stream.activity.calling": "Calling {tool}",

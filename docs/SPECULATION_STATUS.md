@@ -4,15 +4,26 @@ Speculative Puppy shows session counters in a pinned terminal row instead of
 printing the streamed `run_code` source or a final code panel. Switching to
 another agent hides the row; switching back keeps the session totals.
 
+```
+spec  29 hits · 0 misses · 0 wasted    saved ≥ 7.0s   spec 0.5s · eager 6.5s
+```
+
+The label uses the agent accent. Counts light up only when non-zero (hits
+green, misses yellow, wasted red); the headline total is bold green once
+anything has been saved, and the breakdown stays muted. Only palette slots
+are used, so `/theme` recolors the row.
+
 - **Hits:** sandbox calls that adopted a speculative launch.
 - **Misses:** speculation-eligible calls that ran without a matching launch.
 - **Wasted:** launches reported by the harness as discarded without a claim.
-- **Spec saved >=:** the sum of fully hidden call durations, in seconds. This
+- **saved ≥:** spec plus eager, below. Both are lower bounds, so the sum is
+  too.
+- **spec:** the sum of fully hidden call durations, in seconds. This
   is a lower bound on summed call latency hidden by speculation, not elapsed
   wall-clock time saved. Concurrent calls can overlap. Partial hits still
   count as hits, but their timing is excluded because the harness does not
   expose how long the caller waited.
-- **Eager saved >=:** summed time spent in non-speculative sandbox tool calls
+- **eager:** summed time spent in non-speculative sandbox tool calls
   while `run_code` arguments were still streaming. A call that extends past
   generation contributes only its overlapping portion. The counter updates
   when the snippet completes successfully, and excludes restarted, rejected,

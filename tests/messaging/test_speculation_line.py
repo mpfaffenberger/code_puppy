@@ -55,6 +55,27 @@ def test_row_sits_immediately_above_identity_and_context(terminal):
     assert screen.margins.bottom == 24 - bar._reserved - 1
 
 
+def test_styled_text_row_keeps_program_styles_and_drops_smuggled_escapes(terminal):
+    bar, screen, output, _ = terminal
+    row = Text()
+    row.append("spec", style="bold bright_blue")
+    row.append("  ")
+    row.append("3 hits", style="bold bright_green")
+    row.append("\x1b[31mEVIL", style="bright_black")
+    before = len(output.getvalue())
+    bar.set_speculation_status(row)
+    painted = output.getvalue()[before:]
+    assert screen.display[-3].strip() == "spec  3 hits[31mEVIL"
+    assert "\x1b[1;92m" in painted or "\x1b[1m\x1b[92m" in painted or "92m" in painted
+    assert "\x1b[31m" not in painted
+    # Same content again is a no-op; a plain string still paints dim.
+    bar.set_speculation_status(row.copy())
+    assert output.getvalue()[before:] == painted
+    bar.set_speculation_status("plain fallback")
+    assert screen.display[-3].strip() == "plain fallback"
+    assert "\x1b[2mplain fallback" in output.getvalue()
+
+
 def test_hiding_row_restores_two_bottom_rows_without_ghosts(terminal):
     bar, screen, _, _ = terminal
     original = bar._reserved

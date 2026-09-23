@@ -16,10 +16,16 @@ from pydantic_ai_harness.code_mode import (
     SpeculativeCodeUpdateEvent,
 )
 
+from rich.text import Text
+
 from code_puppy.capabilities.eager_timing import EagerExecutionCompletedEvent
-from code_puppy.i18n import t
+from code_puppy.i18n import ngettext, t
+from code_puppy.messaging.theme_accent import agent_accent
 
 logger = logging.getLogger(__name__)
+# Palette slots only (bright_black etc.) so /theme recolors the row via OSC 4.
+_MUTED = "bright_black"
+_SEP = " \u00b7 "
 _SPECULATION_EVENTS = (
     EagerExecutionCompletedEvent,
     SpeculativeCallClaimedEvent,
@@ -61,17 +67,48 @@ class SpeculationStats:
                 self.wasted += 1
         return True
 
-    def render(self) -> str:
-        """Round hidden-latency totals down to preserve their lower bounds."""
+    def render(self) -> Text:
+        """One styled row: counts light up only when non-zero, one headline total."""
         with self._lock:
-            return t(
-                "speculation.status",
-                hits=self.hits,
-                misses=self.misses,
-                wasted=self.wasted,
-                speculative_seconds=f"{self.saved_ms // 100 / 10:.1f}",
-                eager_seconds=f"{self.eager_saved_ms // 100 / 10:.1f}",
-            )
+            hits, misses, wasted = self.hits, self.misses, self.wasted
+            spec_ms, eager_ms = self.saved_ms, self.eager_saved_ms
+        total = _seconds(spec_ms + eager_ms)
+        row = Text()
+        row.append(t("speculation.label"), style=f"bold {agent_accent()}")
+        row.append("  ")
+        row.append(
+            ngettext("speculation.hits", hits), style=_count(hits, "bright_green")
+        )
+        row.append(_SEP, style=_MUTED)
+        row.append(
+            ngettext("speculation.misses", misses), style=_count(misses, "yellow")
+        )
+        row.append(_SEP, style=_MUTED)
+        row.append(ngettext("speculation.wasted", wasted), style=_count(wasted, "red"))
+        row.append("    ")
+        row.append(
+            t("speculation.saved", seconds=total),
+            style="bold bright_green" if total != "0.0" else _MUTED,
+        )
+        row.append("   ")
+        row.append(
+            t(
+                "speculation.breakdown",
+                speculative_seconds=_seconds(spec_ms),
+                eager_seconds=_seconds(eager_ms),
+            ),
+            style=_MUTED,
+        )
+        return row
+
+
+def _seconds(ms: float) -> str:
+    """Round down so the displayed total stays a lower bound."""
+    return f"{ms // 100 / 10:.1f}"
+
+
+def _count(value: int, color: str) -> str:
+    return f"bold {color}" if value else _MUTED
 
 
 _stats = SpeculationStats()
@@ -81,7 +118,7 @@ def get_speculation_stats() -> SpeculationStats:
     return _stats
 
 
-def get_speculation_status() -> str | None:
+def get_speculation_status() -> Text | None:
     """Return chrome only for the currently selected Speculative Puppy agent."""
     try:
         from code_puppy.agents.agent_manager import get_current_agent_name

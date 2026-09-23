@@ -58,25 +58,57 @@ def test_session_counts_survive_new_snippets():
     )
     assert stats.handle_event(claim(elapsed_ms=500.0))
     assert (stats.hits, stats.misses, stats.wasted, stats.saved_ms) == (2, 1, 1, 2000.0)
-    text = stats.render()
-    assert "hits 2" in text
-    assert "misses 1" in text
-    assert "wasted 1" in text
-    assert "spec saved >= 2.0s" in text
-    assert "eager saved >= 0.0s" in text
+    text = stats.render().plain
+    assert "2 hits" in text
+    assert "1 miss " in text
+    assert "1 wasted" in text
+    assert "saved \u2265 2.0s" in text
+    assert "spec 2.0s \u00b7 eager 0.0s" in text
     assert "private code" not in text
 
 
 def test_status_is_localizable():
+    """Every word comes from the catalog; only spacing and separators do not."""
     from code_puppy.i18n import pseudo, translate
 
     previous = translate.get_locale()
     try:
         translate.set_locale(pseudo.PSEUDO_LOCALE)
-        text = SpeculationStats().render()
-        assert text.startswith("⟦") and text.endswith("⟧")
+        row = SpeculationStats().render()
+        words = [
+            row.plain[span.start : span.end].strip()
+            for span in row.spans
+            if row.plain[span.start : span.end].strip(" \u00b7")
+        ]
+        assert len(words) == 6
+        for word in words:
+            assert word.startswith("⟦") and word.endswith("⟧"), word
     finally:
         translate.set_locale(previous)
+
+
+def test_styling_lights_up_only_non_zero_counts_and_savings():
+    from code_puppy.capabilities.eager_timing import EagerExecutionCompletedEvent
+
+    stats = SpeculationStats()
+    styles = {span.style for span in stats.render().spans}
+    assert "bold bright_green" not in styles
+    assert "bold red" not in styles
+
+    stats.handle_event(claim(elapsed_ms=1000.0))
+    stats.handle_event(EagerExecutionCompletedEvent(tool_call_id="c", saved_ms=500.0))
+    stats.handle_event(
+        SpeculativeCallEvictedEvent(
+            tool_call_id="p", launch_id="u", wrapped_tool_name="grep", state="ready"
+        )
+    )
+    row = stats.render()
+    by_text = {row.plain[s.start : s.end]: s.style for s in row.spans}
+    assert by_text["1 hit"] == "bold bright_green"
+    assert by_text["0 misses"] == "bright_black"
+    assert by_text["1 wasted"] == "bold red"
+    assert by_text["saved \u2265 1.5s"] == "bold bright_green"
+    assert by_text["spec 1.0s \u00b7 eager 0.5s"] == "bright_black"
 
 
 def test_partial_claim_does_not_overstate_savings():
@@ -100,13 +132,13 @@ def test_eager_totals_accumulate_separately():
     assert stats.eager_saved_ms == 398.0
     assert stats.saved_ms == 0.0
     assert stats.hits == 0
-    assert "eager saved >= 0.3s" in stats.render()
+    assert "eager 0.3s" in stats.render().plain
 
 
 def test_lower_bound_rounds_down():
     stats = SpeculationStats()
     stats.handle_event(claim(elapsed_ms=199.0))
-    assert "spec saved >= 0.1s" in stats.render()
+    assert "spec 0.1s" in stats.render().plain
 
 
 def test_non_speculation_event_falls_through():
@@ -219,5 +251,6 @@ async def test_stream_handler_updates_chrome_without_printing_code(
     if subagent:
         bar.set_speculation_status.assert_not_called()
     else:
-        assert "hits 1" in bar.set_speculation_status.call_args.args[0]
-        assert "misses 1" in bar.set_speculation_status.call_args.args[0]
+        row = bar.set_speculation_status.call_args.args[0].plain
+        assert "1 hit " in row
+        assert "1 miss " in row
