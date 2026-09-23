@@ -184,17 +184,14 @@ def test_preview_arguments_truncates():
     assert preview.endswith("\u2026")
 
 
-async def test_listeners_defer_to_an_active_panel(monkeypatch):
-    """While a SpeculationPanel cycle owns the terminal, the bridge stays silent."""
+async def test_listeners_defer_to_speculation_status(monkeypatch):
+    """Speculative Puppy outcomes never duplicate the pinned status row."""
     messages = _capture(monkeypatch, "emit_info")
     success = _capture(monkeypatch, "emit_success")
 
-    class _ActivePanel:
-        active = True
-
     monkeypatch.setattr(
-        "code_puppy.messaging.speculation_panel.get_speculation_panel",
-        lambda: _ActivePanel(),
+        "code_puppy.messaging.speculation_stats.get_speculation_status",
+        lambda: "Speculation stats",
     )
 
     bridge = CapabilityEventBridge()

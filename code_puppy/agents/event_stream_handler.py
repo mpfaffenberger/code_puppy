@@ -176,12 +176,15 @@ async def event_stream_handler(
     progress_bar = None if is_subagent() else get_bottom_bar()
     stream_status = get_stream_status(progress_bar)
 
-    # Live panel for speculative CodeMode runs (harness#699): renders the
-    # streaming run_code snippet with per-launch clocks from the typed
-    # code_mode.* capability events, then the hit/miss reveal at finalize.
-    from code_puppy.messaging.speculation_panel import get_speculation_panel
+    from code_puppy.messaging.speculation_stats import (
+        get_speculation_stats,
+        get_speculation_status,
+    )
 
-    spec_panel = get_speculation_panel()
+    spec_stats = get_speculation_stats()
+    spec_enabled = not is_subagent() and get_speculation_status() is not None
+    if progress_bar is not None:
+        progress_bar.set_speculation_status(get_speculation_status())
 
     # Track which part indices we're currently streaming (for Text/Thinking/Tool parts)
     streaming_parts: set[int] = set()
@@ -364,18 +367,14 @@ async def event_stream_handler(
                 break
 
             stream_status.update(event)
-            # ---- Speculative CodeMode panel (harness#699) -------------------
-            # The typed code_mode.* capability events own their own terminal
-            # region; everything else falls through to the normal renderer.
-            if spec_panel.handle_event(event, console):
-                did_stream_anything = True
+            # Speculation updates pinned chrome only, never the transcript.
+            if spec_enabled and spec_stats.handle_event(event):
+                if progress_bar is not None:
+                    progress_bar.set_speculation_status(get_speculation_status())
                 continue
 
             # PartStartEvent - register the part but defer banner until content arrives
             if isinstance(event, PartStartEvent):
-                # A new part closes out any speculation cycle whose outcome
-                # events have already flushed.
-                spec_panel.finalize()
                 # Fire stream event callback for part_start
                 _fire_stream_event(
                     "part_start",
@@ -479,9 +478,6 @@ async def event_stream_handler(
 
             # PartEndEvent - finish the streaming with a newline
             elif isinstance(event, PartEndEvent):
-                # Speculation cycle: args finished streaming, execution begins;
-                # the live region yields the console until the final reveal.
-                spec_panel.on_part_end()
                 # Fire stream event callback for part_end
                 _fire_stream_event(
                     "part_end",
@@ -514,8 +510,6 @@ async def event_stream_handler(
     except BaseException:
         # Cancelled/crashed mid-stream: the graceful drain never runs, orphaning
         # background drain tasks that keep typing into the terminal. Abort them.
-        # The speculation panel's live region would keep repainting too.
-        spec_panel.finalize()
         _abort_all_drainers()
         raise
 
@@ -533,8 +527,4 @@ async def event_stream_handler(
     for writer in list(termflow_writers.values()):
         await writer.close()
     termflow_writers.clear()
-    # Outcome events arrive in a later handler invocation (tool execution runs
-    # between streams), so stream end only closes cycles cut mid-part; an
-    # executing cycle survives the gap and reveals on the next part start.
-    spec_panel.on_stream_end()
     stream_status.working()

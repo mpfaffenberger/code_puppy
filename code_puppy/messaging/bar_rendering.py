@@ -84,6 +84,20 @@ def clip_cells(text: str, width: int) -> str:
     return chopped[0] if chopped else ""
 
 
+_DIM_ON = "\x1b[2m"
+_DIM_OFF = "\x1b[22m"
+
+
+def dim(text: str) -> str:
+    """Wrap ``text`` in the faint chrome SGR (no-op for empty strings).
+
+    Chrome dimming (SGR 2): faint popup/status/panel/speculation rows read
+    as UI, not transcript content. Applied AFTER sanitize + clip so the
+    SGR bytes never count as cells.
+    """
+    return f"{_DIM_ON}{text}{_DIM_OFF}" if text else text
+
+
 _STYLE_RESOLVER = None
 
 
@@ -319,6 +333,7 @@ __all__ = [
     "clip_cells",
     "count_prompt_rows",
     "default_get_size",
+    "dim",
     "render_prompt_block",
     "render_styled_line",
     "sanitize",

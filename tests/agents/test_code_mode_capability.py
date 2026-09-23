@@ -1,6 +1,9 @@
 """Tests for the opt-in speculative CodeMode wiring (`code_puppy.agents._code_mode`)."""
 
-from unittest.mock import patch
+from unittest.mock import Mock, patch
+
+from pydantic_ai import RunContext
+from pydantic_ai.tools import ToolDefinition
 
 from pydantic_ai.models.test import TestModel
 from pydantic_ai_harness.code_mode import CodeMode
@@ -8,6 +11,7 @@ from pydantic_ai_harness.code_mode import CodeMode
 from code_puppy.agents._code_mode import (
     SANDBOXED_READ_ONLY_TOOLS,
     SilenceToolOutput,
+    _sandbox_tool,
     build_speculative_code_mode,
 )
 from code_puppy.agents.agent_speculative_puppy import SpeculativePuppyAgent
@@ -28,6 +32,19 @@ class _OrdinaryAgent:
 
 
 class TestBuildSpeculativeCodeMode:
+    def test_only_creation_and_replacement_stay_native(self):
+        ctx = Mock(spec=RunContext)
+        for name in ("create_file", "replace_in_file"):
+            assert not _sandbox_tool(ctx, ToolDefinition(name=name))
+        for name in (
+            *SANDBOXED_READ_ONLY_TOOLS,
+            "delete_file",
+            "delete_snippet",
+            "agent_run_shell_command",
+            "some_future_tool",
+        ):
+            assert _sandbox_tool(ctx, ToolDefinition(name=name))
+
     def test_agent_without_opt_in_gets_nothing(self):
         assert (
             build_speculative_code_mode(
@@ -48,7 +65,7 @@ class TestBuildSpeculativeCodeMode:
             == []
         )
 
-    def test_opted_in_agent_folds_everything_and_speculates_the_read_only_trio(
+    def test_opted_in_agent_selects_tools_and_speculates_the_read_only_trio(
         self, monkeypatch
     ):
         monkeypatch.setattr(
@@ -57,14 +74,20 @@ class TestBuildSpeculativeCodeMode:
         )
         agent = SpeculativePuppyAgent()
 
-        code_mode, silencer = build_speculative_code_mode(
+        code_mode, silencer, timing, normalizer = build_speculative_code_mode(
             agent, agent.get_available_tools()
         )
 
         assert isinstance(code_mode, CodeMode)
-        assert code_mode.tools == "all"
+        assert code_mode.tools is _sandbox_tool
         assert code_mode.speculate == list(SANDBOXED_READ_ONLY_TOOLS)
         assert isinstance(silencer, SilenceToolOutput)
+        from code_puppy.capabilities.eager_timing import EagerTiming
+
+        assert isinstance(timing, EagerTiming)
+        from code_puppy.agents._wire_tool_names import StreamedToolNameNormalizer
+
+        assert isinstance(normalizer, StreamedToolNameNormalizer)
 
     def test_sandbox_gets_workspace_mount_and_os_access(self, monkeypatch):
         import os
@@ -75,7 +98,7 @@ class TestBuildSpeculativeCodeMode:
         )
         agent = SpeculativePuppyAgent()
 
-        code_mode, _ = build_speculative_code_mode(agent, agent.get_available_tools())
+        code_mode, *_ = build_speculative_code_mode(agent, agent.get_available_tools())
 
         assert code_mode.mount is not None
         assert code_mode.mount.host_path == os.getcwd()
@@ -89,11 +112,11 @@ class TestBuildSpeculativeCodeMode:
             "code_puppy.agents._code_mode.get_speculative_code_mode_enabled",
             lambda: True,
         )
-        capability, _ = build_speculative_code_mode(
+        capability, *_ = build_speculative_code_mode(
             SpeculativePuppyAgent(), ["read_file", "grep", "some_future_tool"]
         )
 
-        assert capability.tools == "all"
+        assert capability.tools is _sandbox_tool
         assert capability.speculate == ["read_file", "grep"]
 
 
@@ -119,10 +142,12 @@ class TestSpeculativePuppyAgent:
     def test_opts_into_speculative_code_mode(self):
         assert SpeculativePuppyAgent.speculative_code_mode is True
 
-    def test_prompt_teaches_the_single_tool_contract(self):
+    def test_prompt_teaches_the_native_write_contract(self):
         prompt = SpeculativePuppyAgent().get_system_prompt()
         assert "run_code" in prompt
         assert "literal" in prompt
+        assert "Use `create_file` and `replace_in_file` as native tools" in prompt
+        assert "exactly ONE tool" not in prompt
 
 
 class TestBuilderIntegration:
@@ -156,7 +181,7 @@ class TestBuilderIntegration:
             if isinstance(leaf, CodeMode)
         ]
         assert len(code_modes) == 1
-        assert code_modes[0].tools == "all"
+        assert code_modes[0].tools is _sandbox_tool
         assert code_modes[0].speculate == list(SANDBOXED_READ_ONLY_TOOLS)
 
     def test_code_puppy_agent_does_not(self):

@@ -4,8 +4,8 @@ Uses speculative programmatic tool calling from pydantic-ai-harness 0.33.0.
 
 This is deliberately not wired into every agent. An agent opts in by setting
 ``speculative_code_mode = True`` (see ``BaseAgent``). For an opted-in agent,
-ALL of its tools fold into the single ``run_code`` sandbox (the model sees no
-native tools at all -- the RLM shape), but only the read-only trio below
+its tools fold into ``run_code`` except ``create_file`` and
+``replace_in_file``, which remain native. Only the read-only trio below
 speculates. That allowlist is the safety contract: an early launch may run
 for a branch the snippet never takes, so it is reserved for calls that are
 harmless to re-run or discard; everything else waits for real execution.
@@ -28,23 +28,32 @@ from __future__ import annotations
 import os
 from typing import Any, List, Sequence
 
+from pydantic_ai import RunContext
 from pydantic_ai.capabilities import AbstractCapability
+from pydantic_ai.tools import ToolDefinition
 from pydantic_monty import MountDir, OSAccess
 
 from pydantic_ai_harness.code_mode import CodeMode
 
+from code_puppy.agents._wire_tool_names import StreamedToolNameNormalizer
+from code_puppy.capabilities.eager_timing import EagerTiming
 from code_puppy.config import get_speculative_code_mode_enabled
 
 # The read-only trio: pure with respect to the workspace, safe to re-run or discard.
 SANDBOXED_READ_ONLY_TOOLS = ("list_files", "read_file", "grep")
 
 
+def _sandbox_tool(ctx: RunContext[object], tool_def: ToolDefinition) -> bool:
+    """Keep file creation and replacement available as native tools."""
+    return tool_def.name not in {"create_file", "replace_in_file"}
+
+
 class SilenceToolOutput(AbstractCapability[Any]):
     """Suppress TOOL_OUTPUT bus messages for the duration of the run.
 
-    Inside a speculative CodeMode run every tool executes within `run_code`:
+    Most tools in a speculative CodeMode run execute within `run_code`:
     its UI rendering (file dumps, grep boxes, shell lines) would repeat what
-    the snippet already filters and returns. The speculation panel and the
+    the snippet already filters and returns. The pinned speculation row and the
     model's own narration are the UX. Warnings and errors still pass -- the
     bus-level filter is category- and level-aware.
     """
@@ -64,8 +73,8 @@ def build_speculative_code_mode(agent: Any, agent_tools: Sequence[str]) -> List[
     """Build the speculative CodeMode capabilities for an opted-in agent, else ``[]``.
 
     Returned as a list so the caller can splice it into ``capabilities=[...]``
-    unconditionally. ``tools='all'`` folds the agent's whole tool surface into
-    ``run_code``; ``speculate`` stays restricted to the read-only trio the
+    unconditionally. Creation and replacement stay native; all other tools fold
+    into ``run_code``. ``speculate`` stays restricted to the read-only trio the
     agent actually declares, so a tool added to an opted-in agent later is
     sandboxed but never launched early without showing up here first.
     """
@@ -80,7 +89,7 @@ def build_speculative_code_mode(agent: Any, agent_tools: Sequence[str]) -> List[
     workspace = os.getcwd()
     return [
         CodeMode(
-            tools="all",
+            tools=_sandbox_tool,
             speculate=speculate,
             # Composed tiers: eager runs each streamed statement in the live REPL as it
             # closes (a blocking shell command starts mid-generation), while speculation
@@ -96,4 +105,6 @@ def build_speculative_code_mode(agent: Any, agent_tools: Sequence[str]) -> List[
             os_access=OSAccess(),
         ),
         SilenceToolOutput(),
+        EagerTiming(),
+        StreamedToolNameNormalizer(),
     ]

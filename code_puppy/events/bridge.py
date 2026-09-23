@@ -175,26 +175,21 @@ class CapabilityEventBridge(AbstractCapability[Any]):
     # ------------------------------------------------------------------
     # code_mode.* family (speculative execution, harness#699)
     # ------------------------------------------------------------------
-    # `SpeculativeCodeUpdateEvent` is deliberately not rendered here: it
-    # mirrors the model's delta cadence (one event per streamed chunk) and
-    # exists for the live SpeculationPanel, which consumes it straight
-    # from the run's event stream. The one-liners below are the fallback
-    # surface for contexts where no panel cycle owns the terminal (headless
-    # runs, events flushed after a retry); while a cycle is active the
-    # panel renders the same transitions and these listeners stay silent.
+    # Speculative Puppy reports outcomes in pinned chrome, not the transcript.
+    # Other agents retain the fallback event messages.
 
     @staticmethod
-    def _panel_owns_the_stream() -> bool:
-        from code_puppy.messaging.speculation_panel import get_speculation_panel
+    def _uses_speculation_status() -> bool:
+        from code_puppy.messaging.speculation_stats import get_speculation_status
 
-        return get_speculation_panel().active
+        return get_speculation_status() is not None
 
     @on_event(SpeculativeCallLaunchedEvent)
     async def _speculative_launched(
         self, ctx: RunContext[Any], event: SpeculativeCallLaunchedEvent
     ) -> None:
         try:
-            if self._panel_owns_the_stream():
+            if self._uses_speculation_status():
                 return
             from code_puppy.messaging import emit_info
 
@@ -216,7 +211,7 @@ class CapabilityEventBridge(AbstractCapability[Any]):
         self, ctx: RunContext[Any], event: SpeculativeCallSettledEvent
     ) -> None:
         try:
-            if self._panel_owns_the_stream():
+            if self._uses_speculation_status():
                 return
             from code_puppy.messaging import emit_info
 
@@ -237,9 +232,7 @@ class CapabilityEventBridge(AbstractCapability[Any]):
     async def _speculative_claimed(
         self, ctx: RunContext[Any], event: SpeculativeCallClaimedEvent
     ) -> None:
-        # Claim outcomes belong to the speculation panel. Do not emit a
-        # fallback message here, since these events may arrive after the panel
-        # has finalized and would otherwise produce noisy one-line output.
+        # Claim outcomes belong to the pinned speculation counters.
         return
 
     @on_event(SpeculativeCallMissedEvent)
@@ -247,7 +240,7 @@ class CapabilityEventBridge(AbstractCapability[Any]):
         self, ctx: RunContext[Any], event: SpeculativeCallMissedEvent
     ) -> None:
         try:
-            if self._panel_owns_the_stream():
+            if self._uses_speculation_status():
                 return
             from code_puppy.messaging import emit_info
 
@@ -262,7 +255,7 @@ class CapabilityEventBridge(AbstractCapability[Any]):
         self, ctx: RunContext[Any], event: SpeculativeCallEvictedEvent
     ) -> None:
         try:
-            if self._panel_owns_the_stream():
+            if self._uses_speculation_status():
                 return
             from code_puppy.messaging import emit_info
 

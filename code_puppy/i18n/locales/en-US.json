@@ -548,6 +548,7 @@
   "renderer.unknown_message": "Unknown message: {message_type}",
   "renderer.user_input_async": "User input requested (requires async)",
   "renderer.working_directory": "Working directory: {cwd}",
+  "speculation.status": "Spec | hits {hits} | misses {misses} | wasted {wasted} | spec saved >= {speculative_seconds}s | eager saved >= {eager_seconds}s",
   "startup.ready": "Ready to fetch some code. 🐶",
   "startup.welcome": "Welcome to Code Puppy, {name}!",
   "stream.activity.calling": "Calling {tool}",

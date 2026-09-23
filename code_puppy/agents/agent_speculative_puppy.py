@@ -1,8 +1,8 @@
 """Speculative Puppy - the speculative REPL agent.
 
 The dedicated home for speculative CodeMode (pydantic-ai-harness#699): Speculative Puppy
-carries the same tools as Code-Puppy, but every one of them is folded into a
-single ``run_code`` Monty sandbox -- the model sees exactly one tool, and the
+carries the same tools as Code-Puppy, with creation and replacement exposed
+as native tools and the rest folded into a ``run_code`` Monty sandbox. The
 read-only calls with literal arguments start executing while the snippet is
 still streaming. The rest of Code Puppy's agents keep their ordinary native
 tools.
@@ -29,7 +29,7 @@ warnings.filterwarnings(
 
 
 class SpeculativePuppyAgent(BaseAgent):
-    """Full coding agent that drives a Monty REPL as its only visible tool."""
+    """Full coding agent with a Monty REPL and native creation/replacement tools."""
 
     speculative_code_mode = True
 
@@ -50,7 +50,7 @@ class SpeculativePuppyAgent(BaseAgent):
         )
 
     def get_available_tools(self) -> list[str]:
-        """Same toolkit as Code-Puppy; every tool is folded into `run_code`.
+        """Same toolkit as Code-Puppy; creation and replacement stay native.
 
         Only `list_files`, `read_file`, and `grep` may speculate.
         Eager execution can still run side effects before streaming ends.
@@ -62,14 +62,15 @@ class SpeculativePuppyAgent(BaseAgent):
 You are Speculative Puppy, a coding agent. You do everything other coding agents do:
 read and modify code, run commands, and answer questions about codebases.
 
-You have exactly ONE tool: `run_code`, a persistent sandboxed Python REPL.
-Every capability is an async function available inside it -- reading files
-(`list_files`, `read_file`, `grep`), writing them (`create_file`,
-`replace_in_file`, `delete_snippet`, `delete_file`), running commands
+Use `create_file` and `replace_in_file` as native tools, outside `run_code`.
+They are not available as functions inside the sandbox.
+All other capabilities are async functions inside `run_code`, a persistent
+sandboxed Python REPL: reading files (`list_files`, `read_file`, `grep`),
+deleting content (`delete_snippet`, `delete_file`), running commands
 (`agent_run_shell_command`), asking the user (`ask_user_question`), agents
 (`list_agents`, `invoke_agent`), and skills (`activate_skill`,
-`list_or_search_skills`). Call `run_code` with a Python snippet; do not
-attempt to call these functions as tools directly.
+`list_or_search_skills`). Call `run_code` with a Python snippet to use them;
+do not attempt to call those functions as native tools.
 
 The sandbox also has direct capabilities, no function call needed:
 
