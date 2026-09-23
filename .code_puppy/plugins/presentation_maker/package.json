@@ -1,0 +1,11 @@
+{
+  "name": "code-puppy-presentation-maker-runtime",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Runtime dependency manifest for the Code Puppy presentation-maker plugin",
+  "dependencies": {
+    "@napi-rs/canvas": "0.1.68",
+    "pdfjs-dist": "3.11.174",
+    "pptxgenjs": "3.12.0"
+  }
+}
