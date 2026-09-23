@@ -782,9 +782,16 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     # renders as one line, actually bold.
     emit_system_message(Text(t("cli.help.press_tab"), style="bold"))
     # Tell the user how relentless the puppy is configured to be.
-    from code_puppy.config import get_agency_level
+    from code_puppy.config import get_agency_level, get_speculative_code_mode_enabled
 
     emit_info(t("cli.agency.status", level=get_agency_level().upper()))
+    # Advertise the chord: the feature is invisible until someone presses it.
+    speculation_key = (
+        "cli.speculation.on"
+        if get_speculative_code_mode_enabled()
+        else "cli.speculation.off"
+    )
+    emit_info(t(speculation_key))
     # Print truecolor warning LAST so it's the most visible thing on startup
     # Big ugly red box should be impossible to miss!
     print_truecolor_warning(display_console)

@@ -13,7 +13,7 @@ import io
 import pytest
 from PIL import Image
 from pydantic_ai import BinaryContent
-from pydantic_ai.messages import ModelRequest, UserPromptPart
+from pydantic_ai.messages import ImageUrl, ModelRequest, UserPromptPart
 
 from code_puppy.agents._history import (
     _BINARY_CONTENT_FALLBACK_TOKENS,
@@ -99,21 +99,11 @@ def test_differing_images_still_hash_differently():
     )
 
 
-class _UnknownItem:
-    """Stands in for ImageUrl / DocumentUrl / whatever pydantic-ai adds next."""
-
-    def __init__(self, url: str):
-        self.url = url
-
-    def __repr__(self) -> str:
-        return f"_UnknownItem(url={self.url!r})"
-
-
-def test_unknown_list_items_do_not_collide():
+def test_image_urls_do_not_collide():
     # Without the else arm in stringify_part these both reduced to
     # "user-prompt" and hashed identically, so distinct pages deduped away.
-    a = ModelRequest(parts=[UserPromptPart(content=[_UnknownItem("https://a/1.png")])])
-    b = ModelRequest(parts=[UserPromptPart(content=[_UnknownItem("https://b/2.png")])])
+    a = ModelRequest(parts=[UserPromptPart(content=[ImageUrl(url="https://a/1.png")])])
+    b = ModelRequest(parts=[UserPromptPart(content=[ImageUrl(url="https://b/2.png")])])
     assert stringify_part(a.parts[0]) != stringify_part(b.parts[0])
     assert hash_message(a) != hash_message(b)
 

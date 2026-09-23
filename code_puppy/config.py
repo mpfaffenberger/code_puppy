@@ -158,6 +158,28 @@ def get_universal_constructor_enabled() -> bool:
     return get_truthy_bool_value("enable_universal_constructor", True)
 
 
+def get_speculative_code_mode_enabled() -> bool:
+    """Return True if speculative CodeMode is enabled (default False).
+
+    Applies to every agent: the whole tool surface folds into a harness
+    CodeMode `run_code` sandbox with speculative execution, so calls with
+    literal arguments start executing while the model is still streaming the
+    snippet. Dogfoods pydantic-ai-harness#699. Off by default because it
+    changes how every agent calls tools.
+
+    When False, agents use plain native tool calls.
+    """
+    return get_truthy_bool_value("enable_speculative_code_mode", False)
+
+
+def set_speculative_code_mode_enabled(enabled: bool) -> None:
+    """Persist the speculative CodeMode switch (Ctrl+X Ctrl+S toggles it).
+
+    Takes effect the next time an agent's pydantic agent is built.
+    """
+    set_value("enable_speculative_code_mode", "true" if enabled else "false")
+
+
 def set_universal_constructor_enabled(enabled: bool) -> None:
     """Enable or disable the Universal Constructor.
 

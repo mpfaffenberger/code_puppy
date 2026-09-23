@@ -50,6 +50,11 @@ from .bottom_bar import get_bottom_bar
 from .line_editor import RunningLineEditor
 from .chords import register_chord, unregister_chord
 from .external_editor import make_external_edit_handler
+from .speculation_toggle import (
+    CHORD_HINT as SPECULATION_HINT,
+    CHORD_KEY as SPECULATION_KEY,
+    make_speculation_toggle_handler,
+)
 from .run_ui_wiring import (
     attach_completion,
     make_clipboard_handler,
@@ -152,6 +157,12 @@ def start_run_ui() -> Optional[RunningLineEditor]:
         make_external_edit_handler(editor, _get_loop),
         "Ctrl+E edit in $EDITOR",
     )
+    # Ctrl+X Ctrl+S: toggle speculative execution. Same lifetime as Ctrl+E.
+    register_chord(
+        SPECULATION_KEY,
+        make_speculation_toggle_handler(_get_loop),
+        SPECULATION_HINT,
+    )
     attach_completion(editor, _get_loop)
     _set_feed_target(editor)
     editor.repaint()
@@ -187,6 +198,7 @@ def stop_run_ui() -> None:
     if editor is not None:
         _set_feed_target(None)
     unregister_chord("\x05")  # the handler closes over the dead editor
+    unregister_chord(SPECULATION_KEY)
     _clear_status_row()
     try:
         get_bottom_bar().stop()

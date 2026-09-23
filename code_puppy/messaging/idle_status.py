@@ -12,6 +12,9 @@ def refresh_context_status() -> None:
     from code_puppy.i18n import t
     from code_puppy.messaging.bottom_bar import get_bottom_bar
 
+    from code_puppy.messaging.speculation_stats import refresh_speculation_status
+
+    refresh_speculation_status()
     bar = get_bottom_bar()
     if not bar.get_status():
         bar.set_status(t("stream.context.loading"))

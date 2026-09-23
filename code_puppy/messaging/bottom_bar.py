@@ -1,14 +1,20 @@
 """Persistent bottom prompt bar via a terminal scroll region (DECSTBM).
 
-Reserves the bottom rows of the terminal (3 base rows plus one row for
-every active sub-agent panel entry):
+Reserves the bottom rows of the terminal, bottom-up (optional rows exist
+only while they have content):
 
-    rows H-2-n..H-3  sub-agent panel (n = number of panel rows, via set_panel_lines)
-    row  H-2         status line (token/context info, via set_status)
-    row  H-1         prompt line  (the always-available input line)
-    row  H           blank margin
+    row H          status line (token/context info, via set_status)
+    above it       identity line (agent/model metadata, from the
+                   prompt prefix)
+    above it       optional speculation stats row
+                   (via set_speculation_status)
+    above it       completion popup rows, directly below the prompt
+    prompt rows    the always-available input viewport
+                   (1..PROMPT_MAX_ROWS rows)
+    above it       sub-agent panel (n rows, via set_panel_lines)
+    top of band    blank margin (separator below the transcript)
 
-The scrollable region is rows ``1 .. H-3-n``, so
+The scrollable region is rows ``1 .. H-reserved``, so
 all existing streaming output — termflow markdown, thinking stream, tool
 token-count lines — keeps working unmodified: it simply scrolls *inside*
 the region while the reserved rows stay put.
@@ -87,6 +93,7 @@ from .bar_rendering import (
 )
 
 from .bar_painters import PROMPT_MAX_ROWS, BarPainterMixin  # noqa: E402
+from .speculation_line import SpeculationLineMixin  # noqa: E402
 from .transcript_guard import TranscriptGuardMixin  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -111,7 +118,7 @@ SizeProvider = Callable[[], Tuple[int, int]]
 # =============================================================================
 
 
-class BottomBar(TranscriptGuardMixin, BarPainterMixin):
+class BottomBar(TranscriptGuardMixin, SpeculationLineMixin, BarPainterMixin):
     """Scroll-region manager for the persistent bottom prompt.
 
     Use the module-level singleton via :func:`get_bottom_bar` in app code;
@@ -135,6 +142,7 @@ class BottomBar(TranscriptGuardMixin, BarPainterMixin):
         self._tool_progress = ""  # transient tool argument streaming counter
         self._status_prefix = ""  # animated spinner slot (puppy_spinner)
         self._status_suffix = ""  # trailing slot (steer_queue's '(N queued)')
+        self._speculation_status = ""  # optional stats row above identity/context
         self._panel_lines: list[str] = []
         self._popup_lines: list[str] = []  # completion popup (over panel)
         self._popup_selected = -1

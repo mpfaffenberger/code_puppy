@@ -183,6 +183,11 @@ class _AgentConfig:
         return lambda *_args, **_kwargs: 0
 
 
+def _disable_mcp_only(key: str):
+    """Only the MCP switch is forced; every other config key keeps its default."""
+    return "true" if key == "disable_mcp_servers" else None
+
+
 def _load_test_model(*_args, **_kwargs):
     return TestModel(custom_output_text="done"), "test-model"
 
@@ -229,7 +234,7 @@ async def test_subagent_construction_installs_transform():
             "code_puppy.model_factory.make_model_settings",
             lambda *_args, **_kwargs: None,
         ),
-        patch("code_puppy.config.get_value", return_value="true"),
+        patch("code_puppy.config.get_value", _disable_mcp_only),
     ):
         result = await subagent_invocation._invoke_agent_impl(
             context=SimpleNamespace(), agent_name="test-agent", prompt="start"

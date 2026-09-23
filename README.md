@@ -134,6 +134,35 @@ to check, `/dbos off` to disable.
 
 ## Usage
 
+### HOT NEW FEATURE: Speculative Tool Execution (`Ctrl+X Ctrl+S`)
+
+The model's tool calls start running **while it is still typing them**.
+
+Press `Ctrl+X Ctrl+S` in the prompt to flip it on (it persists as
+`enable_speculative_code_mode` in `puppy.cfg`; `/set enable_speculative_code_mode true`
+works too). Every agent, main or sub-agent, then gets a single `run_code` tool:
+a persistent, sandboxed Python REPL where every other tool the agent has
+(reads, shell, MCP servers, plugin tools) is an async function. `create_file`
+and `replace_in_file` stay native so edits keep their normal review flow.
+
+Two things happen as the snippet streams in:
+
+- **Speculation.** `read_file`, `grep`, and `list_files` calls with literal
+  arguments launch the moment their line closes. By the time the snippet is
+  finished, most of the reads already are.
+- **Eager execution.** Every other statement (a `sleep 2`, a test run, a
+  `curl`) executes as soon as it closes, before generation ends.
+
+A pinned row above the prompt keeps score for the session:
+
+```
+Speculative Execution  29 hits · 0 misses · 0 wasted    saved ≥ 7.0s   spec 0.5s · eager 6.5s
+```
+
+`saved` is a lower bound on tool latency hidden behind the model's own
+typing. Press the chord again to go back to plain tool calls. Off by default;
+full details in [`docs/SPECULATION_STATUS.md`](docs/SPECULATION_STATUS.md).
+
 ### Meta Muse OAuth
 
 Code Puppy can use the same Meta account login as Muse Code. If Muse is already
