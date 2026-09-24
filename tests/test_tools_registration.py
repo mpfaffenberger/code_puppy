@@ -93,6 +93,19 @@ class TestToolRegistration:
             assert tools[name].metadata["speculatable"] is True
         assert not (tools["create_file"].metadata or {}).get("speculatable", False)
 
+    @pytest.mark.parametrize(
+        "name",
+        ["shell", "agent_run_shell_command", "run_shell_command", "run_shell_commmand"],
+    )
+    def test_shell_legacy_names_register_with_their_requested_names(self, name):
+        """JSON subagent tool lists can still request the pre-rename spellings."""
+        assert name in get_available_tool_names()
+        agent = Agent("test")
+        register_tools_for_agent(agent, [name])
+        tools = agent._function_toolset.tools
+        assert name in tools
+        assert "command" in tools[name].function_schema.json_schema["properties"]
+
     def test_register_tools_for_agent(self):
         """Test registering specific tools for an agent."""
         mock_agent = MagicMock()
