@@ -626,9 +626,16 @@ class TestToolRegistration:
 
     def test_register_tool(self, register_func, expected_tool):
         agent = MagicMock()
+        captured = []
 
+        def tool(fn=None, **_kwargs):
+            if fn is None:
+                return lambda function: tool(function)
+            captured.append(fn)
+            return fn
+
+        agent.tool.side_effect = tool
         register_func(agent)
 
-        agent.tool.assert_called_once()
-        tool_name = agent.tool.call_args[0][0]
-        assert tool_name.__name__ == expected_tool
+        assert len(captured) == 1
+        assert captured[0].__name__ == expected_tool

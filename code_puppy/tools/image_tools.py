@@ -209,7 +209,7 @@ async def load_image(
 def register_load_image(agent):
     """Register the image loading tool."""
 
-    @agent.tool
+    @agent.tool(metadata={"speculatable": True})
     async def load_image_for_analysis(
         context: RunContext,
         image_path: str,

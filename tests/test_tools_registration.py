@@ -3,6 +3,7 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
+from pydantic_ai import Agent
 
 from code_puppy.tools import (
     REMOVED_LEGACY_TOOLS,
@@ -54,6 +55,43 @@ class TestToolRegistration:
 
         for tool in tools:
             assert tool in TOOL_REGISTRY
+
+    def test_only_read_tools_are_marked_speculatable(self):
+        """Speculation is opt-in on the actual registered tool definitions."""
+        agent = Agent("test")
+        register_tools_for_agent(
+            agent,
+            [
+                "list_files",
+                "read_file",
+                "grep",
+                "load_image_for_analysis",
+                "list_available_models",
+                "list_agents",
+                "create_file",
+            ],
+        )
+        from code_puppy.tools.skills_tools import (
+            register_activate_skill,
+            register_list_or_search_skills,
+        )
+
+        register_activate_skill(agent)
+        register_list_or_search_skills(agent)
+        tools = agent._function_toolset.tools
+
+        for name in (
+            "list_files",
+            "read_file",
+            "grep",
+            "load_image_for_analysis",
+            "list_available_models",
+            "list_agents",
+            "activate_skill",
+            "list_or_search_skills",
+        ):
+            assert tools[name].metadata["speculatable"] is True
+        assert not (tools["create_file"].metadata or {}).get("speculatable", False)
 
     def test_register_tools_for_agent(self):
         """Test registering specific tools for an agent."""

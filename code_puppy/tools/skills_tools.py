@@ -46,7 +46,7 @@ class SkillActivateOutput(BaseModel):
 def register_activate_skill(agent):
     """Register the activate_skill tool."""
 
-    @agent.tool
+    @agent.tool(metadata={"speculatable": True})
     async def activate_skill(
         context: RunContext, skill_name: str = ""
     ) -> SkillActivateOutput:
@@ -125,7 +125,7 @@ def register_activate_skill(agent):
 def register_list_or_search_skills(agent):
     """Register the list_or_search_skills tool."""
 
-    @agent.tool
+    @agent.tool(metadata={"speculatable": True})
     async def list_or_search_skills(
         context: RunContext, query: Optional[str] = None
     ) -> SkillListOutput:

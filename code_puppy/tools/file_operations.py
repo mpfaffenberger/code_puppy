@@ -1356,7 +1356,7 @@ def register_list_files(agent):
     """Register only the list_files tool."""
     from code_puppy.config import get_allow_recursion
 
-    @agent.tool
+    @agent.tool(metadata={"speculatable": True})
     def list_files(
         context: RunContext, directory: str = ".", recursive: bool = True
     ) -> ListFileOutput:
@@ -1412,7 +1412,7 @@ def register_list_files(agent):
 def register_read_file(agent):
     """Register only the read_file tool."""
 
-    @agent.tool
+    @agent.tool(metadata={"speculatable": True})
     def read_file(
         context: RunContext,
         file_path: str,
@@ -1429,7 +1429,7 @@ def register_read_file(agent):
 def register_grep(agent):
     """Register only the grep tool."""
 
-    @agent.tool
+    @agent.tool(metadata={"speculatable": True})
     def grep(
         context: RunContext, search_string: str, directory: str = "."
     ) -> GrepOutput:

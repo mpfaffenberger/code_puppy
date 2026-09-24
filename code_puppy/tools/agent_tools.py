@@ -261,7 +261,7 @@ def register_list_agents(agent):
         agent: The agent to register the tool with
     """
 
-    @agent.tool
+    @agent.tool(metadata={"speculatable": True})
     def list_agents(context: RunContext) -> ListAgentsOutput:
         """List all available sub-agents that can be invoked."""
         # Generate a group ID for this tool execution
