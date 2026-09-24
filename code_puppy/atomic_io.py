@@ -206,11 +206,117 @@ def read_bounded_bytes(path: str, max_bytes: int = DEFAULT_MAX_BYTES) -> bytes:
     return raw
 
 
+# errno values from link(2) that mean a hard link is genuinely impossible on
+# this filesystem -- NOT a permission/policy decision we should silently
+# bypass. Anything else (notably EACCES = permission denied) is surfaced
+# unchanged so a real filesystem restriction is never quietly circumvented.
+_LINK_UNSUPPORTED_ERRNOS = frozenset(
+    value
+    for value in (
+        getattr(errno, "ENOSYS", None),  # link() not implemented (e.g. Android/bionic)
+        getattr(errno, "EPERM", None),  # link(2): fs lacks hard-link support
+        getattr(errno, "EOPNOTSUPP", None),  # operation not supported by filesystem
+        getattr(errno, "EMLINK", None),  # source's link count is already maxed out
+        getattr(errno, "EXDEV", None),  # cross-device (shouldn't occur: sibling dest)
+    )
+    if value is not None
+)
+
+
+def _create_quarantine_copy(src: str, dst: str) -> None:
+    """Exclusive-create copy fallback for platforms/filesystems without a
+    usable ``os.link`` (e.g. Android/Termux, where ``os.link`` is absent).
+
+    Preserves the guarantees that matter for quarantine -- but NOT perfect
+    hard-link identity:
+
+    * **no-overwrite** -- ``O_CREAT | O_EXCL`` makes creation atomic and
+      raises :class:`FileExistsError` (never clobbers an existing backup),
+      the identical signal ``os.link`` raises;
+    * **byte integrity** -- the whole source is streamed with fd-level
+      ``os.read`` in bounded chunks (memory never balloons), and every
+      ``os.write`` is looped until the entire buffer is accepted (a single
+      ``os.write`` may write only part of the buffer);
+    * **permissions** -- the source's permission bits are copied to the backup;
+    * **rollback / no-data-loss** -- ``dst`` is fully written and ``fsync``ed
+      before this returns, so the caller only unlinks the original once a
+      durable backup exists; on *any* failure the partial ``dst`` is removed,
+      every fd is closed, and the error is re-raised with the source untouched.
+
+    Unlike a hard link this creates a NEW inode: link count, inode identity,
+    ownership, and timestamps are NOT reproduced -- only data and mode are.
+    """
+    mode = os.stat(src).st_mode & 0o777
+    # O_EXCL => atomic no-overwrite; raises FileExistsError like os.link.
+    dst_fd = os.open(dst, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
+    dst_closed = False
+    try:
+        src_fd = os.open(src, os.O_RDONLY)
+        try:
+            while True:
+                chunk = os.read(src_fd, 64 * 1024)
+                if not chunk:
+                    break
+                view = memoryview(chunk)
+                while view:
+                    # os.write may accept only part of the buffer; loop until
+                    # the entire chunk has been handed to the kernel.
+                    view = view[os.write(dst_fd, view) :]
+        finally:
+            os.close(src_fd)
+        os.fsync(dst_fd)
+        os.close(dst_fd)
+        dst_closed = True
+    except BaseException:
+        if not dst_closed:
+            try:
+                os.close(dst_fd)
+            except OSError:
+                pass
+        try:
+            os.unlink(dst)
+        except OSError:
+            pass
+        raise
+    # Creation mode can be trimmed by umask; pin it back to the source mode.
+    try:
+        os.chmod(dst, mode)
+    except OSError:
+        pass
+
+
+def _hardlink_or_copy(src: str, dst: str) -> None:
+    """Create ``dst`` as an exclusive backup of ``src``.
+
+    Prefers ``os.link`` (atomic, shares the inode, refuses to overwrite).
+    Where hard links are unavailable (``os.link`` missing, e.g. Android) or
+    unsupported by the filesystem, falls back to an exclusive-create copy
+    with the same no-overwrite / no-data-loss guarantees.
+    :class:`FileExistsError` always propagates so the caller's retry loop
+    picks a fresh name instead of clobbering an existing backup.
+    """
+    link = getattr(os, "link", None)
+    if link is not None:
+        try:
+            link(src, dst)
+            return
+        except FileExistsError:
+            raise
+        except OSError as exc:
+            if exc.errno not in _LINK_UNSUPPORTED_ERRNOS:
+                raise
+            # hard links unsupported here -- fall through to the copy path
+    _create_quarantine_copy(src, dst)
+
+
 def quarantine_file(path: str) -> str:
     """Move a confirmed-corrupt file aside without ever losing user data.
 
-    Uses ``os.link`` (atomic, refuses to overwrite an existing destination)
-    followed by ``os.unlink`` of the original, retried with fresh
+    Creates the backup with :func:`_hardlink_or_copy` -- a hard link where
+    supported (atomic, refuses to overwrite an existing destination), or an
+    exclusive-create copy fallback with the same guarantees on platforms
+    without a usable ``os.link`` (e.g. Android/Termux). The original is only
+    ``os.unlink``ed *after* its backup safely exists, retried with fresh
     collision-resistant names so concurrent/rapid recoveries never clobber
     each other's backup and the original is never deleted before its backup
     safely exists.
@@ -218,7 +324,7 @@ def quarantine_file(path: str) -> str:
     for _ in range(10):
         quarantine_path = f"{path}.corrupted-{time.time_ns()}-{uuid.uuid4().hex}"
         try:
-            os.link(path, quarantine_path)
+            _hardlink_or_copy(path, quarantine_path)
         except FileExistsError:
             continue
         try:

@@ -214,31 +214,36 @@ class TestQuarantineCollisionSafety:
         contents = {open(b).read() for b in backups}
         assert contents == {"first corrupt payload [[[", "second corrupt payload [[["}
 
-    def test_forced_name_collision_retries_instead_of_overwriting(self, cfg_path):
-        """Simulates two processes computing the identical quarantine name."""
+    def test_forced_name_collision_retries_instead_of_overwriting(
+        self, cfg_path, monkeypatch
+    ):
+        """Two recoveries computing the identical quarantine name must retry a
+        fresh name, never clobbering the existing backup. Backend-agnostic:
+        exercises the same contract whether quarantine uses ``os.link``
+        (POSIX) or the exclusive-create copy fallback (e.g. Android/Termux).
+        """
         cfg_path.write_text("corrupt payload [[[")
 
-        real_link = os.link
-        call_count = {"n": 0}
+        # Force deterministic names: the first computed name collides with a
+        # pre-existing backup, so the retry loop must pick the second name.
+        class _Hex:
+            def __init__(self, value):
+                self.hex = value
 
-        def _flaky_link(src, dst):
-            call_count["n"] += 1
-            if call_count["n"] == 1:
-                # Pre-create the "colliding" destination as another process
-                # would have, forcing our retry loop to pick a new name.
-                with open(dst, "w") as f:
-                    f.write("someone else's backup")
-                raise FileExistsError(dst)
-            return real_link(src, dst)
+        hexes = iter(["aaaa", "bbbb"])
+        monkeypatch.setattr(atomic_io.time, "time_ns", lambda: 111)
+        monkeypatch.setattr(atomic_io.uuid, "uuid4", lambda: _Hex(next(hexes)))
+        collided = f"{cfg_path}.corrupted-111-aaaa"
+        with open(collided, "w") as f:
+            f.write("someone else's backup")
 
-        with patch("os.link", side_effect=_flaky_link):
-            config_file.load_config(str(cfg_path))
+        config_file.load_config(str(cfg_path))
 
         backups = glob.glob(f"{cfg_path}.corrupted-*")
         # The pre-created collision file plus our own successfully-retried backup.
         assert len(backups) == 2
         contents = {open(b).read() for b in backups}
-        assert "someone else's backup" in contents
+        assert "someone else's backup" in contents  # never overwritten
         assert "corrupt payload [[[" in contents
 
 
