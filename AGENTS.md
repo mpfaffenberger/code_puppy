@@ -76,7 +76,7 @@ approval. With `fail_closed=True` its exception is reported as a block instead. 
 | `invoke_agent` | Sub-agent invoked | `(*args, **kwargs) -> None` |
 | `agent_exception` | Unhandled agent error | `(exception, *args, **kwargs) -> None` |
 | `error_logged` | After `log_error()` writes to the local log | `(error, *, context=None, include_traceback=True) -> None` — sync observer; must return promptly |
-| `resolve_custom_endpoint_url` | Before a `custom_*`/`codex` model client is built, from `get_custom_config()` | `(url: str) -> str \| None` — redirect the URL (e.g. through a local proxy); last non-empty-string result wins, falls back to the input URL if every listener returns `None`/blank/non-string. Fires fresh on every call. |
+| `resolve_custom_endpoint_url` | On each model-client build/rebuild, from `get_custom_config()` (covers `custom_openai`, `custom_openai_responses`, `custom_anthropic`, `custom_gemini`, `cerebras` w/ custom endpoint; NOT the Codex/Copilot-auth plugin providers, which read the URL directly) | `(url: str, *, model_config: dict, **kwargs) -> str \| None` — sync only; redirect the URL (e.g. through a local proxy). Last non-blank, URL-shaped string result wins; a raising handler or one returning `None`/blank/non-URL-shaped falls back to the input URL. Not re-run per request/retry within an already-built agent. |
 | `agent_run_start` | Before agent task | `(agent_name, model_name, session_id=None) -> None` |
 | `model_select` | Select a model for one run | `(*, agent_name, current_model, prompt, messages, session_id=None) -> str \| None` — first non-empty result wins |
 | `agent_run_end` | After agent run | `(agent_name, model_name, session_id=None, success=True, error=None, response_text=None, metadata=None) -> None` |

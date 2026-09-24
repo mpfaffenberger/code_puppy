@@ -151,7 +151,7 @@ def test_get_custom_config_calls_resolve_hook():
     clear_callbacks("resolve_custom_endpoint_url")
     register_callback(
         "resolve_custom_endpoint_url",
-        lambda url: "http://127.0.0.1:8787/v1" if url == "https://real/v1" else None,
+        lambda url, **_kw: "http://127.0.0.1:8787/v1" if url == "https://real/v1" else None,
     )
     try:
         config = {"custom_endpoint": {"url": "https://real/v1", "headers": {}}}
@@ -169,6 +169,37 @@ def test_get_custom_config_unchanged_when_no_hook_registered():
     config = {"custom_endpoint": {"url": "https://real/v1", "headers": {}}}
     url, *_ = get_custom_config(config)
     assert url == "https://real/v1"
+
+
+def test_resolve_hook_actually_redirects_the_real_client_base_url(monkeypatch):
+    """End-to-end: prove the redirected URL reaches the constructed client,
+    not just get_custom_config's return value. A hook that redirected the
+    string but never touched the actual model would be a silent no-op."""
+    from code_puppy.callbacks import clear_callbacks, register_callback
+
+    monkeypatch.setenv("OPENAI_API_KEY", "ok")
+    clear_callbacks("resolve_custom_endpoint_url")
+    register_callback(
+        "resolve_custom_endpoint_url",
+        lambda url, **_kw: "http://127.0.0.1:8787/v1" if url == "https://fake.url" else None,
+    )
+    try:
+        config = {
+            "custom": {
+                "type": "custom_openai",
+                "name": "mycust",
+                "custom_endpoint": {
+                    "url": "https://fake.url",
+                    "headers": {"X-Api-Key": "$OPENAI_API_KEY"},
+                    "ca_certs_path": False,
+                    "api_key": "$OPENAI_API_KEY",
+                },
+            }
+        }
+        model = ModelFactory.get_model("custom", config)
+        assert str(model._provider.base_url).rstrip("/") == "http://127.0.0.1:8787/v1"
+    finally:
+        clear_callbacks("resolve_custom_endpoint_url")
 
 
 def test_gemini_load_model(monkeypatch):
