@@ -6,15 +6,21 @@ import mimetypes
 import os
 import re
 import shlex
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, List, Sequence, Union
+from typing import Union
+from urllib.parse import urlparse
 
-from pydantic_ai import BinaryContent, DocumentUrl, ImageUrl
+from pydantic_ai import BinaryContent, DocumentUrl, ImageUrl, VideoUrl
 
 from code_puppy.command_line.image_utils import normalize_image_bytes
 
 SUPPORTED_INLINE_SCHEMES = {"http", "https"}
+
+# Remote attachment parts the prompt pipeline can carry. Image and document
+# URLs are accepted by the type but not auto-parsed (see ``_parse_link``).
+UrlAttachment = Union[ImageUrl, DocumentUrl, VideoUrl]
 
 # Maximum path length to consider - conservative limit to avoid OS errors
 # Most OS have limits around 4096, but we set lower to catch garbage early
@@ -32,6 +38,28 @@ DEFAULT_ACCEPTED_IMAGE_EXTENSIONS = {
 }
 DEFAULT_ACCEPTED_DOCUMENT_EXTENSIONS = set()
 
+# Standard containers. MIME types are explicit so guessing does not depend on
+# the host mime database (``.mkv`` / ``.mov`` are often missing or wrong).
+# Values match pydantic-ai ``VideoMediaType`` where that library defines one.
+# ``.ts`` is intentionally absent: it collides with TypeScript sources.
+# ``.m4v`` is MPEG-4 and is sent as ``video/mp4``.
+VIDEO_EXTENSION_MEDIA_TYPES = {
+    ".3gp": "video/3gpp",
+    ".3gpp": "video/3gpp",
+    ".avi": "video/x-msvideo",
+    ".flv": "video/x-flv",
+    ".m4v": "video/mp4",
+    ".mkv": "video/x-matroska",
+    ".mov": "video/quicktime",
+    ".mp4": "video/mp4",
+    ".mpeg": "video/mpeg",
+    ".mpg": "video/mpeg",
+    ".qt": "video/quicktime",
+    ".webm": "video/webm",
+    ".wmv": "video/x-ms-wmv",
+}
+DEFAULT_ACCEPTED_VIDEO_EXTENSIONS = set(VIDEO_EXTENSION_MEDIA_TYPES)
+
 
 @dataclass
 class PromptAttachment:
@@ -46,7 +74,7 @@ class PromptLinkAttachment:
     """Represents a URL attachment supported by pydantic-ai."""
 
     placeholder: str
-    url_part: ImageUrl | DocumentUrl
+    url_part: UrlAttachment
 
 
 @dataclass
@@ -54,9 +82,9 @@ class ProcessedPrompt:
     """Container for parsed input prompt and attachments."""
 
     prompt: str
-    attachments: List[PromptAttachment]
-    link_attachments: List[PromptLinkAttachment]
-    warnings: List[str]
+    attachments: list[PromptAttachment]
+    link_attachments: list[PromptLinkAttachment]
+    warnings: list[str]
 
 
 class AttachmentParsingError(RuntimeError):
@@ -78,13 +106,13 @@ class ResolvedUserPrompt:
     """
 
     text: str
-    file_attachments: List[BinaryContent]
-    clipboard_images: List[BinaryContent]
-    link_attachments: List[Union[ImageUrl, DocumentUrl]]
-    warnings: List[str]
+    file_attachments: list[BinaryContent]
+    clipboard_images: list[BinaryContent]
+    link_attachments: list[UrlAttachment]
+    warnings: list[str]
 
     @property
-    def attachments(self) -> List[BinaryContent]:
+    def attachments(self) -> list[BinaryContent]:
         """All binary attachments (files first, clipboard images after)."""
         return [*self.file_attachments, *self.clipboard_images]
 
@@ -180,12 +208,21 @@ def _normalise_path(token: str) -> Path:
 
 
 def _determine_media_type(path: Path) -> str:
-    """Best-effort media type detection for images only."""
+    """Best-effort media type for an accepted image or video attachment.
 
+    Video suffixes use :data:`VIDEO_EXTENSION_MEDIA_TYPES` and never fall
+    through to ``mimetypes`` or the image default. That keeps a ``.mp4`` from
+    being labelled ``image/*`` and sent through image normalization.
+    """
+
+    suffix = path.suffix.lower()
+    video_type = VIDEO_EXTENSION_MEDIA_TYPES.get(suffix)
+    if video_type:
+        return video_type
     mime, _ = mimetypes.guess_type(path.name)
     if mime:
         return mime
-    if path.suffix.lower() in DEFAULT_ACCEPTED_IMAGE_EXTENSIONS:
+    if suffix in DEFAULT_ACCEPTED_IMAGE_EXTENSIONS:
         return "image/png"
     return "application/octet-stream"
 
@@ -250,13 +287,42 @@ def _is_supported_extension(path: Path) -> bool:
     suffix = path.suffix.lower()
     return (
         suffix
-        in DEFAULT_ACCEPTED_IMAGE_EXTENSIONS | DEFAULT_ACCEPTED_DOCUMENT_EXTENSIONS
+        in DEFAULT_ACCEPTED_IMAGE_EXTENSIONS
+        | DEFAULT_ACCEPTED_DOCUMENT_EXTENSIONS
+        | DEFAULT_ACCEPTED_VIDEO_EXTENSIONS
     )
 
 
+def _video_media_type_from_url(url: str) -> str | None:
+    """Return a video MIME type when ``url`` is an http(s) container link."""
+
+    parsed = urlparse(url)
+    if parsed.scheme not in SUPPORTED_INLINE_SCHEMES or not parsed.netloc:
+        return None
+    return VIDEO_EXTENSION_MEDIA_TYPES.get(Path(parsed.path).suffix.lower())
+
+
 def _parse_link(token: str) -> PromptLinkAttachment | None:
-    """URL parsing disabled: no URLs are treated as attachments."""
-    return None
+    """Attach an http(s) video URL as a pydantic-ai ``VideoUrl``.
+
+    Image and document URLs stay plain text. Remote video uses ``VideoUrl``
+    (not downloaded bytes): OpenRouter maps that part to a ``video_url``
+    content block. Page links without a container suffix, including YouTube,
+    are left in the prompt text.
+    """
+
+    cleaned = _strip_attachment_token(token)
+    if cleaned.endswith("."):
+        trimmed = cleaned[:-1]
+        if _video_media_type_from_url(trimmed):
+            cleaned = trimmed
+    media_type = _video_media_type_from_url(cleaned)
+    if not media_type:
+        return None
+    return PromptLinkAttachment(
+        placeholder=token,
+        url_part=VideoUrl(url=cleaned, media_type=media_type),
+    )
 
 
 @dataclass
@@ -409,10 +475,10 @@ def _detect_path_tokens(prompt: str) -> tuple[list[_DetectedPath], list[str]]:
 def parse_prompt_attachments(prompt: str) -> ProcessedPrompt:
     """Extract attachments from the prompt returning cleaned text and metadata."""
 
-    attachments: List[PromptAttachment] = []
+    attachments: list[PromptAttachment] = []
 
     detections, detection_warnings = _detect_path_tokens(prompt)
-    warnings: List[str] = list(detection_warnings)
+    warnings: list[str] = list(detection_warnings)
 
     link_attachments = [d.link for d in detections if d.link is not None]
 
@@ -431,9 +497,10 @@ def parse_prompt_attachments(prompt: str) -> ProcessedPrompt:
         except AttachmentParsingError:
             # Silently ignore unreadable attachments to reduce prompt noise
             continue
-        # Resize oversized images to match the same policy applied to clipboard
-        # pastes.  Non-image types and PIL-unavailable cases pass through unchanged.
-        data, media_type = normalize_image_bytes(data, media_type)
+        # Resize oversized images to match clipboard pastes. Videos skip this
+        # path entirely so PIL never opens the container bytes.
+        if media_type.startswith("image/"):
+            data, media_type = normalize_image_bytes(data, media_type)
         attachments.append(
             PromptAttachment(
                 placeholder=detection.placeholder,
@@ -468,7 +535,7 @@ def parse_prompt_attachments(prompt: str) -> ProcessedPrompt:
     cleaned_prompt = " ".join(cleaned_parts).strip()
     cleaned_prompt = " ".join(cleaned_prompt.split())
 
-    if cleaned_prompt == "" and attachments:
+    if cleaned_prompt == "" and (attachments or link_attachments):
         cleaned_prompt = "Describe the attached files in detail."
 
     return ProcessedPrompt(
@@ -480,11 +547,12 @@ def parse_prompt_attachments(prompt: str) -> ProcessedPrompt:
 
 
 __all__ = [
+    "AttachmentParsingError",
     "ProcessedPrompt",
     "PromptAttachment",
     "PromptLinkAttachment",
-    "AttachmentParsingError",
     "ResolvedUserPrompt",
+    "UrlAttachment",
     "parse_prompt_attachments",
     "resolve_steer_content",
     "resolve_user_prompt",

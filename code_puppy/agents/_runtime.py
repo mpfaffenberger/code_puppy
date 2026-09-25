@@ -43,6 +43,7 @@ from pydantic_ai import (
     UnexpectedModelBehavior,
     UsageLimitExceeded,
     UsageLimits,
+    VideoUrl,
 )
 from pydantic_ai.exceptions import RunCancelled
 
@@ -563,7 +564,7 @@ def _sanitize_prompt(prompt: str) -> str:
 def _build_prompt_payload(
     prompt: str,
     attachments: Optional[Sequence[BinaryContent]],
-    link_attachments: Optional[Sequence[Union[ImageUrl, DocumentUrl]]],
+    link_attachments: Optional[Sequence[Union[ImageUrl, DocumentUrl, VideoUrl]]],
 ) -> Union[str, List[Any]]:
     """Merge prompt + binary/link attachments into the pydantic-ai payload shape."""
     parts: List[Any] = []
@@ -700,7 +701,7 @@ async def run_with_mcp(
     prompt: str,
     *,
     attachments: Optional[Sequence[BinaryContent]] = None,
-    link_attachments: Optional[Sequence[Union[ImageUrl, DocumentUrl]]] = None,
+    link_attachments: Optional[Sequence[Union[ImageUrl, DocumentUrl, VideoUrl]]] = None,
     output_type: Optional[Type[Any]] = None,
     **kwargs: Any,
 ) -> Any:
@@ -732,7 +733,7 @@ async def _run_with_mcp_impl(
     prompt: str,
     *,
     attachments: Optional[Sequence[BinaryContent]] = None,
-    link_attachments: Optional[Sequence[Union[ImageUrl, DocumentUrl]]] = None,
+    link_attachments: Optional[Sequence[Union[ImageUrl, DocumentUrl, VideoUrl]]] = None,
     output_type: Optional[Type[Any]] = None,
     is_nested_run: bool = False,
     **kwargs: Any,
