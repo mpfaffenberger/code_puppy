@@ -105,6 +105,99 @@ class TestInitializeBrowser:
             assert mgr._context is mock_context
 
     @pytest.mark.asyncio
+    async def test_missing_chromium_is_installed_and_launch_retried(self):
+        from code_puppy.tools.browser.browser_manager import BrowserManager
+
+        mgr = BrowserManager("missing-chromium")
+        mock_context = AsyncMock()
+        mock_context.browser = AsyncMock()
+        mock_pw_instance = AsyncMock()
+        launch = mock_pw_instance.chromium.launch_persistent_context
+        launch.side_effect = [
+            RuntimeError("Executable doesn't exist at /missing/chrome"),
+            mock_context,
+        ]
+        mock_pw_class = AsyncMock()
+        mock_pw_class.start.return_value = mock_pw_instance
+
+        with (
+            patch(
+                "code_puppy.tools.browser.browser_manager._load_plugin_browser_types"
+            ),
+            patch("code_puppy.tools.browser.browser_manager.emit_info"),
+            patch("playwright.async_api.async_playwright", return_value=mock_pw_class),
+            patch(
+                "code_puppy.tools.browser.browser_manager._install_chromium",
+                new_callable=AsyncMock,
+            ) as install,
+        ):
+            await mgr._initialize_browser()
+
+        install.assert_awaited_once_with()
+        assert launch.await_count == 2
+        assert mgr._context is mock_context
+        assert mgr._initialized is True
+
+    @pytest.mark.asyncio
+    async def test_other_launch_failures_do_not_trigger_install(self):
+        from code_puppy.tools.browser.browser_manager import BrowserManager
+
+        mgr = BrowserManager("broken-launch")
+        mock_pw_instance = AsyncMock()
+        mock_pw_instance.chromium.launch_persistent_context.side_effect = RuntimeError(
+            "Chromium sandbox denied"
+        )
+        mock_pw_class = AsyncMock()
+        mock_pw_class.start.return_value = mock_pw_instance
+
+        with (
+            patch(
+                "code_puppy.tools.browser.browser_manager._load_plugin_browser_types"
+            ),
+            patch("code_puppy.tools.browser.browser_manager.emit_info"),
+            patch("playwright.async_api.async_playwright", return_value=mock_pw_class),
+            patch(
+                "code_puppy.tools.browser.browser_manager._install_chromium",
+                new_callable=AsyncMock,
+            ) as install,
+            pytest.raises(RuntimeError, match="sandbox denied"),
+        ):
+            await mgr._initialize_browser()
+
+        install.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_failed_install_reports_current_environment_command(self):
+        from code_puppy.tools.browser import browser_manager as bm
+
+        process = MagicMock(returncode=1)
+        process.communicate = AsyncMock(return_value=(b"download failed", None))
+        with (
+            patch.object(
+                bm.asyncio,
+                "create_subprocess_exec",
+                new_callable=AsyncMock,
+                return_value=process,
+            ) as spawn,
+            patch.object(bm, "emit_warning"),
+            pytest.raises(RuntimeError) as exc_info,
+        ):
+            await bm._install_chromium()
+
+        message = str(exc_info.value)
+        assert bm.sys.executable in message
+        assert "download failed" in message
+        spawn.assert_awaited_once_with(
+            bm.sys.executable,
+            "-m",
+            "playwright",
+            "install",
+            "chromium",
+            stdout=bm.asyncio.subprocess.PIPE,
+            stderr=bm.asyncio.subprocess.STDOUT,
+        )
+
+    @pytest.mark.asyncio
     async def test_initialize_browser_custom_type(self):
         from code_puppy.tools.browser import browser_manager as bm
         from code_puppy.tools.browser.browser_manager import BrowserManager

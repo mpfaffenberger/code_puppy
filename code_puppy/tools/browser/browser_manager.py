@@ -8,12 +8,15 @@ import atexit
 import contextvars
 import math
 import os
+import shlex
+import sys
 from pathlib import Path
 from typing import Callable, Dict, Optional
 
 from playwright.async_api import Browser, BrowserContext, Page
 
 from code_puppy import config
+from code_puppy.i18n import t
 from code_puppy.messaging import emit_info, emit_success, emit_warning
 
 # Registry for custom browser types from plugins (e.g., Camoufox for stealth browsing)
@@ -82,6 +85,50 @@ _STATE_TIMEOUT_S = _env_float("BROWSER_CLEANUP_STATE_TIMEOUT_S", 10.0)
 _CONTEXT_TIMEOUT_S = _env_float("BROWSER_CLEANUP_CONTEXT_TIMEOUT_S", 10.0)
 _BROWSER_TIMEOUT_S = _env_float("BROWSER_CLEANUP_BROWSER_TIMEOUT_S", 5.0)
 _PW_TIMEOUT_S = _env_float("BROWSER_CLEANUP_PW_TIMEOUT_S", 5.0)
+_MISSING_BROWSER_ERROR = "executable doesn't exist at"
+_CHROMIUM_INSTALL_LOCK = asyncio.Lock()
+
+
+def _playwright_install_command() -> tuple[list[str], str]:
+    """Return argv and a copy-pasteable command for this Python environment."""
+    argv = [sys.executable, "-m", "playwright", "install", "chromium"]
+    command = shlex.join(argv)
+    if os.name == "nt":
+        command = "& " + command
+    return argv, command
+
+
+async def _install_chromium() -> None:
+    """Install the Chromium revision required by the active Playwright package."""
+    argv, command = _playwright_install_command()
+    emit_warning(t("browser.chromium.installing"))
+    try:
+        process = await asyncio.create_subprocess_exec(
+            *argv,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+    except OSError as exc:
+        raise RuntimeError(
+            t(
+                "browser.chromium.install_start_failed",
+                command=command,
+                error=str(exc),
+            )
+        ) from exc
+
+    stdout, _ = await process.communicate()
+    output = stdout.decode(errors="replace").strip()
+    if process.returncode != 0:
+        raise RuntimeError(
+            t(
+                "browser.chromium.install_failed",
+                exit_code=process.returncode,
+                command=command,
+                output=output or t("browser.chromium.install_no_output"),
+            )
+        )
+    emit_success(t("browser.chromium.install_succeeded"))
 
 
 # Context variable for browser session - properly inherits through async tasks
@@ -225,12 +272,37 @@ class BrowserManager:
         # without this the node driver leaks until GC.
         self._playwright = pw
         # Use persistent context directory for Chromium to preserve browser state
-        context = await pw.chromium.launch_persistent_context(
-            user_data_dir=str(self.profile_dir), headless=self.headless
-        )
+        try:
+            context = await self._launch_chromium(pw.chromium)
+        except Exception as exc:
+            if _MISSING_BROWSER_ERROR not in str(exc).lower():
+                raise
+            # Multiple browser agents may initialize concurrently. Serialize the
+            # installer so they cannot race while writing the same browser cache.
+            async with _CHROMIUM_INSTALL_LOCK:
+                await _install_chromium()
+            try:
+                context = await self._launch_chromium(pw.chromium)
+            except Exception as retry_exc:
+                if _MISSING_BROWSER_ERROR in str(retry_exc).lower():
+                    _, command = _playwright_install_command()
+                    raise RuntimeError(
+                        t(
+                            "browser.chromium.retry_failed",
+                            command=command,
+                            error=str(retry_exc),
+                        )
+                    ) from retry_exc
+                raise
         self._context = context
         self._browser = context.browser
         self._initialized = True
+
+    async def _launch_chromium(self, chromium) -> BrowserContext:
+        """Launch Chromium with this manager's persistent profile."""
+        return await chromium.launch_persistent_context(
+            user_data_dir=str(self.profile_dir), headless=self.headless
+        )
 
     async def get_current_page(self) -> Optional[Page]:
         """Get the currently active page. Lazily creates one if none exist."""
