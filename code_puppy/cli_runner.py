@@ -1334,7 +1334,7 @@ async def run_prompt_with_attachments(
     display_console=None,
     use_run_ui: bool = True,
 ):
-    """Run the agent after parsing CLI attachments for image/document support.
+    """Run the agent after parsing CLI attachments for image, video, and document support.
 
     Returns:
         tuple: (result, task) where result is the agent response and task is the asyncio task
