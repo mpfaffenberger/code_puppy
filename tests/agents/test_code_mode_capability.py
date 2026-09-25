@@ -4,9 +4,11 @@ import ast
 import importlib
 import importlib.metadata
 import warnings
+from importlib.metadata import requires
 from unittest.mock import Mock, patch
 
 import pytest
+from packaging.requirements import Requirement
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.messages import ToolReturnPart
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
@@ -108,6 +110,13 @@ class TestBuildSpeculativeCodeMode:
 async def test_run_code_executes_trivial_snippet_with_compatible_monty(flag):
     """Harness 0.35 excludes Monty 1.x, which removed max_duration_secs."""
     assert importlib.metadata.version("pydantic-ai-harness") == "0.35.0"
+    monty_requirement = next(
+        Requirement(dependency)
+        for dependency in requires("code-puppy") or []
+        if Requirement(dependency).name == "pydantic-monty"
+    )
+    assert monty_requirement.specifier.contains("0.0.23")
+    assert not monty_requirement.specifier.contains("1.0.0")
     assert "max_duration_secs" in ResourceLimits.__annotations__
 
     requests = 0
