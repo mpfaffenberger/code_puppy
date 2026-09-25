@@ -2,14 +2,18 @@
 
 import ast
 import importlib
+import importlib.metadata
 import warnings
 from unittest.mock import Mock, patch
 
 import pytest
-from pydantic_ai import RunContext
+from pydantic_ai import Agent, RunContext
+from pydantic_ai.messages import ToolReturnPart
+from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 from pydantic_ai.models.test import TestModel
 from pydantic_ai.tools import ToolDefinition
 from pydantic_ai_harness.code_mode import CodeMode
+from pydantic_monty import ResourceLimits
 
 from code_puppy.agents import _code_mode
 from code_puppy.agents._code_mode import (
@@ -98,6 +102,38 @@ class TestBuildSpeculativeCodeMode:
 
         assert capability.tools is _sandbox_tool
         assert capability.speculate == ["read_file", "grep"]
+
+
+@pytest.mark.asyncio
+async def test_run_code_executes_trivial_snippet_with_pinned_monty(flag):
+    """Harness 0.33 sends max_duration_secs, which Monty 1.0 rejects."""
+    assert importlib.metadata.version("pydantic-monty") == "0.0.23"
+    assert "max_duration_secs" in ResourceLimits.__annotations__
+
+    requests = 0
+
+    async def respond(messages, info):
+        nonlocal requests
+        requests += 1
+        if requests == 1:
+            yield {0: DeltaToolCall(name="run_code", json_args='{"code":"1 + 1"}')}
+        else:
+            yield "done"
+
+    agent = Agent(
+        FunctionModel(stream_function=respond),
+        capabilities=build_speculative_code_mode([]),
+    )
+    result = await agent.run("Calculate 1 + 1")
+    assert result.output == "done"
+    returns = [
+        part
+        for message in result.all_messages()
+        for part in message.parts
+        if isinstance(part, ToolReturnPart) and part.tool_name == "run_code"
+    ]
+    assert len(returns) == 1
+    assert "2" in str(returns[0].content)
 
 
 class TestCodeModeGuidance:
