@@ -12,7 +12,7 @@ from typing import Any
 from pydantic_ai.capabilities import AbstractCapability
 
 CODE_MODE_GUIDANCE = """\
-Speculative execution is on. Use `create_file` and `replace_in_file` as
+Speculation is on. Use `create_file` and `replace_in_file` as
 native tools, outside `run_code`; they are not available as functions inside
 the sandbox. Every other tool is an async function inside `run_code`, a
 persistent sandboxed Python REPL. Call `run_code` with a Python snippet to

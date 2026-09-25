@@ -94,12 +94,12 @@ def test_toggle_flips_persists_rebuilds_and_reports(switch):
     switch["agent"].reload_code_generation_agent.assert_called_once()
     speculation_toggle._refresh_row.assert_called_once()
     assert switch["emitted"] == [
-        "Speculative execution off. Next turn uses plain tool calls. Ctrl+X Ctrl+S to re-enable."
+        "Speculation off. Next turn uses plain tool calls. Ctrl+X Ctrl+S to re-enable."
     ]
 
     assert toggle_speculation() is True
     assert switch["enabled"] is True
-    assert switch["emitted"][-1].startswith("Speculative execution on.")
+    assert switch["emitted"][-1].startswith("Speculation on.")
 
 
 def test_rebuild_failure_keeps_the_config_write(switch):

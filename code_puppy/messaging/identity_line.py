@@ -1,6 +1,12 @@
 """Separate prompt metadata from input and paint its single chrome row."""
 
-from .bar_rendering import clip_cells, sanitize, stylize_slice
+from rich.cells import cell_len
+
+from .bar_rendering import elide_middle, sanitize, stylize_slice
+
+#: SGR the prompt colors punctuation with (see :func:`split_identity`). The
+#: elision marker borrows it so the gap reads as chrome, not as cwd text.
+_MUTED_SGR = "90"
 
 
 def split_identity(
@@ -28,8 +34,27 @@ class IdentityLineMixin:
         return int(bool(getattr(self, "_identity_text", "")))
 
     def _render_identity_line(self, width: int) -> str:
-        text = clip_cells(sanitize(self._identity_text), width)
-        return stylize_slice(text, 0, self._identity_sgrs)
+        """One row, always -- elided in the middle when the row is narrow.
+
+        The row is painted with autowrap off, so an over-wide line is
+        chopped rather than wrapped; chopping from the head alone hides
+        the working directory, which is the half of the row people scan
+        for. Eliding the middle keeps the puppy name AND the cwd on one
+        row at any width.
+        """
+        text = sanitize(self._identity_text)
+        if cell_len(text) <= width:
+            return stylize_slice(text, 0, self._identity_sgrs)
+        elided, keep = elide_middle(text, width)
+        # split_identity pads the prompt's SGR list to the full prefix, but a
+        # plugin-patched prompt can be shorter; pad defensively so the
+        # elided row's styling stays index-aligned with its characters.
+        padded = [
+            *self._identity_sgrs,
+            *([""] * max(0, len(text) - len(self._identity_sgrs))),
+        ]
+        sgrs = [_MUTED_SGR if index < 0 else padded[index] for index in keep]
+        return stylize_slice(elided, 0, sgrs)
 
     def _identity_seq(self) -> str:
         if not self._identity_row_count():

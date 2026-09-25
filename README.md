@@ -156,12 +156,13 @@ Two things happen as the snippet streams in:
 A pinned row above the prompt keeps score for the session:
 
 ```
-Speculative Execution  29 hits · 0 misses · 0 wasted    saved ≥ 7.0s   spec 0.5s · eager 6.5s
+Speculation  29 hits · 0 misses · 0 wasted    saved ≥ 7.0s
 ```
 
 `saved` is a lower bound on tool latency hidden behind the model's own
-typing. Press the chord again to go back to plain tool calls. Off by default;
-full details in [`docs/SPECULATION_STATUS.md`](docs/SPECULATION_STATUS.md).
+typing — speculative and eager time summed into that one total. Press the
+chord again to go back to plain tool calls. Off by default; full details in
+[`docs/SPECULATION_STATUS.md`](docs/SPECULATION_STATUS.md).
 
 ### Meta Muse OAuth
 

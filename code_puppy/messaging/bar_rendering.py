@@ -84,6 +84,57 @@ def clip_cells(text: str, width: int) -> str:
     return chopped[0] if chopped else ""
 
 
+#: Gap marker for :func:`elide_middle`. U+2026 renders as one cell in every
+#: monospace font we care about, unlike the three-dot ASCII fallback.
+ELLIPSIS = "\u2026"
+
+#: No ellipsis to place, or not enough room to elide anything between two
+#: ends -- below this a head chop is the honest answer.
+_MIN_ELIDED_CELLS = 2
+
+
+def elide_middle(text: str, width: int) -> tuple[str, list[int]]:
+    """Fit ``text`` into ``width`` cells by eliding its MIDDLE.
+
+    Chrome rows are single-row by contract: the bar paints them with
+    autowrap off and reserves exactly one line, so anything wider gets
+    chopped rather than wrapped. A plain head chop throws away the tail
+    of a status row -- for the identity row that means losing the cwd
+    entirely, leaving a prefix that reads like a bug. Middle elision
+    keeps both ends and marks the gap instead.
+
+    Returns ``(elided, keep)`` where ``keep[i]`` is the index in ``text``
+    that produced ``elided[i]``, or ``-1`` for the inserted ellipsis, so
+    callers can keep per-character styling aligned (see
+    :func:`stylize_slice`).
+    """
+    if width <= 0:
+        return "", []
+    if cell_len(text) <= width:
+        return text, list(range(len(text)))
+    budget = width - cell_len(ELLIPSIS)
+    if budget < _MIN_ELIDED_CELLS:
+        head = clip_cells(text, width)
+        return head, list(range(len(head)))
+    head_cells = budget // 2
+    # chop_cells does the head's cell/grapheme math for us; the tail needs
+    # the mirrored walk, which is safe per code point because sanitize()
+    # has already stripped the format chars (ZWJ) that join graphemes.
+    head_chunks = chop_cells(text, head_cells) if head_cells > 0 else []
+    head = head_chunks[0] if head_chunks else ""
+    head_end = len(head)
+    tail_start = len(text)
+    used = 0
+    while tail_start > head_end:
+        size = cell_len(text[tail_start - 1])
+        if used + size > budget - head_cells:
+            break
+        used += size
+        tail_start -= 1
+    keep = [*range(head_end), -1, *range(tail_start, len(text))]
+    return f"{head}{ELLIPSIS}{text[tail_start:]}", keep
+
+
 _DIM_ON = "\x1b[2m"
 _DIM_OFF = "\x1b[22m"
 
@@ -319,6 +370,7 @@ __all__ = [
     "CLEAR_LINE",
     "CURSOR_HIDE",
     "CURSOR_SHOW",
+    "ELLIPSIS",
     "MODKEYS_OFF",
     "MODKEYS_ON",
     "PASTE_OFF",
@@ -334,6 +386,7 @@ __all__ = [
     "count_prompt_rows",
     "default_get_size",
     "dim",
+    "elide_middle",
     "render_prompt_block",
     "render_styled_line",
     "sanitize",

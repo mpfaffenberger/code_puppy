@@ -1,6 +1,6 @@
-# Speculative execution status row
+# Speculation status row
 
-Speculative execution is a global switch (`enable_speculative_code_mode`,
+Speculation is a global switch (`enable_speculative_code_mode`,
 off by default, `Ctrl+X Ctrl+S` toggles it). While it is on, every agent
 folds its tools into a `run_code` sandbox except `create_file` and
 `replace_in_file`, which stay native, and the sandbox guidance rides along as
@@ -9,25 +9,32 @@ instead of the streamed `run_code` source or a final code panel. Toggling
 off hides the row; toggling back on keeps the session totals.
 
 ```
-Speculative Execution  29 hits · 0 misses · 0 wasted    saved ≥ 7.0s   spec 0.5s · eager 6.5s
+Speculation  29 hits · 0 misses · 0 wasted    saved ≥ 7.0s
 ```
 
 The label uses the agent accent. Counts light up only when non-zero (hits
 green, misses yellow, wasted red); the headline total is bold green once
-anything has been saved, and the breakdown stays muted. Only palette slots
-are used, so `/theme` recolors the row.
+anything has been saved. Only palette slots are used, so `/theme` recolors
+the row.
 
 - **Hits:** sandbox calls that adopted a speculative launch.
 - **Misses:** speculation-eligible calls that ran without a matching launch.
 - **Wasted:** launches reported by the harness as discarded without a claim.
-- **saved ≥:** spec plus eager, below. Both are lower bounds, so the sum is
-  too.
-- **spec:** the sum of fully hidden call durations, in seconds. This
-  is a lower bound on summed call latency hidden by speculation, not elapsed
-  wall-clock time saved. Concurrent calls can overlap. Partial hits still
-  count as hits, but their timing is excluded because the harness does not
-  expose how long the caller waited.
-- **eager:** summed time spent in non-speculative sandbox tool calls
+- **saved ≥:** speculative plus eager time, in seconds. Both halves are
+  accumulated separately and summed into this one headline — the row used to
+  split them out, and the split never changed a decision while eating the
+  width that makes the row legible on a narrow terminal. Both are lower
+  bounds, so the sum is too.
+
+The two clocks behind `saved ≥` (documented here because the accounting is
+still separate even though the display is not):
+
+- **Speculative:** the sum of fully hidden call durations. This is a lower
+  bound on summed call latency hidden by speculation, not elapsed wall-clock
+  time saved. Concurrent calls can overlap. Partial hits still count as hits,
+  but their timing is excluded because the harness does not expose how long
+  the caller waited.
+- **Eager:** summed time spent in non-speculative sandbox tool calls
   while `run_code` arguments were still streaming. A call that extends past
   generation contributes only its overlapping portion. The counter updates
   when the snippet completes successfully, and excludes restarted, rejected,

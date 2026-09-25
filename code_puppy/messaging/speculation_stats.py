@@ -77,11 +77,17 @@ class SpeculationStats:
         return True
 
     def render(self) -> Text:
-        """One styled row: counts light up only when non-zero, one headline total."""
+        """One styled row: counts light up only when non-zero, one headline total.
+
+        Speculative and eager savings are accumulated separately (they are
+        different clocks) but the row shows their SUM only -- a single
+        "saved" headline. Splitting it out per mechanism meant the narrowest
+        thing on screen was the one the user reads, and the split never
+        changed a decision.
+        """
         with self._lock:
             hits, misses, wasted = self.hits, self.misses, self.wasted
-            spec_ms, eager_ms = self.saved_ms, self.eager_saved_ms
-        total = _seconds(spec_ms + eager_ms)
+            total = _seconds(self.saved_ms + self.eager_saved_ms)
         row = Text()
         row.append(t("speculation.label"), style=f"bold {agent_accent()}")
         row.append("  ")
@@ -98,15 +104,6 @@ class SpeculationStats:
         row.append(
             t("speculation.saved", seconds=total),
             style="bold bright_green" if total != "0.0" else _MUTED,
-        )
-        row.append("   ")
-        row.append(
-            t(
-                "speculation.breakdown",
-                speculative_seconds=_seconds(spec_ms),
-                eager_seconds=_seconds(eager_ms),
-            ),
-            style=_MUTED,
         )
         return row
 

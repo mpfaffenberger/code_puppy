@@ -63,7 +63,9 @@ def test_session_counts_survive_new_snippets():
     assert "1 miss " in text
     assert "1 wasted" in text
     assert "saved \u2265 2.0s" in text
-    assert "spec 2.0s \u00b7 eager 0.0s" in text
+    # One headline total only -- no per-mechanism breakdown.
+    assert "spec " not in text
+    assert "eager " not in text
     assert "private code" not in text
 
 
@@ -118,7 +120,7 @@ def test_status_is_localizable():
             for span in row.spans
             if row.plain[span.start : span.end].strip(" \u00b7")
         ]
-        assert len(words) == 6
+        assert len(words) == 5
         for word in words:
             assert word.startswith("⟦") and word.endswith("⟧"), word
     finally:
@@ -146,7 +148,9 @@ def test_styling_lights_up_only_non_zero_counts_and_savings():
     assert by_text["0 misses"] == "bright_black"
     assert by_text["1 wasted"] == "bold red"
     assert by_text["saved \u2265 1.5s"] == "bold bright_green"
-    assert by_text["spec 1.0s \u00b7 eager 0.5s"] == "bright_black"
+    # Speculative + eager collapse into that one total.
+    assert "spec 1.0s" not in by_text
+    assert "eager 0.5s" not in by_text
 
 
 def test_partial_claim_does_not_overstate_savings():
@@ -170,13 +174,14 @@ def test_eager_totals_accumulate_separately():
     assert stats.eager_saved_ms == 398.0
     assert stats.saved_ms == 0.0
     assert stats.hits == 0
-    assert "eager 0.3s" in stats.render().plain
+    # Eager savings still land in the single headline total.
+    assert "saved \u2265 0.3s" in stats.render().plain
 
 
 def test_lower_bound_rounds_down():
     stats = SpeculationStats()
     stats.handle_event(claim(elapsed_ms=199.0))
-    assert "spec 0.1s" in stats.render().plain
+    assert "saved \u2265 0.1s" in stats.render().plain
 
 
 def test_non_speculation_event_falls_through():
