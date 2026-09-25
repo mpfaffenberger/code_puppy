@@ -12,9 +12,7 @@ dependencies = [
     "code-puppy-core-plugins>=0.0.62",
     "logfire>=4.0",
     "pydantic-ai-slim[openai,anthropic,mcp]==2.47.0",
-    "pydantic-ai-harness[code-mode]==0.33.0",
-    # Harness 0.33 passes max_duration_secs; Monty 1.0 removed that limit key.
-    "pydantic-monty==0.0.23",
+    "pydantic-ai-harness[code-mode]==0.35.0",
     "anyio>=4.7.0",
     "typer>=0.12.0",
     "mcp>=1.9.4",

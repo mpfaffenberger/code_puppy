@@ -424,7 +424,6 @@ dependencies = [
     { name = "pydantic" },
     { name = "pydantic-ai-harness", extra = ["code-mode"] },
     { name = "pydantic-ai-slim", extra = ["anthropic", "mcp", "openai"] },
-    { name = "pydantic-monty" },
     { name = "pyfiglet" },
     { name = "python-dotenv" },
     { name = "requests" },
@@ -479,9 +478,8 @@ requires-dist = [
     { name = "pillow", specifier = ">=10.0.0" },
     { name = "playwright", marker = "sys_platform != 'android'", specifier = ">=1.40.0" },
     { name = "pydantic", specifier = ">=2.4.0" },
-    { name = "pydantic-ai-harness", extras = ["code-mode"], specifier = "==0.33.0" },
+    { name = "pydantic-ai-harness", extras = ["code-mode"], specifier = "==0.35.0" },
     { name = "pydantic-ai-slim", extras = ["openai", "anthropic", "mcp"], specifier = "==2.47.0" },
-    { name = "pydantic-monty", specifier = "==0.0.23" },
     { name = "pyfiglet", specifier = ">=0.8.post1" },
     { name = "pyobjc-framework-applicationservices", marker = "sys_platform == 'darwin' and extra == 'computer-use'", specifier = ">=10.3" },
     { name = "pyobjc-framework-cocoa", marker = "sys_platform == 'darwin' and extra == 'computer-use'", specifier = ">=10.3" },
@@ -1906,7 +1904,7 @@ email = [
 
 [[package]]
 name = "pydantic-ai-harness"
-version = "0.33.0"
+version = "0.35.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "genai-prices" },
@@ -1914,9 +1912,9 @@ dependencies = [
     { name = "json-repair" },
     { name = "pydantic-ai-slim" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/94/3f/c0c7d35c8078394a97c5b183cbab9cf37a944af3fad4f4f7d7f9ab8c70e2/pydantic_ai_harness-0.33.0.tar.gz", hash = "sha256:62416bdfca6ca205033f0961fa0aad206858c022a502c33b766ee6c3ac50a1a2", size = 2963762, upload-time = "2026-09-22T04:15:56.795Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ad/b6/d30279b62971960c2f740d7b8902a1f93f6de98cc787d56185a501a6905f/pydantic_ai_harness-0.35.0.tar.gz", hash = "sha256:4bd643d09c9be349132e4eb2cbe727c8e78a3658f2f6c7a48b6411444cdd2395", size = 3208936, upload-time = "2026-09-25T05:03:26.736Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a7/7e/c74160d79925660fd8f51272d90191cbef96d092b0c7c81e18b21d59a450/pydantic_ai_harness-0.33.0-py3-none-any.whl", hash = "sha256:39f62659198650643fd397e1fcf11708e2a28d51770eab8cc9a145fb4619275c", size = 923551, upload-time = "2026-09-22T04:15:54.664Z" },
+    { url = "https://files.pythonhosted.org/packages/a9/3f/7af10428985bee133d68a60439636450456200b4c896c77f04c9a096529b/pydantic_ai_harness-0.35.0-py3-none-any.whl", hash = "sha256:ed1691d1045480bd9192b0dc13df5ae8a48448f2987cebb7344c11e3e319b293", size = 966091, upload-time = "2026-09-25T05:03:24.873Z" },
 ]
 
 [package.optional-dependencies]

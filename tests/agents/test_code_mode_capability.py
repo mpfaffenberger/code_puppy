@@ -105,9 +105,9 @@ class TestBuildSpeculativeCodeMode:
 
 
 @pytest.mark.asyncio
-async def test_run_code_executes_trivial_snippet_with_pinned_monty(flag):
-    """Harness 0.33 sends max_duration_secs, which Monty 1.0 rejects."""
-    assert importlib.metadata.version("pydantic-monty") == "0.0.23"
+async def test_run_code_executes_trivial_snippet_with_compatible_monty(flag):
+    """Harness 0.35 excludes Monty 1.x, which removed max_duration_secs."""
+    assert importlib.metadata.version("pydantic-ai-harness") == "0.35.0"
     assert "max_duration_secs" in ResourceLimits.__annotations__
 
     requests = 0
