@@ -411,10 +411,13 @@ _WIN_EXTENDED_KEYS = {
 #: Max chars drained from the console input queue in one poll tick.
 _WIN_BURST_CAP = 4096
 
-#: CSI-u Shift+Enter — editor_keys maps body "13;2u" → newline.
+#: CSI-u modified Enter sequences consumed by ``editor_keys``.
 _SHIFT_ENTER_SEQ = "\x1b[13;2u"
+_CTRL_ENTER_SEQ = "\x1b[13;5u"
 
 _VK_SHIFT = 0x10
+_VK_CONTROL = 0x11
+_VK_RETURN = 0x0D
 
 
 def _win_shift_is_down() -> bool:
@@ -423,9 +426,8 @@ def _win_shift_is_down() -> bool:
     Classic console input (``getwch``) encodes Shift+Enter as a plain
     ``\\r`` — byte-identical to bare Enter — and neither Windows
     Terminal nor conhost honors the xterm modifyOtherKeys arming that
-    disambiguates it on POSIX terminals (Ctrl+Enter only works because
-    the console happens to encode it as ``\\n``). Asking the OS for the
-    live modifier state is the only way to tell the two apart. Fails
+    disambiguates it on POSIX terminals. Asking the OS for the live
+    modifier state is the only way to tell modified Enter apart. Fails
     False (= plain Enter, submit) on headless/remote sessions where no
     local keyboard exists.
     """
@@ -437,8 +439,21 @@ def _win_shift_is_down() -> bool:
         return False
 
 
+def _win_ctrl_enter_is_down() -> bool:
+    """Whether Ctrl and Enter are both physically held (best-effort)."""
+    try:
+        import ctypes
+
+        get_state = ctypes.windll.user32.GetAsyncKeyState
+        return bool(get_state(_VK_CONTROL) & 0x8000 and get_state(_VK_RETURN) & 0x8000)
+    except Exception:
+        return False
+
+
 def _windows_char_to_seq(
-    value: str, shift_is_down: Callable[[], bool] = _win_shift_is_down
+    value: str,
+    shift_is_down: Callable[[], bool] = _win_shift_is_down,
+    ctrl_enter_is_down: Callable[[], bool] = _win_ctrl_enter_is_down,
 ) -> Optional[str]:
     """Translate chars whose classic-console encoding is ambiguous.
 
@@ -448,6 +463,8 @@ def _windows_char_to_seq(
     """
     if value == "\r" and shift_is_down():
         return _SHIFT_ENTER_SEQ
+    if value == "\n" and ctrl_enter_is_down():
+        return _CTRL_ENTER_SEQ
     return None
 
 

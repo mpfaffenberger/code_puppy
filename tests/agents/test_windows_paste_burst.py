@@ -10,6 +10,7 @@ bursts in a synthesized bracketed paste.
 import pytest
 
 from code_puppy.agents._key_listeners import (
+    _CTRL_ENTER_SEQ,
     _PASTE_CLOSE,
     _PASTE_OPEN,
     _SHIFT_ENTER_SEQ,
@@ -168,6 +169,38 @@ class TestShiftEnter:
         from code_puppy.agents._key_listeners import _win_shift_is_down
 
         assert _win_shift_is_down() in (True, False)
+
+
+class TestCtrlEnter:
+    def test_ctrl_enter_becomes_csi_u_submit_now_seq(self):
+        assert (
+            _windows_char_to_seq(
+                "\n",
+                shift_is_down=lambda: False,
+                ctrl_enter_is_down=lambda: True,
+            )
+            == _CTRL_ENTER_SEQ
+        )
+
+    def test_ctrl_j_stays_a_regular_newline(self):
+        assert (
+            _windows_char_to_seq(
+                "\n",
+                shift_is_down=lambda: False,
+                ctrl_enter_is_down=lambda: False,
+            )
+            is None
+        )
+
+    def test_seq_maps_to_editor_submit_now_action(self):
+        from code_puppy.messaging.editor_keys import classify_csi
+
+        assert classify_csi(_CTRL_ENTER_SEQ[2:]) == "submit_now"
+
+    def test_default_ctrl_enter_checker_never_raises(self):
+        from code_puppy.agents._key_listeners import _win_ctrl_enter_is_down
+
+        assert _win_ctrl_enter_is_down() in (True, False)
 
 
 def _chars(wire: str) -> list:

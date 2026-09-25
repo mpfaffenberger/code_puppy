@@ -10,6 +10,7 @@ from code_puppy.messaging.editor_history import (
     ReverseSearch,
 )
 from code_puppy.messaging.line_editor import RunningLineEditor
+from code_puppy.messaging.pause_controller import PauseController
 
 
 class FakeBar(io.StringIO):
@@ -22,10 +23,13 @@ def store(tmp_path):
     return HistoryStore(str(tmp_path / "history.txt"))
 
 
-def make_editor(store):
+def make_editor(store, pause_controller=None):
+    controller = (
+        pause_controller or type("C", (), {"request_steer": lambda *a, **k: None})()
+    )
     return RunningLineEditor(
         bar=FakeBar(),
-        pause_controller=type("C", (), {"request_steer": lambda *a, **k: None})(),
+        pause_controller=controller,
         history=HistoryNavigator(store),
         reverse_search=ReverseSearch(store),
     )
@@ -143,6 +147,108 @@ def test_editing_exits_history_browsing(store):
     assert editor.buffer == "recalled!"
     editor.feed("\x1b[B")  # Down: no longer browsing -> no-op
     assert editor.buffer == "recalled!"
+
+
+def test_queued_turns_are_editable_before_regular_history(store):
+    for entry in ("older history", "first queued", "second queued"):
+        store.append(entry)
+    controller = PauseController()
+    controller.request_steer("first queued", mode="queue")
+    controller.request_steer("second queued", mode="queue")
+    editor = make_editor(store, controller)
+
+    editor.feed("\x1b[A")
+    assert editor.buffer == "second queued"
+    editor.feed("!")
+    editor.feed("\x1b[A")
+    assert editor.buffer == "first queued"
+    editor.feed("\x1b[A")
+    assert editor.buffer == "older history"
+    assert controller.peek_pending_steer_queued() == [
+        "first queued",
+        "second queued!",
+    ]
+
+
+def test_down_from_queued_turn_restores_working_draft(store):
+    controller = PauseController()
+    controller.request_steer("queued", mode="queue")
+    editor = make_editor(store, controller)
+    editor.feed("draft")
+
+    editor.feed("\x1b[A")
+    editor.feed("!")
+    editor.feed("\x1b[B")
+
+    assert editor.buffer == "draft"
+    assert controller.peek_pending_steer_queued() == ["queued!"]
+
+
+def test_enter_updates_recalled_queue_item_without_duplication(store):
+    controller = PauseController()
+    controller.request_steer("first", mode="queue")
+    controller.request_steer("second", mode="queue")
+    editor = make_editor(store, controller)
+
+    editor.feed("\x1b[A")
+    editor.feed(" edited")
+    editor.feed("\r")
+
+    assert editor.buffer == ""
+    assert controller.peek_pending_steer_queued() == ["first", "second edited"]
+    assert controller.drain_pending_steer_now() == []
+
+
+def test_ctrl_enter_submits_buffer_as_immediate_steer(store):
+    controller = PauseController()
+    editor = make_editor(store, controller)
+
+    editor.feed("steer immediately")
+    editor.feed("\x1b[13;5u")
+
+    assert controller.drain_pending_steer_now() == ["steer immediately"]
+    assert controller.peek_pending_steer_queued() == []
+
+
+def test_ctrl_enter_converts_recalled_queue_item_to_immediate_steer(store):
+    controller = PauseController()
+    controller.request_steer("later", mode="queue")
+    controller.request_steer("steer me", mode="queue")
+    editor = make_editor(store, controller)
+
+    editor.feed("\x1b[A")
+    editor.feed(" now")
+    editor.feed("\x1b[13;5u")
+
+    assert controller.peek_pending_steer_queued() == ["later"]
+    assert controller.drain_pending_steer_now() == ["steer me now"]
+
+
+def test_clearing_recalled_queue_item_restores_original(store):
+    controller = PauseController()
+    controller.request_steer("keep original", mode="queue")
+    editor = make_editor(store, controller)
+
+    editor.feed("\x1b[A")
+    editor.feed(" changed")
+    editor.clear_buffer()
+
+    assert editor.buffer == ""
+    assert controller.peek_pending_steer_queued() == ["keep original"]
+
+
+def test_reverse_search_restores_recalled_queue_item(store):
+    store.append("history match")
+    controller = PauseController()
+    controller.request_steer("keep queued", mode="queue")
+    editor = make_editor(store, controller)
+
+    editor.feed("\x1b[A")
+    editor.feed(" changed")
+    editor.feed("\x12")
+
+    assert editor._rsearch.active is True
+    assert controller.peek_pending_steer_queued() == ["keep queued"]
 
 
 # =========================================================================

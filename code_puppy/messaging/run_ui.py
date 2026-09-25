@@ -196,6 +196,7 @@ def stop_run_ui() -> None:
     if persistent_run_ended:
         return
     if editor is not None:
+        editor.clear_buffer()
         _set_feed_target(None)
     unregister_chord("\x05")  # the handler closes over the dead editor
     unregister_chord(SPECULATION_KEY)
@@ -462,8 +463,8 @@ def _persistent_router(text: str, mode: str) -> Optional[str]:
     """Central idle-vs-running routing for the persistent prompt."""
     editor = get_run_editor()
     if is_run_active():
-        # Mid-run: keep Phase 1-5 semantics (steer now / Alt+Enter queue /
-        # slash -> drain queue, scheduled by the submit listener).
+        # Mid-run: Enter/Alt+Enter queue, Ctrl+Enter steers now, and slash
+        # commands enter the drain queue scheduled by the submit listener.
         if editor is not None:
             return editor.route_default(text, mode)
         return None

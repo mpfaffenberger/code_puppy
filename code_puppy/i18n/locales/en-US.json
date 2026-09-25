@@ -238,6 +238,12 @@
     "one": "Wrote {count} file.",
     "other": "Wrote {count} files."
   },
+  "help.keybinding.ctrl_enter.description": "Steer the current run immediately (or submit normally while idle)",
+  "help.keybinding.ctrl_enter.label": "Ctrl+Enter",
+  "help.keybinding.newline.description": "Insert a newline (Ctrl+J is most reliable across terminals)",
+  "help.keybinding.newline.label": "Ctrl+J or Shift+Enter",
+  "help.keybinding.up.description": "Edit queued turns before browsing prompt history",
+  "help.keybinding.up.label": "Up Arrow",
   "locale.current": "Current locale: {locale}",
   "locale.set": "Locale set to {locale}.",
   "logfire.configure_failed": "Failed to configure Logfire: {error}",

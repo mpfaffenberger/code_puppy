@@ -323,6 +323,26 @@ class PauseController:
         with self._lock:
             return len(self._steer_queue_now), len(self._steer_queue_queued)
 
+    def pop_latest_steer_queued(self) -> Optional[str]:
+        """Reserve the newest queued turn for inline editing."""
+        with self._lock:
+            if not self._steer_queue_queued:
+                return None
+            item = self._steer_queue_queued.pop()
+            total = len(self._steer_queue_now) + len(self._steer_queue_queued)
+        self._fire_steer_queue_listeners(total)
+        return item
+
+    def restore_pending_steer_queued(self, items: List[str]) -> None:
+        """Append reserved turns in their original oldest-first order."""
+        cleaned = [item for item in items if item and item.strip()]
+        if not cleaned:
+            return
+        with self._lock:
+            self._steer_queue_queued.extend(cleaned)
+            total = len(self._steer_queue_now) + len(self._steer_queue_queued)
+        self._fire_steer_queue_listeners(total)
+
     def peek_pending_steer_queued(self) -> List[str]:
         """Copy of the queued-mode queue WITHOUT draining (for the /queue TUI)."""
         with self._lock:

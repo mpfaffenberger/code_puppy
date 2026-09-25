@@ -11,7 +11,8 @@ kills, Ctrl+A/E + Left/Right/Home/End + word jumps (Ctrl/Alt+arrows,
 Meta-b/f), Up/Down (menu > multiline line-move > history), Enter
 (accept-completion / newline-in-multiline / submit; ``\\r`` only — the
 POSIX listener clears ICRNL so Ctrl+J = ``\\n`` = newline), Shift/Ctrl+
-Enter (CSI-u + modifyOtherKeys → newline), Alt+Enter (queue-submit),
+Enter (CSI-u + modifyOtherKeys: Shift newline, Ctrl steer), Alt+Enter
+(queue-submit),
 Ctrl+D (EOF on empty), Ctrl+R (reverse search; Enter accepts WITHOUT
 submitting), Ctrl+V (async smart paste — image or text), Ctrl+X chords
 (registry-driven: Ctrl+E $EDITOR, shell kill/background — see chords),
@@ -34,7 +35,6 @@ from . import editor_keys as ek
 from .bottom_bar import get_bottom_bar
 from .chords import clear_chord_hint
 from .editor_actions import apply_action, handle_chord
-from .editor_display import to_display
 from .editor_history import (
     HistoryNavigator,
     ReverseSearch,
@@ -43,6 +43,15 @@ from .editor_history import (
     safe_reverse_search,
 )
 from .editor_paste import PasteBuffer, classify_paste
+from .editor_queue import QueuedMessageNavigator
+from .editor_submission import (
+    emit_feedback,
+    repaint,
+    resolve_esc_timeout,
+    route_default,
+    submit_buffer,
+    toggle_multiline,
+)
 from .pause_controller import get_pause_controller
 
 logger = logging.getLogger(__name__)
@@ -66,10 +75,6 @@ SubmitListener = Callable[[str, str], None]
 #: it REPLACES the built-in routing (steer queues / slash-command queue);
 #: the run_ui layer uses this to centralize idle-vs-running dispatch.
 SubmitRouter = Callable[[str, str], Optional[str]]
-
-
-class _QueuedFeedback(str):
-    """Marker for feedback that belongs in the dedicated queued renderer."""
 
 
 class RunningLineEditor:
@@ -117,6 +122,7 @@ class RunningLineEditor:
         self._ctrl_x_pending = False  # Ctrl+X chord prefix armed (see chords)
         # Phase B feature state.
         self._history = history if history is not None else safe_navigator()
+        self._queued_messages = QueuedMessageNavigator(self._resolve_controller)
         self._rsearch = (
             reverse_search if reverse_search is not None else safe_reverse_search()
         )
@@ -232,6 +238,7 @@ class RunningLineEditor:
             if self._rsearch.active:
                 self._rsearch.cancel()
                 self._set_completion_suppressed(False)
+            self._queued_messages.cancel()
             if self._buffer or self._cursor:
                 self._buffer = ""
                 self._cursor = 0
@@ -317,16 +324,14 @@ class RunningLineEditor:
             if "\x40" <= ch <= "\x7e":
                 seq = self._csi_buf + ch
                 self._csi_buf = None
-                self._apply_action(ek.classify_csi(seq))
-            else:
-                self._csi_buf += ch
+                return self._apply_action(ek.classify_csi(seq))
+            self._csi_buf += ch
             return None
 
         # Mid-SS3 (ESC O <final>): exactly one byte.
         if self._ss3_pending:
             self._ss3_pending = False
-            self._apply_action(ek.classify_ss3(ch))
-            return None
+            return self._apply_action(ek.classify_ss3(ch))
 
         if self._esc_pending_at is not None:
             self._esc_pending_at = None
@@ -407,6 +412,7 @@ class RunningLineEditor:
                 self._completion.on_tab(self._buffer, self._cursor)
             return None
         if ch == _CTRL_R:
+            self._queued_messages.cancel()
             self._rsearch.start()
             self._set_completion_suppressed(True)
             self._repaint()
@@ -451,9 +457,9 @@ class RunningLineEditor:
             return None
         return None  # any other control character: ignore safely
 
-    def _apply_action(self, action: Optional[str]) -> None:
+    def _apply_action(self, action: Optional[str]) -> Optional[str]:
         """Dispatch a classified CSI/SS3 action (see editor_actions)."""
-        apply_action(self, action)
+        return apply_action(self, action)
 
     @staticmethod
     def _call_handler(handler: Optional[Callable[[], None]], name: str) -> None:
@@ -558,127 +564,21 @@ class RunningLineEditor:
                 logger.debug("completion suppress failed", exc_info=True)
 
     def _toggle_multiline(self) -> None:
-        self._multiline = not self._multiline
-        self._repaint()
+        toggle_multiline(self)
 
     def _resolve_esc_timeout(self) -> None:
-        """Bare-ESC resolution: close menu / cancel search, clear pending."""
-        if self._esc_pending_at is None:
-            return
-        if self._now() - self._esc_pending_at > self._esc_timeout:
-            self._esc_pending_at = None
-            if self._rsearch.active:
-                self._rsearch.cancel()
-                self._set_completion_suppressed(False)
-                self._repaint()
-            elif self._completion_open():
-                self._close_completion()
-
-    # =========================================================================
-    # Internals — submission + repaint
-    # =========================================================================
+        resolve_esc_timeout(self)
 
     def _submit(self, mode: str) -> Optional[str]:
-        """Route the buffer; returns a transcript feedback line, if any."""
-        text = self._buffer
-        self._buffer = ""
-        self._cursor = 0
-        self._close_completion()
-        self._repaint()
-
-        stripped = text.strip()
-        if not stripped:
-            return None
-
-        try:
-            self._history.record_submit(text)
-        except Exception:
-            logger.debug("history record failed", exc_info=True)
-
-        router = self._router
-        if router is not None:
-            try:
-                feedback = router(text, mode)
-            except Exception:
-                logger.debug("submit router failed", exc_info=True)
-                feedback = None
-        else:
-            feedback = self.route_default(text, mode)
-
-        for listener in list(self._submit_listeners):
-            try:
-                listener(stripped, mode)
-            except Exception:
-                logger.debug("submit listener failed", exc_info=True)
-        return feedback
+        return submit_buffer(self, mode)
 
     def route_default(self, text: str, mode: str) -> Optional[str]:
-        """Built-in mid-run routing: slash → command queue, else steer."""
-        stripped = text.strip()
-        if not stripped:
-            return None
-        if stripped.startswith("/"):
-            # /steer fast path → now-queue directly: routing through the command
-            # drain would PAUSE the agent just to request a steer ("interrupt ASAP").
-            steer_text = _parse_steer_command(stripped)
-            if steer_text is not None:
-                if not steer_text:
-                    return "Usage: /steer <message>"
-                try:
-                    self._resolve_controller().request_steer(steer_text, mode="now")
-                except Exception:
-                    logger.debug("steer fast path failed", exc_info=True)
-                # No ack: the steer history processor announces the
-                # injection when the text actually reaches the model.
-                return None
-            # Other slash commands are runtime concerns (drained by
-            # run_ui) — they must NOT reach the PauseController queues.
-            self._command_queue.put(stripped)
-            return None
-        try:
-            self._resolve_controller().request_steer(text, mode=mode)
-        except Exception:
-            # Never let a broken controller kill the listener thread.
-            logger.debug("request_steer failed", exc_info=True)
-            return None
-        if mode == "queue":
-            # Queued steers get no later confirmation, so ack at submit time.
-            return _QueuedFeedback(f"for next turn: {stripped[:60]}")
-        # "now" steers: stay quiet — the history processor announces the injection
-        # when the model sees it; acking at submit time was a lie + transcript noise.
-        return None
+        return route_default(self, text, mode)
 
-    @staticmethod
-    def _emit_feedback(note: str) -> None:
-        """Best-effort transcript line for a successful steer submission."""
-        try:
-            from code_puppy.messaging.message_queue import emit_info, emit_queued
-
-            if isinstance(note, _QueuedFeedback):
-                emit_queued(str(note))
-            else:
-                emit_info(note)
-        except Exception:
-            logger.debug("feedback emit failed", exc_info=True)
+    _emit_feedback = staticmethod(emit_feedback)
 
     def _repaint(self) -> None:
-        try:
-            bar = self._resolve_bar()
-            if self._rsearch.active:
-                text = self._rsearch.prompt_text()
-                bar.set_prompt_text("", text, len(text))
-                return
-            # "[multiline] " suffix has no SGR entries: extra chars paint plain.
-            prefix = self._prompt_prefix + ("[multiline] " if self._multiline else "")
-            # Attachment paths render as friendly tags ([png image]) —
-            # display only; the buffer keeps the real path for submit.
-            display_text, display_cursor = to_display(self._buffer, self._cursor)
-            bar.set_prompt_text(
-                prefix, display_text, display_cursor, self._prompt_prefix_sgrs
-            )
-        except Exception:
-            # Painting is best-effort; the buffer state is the truth.
-            pass
+        repaint(self)
 
     def _resolve_bar(self):
         return self._bar if self._bar is not None else get_bottom_bar()
@@ -687,15 +587,6 @@ class RunningLineEditor:
         if self._pause_controller is not None:
             return self._pause_controller
         return get_pause_controller()
-
-
-def _parse_steer_command(stripped: str) -> Optional[str]:
-    """'/steer fix it' -> 'fix it'; bare '/steer' -> ''; not steer -> None."""
-    if stripped == "/steer":
-        return ""
-    if stripped.startswith("/steer "):
-        return stripped[len("/steer ") :].strip()
-    return None
 
 
 __all__ = [
