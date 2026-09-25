@@ -67,6 +67,44 @@ def test_session_counts_survive_new_snippets():
     assert "private code" not in text
 
 
+def test_clear_starts_fresh_speculation_stats(monkeypatch):
+    import code_puppy.messaging.speculation_stats as telemetry
+    from code_puppy.command_line.session_commands import handle_clear_command
+
+    agent = Mock()
+    clipboard = Mock()
+    clipboard.get_pending_count.return_value = 0
+    stats = SpeculationStats(
+        hits=3, misses=2, wasted=1, saved_ms=1200.0, eager_saved_ms=300.0
+    )
+    refresh = Mock()
+    monkeypatch.setattr(telemetry, "_stats", stats)
+    monkeypatch.setattr(telemetry, "refresh_speculation_status", refresh)
+    monkeypatch.setattr(
+        "code_puppy.agents.agent_manager.get_current_agent", lambda: agent
+    )
+    monkeypatch.setattr(
+        "code_puppy.command_line.clipboard.get_clipboard_manager", lambda: clipboard
+    )
+    monkeypatch.setattr("code_puppy.config.finalize_autosave_session", lambda: "sid")
+    monkeypatch.setattr(
+        "code_puppy.agents._builder.reset_model_fallback_warnings", Mock()
+    )
+    monkeypatch.setattr("code_puppy.messaging.emit_warning", Mock())
+    monkeypatch.setattr("code_puppy.messaging.emit_system_message", Mock())
+    monkeypatch.setattr("code_puppy.messaging.emit_info", Mock())
+
+    assert handle_clear_command("/clear") is True
+    assert (
+        stats.hits,
+        stats.misses,
+        stats.wasted,
+        stats.saved_ms,
+        stats.eager_saved_ms,
+    ) == (0, 0, 0, 0.0, 0.0)
+    refresh.assert_called_once_with()
+
+
 def test_status_is_localizable():
     """Every word comes from the catalog; only spacing and separators do not."""
     from code_puppy.i18n import pseudo, translate

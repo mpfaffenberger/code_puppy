@@ -104,6 +104,7 @@ def handle_session_command(command: str) -> bool:
       - Finalizes & rotates the current autosave session (so prior history
         is preserved on disk and recoverable via /autosave_load)
       - Clears the in-memory message history for the active agent
+      - Resets speculative execution stats
       - Drops any pending clipboard images queued for the next turn
 
     The bare word `clear` (no slash) also works, for backward compatibility.
@@ -116,10 +117,12 @@ def handle_clear_command(command: str) -> bool:
     from code_puppy.command_line.clipboard import get_clipboard_manager
     from code_puppy.config import finalize_autosave_session
     from code_puppy.messaging import emit_info, emit_system_message, emit_warning
+    from code_puppy.messaging.speculation_stats import reset_speculation_stats
 
     agent = get_current_agent()
     new_session_id = finalize_autosave_session()
     agent.clear_message_history()
+    reset_speculation_stats()
     # New conversation: a stale pinned-model warning deserves to resurface
     # rather than staying silenced from the previous conversation forever.
     reset_model_fallback_warnings()

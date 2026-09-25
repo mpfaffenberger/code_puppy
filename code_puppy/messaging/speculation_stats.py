@@ -39,7 +39,7 @@ _SPECULATION_EVENTS = (
 
 @dataclass(kw_only=True)
 class SpeculationStats:
-    """Accumulate outcomes across snippets and turns in this terminal session."""
+    """Accumulate outcomes across snippets and turns in one conversation."""
 
     hits: int = 0
     misses: int = 0
@@ -47,6 +47,15 @@ class SpeculationStats:
     saved_ms: float = 0.0
     eager_saved_ms: float = 0.0
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+
+    def reset(self) -> None:
+        """Clear all counters for a fresh conversation."""
+        with self._lock:
+            self.hits = 0
+            self.misses = 0
+            self.wasted = 0
+            self.saved_ms = 0.0
+            self.eager_saved_ms = 0.0
 
     def handle_event(self, event: AgentStreamEvent) -> bool:
         """Consume telemetry without retaining generated code or rendering a box."""
@@ -116,6 +125,12 @@ _stats = SpeculationStats()
 
 def get_speculation_stats() -> SpeculationStats:
     return _stats
+
+
+def reset_speculation_stats() -> None:
+    """Reset conversation-scoped telemetry and immediately refresh its chrome."""
+    _stats.reset()
+    refresh_speculation_status()
 
 
 def get_speculation_status() -> Text | None:
