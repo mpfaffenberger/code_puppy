@@ -7,6 +7,7 @@ from contextlib import nullcontext
 from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Literal, Optional, Set, Tuple
+from urllib.parse import urlparse
 
 from pydantic_ai.messages import ModelMessage
 
@@ -84,6 +85,7 @@ PhaseType = Literal[
     "feature_capability",
     "transform_model_messages",
     "error_logged",
+    "resolve_custom_endpoint_url",
 ]
 CallbackFunc = Callable[..., Any]
 
@@ -175,6 +177,7 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "feature_capability": [],
     "transform_model_messages": [],
     "error_logged": [],
+    "resolve_custom_endpoint_url": [],
 }
 
 logger = logging.getLogger(__name__)
@@ -1776,6 +1779,96 @@ def on_wrap_pydantic_agent(
         if r is not None:
             return r
     return pydantic_agent
+
+
+def on_resolve_custom_endpoint_url(url: str, *, model_config: Optional[dict] = None) -> str:
+    """Allow plugins to redirect a custom model endpoint URL before a model
+    client is constructed (e.g. through a local compression/caching proxy).
+
+    Runs from ``get_custom_config()`` in ``model_factory.py``, so it applies
+    to every model whose client is built through that helper: ``custom_openai``,
+    ``custom_openai_responses``, ``custom_anthropic``, ``custom_gemini``,
+    ``cerebras`` when it has a custom endpoint, and any plugin provider that
+    calls ``get_custom_config`` itself (e.g. ollama, claude_code_oauth). It
+    does NOT cover providers that read ``custom_endpoint.url`` directly
+    instead of going through this helper (currently the ChatGPT-OAuth/Codex
+    and Copilot-auth plugin providers).
+
+    Runs each time a model client is constructed -- an agent build or
+    rebuild, each sub-agent invocation, and compaction/private-inference
+    model loads -- so a plugin can key its decision off live state (e.g. is
+    a local proxy currently healthy?) rather than a value cached once at
+    startup. It is **not** re-run per request or per retry within an
+    already-built agent: code-puppy caches the constructed model client
+    (``BaseAgent._code_generation_agent``) until something forces a rebuild.
+    A plugin that needs a stale redirect to stop applying mid-session (e.g.
+    the proxy died) must trigger a rebuild itself, not rely on this hook
+    firing again on its own.
+
+    Each callback receives ``url`` positionally and ``model_config`` as a
+    keyword argument (the dict for the model being built, e.g. its ``type``
+    and ``name`` -- a shallow copy, safe to read but mutating it has no
+    effect on the actual build). Accept ``**kwargs`` in your handler
+    signature so additional keyword-only context can be added later without
+    breaking existing registrations. Handlers must be **synchronous** and
+    return promptly -- an async handler reached from a running event loop
+    (the normal case, since model builds happen during the async agent run)
+    is closed unrun and treated as if it returned ``None``, with only a
+    warning logged; there is no support for awaiting a handler here.
+
+    Returns a replacement URL string, or ``None``/``""``/anything not a
+    non-blank string to leave the URL unchanged. The **last** non-blank
+    string result wins (handlers run in registration order); if more than
+    one handler returns a *different* non-blank URL, the winner is logged
+    at ``warning`` level so a silent conflict between two plugins doesn't
+    go unnoticed. The winning string is stripped of surrounding whitespace,
+    then must parse as an ``http``/``https`` URL with a host -- a
+    non-URL-shaped result (a handler bug) is logged and treated the same as
+    no handler having fired, rather than being handed to httpx to fail on
+    later with a confusing error. Always returns something -- falls back to
+    the input ``url`` if no plugin handled it, and a handler that raises
+    falls back the same way (the traffic goes direct/unproxied, it does not
+    block or error the model build) -- error isolation is handled by
+    ``_trigger_callbacks_sync``, not here.
+
+    Security note: headers (including resolved bearer tokens/API keys) are
+    parsed *after* this hook runs and are sent to whatever host the winning
+    result points at. Only register callbacks you'd trust with that traffic.
+    Also note the fallback-on-error behavior above: this hook is meant for
+    optional, best-effort routing (e.g. a compression proxy), not for a
+    compliance/egress proxy that traffic must never bypass -- a raising
+    handler in that use case would silently send traffic direct instead.
+    """
+    results = _trigger_callbacks_sync("resolve_custom_endpoint_url", url, model_config=model_config or {})
+    winner = None
+    for r in results:
+        if not isinstance(r, str):
+            continue
+        candidate = r.strip()
+        if not candidate:
+            continue
+        parsed = urlparse(candidate)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            logger.warning(
+                "resolve_custom_endpoint_url: a handler returned a non-URL-shaped "
+                "result (%r); ignoring it",
+                candidate,
+            )
+            continue
+        if winner is not None and winner != candidate:
+            logger.warning(
+                "resolve_custom_endpoint_url: multiple handlers disagreed on the "
+                "redirect for %s (%r vs %r) -- the last-registered handler wins",
+                url,
+                winner,
+                candidate,
+            )
+        winner = candidate
+    if winner is None:
+        return url
+    if winner != url:
+        logger.debug("resolve_custom_endpoint_url: %s -> %s", url, winner)
+    return winner
 
 
 def on_agent_run_context(agent, pydantic_agent, group_id, mcp_servers) -> List[Any]:
