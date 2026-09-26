@@ -356,6 +356,12 @@ def test_apply_all_patches_returns_all_patch_names():
                 "pydantic_ai.tool_manager.ToolManager.validate_tool_call"
             ),
         ),
+        (
+            "patch_openai_response_defaults",
+            lambda mp: mp.delattr(
+                "pydantic_ai.models.openai.OpenAIChatModel._validate_completion"
+            ),
+        ),
     ],
 )
 def test_missing_pydantic_internal_logs_error(
@@ -385,7 +391,7 @@ def test_tool_call_callbacks_failure_names_disabled_hooks(monkeypatch, caplog):
 
 
 # ---------------------------------------------------------------------------
-# Optional dependencies: ImportError of json_repair/wcwidth/prompt_toolkit/
+# Optional dependencies: ImportError of json_repair/pydantic_ai openai/
 # termflow stays quiet (DEBUG at most, never ERROR).
 # ---------------------------------------------------------------------------
 
@@ -405,6 +411,7 @@ def _block_import(monkeypatch, *names):
     "patch_fn_name,blocked_libs",
     [
         ("patch_tool_call_json_repair", ("json_repair",)),
+        ("patch_openai_response_defaults", ("pydantic_ai.models.openai",)),
         ("patch_termflow_clipboard", ("termflow",)),
         ("patch_termflow_code_padding", ("termflow",)),
     ],
