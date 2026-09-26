@@ -23,8 +23,6 @@ class SkillProvider(Protocol):
 
     def get_skill_resources(self, skill_path: Path) -> List[Path]: ...
 
-    def get_catalog_skill_ids(self) -> List[str]: ...
-
 
 def get_skill_provider() -> Optional[SkillProvider]:
     """Return the first enabled plugin's registered skills provider.

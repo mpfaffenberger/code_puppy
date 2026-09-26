@@ -1,39 +1,11 @@
 """Tests for skills_completion.py - 100% coverage."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 from termflow.tui.completion import Document
 
-from code_puppy.command_line.skills_completion import (
-    SkillsCompleter,
-    load_catalog_skill_ids,
-)
-
-
-class TestLoadCatalogSkillIds:
-    def test_success(self):
-        provider = MagicMock()
-        provider.get_catalog_skill_ids.return_value = ["test-skill"]
-        with patch(
-            "code_puppy.command_line.skills_completion.get_skill_provider",
-            return_value=provider,
-        ):
-            assert load_catalog_skill_ids() == ["test-skill"]
-
-    def test_no_plugin(self):
-        with patch(
-            "code_puppy.command_line.skills_completion.get_skill_provider",
-            return_value=None,
-        ):
-            assert load_catalog_skill_ids() == []
-
-    def test_provider_failure(self):
-        with patch(
-            "code_puppy.command_line.skills_completion.get_skill_provider",
-            side_effect=RuntimeError("boom"),
-        ):
-            assert load_catalog_skill_ids() == []
+from code_puppy.command_line.skills_completion import SkillsCompleter
 
 
 class TestSkillsCompleter:
@@ -55,49 +27,26 @@ class TestSkillsCompleter:
         result = self._get_completions("/skills ")
         names = [c.text for c in result]
         assert "list" in names
-        assert "install" in names
         assert "enable" in names
+        # The remote marketplace is gone; don't advertise its command.
+        assert "install" not in names
 
     def test_partial_subcommand(self):
         result = self._get_completions("/skills li")
         names = [c.text for c in result]
-        assert "list" in names
-        assert "install" not in names
+        assert names == ["list"]
 
-    @patch.object(
-        SkillsCompleter, "_get_skill_ids", return_value=["skill-a", "skill-b"]
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "/skills list ",
+            "hello /skills ",
+            # No catalog anymore: install must not complete skill ids.
+            "/skills install ",
+            "/skills install al",
+        ],
     )
-    def test_install_show_all_skills(self, mock_ids):
-        result = self._get_completions("/skills install ")
-        names = [c.text for c in result]
-        assert "skill-a" in names
-        assert "skill-b" in names
-
-    @patch.object(SkillsCompleter, "_get_skill_ids", return_value=["alpha", "beta"])
-    def test_install_filter_skills(self, mock_ids):
-        result = self._get_completions("/skills install al")
-        names = [c.text for c in result]
-        assert "alpha" in names
-        assert "beta" not in names
-
-    @pytest.mark.parametrize("text", ["/skills list ", "hello /skills "])
     def test_no_further_completion(self, text):
-        # After a full subcommand + space (non-install), or not at start
+        # After a full subcommand + space, or when /skills isn't at the start
         result = self._get_completions(text)
         assert result == []
-
-    def test_get_skill_ids_cache(self):
-        with patch.object(self.completer, "_skill_ids_cache", ["cached"]):
-            self.completer._cache_timestamp = 999999999999.0
-            result = self.completer._get_skill_ids()
-            assert result == ["cached"]
-
-    def test_get_skill_ids_refresh(self):
-        self.completer._skill_ids_cache = None
-        self.completer._cache_timestamp = None
-        with patch(
-            "code_puppy.command_line.skills_completion.load_catalog_skill_ids",
-            return_value=["new"],
-        ):
-            result = self.completer._get_skill_ids()
-            assert result == ["new"]

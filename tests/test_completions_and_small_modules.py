@@ -1,14 +1,14 @@
 """Tests for completions & small modules coverage.
 
 Covers missed lines in:
-- skills_completion.py
 - file_path_completion.py
 - load_context_completion.py
 - model_switching.py
 - markdown_patches.py
 - error_logging.py
 
-Note: mcp_completion.py is covered in tests/command_line/test_mcp_completion.py
+Note: mcp_completion.py and skills_completion.py are covered in
+tests/command_line/test_mcp_completion.py and test_skills_completion.py.
 """
 
 import os
@@ -18,106 +18,6 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from termflow.tui.completion import Document
-
-# ── skills_completion ───────────────────────────────────────────────────
-
-
-class TestLoadCatalogSkillIds:
-    """Cover lines 26-32."""
-
-    def test_success(self):
-        from code_puppy.command_line.skills_completion import load_catalog_skill_ids
-
-        provider = MagicMock()
-        provider.get_catalog_skill_ids.return_value = ["skill-1"]
-        with patch(
-            "code_puppy.command_line.skills_completion.get_skill_provider",
-            return_value=provider,
-        ):
-            assert load_catalog_skill_ids() == ["skill-1"]
-
-    def test_exception(self):
-        from code_puppy.command_line.skills_completion import load_catalog_skill_ids
-
-        with patch(
-            "code_puppy.command_line.skills_completion.get_skill_provider",
-            side_effect=RuntimeError("boom"),
-        ):
-            assert load_catalog_skill_ids() == []
-
-
-class TestSkillsCompleterGetCompletions:
-    """Cover lines 62-71, 78-160."""
-
-    def setup_method(self):
-        from code_puppy.command_line.skills_completion import SkillsCompleter
-
-        self.completer = SkillsCompleter()
-
-    def test_no_trigger(self):
-        doc = Document("hello")
-        assert list(self.completer.get_completions(doc, None)) == []
-
-    def test_no_space_after_trigger(self):
-        doc = Document("/skills")
-        assert list(self.completer.get_completions(doc, None)) == []
-
-    def test_show_all_subcommands(self):
-        doc = Document("/skills ")
-        completions = list(self.completer.get_completions(doc, None))
-        names = [c.text for c in completions]
-        assert "list" in names
-        assert "install" in names
-
-    def test_partial_subcommand(self):
-        doc = Document("/skills li")
-        completions = list(self.completer.get_completions(doc, None))
-        names = [c.text for c in completions]
-        assert "list" in names
-
-    def test_install_space_shows_skill_ids(self):
-        with patch.object(
-            self.completer, "_get_skill_ids", return_value=["git-helper", "docker"]
-        ):
-            doc = Document("/skills install ")
-            completions = list(self.completer.get_completions(doc, None))
-        names = [c.text for c in completions]
-        assert "git-helper" in names
-        assert "docker" in names
-
-    def test_install_partial_skill_id(self):
-        with patch.object(
-            self.completer, "_get_skill_ids", return_value=["git-helper", "docker"]
-        ):
-            doc = Document("/skills install gi")
-            completions = list(self.completer.get_completions(doc, None))
-        names = [c.text for c in completions]
-        assert "git-helper" in names
-        assert "docker" not in names
-
-    def test_non_install_subcommand_no_further(self):
-        doc = Document("/skills list ")
-        completions = list(self.completer.get_completions(doc, None))
-        assert completions == []
-
-    def test_get_skill_ids_caches(self):
-        with patch(
-            "code_puppy.command_line.skills_completion.load_catalog_skill_ids",
-            return_value=["s1"],
-        ):
-            result = self.completer._get_skill_ids()
-        assert result == ["s1"]
-        # Cached
-        assert self.completer._get_skill_ids() == ["s1"]
-
-    def test_get_skill_ids_none_returns_empty(self):
-        with patch(
-            "code_puppy.command_line.skills_completion.load_catalog_skill_ids",
-            return_value=None,
-        ):
-            result = self.completer._get_skill_ids()
-        assert result == []
-
 
 # ── file_path_completion ────────────────────────────────────────────────
 
