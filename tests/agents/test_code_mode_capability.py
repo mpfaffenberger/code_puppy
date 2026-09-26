@@ -19,6 +19,7 @@ from pydantic_monty import ResourceLimits
 
 from code_puppy.agents import _code_mode
 from code_puppy.agents._code_mode import (
+    NATIVE_TOOLS,
     SANDBOXED_READ_ONLY_TOOLS,
     SilenceToolOutput,
     _sandbox_tool,
@@ -51,9 +52,14 @@ def flag(monkeypatch):
 
 
 class TestBuildSpeculativeCodeMode:
-    def test_only_creation_and_replacement_stay_native(self):
+    def test_only_native_tools_stay_out_of_run_code(self):
         ctx = Mock(spec=RunContext)
-        for name in ("create_file", "replace_in_file"):
+        assert NATIVE_TOOLS == {
+            "create_file",
+            "replace_in_file",
+            "load_image_for_analysis",
+        }
+        for name in NATIVE_TOOLS:
             assert not _sandbox_tool(ctx, ToolDefinition(name=name))
         for name in (
             *SANDBOXED_READ_ONLY_TOOLS,
@@ -152,9 +158,9 @@ class TestCodeModeGuidance:
     def test_guidance_teaches_the_native_write_contract(self):
         assert "run_code" in CODE_MODE_GUIDANCE
         assert "literal" in CODE_MODE_GUIDANCE
-        assert "Use `create_file` and `replace_in_file` as\nnative tools" in (
-            CODE_MODE_GUIDANCE
-        )
+        for name in NATIVE_TOOLS:
+            assert f"`{name}`" in CODE_MODE_GUIDANCE
+        assert "as native tools, outside `run_code`" in CODE_MODE_GUIDANCE
         assert "Speculative Puppy" not in CODE_MODE_GUIDANCE
 
 

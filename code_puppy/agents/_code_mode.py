@@ -4,8 +4,8 @@ Uses speculative programmatic tool calling from pydantic-ai-harness 0.33.0.
 
 When ``enable_speculative_code_mode`` is on, every agent (main and sub-agent)
 has its whole tool surface, MCP servers and plugin tools included, folded
-into ``run_code`` except ``create_file`` and ``replace_in_file``, which
-remain native. Only the read-only trio below speculates. That allowlist is
+into ``run_code`` except the ``NATIVE_TOOLS`` below, which remain native.
+Only the read-only trio below speculates. That allowlist is
 the safety contract: an early launch may run for a branch the snippet never
 takes, so it is reserved for calls that are harmless to re-run or discard;
 everything else waits for real execution.
@@ -60,9 +60,15 @@ for _invalid_escape_category in (SyntaxWarning, DeprecationWarning):
 SANDBOXED_READ_ONLY_TOOLS = ("list_files", "read_file", "grep")
 
 
+# Never folded into run_code. File writes stay native so edits render as diffs;
+# load_image_for_analysis stays native because its multimodal ToolReturn must
+# reach the model as real image content, which a sandbox value cannot carry.
+NATIVE_TOOLS = frozenset({"create_file", "replace_in_file", "load_image_for_analysis"})
+
+
 def _sandbox_tool(ctx: RunContext[object], tool_def: ToolDefinition) -> bool:
-    """Keep file creation and replacement available as native tools."""
-    return tool_def.name not in {"create_file", "replace_in_file"}
+    """Fold every tool into ``run_code`` except the ``NATIVE_TOOLS``."""
+    return tool_def.name not in NATIVE_TOOLS
 
 
 class SilenceToolOutput(AbstractCapability[Any]):
@@ -90,8 +96,8 @@ def build_speculative_code_mode(agent_tools: Sequence[str]) -> List[Any]:
     """Build the speculative CodeMode capabilities when the flag is on, else ``[]``.
 
     Returned as a list so the caller can splice it into ``capabilities=[...]``
-    unconditionally. Creation and replacement stay native; all other tools fold
-    into ``run_code``. ``speculate`` stays restricted to the read-only trio the
+    unconditionally. ``NATIVE_TOOLS`` stay native; all other tools fold into
+    ``run_code``. ``speculate`` stays restricted to the read-only trio the
     agent actually declares, so a tool added to an agent later is sandboxed but
     never launched early without showing up here first.
     """
