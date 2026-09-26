@@ -246,6 +246,79 @@ def patch_message_history_cleaning() -> bool:
         )
 
 
+def patch_openai_chat_video_url() -> bool:
+    """Let OpenAI-compatible Chat Completions endpoints receive video parts.
+
+    pydantic-ai's ``OpenAIChatModel`` raises ``NotImplementedError`` for
+    ``VideoUrl`` parts and for ``BinaryContent`` with a ``video/*`` media
+    type, because api.openai.com has no video content part in Chat
+    Completions.  But several of the OpenAI-compatible endpoints code-puppy
+    also talks to (OpenRouter, synthetic.new, self-hosted gateways) DO accept
+    the OpenRouter-style ``video_url`` part -- pydantic-ai already emits it
+    from ``OpenRouterModel``, so this is a model-class limitation rather than
+    a protocol one.  See ``code_puppy._pydantic_video_patch`` for the full
+    reasoning.
+
+    This teaches plain ``OpenAIChatModel`` (and subclasses such as code-puppy's
+    ``ZaiChatModel``) to emit the same part, gated on
+    :func:`_pydantic_video_patch.chat_completions_accepts_video` so that
+    first-party OpenAI/Azure keep the original -- and more informative --
+    error.  ``OpenRouterModel`` overrides both mappers itself and is therefore
+    untouched.
+    """
+    try:
+        from pydantic_ai.models import download_item
+        from pydantic_ai.models.openai import OpenAIChatModel
+
+        from code_puppy._pydantic_video_patch import (
+            chat_completions_accepts_video,
+            inline_video_url,
+            video_content_part,
+        )
+
+        # Resolved at APPLY time so a changed pydantic-ai surface is detected
+        # immediately, not on first video.
+        for attr in ("_map_binary_content_item", "_map_video_url_item"):
+            if not hasattr(OpenAIChatModel, attr):
+                raise AttributeError(f"OpenAIChatModel.{attr} not found")
+
+        _original_map_binary_content_item = OpenAIChatModel._map_binary_content_item
+        _original_map_video_url_item = OpenAIChatModel._map_video_url_item
+
+        async def _patched_map_binary_content_item(self, item):
+            """Inline a local video as a ``video_url`` part."""
+            if item.is_video and chat_completions_accepts_video(self):
+                return video_content_part(inline_video_url(item))
+            return await _original_map_binary_content_item(self, item)
+
+        async def _patched_map_video_url_item(self, item):
+            """Pass a remote video URL through as a ``video_url`` part."""
+            if not chat_completions_accepts_video(self):
+                return await _original_map_video_url_item(self, item)
+            url = item.url
+            if item.force_download:
+                downloaded = await download_item(
+                    item, data_format="base64_uri", type_format="extension"
+                )
+                url = downloaded["data"]
+            return video_content_part(url)
+
+        OpenAIChatModel._map_binary_content_item = _patched_map_binary_content_item
+        OpenAIChatModel._map_video_url_item = _patched_map_video_url_item
+        assert (
+            OpenAIChatModel._map_binary_content_item is _patched_map_binary_content_item
+        )
+        assert OpenAIChatModel._map_video_url_item is _patched_map_video_url_item
+        return True
+    except Exception as exc:
+        return _patch_failed(
+            "patch_openai_chat_video_url",
+            exc,
+            "attaching a video to a non-first-party chat-completions model raises "
+            "NotImplementedError; switch to an OpenRouter model for video.",
+        )
+
+
 def patch_tool_call_json_repair() -> bool:
     """Patch pydantic-ai's tool-call validation to auto-repair malformed JSON.
 
@@ -688,10 +761,47 @@ def patch_silence_anthropic_sampling_warnings() -> bool:
     return True
 
 
+def patch_silence_pydantic_serializer_warnings() -> bool:
+    """Silence pydantic's "Pydantic serializer warnings" UserWarning.
+
+    pydantic-ai re-validates provider responses by round-tripping them
+    through pydantic, e.g. in ``OpenAIChatModel._validate_completion``:
+
+        return _ChatCompletion.model_validate(response.model_dump())
+
+    Some OpenAI-compatible gateways (vLLM-style routers, weight-routing
+    proxies) stuff non-string values into the ``ChatCompletion.metadata``
+    object -- the OpenAI schema declares it string-valued -- so every model
+    request dumps a multi-line warning to the console about data code-puppy
+    neither controls nor reads:
+
+        Pydantic serializer warnings:
+          PydanticSerializationUnexpectedValue(Expected `str` - serialized
+            value may not be as expected [field_name='metadata',
+            input_value=[{'version': 'default', 'start': 0, 'end': 57}],
+            input_type=list])
+
+    The mismatch is harmless (the odd value is dropped from the draft) and
+    the message is pure console noise in the TUI. The filter is scoped to
+    pydantic's exact message prefix -- NOT a blanket UserWarning ignore, and
+    NOT all pydantic warnings -- so genuine serializer mismatches raised by
+    other code still surface. Delete this patch when providers stop emitting
+    off-schema metadata.
+    """
+    warnings.filterwarnings(
+        "ignore",
+        message=r"Pydantic serializer warnings:",
+        category=UserWarning,
+    )
+    return True
+
+
 _ALL_PATCHES = (
     patch_silence_anthropic_sampling_warnings,
+    patch_silence_pydantic_serializer_warnings,
     patch_user_agent,
     patch_message_history_cleaning,
+    patch_openai_chat_video_url,
     patch_tool_call_json_repair,
     patch_tool_call_callbacks,
     patch_termflow_clipboard,
