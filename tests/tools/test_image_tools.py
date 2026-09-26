@@ -1,4 +1,4 @@
-"""Tests for image_tools.py filename resolution.
+"""Tests for image_tools.py filename resolution and resizing.
 
 macOS names screenshots with U+202F (narrow no-break space) before AM/PM. That
 character survives on disk but arrives as an ordinary space when the path is
@@ -85,3 +85,34 @@ class TestLoadImagePathResolution:
 
         assert result["success"] is False
         assert "not found" in result["error"]
+
+
+class TestLoadImageResize:
+    """The largest edge is always clamped to 1024, preserving aspect ratio."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("size", "expected", "was_resized"),
+        [
+            ((2000, 1000), (1024, 512), True),
+            ((1000, 3000), (341, 1024), True),
+            ((1024, 600), (1024, 600), False),
+            ((200, 100), (200, 100), False),
+        ],
+    )
+    async def test_load_image_clamps_largest_edge(
+        self, tmp_path, size, expected, was_resized
+    ):
+        path = tmp_path / "img.png"
+        Image.new("RGB", size, color="blue").save(path, format="PNG")
+
+        with (
+            patch("code_puppy.tools.image_tools.emit_info"),
+            patch("code_puppy.tools.image_tools.emit_success"),
+        ):
+            result = await load_image(image_path=str(path))
+
+        assert isinstance(result, ToolReturn)
+        assert result.metadata["max_edge"] == 1024
+        assert result.metadata["was_resized"] is was_resized
+        assert result.metadata["output_size"] == list(expected)

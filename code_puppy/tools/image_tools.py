@@ -25,9 +25,8 @@ from code_puppy.tools.common import generate_group_id
 
 logger = logging.getLogger(__name__)
 
-# Bigger than this on either edge and we resize to save tokens.
-MAX_IMAGE_EDGE = 2048
-DEFAULT_MAX_HEIGHT = 768  # kept for backward-compat in tool signature
+# Largest edge is always clamped to this (aspect ratio preserved) to save tokens.
+MAX_IMAGE_EDGE = 1024
 
 
 def _normalized_filename(value: str) -> str:
@@ -133,7 +132,6 @@ def _validate_and_prepare_image(
 
 async def load_image(
     image_path: str,
-    max_height: int = DEFAULT_MAX_HEIGHT,
 ) -> Union[ToolReturn, Dict[str, Any]]:
     """Load an image from the filesystem for visual analysis."""
     group_id = generate_group_id("load_image", image_path)
@@ -193,7 +191,6 @@ async def load_image(
                     prepared_image["output_width"],
                     prepared_image["output_height"],
                 ],
-                "max_height": max_height,
                 "max_edge": MAX_IMAGE_EDGE,
                 "timestamp": time.time(),
             },
