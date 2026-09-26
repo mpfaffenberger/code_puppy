@@ -463,3 +463,66 @@ def test_apply_all_patches_no_summary_for_optional_skips(monkeypatch, caplog):
     assert results["patch_termflow_clipboard"] is False
     assert results["patch_termflow_code_padding"] is False
     assert _error_records(caplog) == []
+
+
+# ---------------------------------------------------------------------------
+# termflow clipboard: behavior against the installed termflow, not internals.
+# ---------------------------------------------------------------------------
+
+_OSC52 = "\x1b]52;"
+
+
+def _render_code_block(**renderer_kwargs) -> str:
+    import io
+
+    from termflow import Parser, Renderer
+
+    out = io.StringIO()
+    parser = Parser()
+    renderer = Renderer(output=out, width=80, **renderer_kwargs)
+    for line in ["```python", "print('hi')", "```"]:
+        renderer.render_all(parser.parse_line(line))
+    renderer.render_all(parser.finalize())
+    return out.getvalue()
+
+
+@pytest.fixture
+def restore_termflow_renderer_init():
+    from termflow.render.renderer import Renderer
+
+    original = Renderer.__init__
+    yield
+    Renderer.__init__ = original
+
+
+def test_default_renderer_emits_no_osc52_after_patch(
+    restore_termflow_renderer_init,
+):
+    """termflow defaults to clipboard=True; no renderer may write OSC 52."""
+    assert pydantic_patches.patch_termflow_clipboard() is True
+
+    rendered = _render_code_block()
+
+    assert "print" in rendered
+    assert _OSC52 not in rendered
+
+
+def test_clipboard_patch_copies_caller_features(restore_termflow_renderer_init):
+    from termflow.render.style import RenderFeatures
+
+    assert pydantic_patches.patch_termflow_clipboard() is True
+    shared = RenderFeatures(clipboard=True)
+
+    assert _OSC52 not in _render_code_block(features=shared)
+    # The caller's (possibly shared) config object is never mutated.
+    assert shared.clipboard is True
+
+
+def test_clipboard_patch_is_idempotent(restore_termflow_renderer_init):
+    from termflow.render.renderer import Renderer
+
+    assert pydantic_patches.patch_termflow_clipboard() is True
+    patched = Renderer.__init__
+
+    assert pydantic_patches.patch_termflow_clipboard() is True
+    assert Renderer.__init__ is patched

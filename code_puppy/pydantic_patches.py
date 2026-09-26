@@ -576,21 +576,35 @@ def patch_termflow_clipboard() -> bool:
 
     PR #335 added explicit ``RenderFeatures(clipboard=False)`` at the two
     known instantiation sites, but that's whack-a-mole: any future code path
-    (or a new termflow version with changed defaults) reintroduces the bug.
+    (or a termflow helper like ``render.document``) reintroduces the bug.
 
-    This patch kills the behaviour at the source by replacing
-    ``Renderer._copy_to_clipboard`` with a no-op, so it does not matter
-    whether any caller remembers to disable the feature flag.
+    This patch forces ``features.clipboard`` off for every ``Renderer`` right
+    after construction. It targets the public flag every termflow version
+    checks, not a private helper: 0.10.0 inlined and removed
+    ``_copy_to_clipboard``, which silently disarmed the previous no-op patch.
+    The caller's ``RenderFeatures`` is copied, never mutated.
     """
     try:
+        from dataclasses import replace
+
         from termflow.render.renderer import Renderer
     except ImportError as exc:
         return _optional_lib_missing("patch_termflow_clipboard", exc)
 
     try:
-        if not hasattr(Renderer, "_copy_to_clipboard"):
-            raise AttributeError("termflow Renderer._copy_to_clipboard not found")
-        Renderer._copy_to_clipboard = lambda self, text: None  # type: ignore[method-assign]
+        original_init = Renderer.__init__
+        if getattr(original_init, "_code_puppy_no_clipboard", False):
+            return True  # already applied
+
+        def _init_without_clipboard(self, *args, **kwargs):
+            original_init(self, *args, **kwargs)
+            self.features = replace(self.features, clipboard=False)
+
+        _init_without_clipboard._code_puppy_no_clipboard = True  # type: ignore[attr-defined]
+        Renderer.__init__ = _init_without_clipboard  # type: ignore[method-assign]
+        # Fail loudly now if termflow ever stops storing a features dataclass.
+        if Renderer().features.clipboard:
+            raise AttributeError("termflow Renderer.features.clipboard not honored")
         return True
     except Exception as exc:
         return _patch_failed(
