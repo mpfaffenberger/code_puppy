@@ -90,8 +90,8 @@ class TestResizeImageIfNeeded:
         assert result.width < 500
         assert result.height < 500
 
-    def test_dimensions_floored_at_100(self) -> None:
-        """Even a huge budget-to-size ratio should not drop below 100 px."""
+    def test_dimensions_remain_positive_under_tiny_budget(self) -> None:
+        """Tiny budgets must not upscale short edges or create zero-sized images."""
         try:
             from PIL import Image
         except ImportError:  # pragma: no cover
@@ -99,8 +99,8 @@ class TestResizeImageIfNeeded:
 
         img = Image.new("RGB", (200, 200))
         result = _resize_image_if_needed(img, 1)
-        assert result.width >= 100
-        assert result.height >= 100
+        assert 1 <= result.width < img.width
+        assert 1 <= result.height < img.height
 
     def test_dimensions_capped_at_max(self) -> None:
         """Resizing a huge image should not exceed MAX_IMAGE_DIMENSION."""
