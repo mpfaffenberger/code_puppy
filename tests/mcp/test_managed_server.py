@@ -3,6 +3,7 @@ Tests for ManagedMCPServer.
 """
 
 import os
+from contextlib import nullcontext
 from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
@@ -225,7 +226,7 @@ class TestManagedMCPServerEnableFromConfig:
         assert server.is_enabled() is False
 
 
-# --- process_tool_call (also touches get_banner_color + coerce guards) ---
+# --- process_tool_call (compact tool line + coerce guards) ---
 
 
 class TestProcessToolCall:
@@ -235,9 +236,10 @@ class TestProcessToolCall:
         mock_ctx.deps = {"some": "deps"}
         mock_call_tool = AsyncMock(return_value="tool_result")
 
-        with patch("rich.console.Console") as mock_console_cls:
-            mock_console = Mock()
-            mock_console_cls.return_value = mock_console
+        with patch(
+            "code_puppy.messaging.tool_output.compact_tool_output",
+            side_effect=lambda *_: nullcontext(),
+        ) as mock_compact:
             result = await process_tool_call(
                 ctx=mock_ctx,
                 call_tool=mock_call_tool,
@@ -245,8 +247,8 @@ class TestProcessToolCall:
                 tool_args={"arg1": "value1"},
             )
 
-        mock_console.print.assert_called_once()
-        assert "test_tool" in mock_console.print.call_args[0][0]
+        # Same compact bullet line as builtin tools -- no legacy banner.
+        mock_compact.assert_called_once_with("test_tool", {"arg1": "value1"})
         mock_call_tool.assert_called_once_with(
             "test_tool", {"arg1": "value1"}, metadata={"deps": mock_ctx.deps}
         )
@@ -258,10 +260,9 @@ class TestProcessToolCall:
         mock_ctx.deps = None
         mock_call_tool = AsyncMock(return_value="result")
 
-        with patch("rich.console.Console"):
-            result = await process_tool_call(
-                ctx=mock_ctx, call_tool=mock_call_tool, name="t", tool_args={}
-            )
+        result = await process_tool_call(
+            ctx=mock_ctx, call_tool=mock_call_tool, name="t", tool_args={}
+        )
 
         mock_call_tool.assert_called_once_with("t", {}, metadata={"deps": None})
         assert result == "result"
@@ -291,10 +292,9 @@ class TestProcessToolCall:
         toolset = FakeToolset()
         call_tool = functools.partial(toolset.direct_call_tool)
 
-        with patch("rich.console.Console"):
-            result = await process_tool_call(
-                ctx=mock_ctx, call_tool=call_tool, name="t", tool_args={"flag": "true"}
-            )
+        result = await process_tool_call(
+            ctx=mock_ctx, call_tool=call_tool, name="t", tool_args={"flag": "true"}
+        )
 
         # Stringified bool got coerced using the schema found via the partial
         assert result == {"flag": True}
@@ -324,10 +324,9 @@ class TestProcessToolCall:
         toolset = FakeToolset()
         call_tool = functools.partial(toolset.direct_call_tool)
 
-        with patch("rich.console.Console"):
-            result = await process_tool_call(
-                ctx=mock_ctx, call_tool=call_tool, name="t", tool_args={"flag": "true"}
-            )
+        result = await process_tool_call(
+            ctx=mock_ctx, call_tool=call_tool, name="t", tool_args={"flag": "true"}
+        )
 
         assert result == {"flag": True}
 

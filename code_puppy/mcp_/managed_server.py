@@ -176,21 +176,16 @@ async def process_tool_call(
 
     pydantic-ai forwards MCP tool args without coercing them against each tool's
     real JSON Schema, so models that emit stringified arrays/bools/numbers cause
-    downstream validation failures. We coerce here before forwarding.
+    downstream validation failures. We coerce here before forwarding, then
+    render the same compact ``● name  key=value`` line as builtin tools.
     """
-    from rich.console import Console
-
-    from code_puppy.config import get_banner_color
-
-    console = Console()
-    color = get_banner_color("mcp_tool_call")
-    banner = f"[bold white on {color}] MCP TOOL CALL [/bold white on {color}]"
-    console.print(f"\n{banner} 🔧 [bold cyan]{name}[/bold cyan]")
+    from code_puppy.messaging.tool_output import compact_tool_output
 
     input_schema = await _input_schema_for_tool(call_tool, name)
     tool_args = coerce_tool_args(tool_args, input_schema)
 
-    return await call_tool(name, tool_args, metadata={"deps": ctx.deps})
+    with compact_tool_output(name, tool_args):
+        return await call_tool(name, tool_args, metadata={"deps": ctx.deps})
 
 
 class ManagedMCPServer:
