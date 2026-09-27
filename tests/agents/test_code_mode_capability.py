@@ -21,8 +21,10 @@ from code_puppy.agents import _code_mode
 from code_puppy.agents._code_mode import (
     NATIVE_TOOLS,
     SANDBOXED_READ_ONLY_TOOLS,
+    DeclaredSpeculation,
     SilenceToolOutput,
     _sandbox_tool,
+    bind_declared_speculation,
     build_speculative_code_mode,
 )
 from code_puppy.agents._code_mode_guidance import CODE_MODE_GUIDANCE, CodeModeGuidance
@@ -85,7 +87,7 @@ class TestBuildSpeculativeCodeMode:
         assert isinstance(code_mode, CodeMode)
         assert code_mode.tools is _sandbox_tool
         assert code_mode.eager is True
-        assert code_mode.speculate == list(SANDBOXED_READ_ONLY_TOOLS)
+        assert list(code_mode.speculate) == list(SANDBOXED_READ_ONLY_TOOLS)
         assert isinstance(silencer, SilenceToolOutput)
         assert isinstance(timing, EagerTiming)
         assert isinstance(normalizer, StreamedToolNameNormalizer)
@@ -102,14 +104,14 @@ class TestBuildSpeculativeCodeMode:
         assert code_mode.mount.mode == "read-write"
         assert code_mode.os_access is not None
 
-    def test_speculation_never_exceeds_the_read_only_trio(self, flag):
-        """A tool the agent does not declare is never launched early."""
+    def test_undeclared_tools_are_never_speculated(self, flag):
+        """A tool that does not declare ``speculatable`` is never launched early."""
         capability, *_ = build_speculative_code_mode(
             ["read_file", "grep", "some_future_tool"]
         )
 
         assert capability.tools is _sandbox_tool
-        assert capability.speculate == ["read_file", "grep"]
+        assert list(capability.speculate) == ["read_file", "grep"]
 
 
 @pytest.mark.asyncio
@@ -184,8 +186,64 @@ def test_only_generated_invalid_escape_warnings_are_suppressed():
     assert captured[2].category is RuntimeWarning
 
 
+class TestDeclaredSpeculation:
+    """Tools opt into early launch via ``metadata={"speculatable": True}``."""
+
+    @staticmethod
+    def _agent():
+        agent = Agent(TestModel())
+
+        @agent.tool_plain(metadata={"speculatable": True})
+        def smart_grep(query: str) -> str:
+            """A plugin tool that declares itself speculatable."""
+            return query
+
+        @agent.tool_plain
+        def run_shell(command: str) -> str:
+            """Undeclared: must never launch early."""
+            return command
+
+        @agent.tool_plain(metadata={"speculatable": "yes"})
+        def fuzzy(value: str) -> str:
+            """Truthy but not literally True: not a declaration."""
+            return value
+
+        return agent
+
+    def test_unbound_is_exactly_the_trio_the_agent_declares(self):
+        speculate = DeclaredSpeculation(["read_file", "grep"])
+        assert list(speculate) == ["read_file", "grep"]
+
+    def test_bound_adds_declared_tools_only(self):
+        speculate = DeclaredSpeculation(["grep"])
+        speculate.bind(self._agent())
+        assert list(speculate) == ["grep", "smart_grep"]
+
+    async def test_for_run_freezes_the_resolved_allowlist(self, flag):
+        code_mode, *_ = build_speculative_code_mode(["grep"])
+        agent = self._agent()
+        code_mode.speculate.bind(agent)
+        clone = await code_mode.for_run(Mock(spec=RunContext))
+        assert clone._speculation.allowlist == frozenset({"grep", "smart_grep"})
+
+    def test_bind_finds_code_mode_through_root_capability(self, flag):
+        code_mode, *_ = build_speculative_code_mode(["grep"])
+        agent = Agent(TestModel(), capabilities=[code_mode])
+
+        @agent.tool_plain(metadata={"speculatable": True})
+        def smart_grep(query: str) -> str:
+            """Declared."""
+            return query
+
+        bind_declared_speculation(agent)
+        assert "smart_grep" in list(code_mode.speculate)
+
+    def test_bind_is_a_noop_without_code_mode(self):
+        bind_declared_speculation(Agent(TestModel()))  # must not raise
+
+
 class TestBuilderIntegration:
-    def _build(self, agent):
+    def _build(self, agent, register=lambda *_args, **_kwargs: None):
         from code_puppy.agents import _builder
 
         with (
@@ -199,10 +257,7 @@ class TestBuilderIntegration:
             patch.object(
                 _builder, "make_model_settings", lambda *_args, **_kwargs: None
             ),
-            patch(
-                "code_puppy.tools.register_tools_for_agent",
-                lambda *_args, **_kwargs: None,
-            ),
+            patch("code_puppy.tools.register_tools_for_agent", register),
         ):
             return _builder.build_pydantic_agent(agent)
 
@@ -219,7 +274,20 @@ class TestBuilderIntegration:
         assert len(code_modes) == 1
         # Name, not identity: the warnings test above reloads the module.
         assert code_modes[0].tools.__name__ == _sandbox_tool.__name__
-        assert code_modes[0].speculate == list(SANDBOXED_READ_ONLY_TOOLS)
+        assert list(code_modes[0].speculate) == list(SANDBOXED_READ_ONLY_TOOLS)
+
+    def test_builder_speculates_registered_plugin_tools(self, flag):
+        """Plugin tools arrive via register_agent_tools, never in
+        get_available_tools(); the builder must still speculate them."""
+
+        def register(pydantic_agent, *_args, **_kwargs):
+            @pydantic_agent.tool_plain(metadata={"speculatable": True})
+            def smart_grep(query: str) -> str:
+                """Plugin tool."""
+                return query
+
+        code_modes = self._code_modes(self._build(CodePuppyAgent(), register))
+        assert "smart_grep" in list(code_modes[0].speculate)
 
     def test_flag_off_keeps_native_tools(self, flag):
         flag["enabled"] = False

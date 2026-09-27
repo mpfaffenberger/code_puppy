@@ -104,6 +104,24 @@ approval. With `fail_closed=True` its exception is reported as a block instead. 
 
 Full list + rarely-used hooks: see `code_puppy/callbacks.py` source.
 
+## Speculative Execution
+
+With speculative execution on (`enable_speculative_code_mode`, `Ctrl+X Ctrl+S`),
+a tool call whose arguments are all literals may launch while the model is still
+writing the snippet. Tools opt in themselves -- core and plugin alike, no core
+edit needed:
+
+```python
+@agent.tool(metadata={"speculatable": True})
+async def my_lookup(context: RunContext, query: str) -> Result: ...
+```
+
+Only a literal `True` counts. Declare it only for side-effect-free reads: an
+early launch can run a call from a snippet that later errors before reaching
+it, and an unclaimed result is discarded. Re-check any opt-in setting inside
+the tool body so a disabled feature cannot run early. Resolution happens at
+each run start in `code_puppy/agents/_code_mode.py` (`DeclaredSpeculation`).
+
 ## Ctrl+X Chords
 
 `Ctrl+X` is a **chord prefix** (readline-style), never a standalone hotkey. The

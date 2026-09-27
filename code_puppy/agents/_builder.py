@@ -18,7 +18,10 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple
 from pydantic_ai import Agent as PydanticAgent
 from pydantic_ai.capabilities import ProcessHistory
 
-from code_puppy.agents._code_mode import build_speculative_code_mode
+from code_puppy.agents._code_mode import (
+    bind_declared_speculation,
+    build_speculative_code_mode,
+)
 from code_puppy.agents._compaction import HistoryCompaction
 from code_puppy.agents._model_message_transform import build_model_message_transform
 from code_puppy.agents._subagent_recursion import build_subagent_recursion_guard
@@ -759,6 +762,9 @@ def build_pydantic_agent(
         model_name=resolved_model_name,
         agent_name=logical_agent_name,
     )
+    # Tools now exist: speculate every one that declares itself speculatable
+    # (plugin tools included). The probe agent never runs, so it is not bound.
+    bind_declared_speculation(final_pydantic)
 
     agent.cur_model = model
     agent._last_model_name = resolved_model_name

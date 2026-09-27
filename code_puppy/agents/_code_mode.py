@@ -57,7 +57,78 @@ for _invalid_escape_category in (SyntaxWarning, DeprecationWarning):
     )
 
 # The read-only trio: pure with respect to the workspace, safe to re-run or discard.
+# Speculated even before an agent is bound (see DeclaredSpeculation).
 SANDBOXED_READ_ONLY_TOOLS = ("list_files", "read_file", "grep")
+
+# Tools opt into early launch themselves, core and plugin alike:
+#     @agent.tool(metadata={"speculatable": True})
+SPECULATABLE_METADATA_KEY = "speculatable"
+
+
+class DeclaredSpeculation(Sequence[str]):
+    """CodeMode's speculation allowlist, resolved from the agent's own tools.
+
+    CodeMode is constructed before tools are registered, and plugin tools
+    (``register_agent_tools``) never appear in ``get_available_tools()``, so no
+    name list known at construction can cover them. CodeMode freezes
+    ``frozenset(speculate)`` at each run start (``for_run``); resolving then
+    sees every registered tool that declares ``speculatable: True``.
+
+    Until :meth:`bind` it yields only the declared read-only trio, so an
+    unbound instance behaves exactly as the old fixed list did.
+    """
+
+    def __init__(self, fallback: Sequence[str]) -> None:
+        self._fallback = tuple(fallback)
+        self._agent: Any = None
+
+    def bind(self, agent: Any) -> None:
+        self._agent = agent
+
+    def _names(self) -> tuple[str, ...]:
+        names = dict.fromkeys(self._fallback)
+        for toolset in getattr(self._agent, "toolsets", None) or ():
+            for name, tool in (getattr(toolset, "tools", None) or {}).items():
+                metadata = getattr(tool, "metadata", None) or {}
+                # Literal True only: a truthy stand-in is not a declaration.
+                if metadata.get(SPECULATABLE_METADATA_KEY) is True:
+                    names[name] = None
+        return tuple(names)
+
+    def __getitem__(self, index):  # type: ignore[override]
+        return self._names()[index]
+
+    def __len__(self) -> int:
+        return len(self._names())
+
+    def __iter__(self):
+        return iter(self._names())
+
+    def __repr__(self) -> str:
+        return f"DeclaredSpeculation({list(self)!r})"
+
+
+def bind_declared_speculation(pydantic_agent: Any) -> None:
+    """Point this agent's CodeMode allowlist at the agent's registered tools.
+
+    Call after ``register_tools_for_agent``. No-op when speculative mode is
+    off (no CodeMode) or the allowlist is not a :class:`DeclaredSpeculation`.
+    """
+
+    def leaves(capability: Any):
+        children = getattr(capability, "capabilities", None)
+        if children is None:
+            yield capability
+            return
+        for child in children:
+            yield from leaves(child)
+
+    for capability in leaves(getattr(pydantic_agent, "root_capability", None)):
+        speculate = getattr(capability, "speculate", None)
+        if isinstance(capability, CodeMode) and isinstance(
+            speculate, DeclaredSpeculation
+        ):
+            speculate.bind(pydantic_agent)
 
 
 # Never folded into run_code. File writes stay native so edits render as diffs;
@@ -97,13 +168,15 @@ def build_speculative_code_mode(agent_tools: Sequence[str]) -> List[Any]:
 
     Returned as a list so the caller can splice it into ``capabilities=[...]``
     unconditionally. ``NATIVE_TOOLS`` stay native; all other tools fold into
-    ``run_code``. ``speculate`` stays restricted to the read-only trio the
-    agent actually declares, so a tool added to an agent later is sandboxed but
-    never launched early without showing up here first.
+    ``run_code``. Only tools that declare ``speculatable: True`` are launched
+    early; call :func:`bind_declared_speculation` once tools are registered.
+    A tool without the declaration is sandboxed but never launched early.
     """
     if not get_speculative_code_mode_enabled():
         return []
-    speculate = [name for name in SANDBOXED_READ_ONLY_TOOLS if name in agent_tools]
+    speculate = DeclaredSpeculation(
+        [name for name in SANDBOXED_READ_ONLY_TOOLS if name in agent_tools]
+    )
     workspace = os.getcwd()
     return [
         CodeMode(
