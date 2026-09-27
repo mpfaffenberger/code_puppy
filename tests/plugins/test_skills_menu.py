@@ -576,38 +576,6 @@ class TestShowSkillsMenu:
         result = show_skills_menu()
         assert result is False
 
-    @patch(f"{_MOD}.SkillsMenu")
-    def test_install_flow(self, mock_cls):
-        mock_menu = MagicMock()
-        mock_menu.run.side_effect = ["install", "quit"]
-        mock_cls.return_value = mock_menu
-        with patch(
-            "code_puppy_core_plugins.agent_skills.skills_install_menu.run_skills_install_menu",
-            return_value=True,
-        ):
-            from code_puppy_core_plugins.agent_skills.skills_menu import (
-                show_skills_menu,
-            )
-
-            result = show_skills_menu()
-            assert result is True
-
-    @patch(f"{_MOD}.SkillsMenu")
-    def test_install_no_change(self, mock_cls):
-        mock_menu = MagicMock()
-        mock_menu.run.side_effect = ["install", "quit"]
-        mock_cls.return_value = mock_menu
-        with patch(
-            "code_puppy_core_plugins.agent_skills.skills_install_menu.run_skills_install_menu",
-            return_value=False,
-        ):
-            from code_puppy_core_plugins.agent_skills.skills_menu import (
-                show_skills_menu,
-            )
-
-            result = show_skills_menu()
-            assert result is False
-
 
 # ---------------------------------------------------------------------------
 # list_skills

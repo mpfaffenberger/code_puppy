@@ -9,15 +9,7 @@ from code_puppy_core_plugins.computer_use import register_callbacks
 from code_puppy_core_plugins.computer_use import tools
 from code_puppy_core_plugins.computer_use.geometry import CaptureGeometry, Rect
 from code_puppy_core_plugins.computer_use.state import state_store
-
-
-class FakeAgent:
-    def __init__(self):
-        self.registered = {}
-
-    def tool(self, function):
-        self.registered[function.__name__] = function
-        return function
+from tests.plugins.fakes import FakeAgent
 
 
 @pytest.fixture(autouse=True)

@@ -17,7 +17,6 @@ Design notes
 from __future__ import annotations
 
 import os
-import shutil
 import threading
 import time
 from dataclasses import dataclass, field
@@ -116,7 +115,10 @@ class FileIndex:
 
 
 def _run_ripgrep(root: str) -> Optional[List[str]]:
-    rg = shutil.which("rg")
+    # Lazy: runs on the index build thread, keeping completion import light.
+    from code_puppy.tools.ripgrep import find_ripgrep
+
+    rg = find_ripgrep()
     if not rg:
         return None
     from code_puppy.file_completion_io import read_paths
