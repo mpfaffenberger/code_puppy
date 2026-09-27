@@ -6,17 +6,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from tests.plugins.fakes import FakeAgent
+
 
 def _make_agent():
-    agent = MagicMock()
-    captured = {}
-
-    def tool(fn):
-        captured["fn"] = fn
-        return fn
-
-    agent.tool = tool
-    return agent, captured
+    agent = FakeAgent()
+    return agent, agent.registered
 
 
 def _skill(name, description="desc", tags=None):
@@ -187,7 +182,7 @@ class TestBrowseSkillNamespace:
         ctx = MagicMock()
 
         with patch(_PATCH_TARGET, return_value=[]):
-            result = await cap["fn"](ctx)
+            result = await cap["browse_skill_namespace"](ctx)
 
         assert result.mode == "directory"
         assert result.error is not None
@@ -204,7 +199,7 @@ class TestBrowseSkillNamespace:
         ctx = MagicMock()
 
         with patch(_PATCH_TARGET, return_value=skills):
-            result = await cap["fn"](ctx)
+            result = await cap["browse_skill_namespace"](ctx)
 
         assert result.mode == "directory"
         assert set(result.namespaces) == {"finance", "ops"}
@@ -225,7 +220,7 @@ class TestBrowseSkillNamespace:
         ctx = MagicMock()
 
         with patch(_PATCH_TARGET, return_value=skills):
-            result = await cap["fn"](ctx, namespace="finance")
+            result = await cap["browse_skill_namespace"](ctx, namespace="finance")
 
         assert result.mode == "namespace"
         assert result.total_skills == 1
@@ -243,7 +238,7 @@ class TestBrowseSkillNamespace:
         ctx = MagicMock()
 
         with patch(_PATCH_TARGET, return_value=skills):
-            result = await cap["fn"](ctx, namespace="finance")
+            result = await cap["browse_skill_namespace"](ctx, namespace="finance")
 
         assert result.total_skills == 1
 
@@ -259,7 +254,7 @@ class TestBrowseSkillNamespace:
         ctx = MagicMock()
 
         with patch(_PATCH_TARGET, return_value=skills):
-            result = await cap["fn"](ctx, namespace="nonexistent")
+            result = await cap["browse_skill_namespace"](ctx, namespace="nonexistent")
 
         assert result.mode == "namespace"
         assert result.error is not None
@@ -281,7 +276,9 @@ class TestBrowseSkillNamespace:
         ctx = MagicMock()
 
         with patch(_PATCH_TARGET, return_value=skills):
-            result = await cap["fn"](ctx, namespace="finance", query="variance")
+            result = await cap["browse_skill_namespace"](
+                ctx, namespace="finance", query="variance"
+            )
 
         assert result.total_skills == 1
         assert result.skills[0]["name"] == "variance-analysis"
@@ -301,7 +298,7 @@ class TestBrowseSkillNamespace:
         ctx = MagicMock()
 
         with patch(_PATCH_TARGET, return_value=skills):
-            result = await cap["fn"](ctx, query="variance")
+            result = await cap["browse_skill_namespace"](ctx, query="variance")
 
         assert result.mode == "search"
         assert result.total_skills == 1
@@ -320,7 +317,7 @@ class TestBrowseSkillNamespace:
         ctx = MagicMock()
 
         with patch(_PATCH_TARGET, return_value=skills):
-            result = await cap["fn"](ctx, query="zzzzz-nomatch")
+            result = await cap["browse_skill_namespace"](ctx, query="zzzzz-nomatch")
 
         assert result.mode == "search"
         assert result.total_skills == 0
@@ -342,7 +339,7 @@ class TestBrowseSkillNamespace:
         ctx = MagicMock()
 
         with patch(_PATCH_TARGET, return_value=skills):
-            result = await cap["fn"](ctx, query="")
+            result = await cap["browse_skill_namespace"](ctx, query="")
 
         assert result.mode == "search"
         assert result.total_skills == 2
@@ -358,7 +355,7 @@ class TestBrowseSkillNamespace:
         ctx = MagicMock()
 
         with patch(_PATCH_TARGET, side_effect=OSError("disk on fire")):
-            result = await cap["fn"](ctx)
+            result = await cap["browse_skill_namespace"](ctx)
 
         assert result.mode == "directory"
         assert result.error is not None

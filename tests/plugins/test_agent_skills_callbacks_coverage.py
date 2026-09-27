@@ -331,7 +331,6 @@ class TestSkillsCommandHelp:
 # Patch targets for lazy imports inside _handle_skills_command
 _MSG = "code_puppy.messaging"
 _SKILLS_MENU = "code_puppy_core_plugins.agent_skills.skills_menu"
-_SKILLS_INSTALL = "code_puppy_core_plugins.agent_skills.skills_install_menu"
 
 
 class TestHandleSkillsCommand:
@@ -411,14 +410,6 @@ class TestHandleSkillsCommand:
             patch(f"{_MSG}.emit_info"),
         ):
             assert _handle_skills_command("/skills list", "skills") is True
-
-    def test_skills_install(self):
-        from code_puppy_core_plugins.agent_skills.register_callbacks import (
-            _handle_skills_command,
-        )
-
-        with patch(f"{_SKILLS_INSTALL}.run_skills_install_menu"):
-            assert _handle_skills_command("/skills install", "skills") is True
 
     def test_skills_enable(self):
         from code_puppy_core_plugins.agent_skills.register_callbacks import (

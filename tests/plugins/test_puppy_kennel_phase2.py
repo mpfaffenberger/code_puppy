@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
+
+from tests.plugins.fakes import FakeAgent, fake_run_context
 
 
 @pytest.fixture
@@ -101,19 +102,8 @@ def test_search_drawers_multi_empty_query(kennel_root: Path) -> None:
 # --------------------------------------------------------------------------- #
 
 
-class _FakeAgent:
-    """Minimal stand-in for a pydantic_ai Agent — captures the tool fn."""
-
-    def __init__(self) -> None:
-        self.registered: dict[str, Any] = {}
-
-    def tool(self, fn):  # mimics @agent.tool
-        self.registered[fn.__name__] = fn
-        return fn
-
-
 def _make_context(agent_name: str = "code-puppy") -> Any:
-    return SimpleNamespace(agent_name=agent_name, deps=None)
+    return fake_run_context(agent_name)
 
 
 def test_kennel_recall_returns_hits(kennel_root: Path) -> None:
@@ -126,7 +116,7 @@ def test_kennel_recall_returns_hits(kennel_root: Path) -> None:
         success=True,
         response_text="The dingo ate my SQL homework yesterday.",
     )
-    agent = _FakeAgent()
+    agent = FakeAgent()
     tools.register_kennel_recall(agent)
     recall = agent.registered["kennel_recall"]
 
@@ -138,7 +128,7 @@ def test_kennel_recall_returns_hits(kennel_root: Path) -> None:
 def test_kennel_recall_empty_query_returns_error(kennel_root: Path) -> None:
     from code_puppy_core_plugins.puppy_kennel import tools
 
-    agent = _FakeAgent()
+    agent = FakeAgent()
     tools.register_kennel_recall(agent)
     recall = agent.registered["kennel_recall"]
 
@@ -159,7 +149,7 @@ def test_kennel_recall_scope_repo_only(kennel_root: Path) -> None:
         success=True,
         response_text="Aardvarks are nocturnal.",
     )
-    agent = _FakeAgent()
+    agent = FakeAgent()
     tools.register_kennel_recall(agent)
     recall = agent.registered["kennel_recall"]
 
