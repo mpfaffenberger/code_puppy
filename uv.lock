@@ -466,7 +466,7 @@ requires-dist = [
     { name = "azure-identity", specifier = ">=1.15.0" },
     { name = "boto3", specifier = ">=1.43.9" },
     { name = "boto3", marker = "extra == 'bedrock'", specifier = ">=1.35.0" },
-    { name = "code-puppy-core-plugins", specifier = ">=0.0.66" },
+    { name = "code-puppy-core-plugins", specifier = ">=0.0.67" },
     { name = "dbos", marker = "extra == 'durable'", specifier = ">=2.11.0" },
     { name = "httpx", extras = ["http2"], specifier = ">=0.24.1" },
     { name = "httpx2", specifier = ">=2.7" },
@@ -508,15 +508,15 @@ dev = [
 
 [[package]]
 name = "code-puppy-core-plugins"
-version = "0.0.66"
+version = "0.0.67"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
-    { name = "pydantic-ai-slim", extra = ["anthropic", "mcp", "openai"] },
+    { name = "pydantic-ai-slim", extra = ["anthropic", "mcp", "openai", "typesafe"] },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/74/e4/5f6aa56cd46f53b523786c05e59470c663d92024720c0c5a22df34e7df6b/code_puppy_core_plugins-0.0.66.tar.gz", hash = "sha256:3c1a6cda08bc4d7866e068e48b890378335092ef15304ad8d0559a16475a1468", size = 562041, upload-time = "2026-09-26T15:46:58.122Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/75/7a/890226959b7e918d0a1c5d3b0376426bd24c2e8a7677ca91b9ff91db1993/code_puppy_core_plugins-0.0.67.tar.gz", hash = "sha256:b260149f7759a6ae8e28551242b48b00970a1e078676afb7f74908f46590efe1", size = 571210, upload-time = "2026-09-27T14:03:02.04Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/91/39/da9d5b2ae91314554a191b2c1e57a901ae041385b3144829a1ee244b6dfe/code_puppy_core_plugins-0.0.66-py3-none-any.whl", hash = "sha256:f15f9f14d9025243eec5768b4aea4b37b3dfc3450edfb02dad116166d758bb7a", size = 760003, upload-time = "2026-09-26T15:46:56.787Z" },
+    { url = "https://files.pythonhosted.org/packages/ea/0d/5ba5a21c33e2e763c6851799dd93c9d16734c7058bcb251f40b5710f9dd3/code_puppy_core_plugins-0.0.67-py3-none-any.whl", hash = "sha256:bb11bbb96692df27b5334750092f915aded5a8b37f29364fb8b56cf23bb275b6", size = 772733, upload-time = "2026-09-27T14:03:00.787Z" },
 ]
 
 [[package]]
@@ -1958,6 +1958,9 @@ openai = [
     { name = "openai" },
     { name = "tiktoken" },
 ]
+typesafe = [
+    { name = "typesafe-sdk" },
+]
 
 [[package]]
 name = "pydantic-core"
@@ -2920,6 +2923,15 @@ wheels = [
 ]
 
 [[package]]
+name = "tenacity"
+version = "9.1.4"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/47/c6/ee486fd809e357697ee8a44d3d69222b344920433d3b6666ccd9b374630c/tenacity-9.1.4.tar.gz", hash = "sha256:adb31d4c263f2bd041081ab33b498309a57c77f9acf2db65aadf0898179cf93a", size = 49413, upload-time = "2026-02-07T10:45:33.841Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d7/c1/eb8f9debc45d3b7918a32ab756658a0904732f75e555402972246b0b8e71/tenacity-9.1.4-py3-none-any.whl", hash = "sha256:6095a360c919085f28c6527de529e76a06ad89b23659fa881ae0649b867a9d55", size = 28926, upload-time = "2026-02-07T10:45:32.24Z" },
+]
+
+[[package]]
 name = "termflow-md"
 version = "0.10.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3074,6 +3086,22 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/a7/a7/e6aecc4b4eb59598829a3b5076a93aff291b4fdaa2ded25efc4e1f4d219c/typer_slim-0.24.0.tar.gz", hash = "sha256:f0ed36127183f52ae6ced2ecb2521789995992c521a46083bfcdbb652d22ad34", size = 4776, upload-time = "2026-02-16T22:08:51.2Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a7/24/5480c20380dfd18cf33d14784096dca45a24eae6102e91d49a718d3b6855/typer_slim-0.24.0-py3-none-any.whl", hash = "sha256:d5d7ee1ee2834d5020c7c616ed5e0d0f29b9a4b1dd283bdebae198ec09778d0e", size = 3394, upload-time = "2026-02-16T22:08:49.92Z" },
+]
+
+[[package]]
+name = "typesafe-sdk"
+version = "0.7.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "httpx2" },
+    { name = "pydantic" },
+    { name = "pydantic-core" },
+    { name = "tenacity" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/42/ac/8bad2c02c038b85039cdb198ba106650d54bade0c0c986c68dc6e9cef8c3/typesafe_sdk-0.7.2.tar.gz", hash = "sha256:2434f4af5cdfc45d6ab5ff27048e8b257207f786b60456e69995e345b32e77e1", size = 23169, upload-time = "2026-09-26T21:20:24.988Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/99/5e/2b97ba9b0b77612e3a480ddb60c0c0325b4809ef57a7b565341d65ef7bec/typesafe_sdk-0.7.2-py3-none-any.whl", hash = "sha256:0a961148187d52e18276ed7f2d02617cfac48e3b97673cb631a8749397d43d1e", size = 36448, upload-time = "2026-09-26T21:20:23.511Z" },
 ]
 
 [[package]]
