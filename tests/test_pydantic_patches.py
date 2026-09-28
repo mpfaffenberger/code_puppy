@@ -407,6 +407,7 @@ def _block_import(monkeypatch, *names):
         ("patch_tool_call_json_repair", ("json_repair",)),
         ("patch_termflow_clipboard", ("termflow",)),
         ("patch_termflow_code_padding", ("termflow",)),
+        ("patch_termflow_blockquote_gutter", ("termflow",)),
     ],
 )
 def test_missing_optional_lib_is_quiet(
