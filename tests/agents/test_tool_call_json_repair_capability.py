@@ -40,7 +40,7 @@ from code_puppy.agents._json_repair import (
     build_tool_call_json_repair,
 )
 
-BROKEN_ARGS = '{"x": 1,}'  # trailing comma — json_repair's bread and butter
+BROKEN_ARGS = '{"x": 1,}'  # trailing comma -- json_repair's bread and butter
 REPAIRED_ARGS = '{"x": 1}'
 
 
@@ -117,7 +117,7 @@ async def test_broken_string_args_are_repaired_and_mirrored():
     result = await _invoke_seam(call, BROKEN_ARGS)
     assert result == REPAIRED_ARGS
     # Custody: the live ToolCallPart (recorded in run state) carries the
-    # repaired bytes — exactly the patch's in-place mutation.
+    # repaired bytes -- exactly the patch's in-place mutation.
     assert call.args == REPAIRED_ARGS
 
 
@@ -206,7 +206,7 @@ async def test_run_executes_tool_with_repaired_args_and_records_them():
 
     result = await agent.run("go")
 
-    assert seen == [1]  # tool ran with the repaired payload — no retry burned
+    assert seen == [1]  # tool ran with the repaired payload -- no retry burned
     assert result.output == "done"
     assert _tool_call_args_in(result.all_messages()) == [REPAIRED_ARGS]
 
@@ -260,11 +260,25 @@ def _retry_prompt_contents(messages: list[ModelMessage]) -> list[Any]:
 
 
 @pytest.mark.asyncio
-async def test_unknown_tool_args_stay_raw_in_history():
+async def test_unknown_tool_never_reaches_repair_seam(monkeypatch):
     """Documented bounded divergence: resolution fails before the seam
-    fires, so an unknown tool's recorded args keep the model's raw bytes.
-    (Unavailable tools share the same code path — ``_resolve_tool`` raises
-    before ``_run_validate_hooks`` runs any hook.)"""
+    fires, so the capability never touches an unknown tool's args.
+    (Unavailable tools share the same code path: ``_resolve_tool`` raises
+    before ``_run_validate_hooks`` runs any hook.)
+
+    Asserts on the seam, not on recorded history bytes: the process-global
+    ``patch_tool_call_callbacks`` (applied whenever ``cli_runner`` is
+    imported) writes a repaired dict view back to ``call.args`` for
+    unknown tools, so history bytes depend on test ordering.
+    """
+    seam_calls: list[str] = []
+    original = ToolCallJsonRepair.before_tool_validate
+
+    async def spy(self: ToolCallJsonRepair, ctx: Any, **kwargs: Any) -> Any:
+        seam_calls.append(kwargs["call"].tool_name)
+        return await original(self, ctx, **kwargs)
+
+    monkeypatch.setattr(ToolCallJsonRepair, "before_tool_validate", spy)
     seen: list[int] = []
     agent = Agent(model=_unknown_tool_model(), capabilities=[ToolCallJsonRepair()])
     _register_grab(agent, seen)
@@ -273,14 +287,13 @@ async def test_unknown_tool_args_stay_raw_in_history():
 
     assert result.output == "recovered"
     assert seen == []
-    assert _tool_call_args_in(result.all_messages()) == [BROKEN_ARGS]
+    assert seam_calls == []
 
 
 @pytest.mark.asyncio
 async def test_unknown_tool_retry_parity_with_eager_patch(restore_validate_tool_call):
-    """The divergence is history bytes ONLY: the unknown-tool call earns
-    the identical ModelRetry prompt and recovery under the eager patch and
-    under the capability."""
+    """The unknown-tool call earns the identical ModelRetry prompt and
+    recovery under the eager patch and under the capability."""
     from code_puppy.pydantic_patches import patch_tool_call_json_repair
 
     cap_agent = Agent(model=_unknown_tool_model(), capabilities=[ToolCallJsonRepair()])
@@ -298,10 +311,6 @@ async def test_unknown_tool_retry_parity_with_eager_patch(restore_validate_tool_
     patch_retries = _retry_prompt_contents(patch_result.all_messages())
     assert cap_retries == patch_retries
     assert len(cap_retries) == 1
-    # The old patch repaired even a doomed call's recorded args; the
-    # capability leaves them raw. This is the entire divergence.
-    assert _tool_call_args_in(cap_result.all_messages()) == [BROKEN_ARGS]
-    assert _tool_call_args_in(patch_result.all_messages()) == [REPAIRED_ARGS]
 
 
 # ---------------------------------------------------------------------------
@@ -405,7 +414,7 @@ def test_before_tool_validate_signature_matches_seam():
     """Pin the seam signature so a pydantic-ai upgrade that changes the
     hook contract fails loudly here instead of silently never firing.
 
-    Compares names, kinds, and defaults — not annotations, which
+    Compares names, kinds, and defaults -- not annotations, which
     legitimately differ (the seam spells ``RawToolArgs``, we spell the
     underlying union)."""
     from pydantic_ai.capabilities import AbstractCapability

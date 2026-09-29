@@ -6,7 +6,7 @@ seam. LLMs sometimes emit slightly broken JSON in tool-call arguments
 (trailing commas, missing quotes, unclosed braces); repairing the raw args
 before validation prevents an unnecessary retry round-trip.
 
-**Delivery model — explicit-when-ours, fallback-for-guests** (the same
+**Delivery model -- explicit-when-ours, fallback-for-guests** (the same
 split ``Instrumentation`` uses for tracing): agents built by code_puppy's
 own construction sites carry an explicit :class:`ToolCallJsonRepair`
 capability, and the monkeypatch detects it (via the run's
@@ -18,7 +18,7 @@ them exactly as before.
 Parity notes versus the eager patch:
 
 * **Same repair, same custody.** The hook receives the *live*
-  ``ToolCallPart`` — the object recorded in the run's message state — so
+  ``ToolCallPart`` -- the object recorded in the run's message state -- so
   assigning ``call.args`` here lands the repaired JSON in message history
   exactly as the patch's in-place mutation did, while the returned args
   feed validation.
@@ -26,11 +26,13 @@ Parity notes versus the eager patch:
   ``ToolManager._resolve_tool`` raises before ``before_tool_validate``
   fires, so a call to a nonexistent tool no longer gets its recorded args
   repaired (the patch repaired first, resolution failed after). The call
-  fails with the identical ``ModelRetry`` either way; history now keeps
-  the model's true emitted bytes, which is arguably more honest.
+  fails with the identical ``ModelRetry`` either way. (In-app, the
+  ``patch_tool_call_callbacks`` pre_tool_call writeback still records a
+  repaired dict view for such calls, so history bytes match the old
+  behavior anyway.)
 * **Output tools were never covered.** On pydantic-ai 2.31.0, tool-based
-  structured output validates through ``validate_output_tool_call`` — a
-  method the patch never wrapped — so skipping the ``kind == 'output'``
+  structured output validates through ``validate_output_tool_call`` -- a
+  method the patch never wrapped -- so skipping the ``kind == 'output'``
   carve-out here (pydantic-ai excludes output tools from tool hooks
   anyway) changes nothing.
 

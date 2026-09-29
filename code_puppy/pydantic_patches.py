@@ -253,7 +253,7 @@ def _run_owns_json_repair(tool_manager: Any) -> bool:
     Walks the run's ``ToolManager.root_capability`` with the public
     ``AbstractCapability.apply`` visitor (the same traversal the run layer
     uses for its own explicit-capability checks). Any failure reads as
-    ``False`` — the patch then repairs eagerly, which is the old behavior
+    ``False``; the patch then repairs eagerly, which is the old behavior
     and idempotent alongside the capability (repairing already-repaired
     JSON is a no-op).
     """
