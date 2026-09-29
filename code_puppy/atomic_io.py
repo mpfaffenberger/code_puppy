@@ -21,6 +21,7 @@ modules rather than hand-rolling ``open()``/``json.load()`` again.
 from __future__ import annotations
 
 import contextlib
+import errno
 import logging
 import os
 import tempfile
@@ -78,6 +79,68 @@ def _unlock(fd: int) -> None:
         msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
 
 
+def _truncate_fd(fd: int, size: int) -> None:
+    """Best-effort fd truncation across Python/OS builds.
+
+    ``os.ftruncate`` is absent on some Windows Python builds. Fall back to
+    truncating through a duplicated file object when needed.
+    """
+    ftruncate = getattr(os, "ftruncate", None)
+    if callable(ftruncate):
+        try:
+            ftruncate(fd, size)
+            return
+        except NotImplementedError:
+            pass
+        except OSError as exc:
+            if exc.errno != errno.ENOSYS:
+                raise
+
+    dup_fd = os.dup(fd)
+    try:
+        file = os.fdopen(dup_fd, "r+b", buffering=0)
+    except BaseException:
+        os.close(dup_fd)
+        raise
+    with file:
+        file.truncate(size)
+
+
+def _prepare_windows_lockfile(fd: int) -> None:
+    """Normalize the Windows lock sidecar to exactly one byte.
+
+    ``msvcrt.locking`` requires at least one byte to lock. Keep the sidecar at
+    one byte so repeated acquisitions cannot balloon it over time.
+
+    Call this only while holding the lock for this file descriptor.
+    """
+    os.lseek(fd, 0, os.SEEK_SET)
+    if os.fstat(fd).st_size != 1:
+        _truncate_fd(fd, 1)
+        os.lseek(fd, 0, os.SEEK_SET)
+        os.write(fd, b"\0")
+    os.lseek(fd, 0, os.SEEK_SET)
+
+
+def _prime_windows_lockfile_if_empty(fd: int) -> None:
+    """Seed a zero-length Windows sidecar with one byte, best effort.
+
+    ``msvcrt.locking`` can reject locking byte 0 of an empty file on some
+    runtimes. This helper initializes only truly empty sidecars and swallows
+    contention/share-violation errors so lock polling semantics stay intact.
+    """
+    os.lseek(fd, 0, os.SEEK_SET)
+    if os.fstat(fd).st_size != 0:
+        return
+
+    try:
+        os.write(fd, b"\0")
+    except OSError:
+        pass
+    finally:
+        os.lseek(fd, 0, os.SEEK_SET)
+
+
 @contextlib.contextmanager
 def path_lock(
     path: str, timeout: float = DEFAULT_LOCK_TIMEOUT_SECONDS
@@ -94,12 +157,17 @@ def path_lock(
     acquired = False
     try:
         if msvcrt is not None:
-            os.write(fd, b"\0")
+            _prime_windows_lockfile_if_empty(fd)
         deadline = time.monotonic() + timeout
         while not (acquired := _try_lock(fd)):
+            if msvcrt is not None:
+                _prime_windows_lockfile_if_empty(fd)
             if time.monotonic() >= deadline:
                 raise LockTimeout(f"Timed out waiting for lock: {lock_path}")
             time.sleep(_LOCK_POLL_SECONDS)
+
+        if msvcrt is not None:
+            _prepare_windows_lockfile(fd)
         yield
     finally:
         if acquired:

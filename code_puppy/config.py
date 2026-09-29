@@ -158,6 +158,28 @@ def get_universal_constructor_enabled() -> bool:
     return get_truthy_bool_value("enable_universal_constructor", True)
 
 
+def get_speculative_code_mode_enabled() -> bool:
+    """Return True if speculative CodeMode is enabled (default False).
+
+    Applies to every agent: the whole tool surface folds into a harness
+    CodeMode `run_code` sandbox with speculative execution, so calls with
+    literal arguments start executing while the model is still streaming the
+    snippet. Dogfoods pydantic-ai-harness#699. Off by default because it
+    changes how every agent calls tools.
+
+    When False, agents use plain native tool calls.
+    """
+    return get_truthy_bool_value("enable_speculative_code_mode", False)
+
+
+def set_speculative_code_mode_enabled(enabled: bool) -> None:
+    """Persist the speculative CodeMode switch (Ctrl+X Ctrl+S toggles it).
+
+    Takes effect the next time an agent's pydantic agent is built.
+    """
+    set_value("enable_speculative_code_mode", "true" if enabled else "false")
+
+
 def set_universal_constructor_enabled(enabled: bool) -> None:
     """Enable or disable the Universal Constructor.
 
@@ -305,9 +327,31 @@ _default_vision_model_cache = None
 _warned_no_model = False
 
 
+# Parsed-config cache: (path, inode, mtime_ns, size) -> parser. ``get_value``
+# is called hundreds of times per turn (and per streamed chunk), and each
+# call used to re-read and re-parse the INI file. Any write -- ours go through
+# ``mutate_config``'s atomic replace, which changes the inode -- rolls the key.
+_CONFIG_CACHE: tuple[tuple[str, int, int, int], configparser.ConfigParser] | None = None
+
+
 def _load_config() -> configparser.ConfigParser:
-    """Load ``CONFIG_FILE`` through the bounded, recoverable I/O layer."""
-    return load_config(CONFIG_FILE)
+    """Load ``CONFIG_FILE`` through the bounded, recoverable I/O layer.
+
+    Returns a shared, cached parser while the file on disk is unchanged;
+    callers must treat it as read-only (mutations go through ``mutate_config``).
+    """
+    global _CONFIG_CACHE
+    try:
+        st = os.stat(CONFIG_FILE)
+    except OSError:
+        # Missing/unreadable: let the I/O layer decide, nothing to cache.
+        return load_config(CONFIG_FILE)
+    key = (CONFIG_FILE, st.st_ino, st.st_mtime_ns, st.st_size)
+    if _CONFIG_CACHE is not None and _CONFIG_CACHE[0] == key:
+        return _CONFIG_CACHE[1]
+    parser = load_config(CONFIG_FILE)
+    _CONFIG_CACHE = (key, parser)
+    return parser
 
 
 def ensure_config_exists():
@@ -323,7 +367,9 @@ def ensure_config_exists():
     # Skip the read entirely when we already know there's nothing to read --
     # matches configparser's own no-op-on-missing-file behavior and avoids an
     # unnecessary open() attempt during first-run setup.
-    config = _load_config() if exists else configparser.ConfigParser()
+    # Uncached read: this parser is mutated in place below, and the cached
+    # instance from _load_config() is shared with every reader.
+    config = load_config(CONFIG_FILE) if exists else configparser.ConfigParser()
     missing = []
     if DEFAULT_SECTION not in config:
         config[DEFAULT_SECTION] = {}
@@ -378,6 +424,12 @@ def ensure_config_exists():
 
 
 def get_value(key: str):
+    from code_puppy.shared_credentials import get, is_credential_key
+
+    if is_credential_key(key, discover=False):
+        shared = get(key)
+        if shared:
+            return shared
     config = _load_config()
     val = config.get(DEFAULT_SECTION, key, fallback=None)
     return val
@@ -459,11 +511,139 @@ def get_model_context_length() -> int:
         return 128000
 
 
+# Setting key (both in model catalog entries and the per-model
+# ``model_settings_`` namespace) for the output-token cap sent as
+# ``max_tokens``. Populated automatically from models.dev by ``/add_model``.
+MAX_OUTPUT_TOKENS_SETTING = "max_output_tokens"
+
+# Heuristic bounds used when a model entry carries no ``max_output_tokens``.
+_HEURISTIC_MIN_OUTPUT_TOKENS = 2048
+_HEURISTIC_MAX_OUTPUT_TOKENS = 65536
+_HEURISTIC_OUTPUT_FRACTION = 0.15
+
+
+def _coerce_positive_int(value: Any) -> Optional[int]:
+    """``int(value)`` when it parses to something > 0, else ``None``."""
+    try:
+        parsed = int(float(value))
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def _models_dev_output_tokens(
+    model_name: str, model_config: dict[str, Any]
+) -> Optional[int]:
+    """Authoritative output cap for one catalog entry, per models.dev.
+
+    The last stop before the 15% heuristic. Hand-written entries -- and every
+    model added before ``/add_model`` started stamping limits -- carry no
+    ``max_output_tokens``, and a guessed cap is actively dangerous for
+    adaptive-thinking models: their reasoning shares the output budget, so
+    guessing low leaves them unable to emit even one tool call. (Opus 5 really
+    does support 128000 output tokens; the heuristic handed it 19200 and it
+    hard-failed mid-thought, having produced no tool call at all.)
+
+    Args:
+        model_name: Catalog key, reused as a provider-scoped lookup key.
+        model_config: Catalog entry; its ``name`` is the bare model id.
+
+    Returns:
+        The cap when models.dev vouches for it, else ``None`` so the caller
+        falls through to the heuristic. Never raises, and never guesses: an
+        ambiguous or unknown model yields ``None``.
+    """
+    name = str(model_config.get("name") or "")
+    if not name:
+        return None
+    try:
+        from code_puppy.models_dev_parser import (
+            get_registry,
+            index_limits,
+            match_limits,
+        )
+
+        registry = get_registry()
+        if registry is None:
+            return None
+        by_key, by_name = index_limits(registry.get_models())
+        # Mirrors extra_model_key() over a "provider/model" alias so the
+        # provider-scoped match applies whenever we can identify the provider.
+        key = model_name.replace("/", "-").replace(":", "-")
+        match = match_limits(by_key, by_name, key, name)
+        if match.limits is None:
+            return None
+        return _coerce_positive_int(match.limits.max_output)
+    except Exception:
+        return None
+
+
+def get_model_max_output_tokens(
+    model_name: Optional[str] = None,
+    models_config: Optional[dict[str, Any]] = None,
+) -> int:
+    """Effective output-token cap (``max_tokens``) for a model.
+
+    Resolution order, first hit wins:
+
+    1. Per-model user override from ``/model_settings``.
+    2. ``max_output_tokens`` in the model's catalog entry
+       (``models.json`` / ``extra_models.json``; ``/add_model`` fills this
+       from models.dev's ``limit.output``).
+    3. ``limit.output`` for that model id from models.dev, so entries that
+       predate ``/add_model`` stamping limits (or were written by hand) still
+       get a real cap rather than a guess.
+    4. Heuristic: 15% of ``context_length``, clamped to [2048, 65536].
+
+    Args:
+        model_name: Model key; defaults to the current global model.
+        models_config: Optional preloaded catalog to avoid a reload.
+    """
+    if model_name is None:
+        model_name = get_global_model_name()
+
+    override = _coerce_positive_int(
+        get_model_setting(model_name, MAX_OUTPUT_TOKENS_SETTING)
+    )
+    if override is not None:
+        return override
+
+    context_length = 128000
+    try:
+        if models_config is None:
+            from code_puppy.model_factory import ModelFactory
+
+            models_config = ModelFactory.load_config()
+        model_config = models_config.get(model_name, {})
+        catalog_value = _coerce_positive_int(
+            model_config.get(MAX_OUTPUT_TOKENS_SETTING)
+        )
+        if catalog_value is not None:
+            return catalog_value
+        dev_value = _models_dev_output_tokens(model_name, model_config)
+        if dev_value is not None:
+            return dev_value
+        context_length = int(model_config.get("context_length", context_length))
+    except Exception:
+        pass
+
+    return max(
+        _HEURISTIC_MIN_OUTPUT_TOKENS,
+        min(
+            int(_HEURISTIC_OUTPUT_FRACTION * context_length),
+            _HEURISTIC_MAX_OUTPUT_TOKENS,
+        ),
+    )
+
+
 # --- CONFIG SETTER STARTS HERE ---
 def get_config_keys():
     """
     Returns the list of all config keys currently in puppy.cfg,
     plus certain preset expected keys (e.g. "yolo_mode", "model", "compaction_strategy", "message_limit", "allow_recursion").
+
+    Only core-owned keys belong in ``default_keys``: plugins declare theirs
+    through the ``register_settings`` hook (see :func:`_plugin_setting_keys`).
     """
     default_keys = [
         "yolo_mode",
@@ -482,13 +662,8 @@ def get_config_keys():
         "diff_context_lines",
         "default_agent",
         "temperature",
-        "frontend_emitter_enabled",
-        "frontend_emitter_max_recent_events",
-        "frontend_emitter_queue_size",
         "locale",
-        "timestamp_heartbeat_interval",
     ]
-    # 'enable_dbos' is plugin-reserved (read via get_value); not in default_keys.
     # Add pack agents control key
     default_keys.append("enable_pack_agents")
     # Add universal constructor control key
@@ -516,9 +691,9 @@ def get_config_keys():
     # Tool-output reduction threshold in chars for the harness ToolOutputLimits
     # capability (see get_tool_output_limit_chars()). 0 or negative disables.
     default_keys.append("tool_output_limit_chars")
-    # Add /goal iteration cap (owned by the wiggum plugin, surfaced here so
-    # /set autocompletes it). See plugins/wiggum/register_callbacks.py.
-    default_keys.append("goal_max_iterations")
+    # How relentlessly the agent proceeds without checking in; headless -p
+    # runs always behave as 'extreme' (see get_agency_level()).
+    default_keys.append("agency_level")
     # Add dangerous command guard disable (skips force push and destructive command guards)
     default_keys.append("disable_dangerous_command_guard")
     # Per-pattern allowlist bypassing the command guards (e.g. "git reset
@@ -534,13 +709,31 @@ def get_config_keys():
     config = _load_config()
     keys = set(config[DEFAULT_SECTION].keys()) if DEFAULT_SECTION in config else set()
     keys.update(default_keys)
+    keys.update(_plugin_setting_keys())
     return sorted(keys)
+
+
+def _plugin_setting_keys() -> set[str]:
+    """Keys plugins declare via ``register_settings`` (their own, not core's)."""
+    from code_puppy.callbacks import on_register_settings
+
+    return {
+        setting.key
+        for category in on_register_settings()
+        for setting in category.settings
+    }
 
 
 def set_config_value(key: str, value: str):
     """
     Sets a config value in the persistent config file.
     """
+
+    from code_puppy.shared_credentials import is_credential_key, save
+
+    if is_credential_key(key):
+        save(key, value)
+        return
 
     def _apply(config: configparser.ConfigParser) -> None:
         if DEFAULT_SECTION not in config:
@@ -595,7 +788,7 @@ def _parse_mcp_servers_mapping(raw_text: str) -> dict:
     return servers
 
 
-def load_mcp_server_configs():
+def load_mcp_server_configs(*, raise_on_error: bool = False):
     """Load MCP server configs, merging user-level and trusted project-level.
 
     Sources, in ascending order of precedence:
@@ -610,6 +803,11 @@ def load_mcp_server_configs():
     Project entries win on name collision, matching how project agents, skills,
     and plugins override their user-level counterparts. Returns an empty dict
     when nothing is configured.
+
+    When *raise_on_error* is true, a parse/IO failure of an existing user-level
+    file (or a failure of the project loader) is re-raised after the error is
+    emitted, so callers that unregister missing names can skip that drop
+    instead of treating ``{}`` as "configure nothing".
     """
     from code_puppy.messaging.message_queue import emit_error
 
@@ -622,6 +820,8 @@ def load_mcp_server_configs():
                 configs.update(_parse_mcp_servers_mapping(f.read()))
     except Exception as e:
         emit_error(f"Failed to load MCP servers - {str(e)}")
+        if raise_on_error:
+            raise
 
     # 2. Project-level config (opt-in, trust-gated). A broken or untrusted
     #    project file must never break user-level loading.
@@ -633,6 +833,8 @@ def load_mcp_server_configs():
             configs.update(project_configs)
     except Exception as e:
         emit_error(f"Failed to load project MCP servers - {str(e)}")
+        if raise_on_error:
+            raise
 
     return configs
 
@@ -771,6 +973,15 @@ def model_supports_setting(
         True if the model supports the setting, False otherwise.
         Defaults to True for backwards compatibility if model config doesn't specify.
     """
+    from code_puppy.model_utils import (
+        get_anthropic_thinking_display_choices,
+        supports_gpt_responses_controls,
+    )
+
+    # Every model has an output cap; it's resolved into ``max_tokens`` by
+    # make_model_settings rather than sent to the provider as-is.
+    if setting == MAX_OUTPUT_TOKENS_SETTING:
+        return True
     # GLM-4.5+ models support deep-thinking controls (thinking_type,
     # clear_thinking); GLM-5.2+ additionally support reasoning_effort.
     if setting in ("thinking_type", "clear_thinking"):
@@ -784,9 +995,14 @@ def model_supports_setting(
         if supports_glm_reasoning_effort(model_name):
             return True
     if setting in ("reasoning_context", "reasoning_mode"):
-        # GPT-5.6 Responses API controls; detect here so injected/custom 5.6
+        # GPT-5.6+ Responses API controls; detect here so injected/custom
         # definitions needn't duplicate supported_settings metadata.
-        if "gpt-5.6" in model_name.lower():
+        if supports_gpt_responses_controls(model_name):
+            return True
+    if setting == "thinking_display":
+        # Fable 5.1 progress-update display; same identity-based detection so
+        # OAuth-generated and bundled entries needn't list it explicitly.
+        if get_anthropic_thinking_display_choices(model_name):
             return True
 
     try:
@@ -795,9 +1011,25 @@ def model_supports_setting(
         if models_config is None:
             models_config = ModelFactory.load_config()
         model_config = models_config.get(model_name, {})
+        underlying_name = str(model_config.get("name", "")).lower()
         if setting in ("reasoning_context", "reasoning_mode"):
-            underlying_name = str(model_config.get("name", "")).lower()
-            if "gpt-5.6" in underlying_name:
+            if supports_gpt_responses_controls(underlying_name):
+                return True
+        if setting == "reasoning_effort":
+            # Resolve OpenAI model IDs and aliases without letting another
+            # provider opt in merely because its key contains an OpenAI tag.
+            from code_puppy.model_factory import _OPENAI_COMPATIBLE_MODEL_TYPES
+            from code_puppy.model_utils import resolve_openai_reasoning_effort_choices
+
+            model_type = model_config.get("type")
+            if model_type is None or model_type in _OPENAI_COMPATIBLE_MODEL_TYPES:
+                choices = resolve_openai_reasoning_effort_choices(
+                    model_name, model_config
+                )
+                if choices:
+                    return True
+        if setting == "thinking_display":
+            if get_anthropic_thinking_display_choices(model_name, underlying_name):
                 return True
 
         # Get supported_settings list, default to supporting common settings
@@ -909,6 +1141,19 @@ def set_model_name(model: str):
 
     # Clear model cache when switching models to ensure fresh validation
     clear_model_cache()
+
+
+def get_auto_continue_model_name() -> str | None:
+    """Return the model used by the automatic continuation classifier.
+
+    ``auto_continue_model`` is an optional dedicated override. An unset or
+    blank value follows the session's global model so existing installations
+    need no configuration change.
+    """
+    value = get_value("auto_continue_model")
+    if value and value.strip():
+        return value.strip()
+    return get_global_model_name()
 
 
 def get_summarization_model_name() -> str:
@@ -1441,20 +1686,43 @@ def get_yolo_mode() -> bool:
     return get_truthy_bool_value("yolo_mode", True)
 
 
-def get_safety_permission_level():
+AGENCY_LEVELS = ("low", "medium", "high", "extreme")
+
+_headless_mode: bool = False
+
+
+def set_headless_mode(value: bool) -> None:
+    """Mark this process as headless (``-p`` prompt); process-local only."""
+    global _headless_mode
+    _headless_mode = value
+
+
+def get_headless_mode() -> bool:
+    """Return whether this process is running a headless ``-p`` prompt."""
+    return _headless_mode
+
+
+def get_agency_level() -> str:
     """
-    Checks puppy.cfg for 'safety_permission_level' (case-insensitive in value only).
-    Defaults to 'medium' if not set.
-    Allowed values: 'none', 'low', 'medium', 'high', 'critical' (all case-insensitive for value).
+    Checks puppy.cfg for 'agency_level' (case-insensitive in value only).
+    Allowed values: 'low', 'medium', 'high', 'extreme'.
+    Defaults to 'high' if not set or invalid: fully autonomous on requested
+    work, without the relentless background-process vigil of 'extreme'.
+
+    Headless (``-p``) runs always report 'extreme' no matter what the config
+    says — there is nobody at the keyboard to answer check-ins, so anything
+    lower would just stall the run.
+
     Returns the normalized lowercase string.
     """
-    valid_levels = {"none", "low", "medium", "high", "critical"}
-    cfg_val = get_value("safety_permission_level")
+    if _headless_mode:
+        return "extreme"
+    cfg_val = get_value("agency_level")
     if cfg_val is not None:
         normalized = str(cfg_val).strip().lower()
-        if normalized in valid_levels:
+        if normalized in AGENCY_LEVELS:
             return normalized
-    return "medium"  # Default to medium risk threshold
+    return "high"
 
 
 def get_mcp_disabled():
@@ -1477,6 +1745,27 @@ def get_grep_output_verbose():
     When True: Shows full output with line numbers and content
     """
     return get_truthy_bool_value("grep_output_verbose", False)
+
+
+GREP_MAX_MATCHES_DEFAULT = 50
+
+
+def get_grep_max_matches() -> int:
+    """Return the per-call grep match budget.
+
+    Read from the ``grep_max_matches`` config key (``/set grep_max_matches=<int>``).
+    Defaults to ``GREP_MAX_MATCHES_DEFAULT`` when unset or non-numeric, and is
+    floored at 1: a budget of zero would make every search return nothing,
+    which is a foot-gun rather than a legitimate opt-out. Results past the
+    budget are dropped and reported via ``GrepOutput.truncated``.
+    """
+    val = get_value("grep_max_matches")
+    if val is None or not str(val).strip():
+        return GREP_MAX_MATCHES_DEFAULT
+    try:
+        return max(1, int(val))
+    except (ValueError, TypeError):
+        return GREP_MAX_MATCHES_DEFAULT
 
 
 def get_disable_dangerous_command_guard() -> bool:
@@ -2049,6 +2338,8 @@ DEFAULT_BANNER_COLORS = {
     "shell_passthrough": "medium_sea_green",  # Green - user's own shell commands
     # LLM Judge - goal-mode verdict (distinct from agent reasoning)
     "llm_judge": "gold3",  # Gold - judicial authority / gavel
+    # User steering (QUEUED / STEER acks) - hot pink so it never hides in the scrollback
+    "steer": "deep_pink3",
 }
 
 
@@ -2265,16 +2556,15 @@ def set_current_autosave_from_session_name(session_name: str) -> str:
     return pin_current_session_name(session_name)
 
 
-def auto_save_session_if_enabled() -> bool:
-    """Automatically save the current session if auto_save_session is enabled."""
-    if not get_auto_save_session():
+def auto_save_session_if_enabled(*, force: bool = False) -> bool:
+    """Save the current session when enabled, or unconditionally when forced."""
+    if not force and not get_auto_save_session():
         return False
 
     try:
         import pathlib
 
         from code_puppy.agents.agent_manager import get_current_agent
-        from code_puppy.messaging import emit_info
 
         current_agent = get_current_agent()
         history = current_agent.get_message_history()
@@ -2298,24 +2588,6 @@ def auto_save_session_if_enabled() -> bool:
         # Point quick-resume at this save; every turn/exit/finalize routes through
         # this chokepoint. Best-effort, never blocks the autosave.
         record_quick_resume_sessions(session_name)
-
-        # Append conversation-wide TTFT + TG averages if we have any data.
-        stats_suffix = ""
-        try:
-            from code_puppy.agents.run_stats import AgentRunStats
-
-            avg_ttft, avg_gen = AgentRunStats.get_conversation_stats()
-            formatted = AgentRunStats.format_conversation_stats(avg_ttft, avg_gen)
-            if formatted:
-                stats_suffix = f" | {formatted}"
-        except Exception:
-            # Stats are decorative; never block the auto-save line on them.
-            pass
-
-        emit_info(
-            f"\U0001f43e Auto-saved session: {metadata.message_count} messages "
-            f"({metadata.total_tokens} tokens){stats_suffix}"
-        )
 
         # Fire post_autosave so plugins can append lines (token quota) without
         # us knowing about them. See session_lifecycle's docstring re executor wrap.
@@ -2836,6 +3108,29 @@ def set_output_level(level: str) -> None:
     set_config_value("output_level", normalised)
 
 
+def get_show_tool_output() -> bool:
+    """Return True if full tool-call results are shown in the transcript.
+
+    Default is False: tool-call results stay collapsed to the compact
+    one-line call summary. Set ``show_tool_output`` in ``puppy.cfg`` (or via
+    ``/set``) to render the full result bodies the tools emit.
+
+    Note: on Windows, shell output is *always* hidden regardless of this
+    flag -- PowerShell control characters brick SIGINT and make Code Puppy
+    impossible to cancel.
+    """
+    return get_truthy_bool_value("show_tool_output", False)
+
+
+def set_show_tool_output(enabled: bool) -> None:
+    """Set whether full tool-call results are rendered.
+
+    Args:
+        enabled: Whether to show full tool results in the transcript.
+    """
+    set_config_value("show_tool_output", "true" if enabled else "false")
+
+
 # API Key management functions
 def get_api_key(key_name: str) -> str:
     """Get an API key from puppy.cfg.
@@ -2846,7 +3141,9 @@ def get_api_key(key_name: str) -> str:
     Returns:
         The API key value, or empty string if not set
     """
-    return get_value(key_name) or ""
+    from code_puppy.shared_credentials import get
+
+    return get(key_name) or get_value(key_name) or ""
 
 
 def set_api_key(key_name: str, value: str):

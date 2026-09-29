@@ -134,6 +134,36 @@ to check, `/dbos off` to disable.
 
 ## Usage
 
+### HOT NEW FEATURE: Speculative Tool Execution (`Ctrl+X Ctrl+S`)
+
+The model's tool calls start running **while it is still typing them**.
+
+Press `Ctrl+X Ctrl+S` in the prompt to flip it on (it persists as
+`enable_speculative_code_mode` in `puppy.cfg`; `/set enable_speculative_code_mode true`
+works too). Every agent, main or sub-agent, then gets a single `run_code` tool:
+a persistent, sandboxed Python REPL where every other tool the agent has
+(reads, shell, MCP servers, plugin tools) is an async function. `create_file`
+and `replace_in_file` stay native so edits keep their normal review flow.
+
+Two things happen as the snippet streams in:
+
+- **Speculation.** `read_file`, `grep`, and `list_files` calls with literal
+  arguments launch the moment their line closes. By the time the snippet is
+  finished, most of the reads already are.
+- **Eager execution.** Every other statement (a `sleep 2`, a test run, a
+  `curl`) executes as soon as it closes, before generation ends.
+
+A pinned row above the prompt keeps score for the session:
+
+```
+Speculation  29 hits · 0 misses · 0 wasted    saved ≥ 7.0s
+```
+
+`saved` is a lower bound on tool latency hidden behind the model's own
+typing — speculative and eager time summed into that one total. Press the
+chord again to go back to plain tool calls. Off by default; full details in
+[`docs/SPECULATION_STATUS.md`](docs/SPECULATION_STATUS.md).
+
 ### Meta Muse OAuth
 
 Code Puppy can use the same Meta account login as Muse Code. If Muse is already
@@ -336,6 +366,26 @@ Use `custom_openai` for OpenAI-compatible Chat Completions endpoints. If an endp
 }
 ```
 
+## Multiple System Messages
+
+Custom OpenAI-compatible endpoints (`custom_openai`, `openrouter`, `cerebras`, and Zhipu `zai_coding`/`zai_api`) default to merging consecutive leading `system` messages into one. Strict backends (SGLang, some vLLM deployments) reject more than one leading system message — this surfaces after auto-compact, which inserts a compaction-summary system message alongside the agent's own system instructions, as a `400: System message must be at the beginning.`
+
+The merge is harmless for endpoints that *do* support multiple system messages. If you know your endpoint handles them, opt out per model with `"supports_multiple_system_messages": true` (a JSON boolean):
+
+```json
+{
+  "my_model": {
+    "type": "custom_openai",
+    "name": "qwen3-sglang",
+    "supports_multiple_system_messages": true,
+    "custom_endpoint": {
+      "url": "http://localhost:30000/v1",
+      "api_key": "$API_KEY"
+    }
+  }
+}
+```
+
 ## Custom Model Timeouts
 
 For custom model endpoints (`custom_openai`, `custom_anthropic`, `custom_gemini`, `cerebras`), you can configure custom timeout values to handle slow or unreliable endpoints. The default timeout for these custom endpoint models is 180 seconds.
@@ -486,6 +536,11 @@ Create JSON files in your agents directory following this schema:
   "system_prompt": "Instructions...",    // REQUIRED: Agent instructions
   "tools": ["tool1", "tool2"],        // REQUIRED: Array of tool names
   "user_prompt": "How can I help?",     // OPTIONAL: Custom greeting
+  "model": "gpt-5",                    // OPTIONAL: Pinned model alias
+  "model_settings": {                   // OPTIONAL: Per-agent request settings
+    "reasoning_effort": "high",
+    "verbosity": "low"
+  },
   "tools_config": {                    // OPTIONAL: Tool configuration
     "timeout": 60
   }
@@ -499,9 +554,18 @@ Create JSON files in your agents directory following this schema:
 - **`tools`**: Array of available tool names
 
 #### Optional Fields
-- **`display_name`**: Pretty display name (defaults to title-cased name + 🤖)
+- **`display_name`**: Pretty display name (defaults to title-cased name with an icon)
 - **`user_prompt`**: Custom user greeting
+- **`model`**: Model alias pinned to this agent; omit it to use the global model
+- **`model_settings`**: Request settings scoped to this agent, such as
+  `reasoning_effort`, `verbosity`, or `temperature`
 - **`tools_config`**: Tool configuration object
+
+Per-agent model settings override standard global and per-model values. Settings
+the selected model does not support are ignored, and provider-specific
+conversions are still applied before the request is sent. Low-level Custom
+params configured through `/model_settings` remain the final wire-level
+override.
 
 ## Available Tools
 
@@ -514,12 +578,12 @@ Agents can access these tools based on their configuration:
 - **`replace_in_file`**: Targeted text replacements in existing files
 - **`delete_snippet`**: Remove a text snippet from a file
 - **`delete_file`**: File deletion
-- **`agent_run_shell_command`**: Shell command execution
+- **`shell`**: Shell command execution
 - **`agent_share_your_reasoning`**: Share reasoning with user
 
 ### Tool Access Examples
 - **Read-only agent**: `["list_files", "read_file", "grep"]`
-- **File editor agent**: `["list_files", "read_file", "create_file", "replace_in_file"]`
+- **File editor agent**: `["list_files", "read_file", "create_file", "edit"]`
 - **Full access agent**: All tools (like Code-Puppy)
 
 ## System Prompt Formats
@@ -596,7 +660,7 @@ Agents can access these tools based on their configuration:
     "read_file",
     "create_file",
     "replace_in_file",
-    "agent_run_shell_command",
+    "shell",
     "agent_share_your_reasoning"
   ],
   "user_prompt": "What DevOps task can I help you with today?"
@@ -659,6 +723,7 @@ Both Python and JSON agents implement this interface:
 - `description`: Brief description of purpose
 - `get_system_prompt()`: Returns agent-specific system prompt
 - `get_available_tools()`: Returns list of tool names
+- `get_model_settings_overrides()`: Optionally returns per-agent request settings
 
 ### Agent Manager Integration
 The `agent_manager.py` provides:
@@ -712,9 +777,12 @@ class MyCustomAgent(BaseAgent):
             "replace_in_file",
             "delete_snippet",
             "delete_file",
-            "agent_run_shell_command",
+            "shell",
             "agent_share_your_reasoning"
         ]
+
+    def get_model_settings_overrides(self) -> dict[str, object]:
+        return {"reasoning_effort": "high"}
 ```
 
 ## Troubleshooting

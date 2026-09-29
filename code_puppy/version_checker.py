@@ -1,5 +1,7 @@
 """Version checking utilities for Code Puppy."""
 
+import threading
+
 import httpx
 
 from code_puppy.i18n import t
@@ -54,14 +56,30 @@ def fetch_latest_version(package_name):
         return None
 
 
-def default_version_mismatch_behavior(current_version):
+def default_version_mismatch_behavior(current_version) -> threading.Thread:
+    """Kick off the PyPI version check without blocking startup.
+
+    The fetch is a blocking HTTPS round-trip (up to ``timeout`` seconds on a
+    bad network) that used to sit on the critical path before the first
+    model request. It now runs on a daemon thread, so the result lands on
+    the message bus whenever it arrives and process exit never waits for
+    it. Returns the thread so callers (tests) can ``join()`` if they must.
+    """
     # Defensive: ensure current_version is never None
     if current_version is None:
         current_version = "0.0.0-unknown"
         emit_warning(t("version.undetected"))
 
-    latest_version = fetch_latest_version("code-puppy")
+    def _check() -> None:
+        report_version_status(current_version, fetch_latest_version("code-puppy"))
 
+    thread = threading.Thread(target=_check, name="version-check", daemon=True)
+    thread.start()
+    return thread
+
+
+def report_version_status(current_version, latest_version) -> None:
+    """Emit the version-check messages for an already-fetched ``latest_version``."""
     update_available = bool(
         latest_version and version_is_newer(latest_version, current_version)
     )
