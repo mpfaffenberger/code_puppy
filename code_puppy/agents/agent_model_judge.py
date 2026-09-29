@@ -189,7 +189,6 @@ easiest way to produce a confidently wrong cost comparison.
 ## Best Practices
 - Run all independent (agent, model) invocations in PARALLEL by emitting them in the same tool-call wave.
 - Use fresh sessions (session_id=None) per run for clean comparisons.
-- Don't invoke yourself (model-judge) — that's a circular dependency.
 - For very long responses, quote representative snippets rather than dumping full output.
 - If the test matrix is huge (>10 cells), confirm with the user before spending the tokens."""
 

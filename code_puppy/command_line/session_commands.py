@@ -91,7 +91,9 @@ def handle_session_command(command: str) -> bool:
 
 @register_command(
     name="clear",
-    description="Clear conversation history (rotates autosave; agent forgets prior turns)",
+    description=(
+        "Clear conversation history (rotates autosave). Bare word `clear` also works."
+    ),
     usage="/clear",
     aliases=["cls", "new"],
     category="session",
@@ -102,6 +104,7 @@ def handle_session_command(command: str) -> bool:
       - Finalizes & rotates the current autosave session (so prior history
         is preserved on disk and recoverable via /autosave_load)
       - Clears the in-memory message history for the active agent
+      - Resets speculative execution stats
       - Drops any pending clipboard images queued for the next turn
 
     The bare word `clear` (no slash) also works, for backward compatibility.
@@ -114,10 +117,12 @@ def handle_clear_command(command: str) -> bool:
     from code_puppy.command_line.clipboard import get_clipboard_manager
     from code_puppy.config import finalize_autosave_session
     from code_puppy.messaging import emit_info, emit_system_message, emit_warning
+    from code_puppy.messaging.speculation_stats import reset_speculation_stats
 
     agent = get_current_agent()
     new_session_id = finalize_autosave_session()
     agent.clear_message_history()
+    reset_speculation_stats()
     # New conversation: a stale pinned-model warning deserves to resurface
     # rather than staying silenced from the previous conversation forever.
     reset_model_fallback_warnings()
@@ -143,7 +148,10 @@ def handle_clear_command(command: str) -> bool:
 def handle_compact_command(command: str) -> bool:
     """Compact message history using configured strategy."""
     from code_puppy.agents.agent_manager import get_current_agent
-    from code_puppy.config import get_compaction_strategy
+    from code_puppy.config import (
+        auto_save_session_if_enabled,
+        get_compaction_strategy,
+    )
     from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 
     try:
@@ -192,6 +200,12 @@ def handle_compact_command(command: str) -> bool:
             return True
 
         agent.set_message_history(list(compacted))
+
+        # Slash commands run outside the normal turn-finalization path, which
+        # is where updated history is ordinarily auto-saved. Persist now so a
+        # subsequent /quit + --quick-resume restores the compacted history.
+        if not auto_save_session_if_enabled(force=True):
+            return True
 
         after_tokens = sum(agent.estimate_tokens_for_message(m) for m in compacted)
         reduction_pct = (
