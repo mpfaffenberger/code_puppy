@@ -4,9 +4,17 @@ import io
 import re
 import time
 
+import pytest
+
 from code_puppy import splash
 
 ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+
+
+@pytest.fixture(autouse=True)
+def fake_windows_vt(monkeypatch):
+    # StringIO animation tests must not depend on a real Windows console.
+    monkeypatch.setattr(splash, "_enable_windows_vt", lambda stream: True)
 
 
 class FakeTty(io.StringIO):
@@ -46,7 +54,7 @@ class TestGating:
         monkeypatch.setenv("TERM", "dumb")
         assert splash._wants_splash(["code-puppy"]) is False
 
-    def test_terminal_too_small_for_pyramid_gets_null_splash(self, monkeypatch):
+    def test_terminal_too_small_for_paw_gets_null_splash(self, monkeypatch):
         import os
 
         monkeypatch.setattr("sys.argv", ["code-puppy"])
@@ -67,6 +75,19 @@ FULL = splash._compose_rows(120, 50)
 
 
 class TestFrame:
+    def test_paw_raster_uses_valid_glow_tiers(self):
+        assert len(splash._PAW) == 20
+        assert all(set(row) <= set("0123") for row in splash._PAW)
+
+    def test_paw_ink_spans_its_declared_width(self):
+        # _PAW_WIDTH drives both the centring pad and the too-small-terminal
+        # gate, so dead columns on the right edge silently shove the paw off
+        # centre and over-tighten the gate. Asserting the widest row is also
+        # the widest *inked* row is the guard with teeth here; comparing
+        # _PAW_WIDTH to max(map(len, _PAW)) would only restate its definition.
+        assert max(len(row.rstrip("0")) for row in splash._PAW) == splash._PAW_WIDTH
+        assert len(set(map(len, splash._PAW))) == 1
+
     def test_full_lockup_dimensions(self):
         frame = splash._build_frame(0, True, FULL)
         lines = frame.splitlines()
@@ -93,7 +114,7 @@ class TestFrame:
 
     def test_frames_are_wrapped_in_synchronized_output(self):
         stream = FakeTty()
-        handle = splash.start_splash(stream=stream, force=True, min_seconds=0.1)
+        handle = splash.start_splash(stream=stream, force=True)
         handle.stop()
         output = stream.getvalue()
         assert output.count(splash._SYNC_START) == output.count(splash._SYNC_END)
@@ -116,7 +137,7 @@ class TestFrame:
 class TestComposeRows:
     def test_wide_terminal_gets_full_lockup(self):
         kinds = [k for k, _ in splash._compose_rows(120, 50)]
-        assert kinds.count("art") == len(splash._PYRAMID)
+        assert kinds.count("art") == len(splash._PAW)
         assert kinds.count("text") == 1 + len(splash._BANNER_FULL)
 
     def test_medium_terminal_gets_compact_pup(self):
@@ -125,20 +146,28 @@ class TestComposeRows:
         assert len(text_rows) == len(splash._BANNER_COMPACT)
         assert "\u2588" in text_rows[0]
 
-    def test_narrow_terminal_gets_pyramid_only(self):
-        rows = splash._compose_rows(45, 50)
+    def test_narrow_terminal_gets_paw_only(self):
+        # Derived rather than hardcoded: the compact lockup needs
+        # _PAW_WIDTH + 2 columns, so one below that is the widest
+        # terminal that still gets bare art. Pinning a literal here is
+        # what made this test encode the old 44-wide raster's threshold.
+        rows = splash._compose_rows(splash._PAW_WIDTH + 1, 50)
         assert all(k == "art" for k, _ in rows)
+
+    def test_compact_lockup_fits_at_the_gate_width(self):
+        rows = splash._compose_rows(splash._PAW_WIDTH + 2, 50)
+        assert any(k == "text" for k, _ in rows)
 
     def test_short_terminal_drops_text(self):
         rows = splash._compose_rows(120, 22)
         assert all(k == "art" for k, _ in rows)
 
-    def test_pyramid_centered_over_text(self):
+    def test_paw_centered_over_text(self):
         rows = splash._compose_rows(120, 50)
         # Compare a row against its unpadded source: the pad is the diff.
-        idx = max(range(len(splash._PYRAMID)), key=lambda i: len(splash._PYRAMID[i]))
-        pad = len(rows[idx][1]) - len(splash._PYRAMID[idx])
-        assert pad == (splash._BANNER_FULL_WIDTH - splash._PYRAMID_WIDTH) // 2
+        idx = max(range(len(splash._PAW)), key=lambda i: len(splash._PAW[i]))
+        pad = len(rows[idx][1]) - len(splash._PAW[idx])
+        assert pad == (splash._BANNER_FULL_WIDTH - splash._PAW_WIDTH) // 2
 
     def test_center_rows_pads_both_kinds_with_their_blank(self):
         rows = [("art", "123"), ("text", "\u2588\u2588\u2588")]
@@ -150,10 +179,10 @@ class TestComposeRows:
         rows = [("art", "123")]
         assert splash._center_rows(rows, 2) == rows
 
-    def test_compact_pup_centered_under_pyramid(self):
+    def test_compact_pup_centered_under_paw(self):
         rows = splash._compose_rows(70, 50)
         text_lines = [c for k, c in rows if k == "text" and c]
-        expected_pad = (splash._PYRAMID_WIDTH - splash._BANNER_COMPACT_WIDTH) // 2
+        expected_pad = (splash._PAW_WIDTH - splash._BANNER_COMPACT_WIDTH) // 2
         for line in text_lines:
             assert line.startswith(" " * expected_pad)
             assert not line.startswith(" " * (expected_pad + 1))
@@ -162,20 +191,20 @@ class TestComposeRows:
 class TestLifecycle:
     def test_start_animate_stop(self):
         stream = FakeTty()
-        handle = splash.start_splash(stream=stream, force=True, min_seconds=0)
+        handle = splash.start_splash(stream=stream, force=True)
         assert isinstance(handle, splash._Splash)
         time.sleep(0.15)  # let a few frames render
         handle.stop()
         output = stream.getvalue()
         assert splash._HIDE_CURSOR in output
         assert splash._SHOW_CURSOR in output
-        assert "\u2588" in output  # some pyramid actually got drawn
+        assert "\u2588" in output  # some paw actually got drawn
         assert not handle._thread.is_alive()
         assert handle._height == len(handle._rows)
 
     def test_fullscreen_alt_screen_entered_then_left(self):
         stream = FakeTty()
-        handle = splash.start_splash(stream=stream, force=True, min_seconds=0.05)
+        handle = splash.start_splash(stream=stream, force=True)
         time.sleep(0.05)
         handle.stop()
         output = stream.getvalue()
@@ -194,14 +223,14 @@ class TestLifecycle:
             lambda fallback=(80, 24): os.terminal_size((120, 50)),
         )
         stream = FakeTty()
-        handle = splash.start_splash(stream=stream, force=True, min_seconds=0)
+        handle = splash.start_splash(stream=stream, force=True)
         handle.stop()
         assert handle._top_row == (50 - handle._height) // 2 + 1
         assert f"\x1b[{handle._top_row};1H" in stream.getvalue()
 
     def test_stop_is_idempotent(self):
         stream = FakeTty()
-        handle = splash.start_splash(stream=stream, force=True, min_seconds=0)
+        handle = splash.start_splash(stream=stream, force=True)
         handle.stop()
         before = stream.getvalue()
         handle.stop()
@@ -215,23 +244,18 @@ class TestLifecycle:
             def write(self, *_a, **_k):
                 raise OSError("terminal went for a walk")
 
-        handle = splash.start_splash(stream=BrokenTty(), force=True, min_seconds=0)
+        handle = splash.start_splash(stream=BrokenTty(), force=True)
         time.sleep(0.05)
         handle.stop()  # must not raise
 
-    def test_stop_honors_minimum_showtime(self):
+    def test_stop_does_not_enforce_minimum_showtime(self):
         stream = FakeTty()
-        handle = splash.start_splash(stream=stream, force=True, min_seconds=0.3)
+        handle = splash.start_splash(stream=stream, force=True)
         t0 = time.monotonic()
-        handle.stop()  # called "instantly" -- must block out the remainder
+        handle.stop()
         elapsed = time.monotonic() - t0
-        assert elapsed >= 0.25  # slack for scheduler jitter
+        assert elapsed < 0.25
         assert not handle._thread.is_alive()
-        # the extra showtime produced extra frames, not a frozen screen
-        assert stream.getvalue().count(splash._SYNC_START) > 1
-
-    def test_default_minimum_is_three_seconds(self):
-        assert splash._MIN_SHOW_SECONDS == 3.0
 
 
 class TestStreamCapture:
@@ -239,7 +263,7 @@ class TestStreamCapture:
         import sys
 
         stream = FakeTty()
-        handle = splash.start_splash(stream=stream, force=True, min_seconds=0)
+        handle = splash.start_splash(stream=stream, force=True)
         try:
             assert sys.stdout is handle._cap_out
             assert sys.stderr is handle._cap_err
@@ -258,7 +282,7 @@ class TestStreamCapture:
         import sys
 
         stream = FakeTty()
-        handle = splash.start_splash(stream=stream, force=True, min_seconds=0)
+        handle = splash.start_splash(stream=stream, force=True)
         foreign = FakeTty()
         sys.stdout = foreign  # someone else grabbed stdout mid-import
         try:
@@ -269,7 +293,7 @@ class TestStreamCapture:
 
     def test_capture_mirrors_isatty(self):
         stream = FakeTty()
-        handle = splash.start_splash(stream=stream, force=True, min_seconds=0)
+        handle = splash.start_splash(stream=stream, force=True)
         try:
             assert handle._cap_out.isatty() is handle._orig_out.isatty()
         finally:

@@ -372,7 +372,14 @@ async def test_subagent_path_declares_capability_when_instrumented():
             _fake_load_model_with_fallback,
         ),
         patch("code_puppy.model_factory.make_model_settings", lambda *a, **k: None),
-        patch("code_puppy.config.get_value", return_value="true"),  # no MCP
+        # Only disable MCP; a blanket "true" would also flip unrelated flags
+        # (e.g. enable_speculative_code_mode) and derail the TestModel run.
+        patch(
+            "code_puppy.config.get_value",
+            side_effect=lambda key, *_a, **_k: (
+                "true" if key == "disable_mcp_servers" else None
+            ),
+        ),
         patch.object(si, "on_wrap_pydantic_agent", capture_wrap),
     ):
         out = await si._invoke_agent_impl(
