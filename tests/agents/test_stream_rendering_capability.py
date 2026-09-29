@@ -509,7 +509,12 @@ async def test_subagent_build_attaches_stream_rendering():
             _load_test_model,
         ),
         patch("code_puppy.model_factory.make_model_settings", lambda *a, **k: None),
-        patch("code_puppy.config.get_value", return_value="true"),  # no MCP
+        # Disable MCP only; a blanket "true" would also flip every other
+        # config flag (e.g. speculative CodeMode) and derail the TestModel run.
+        patch(
+            "code_puppy.config.get_value",
+            lambda key: "true" if key == "disable_mcp_servers" else None,
+        ),
         patch.object(si, "on_wrap_pydantic_agent", capture_wrap),
     ):
         out = await si._invoke_agent_impl(
