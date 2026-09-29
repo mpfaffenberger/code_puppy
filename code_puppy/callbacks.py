@@ -45,6 +45,7 @@ PhaseType = Literal[
     "register_agents",
     "register_model_type",
     "register_skills",
+    "register_settings",
     "register_kennel_memory",
     "register_cli_args",
     "handle_cli_args",
@@ -136,6 +137,7 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "register_agents": [],
     "register_model_type": [],
     "register_skills": [],
+    "register_settings": [],
     "register_kennel_memory": [],
     "register_cli_args": [],
     "handle_cli_args": [],
@@ -1237,6 +1239,29 @@ def on_register_skills() -> List[Dict[str, Any]]:
     - "scripts_dir": str | Path
     """
     return _trigger_callbacks_sync("register_skills")
+
+
+def on_register_settings() -> List[Any]:
+    """Collect ``/set`` settings declared by plugins.
+
+    Callback contract: ``() -> SettingsCategory | list[SettingsCategory] | None``
+    (from :mod:`code_puppy.command_line.set_menu_schema`). One declaration
+    feeds both ``/set`` autocomplete and the ``/set`` menu; a category named
+    like a core one (e.g. "Features") merges into it. Anything else returned
+    is ignored with a warning.
+    """
+    from code_puppy.command_line.set_menu_schema import SettingsCategory
+
+    categories: List[Any] = []
+    for result in _trigger_callbacks_sync("register_settings"):
+        if result is None:
+            continue
+        for item in result if isinstance(result, (list, tuple)) else [result]:
+            if isinstance(item, SettingsCategory):
+                categories.append(item)
+            else:
+                logger.warning("Ignoring non-SettingsCategory setting: %r", item)
+    return categories
 
 
 def on_register_kennel_memory() -> List[Any]:

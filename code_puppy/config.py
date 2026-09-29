@@ -715,7 +715,19 @@ def get_config_keys():
     config = _load_config()
     keys = set(config[DEFAULT_SECTION].keys()) if DEFAULT_SECTION in config else set()
     keys.update(default_keys)
+    keys.update(_plugin_setting_keys())
     return sorted(keys)
+
+
+def _plugin_setting_keys() -> set[str]:
+    """Keys plugins declare via ``register_settings`` (their own, not core's)."""
+    from code_puppy.callbacks import on_register_settings
+
+    return {
+        setting.key
+        for category in on_register_settings()
+        for setting in category.settings
+    }
 
 
 def set_config_value(key: str, value: str):

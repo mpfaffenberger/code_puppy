@@ -91,6 +91,7 @@ approval. With `fail_closed=True` its exception is reported as a block instead. 
 | `register_agents` | Agent catalogue | `() -> list[dict]` with `{"name": str, "class": type}` |
 | `register_model_type` | Custom model type | `() -> list[dict]` with `{"type": str, "handler": callable}` |
 | `register_skills` | Skill catalogue | `() -> list[dict]` with `{"name": str, "skill_md" \| "skill_md_path" \| "frontmatter"+"body"}` |
+| `register_settings` | `/set` keys (autocomplete + `/set` menu) | `() -> SettingsCategory \| list[SettingsCategory]` from `code_puppy.command_line.set_menu_schema` — same-named categories merge; core keys win; `sensitive=True` masks the value. Guard with `try/except ValueError` for older cores |
 | `register_cli_args` | Before CLI `parse_args()` | `(parser) -> list` — plugins call `parser.add_argument(...)`; namespace flags (e.g. `--myplugin-foo`) to avoid argparse collisions |
 | `handle_cli_args` | After CLI `parse_args()` | `(args) -> dict \| None` — return `{"handled": True, "exit_code": int}` to terminate the CLI cleanly; return `None` to let startup proceed |
 | `load_model_config` | Patch model config | `(*args, **kwargs) -> Any` |
