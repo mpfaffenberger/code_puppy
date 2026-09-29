@@ -17,47 +17,14 @@ Design notes:
 
 from __future__ import annotations
 
-import re
 import threading
 from typing import Any, Optional
 
 from . import catalog
+from .interpolation import interpolate as _interpolate
 from .locale import DEFAULT_LOCALE, detect_locale, normalize_locale
 from .plurals import plural_category
 from .pseudo import is_pseudo_locale, pseudolocalize
-
-# Safe interpolation grammar. NOT str.format/format_map: catalogs are
-# untrusted (add_catalog_dir is the plugin/community seam), and str.format
-# honors attr/index access in templates ({x.__class__.__globals__}) plus
-# format-spec memory bombs ({n:99999999}). Matches only {{/}} escapes and
-# {identifier} fields — no dots, indexing, specs, or conversions — so a
-# translation can neither reach object internals nor blow up rendering.
-_FIELD_RE = re.compile(r"\{\{|\}\}|\{(\w+)\}")
-
-
-def _interpolate(text: str, params: dict) -> str:
-    """Substitute {name} fields from params, safely and forgivingly.
-
-    - ``{{`` / ``}}`` render as literal braces.
-    - A known ``{name}`` becomes ``str(params[name])``.
-    - An unknown ``{name}`` is left intact (forgiving; never raises).
-    - Anything that is not a bare ``{identifier}`` (``{x.y}``, ``{0}``,
-      ``{n:spec}``) is left untouched as a literal -- no attribute walking,
-      no format-spec DoS.
-    """
-
-    def _replace(match: "re.Match[str]") -> str:
-        token = match.group(0)
-        if token == "{{":
-            return "{"
-        if token == "}}":
-            return "}"
-        name = match.group(1)
-        if name in params:
-            return str(params[name])
-        return token  # unknown field: leave placeholder intact
-
-    return _FIELD_RE.sub(_replace, text)
 
 
 class Translator:

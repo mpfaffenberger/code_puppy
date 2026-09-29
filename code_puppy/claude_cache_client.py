@@ -5,19 +5,26 @@ Prompt caching is configured through pydantic-ai's native
 markers; it only owns transport concerns that cannot be expressed there:
 OAuth refresh/retry, Claude Code tool-name prefixing, request headers, URL
 parameters, and the Opus summarized-thinking compatibility transform.
+
+Built on ``httpx2`` (not ``httpx``): every consumer of this client hands it
+to ``anthropic.AsyncAnthropic``, and the Anthropic SDK moved to httpx2 in
+its 1.0 release (pydantic-ai >= 2.35 followed). The rest of Code Puppy
+(OpenAI providers, http_utils) still rides classic httpx.
 """
 
 from __future__ import annotations
 
 import asyncio
-import base64
 import json
 import logging
 import time
 from typing import Any, Callable, MutableMapping
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
-import httpx
+import httpx2
+
+from .claude_oauth_transport import ClaudeOAuthTransport
+from .http_retry import describe_exception
 
 logger = logging.getLogger(__name__)
 
@@ -30,8 +37,18 @@ MAX_RETRIES = 5
 
 # Claude Code requires this namespace for outgoing tool names.
 TOOL_PREFIX = "cp_"
+FINE_GRAINED_TOOL_STREAMING_BETA = "fine-grained-tool-streaming-2025-05-14"
 
-CLAUDE_CLI_USER_AGENT = "claude-cli/2.1.2 (external, cli)"
+CLAUDE_CLI_USER_AGENT = "claude-cli/2.1.280 (external, cli)"
+
+# The Claude Code OAuth endpoint fingerprints this exact string as the FIRST
+# system block; requests that lead with anything else get rejected. Mirrors
+# CLAUDE_CODE_INSTRUCTIONS in the claude_code_oauth plugin's prompt_handler.
+CLAUDE_CODE_SYSTEM_PROMPT = "You are Claude Code, Anthropic's official CLI for Claude."
+
+# Beta flag required for ``thinking.display: "updates"`` (Fable 5.1 progress
+# updates surfaced as text while reasoning stays hidden).
+THINKING_DISPLAY_UPDATES_BETA = "thinking-display-updates-2026-08-18"
 
 
 def _model_requires_thinking_summary(model_name):
@@ -42,6 +59,14 @@ def _model_requires_thinking_summary(model_name):
     return should_use_anthropic_thinking_summary(model_name)
 
 
+def _model_supports_thinking_updates(model_name):
+    if not model_name:
+        return False
+    from code_puppy.model_utils import should_use_anthropic_thinking_updates
+
+    return should_use_anthropic_thinking_updates(model_name)
+
+
 def _enforce_thinking_display_summary(payload):
     if not isinstance(payload, dict):
         return False
@@ -50,13 +75,18 @@ def _enforce_thinking_display_summary(payload):
     thinking = payload.get("thinking")
     if not isinstance(thinking, dict):
         return False
-    if thinking.get("display") == "summarized":
+    display = thinking.get("display")
+    if display == "summarized":
+        return False
+    if display == "updates" and _model_supports_thinking_updates(payload.get("model")):
+        # Fable 5.1 legitimately asked for progress updates; don't clobber
+        # it back to summarized (which would drown status lines in reasoning).
         return False
     thinking["display"] = "summarized"
     return True
 
 
-class ClaudeCacheAsyncClient(httpx.AsyncClient):
+class ClaudeCacheAsyncClient(ClaudeOAuthTransport, httpx2.AsyncClient):
     """Async HTTP client with Claude Code OAuth transformations.
 
     Handles:
@@ -73,137 +103,19 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
         oauth_reauthentication_callback: Callable[[], str | None] | None = None,
         token_update_callback: Callable[[str], None] | None = None,
         apply_claude_code_prefix: bool = False,
+        oauth_token_provider: Callable | None = None,
+        oauth_refresh_callback: Callable | None = None,
+        oauth_origin: str = "https://api.anthropic.com",
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
         self._oauth_reauthentication_callback = oauth_reauthentication_callback
         self._token_update_callback = token_update_callback
         self._apply_claude_code_prefix = apply_claude_code_prefix
-
-    def set_token_update_callback(self, callback: Callable[[str], None] | None) -> None:
-        self._token_update_callback = callback
-
-    def _notify_token_recovered(self, access_token: str) -> None:
-        if not self._token_update_callback:
-            return
-        try:
-            self._token_update_callback(access_token)
-        except Exception as exc:
-            logger.debug("Token update callback failed: %s", exc)
-
-    def _get_jwt_age_seconds(self, token: str | None) -> float | None:
-        """Decode a JWT and return its age in seconds.
-        Returns None if the token can't be decoded or has no timestamp claims.
-        Uses 'iat' (issued at) if available, otherwise calculates from 'exp'.
-        """
-        if not token:
-            return None
-        try:
-            parts = token.split(".")
-            if len(parts) != 3:
-                return None
-            payload_b64 = parts[1]
-            padding = 4 - len(payload_b64) % 4
-            if padding != 4:
-                payload_b64 += "=" * padding
-            payload_bytes = base64.urlsafe_b64decode(payload_b64)
-            payload = json.loads(payload_bytes.decode("utf-8"))
-            now = time.time()
-            if "iat" in payload:
-                iat = float(payload["iat"])
-                age = now - iat
-                return age
-            if "exp" in payload:
-                exp = float(payload["exp"])
-                time_until_exp = exp - now
-                age = TOKEN_MAX_AGE_SECONDS - time_until_exp
-                return max(0, age)
-            return None
-        except Exception as exc:
-            logger.debug("Failed to decode JWT age: %s", exc)
-            return None
-
-    def _extract_bearer_token(self, request: httpx.Request) -> str | None:
-        """Extract the bearer token from request headers."""
-        auth_header = request.headers.get("Authorization") or request.headers.get(
-            "authorization"
-        )
-        if auth_header and auth_header.lower().startswith("bearer "):
-            return auth_header[7:]  # Strip "Bearer " prefix
-        return None
-
-    def _jwt_refresh_decision(self, request: httpx.Request) -> bool | None:
-        """Return a JWT-based refresh decision, or ``None`` for stored fallback."""
-        token = self._extract_bearer_token(request)
-        if not token:
-            return False
-        age = self._get_jwt_age_seconds(token)
-        if age is None:
-            return None
-        should_refresh = age >= TOKEN_MAX_AGE_SECONDS
-        if should_refresh:
-            logger.info(
-                "JWT token is %.1f seconds old (>= %d), will refresh proactively",
-                age,
-                TOKEN_MAX_AGE_SECONDS,
-            )
-        return should_refresh
-
-    @staticmethod
-    def _log_stored_token_refresh(should_refresh: bool) -> bool:
-        if should_refresh:
-            logger.info(
-                "Stored token expires within %d seconds, will refresh proactively",
-                TOKEN_MAX_AGE_SECONDS,
-            )
-        return should_refresh
-
-    def _should_refresh_token(self, request: httpx.Request) -> bool:
-        """Synchronously check JWT age, then the stored-token callback."""
-        decision = self._jwt_refresh_decision(request)
-        if decision is not None:
-            return decision
-        return self._log_stored_token_refresh(self._check_stored_token_expiry())
-
-    async def _should_refresh_token_async(self, request: httpx.Request) -> bool:
-        """Check token expiry while awaiting async providers in ``send()``."""
-        decision = self._jwt_refresh_decision(request)
-        if decision is not None:
-            return decision
-        return self._log_stored_token_refresh(
-            await self._check_stored_token_expiry_async()
-        )
-
-    @staticmethod
-    def _check_stored_token_expiry() -> bool:
-        """Check if the stored token expires within TOKEN_MAX_AGE_SECONDS.
-        This is a fallback for when JWT decoding fails or isn't available.
-        Uses the expires_at timestamp from the stored token file.  The
-        claude_code_oauth plugin self-registers this capability; when it
-        isn't loaded (or the check fails) we conservatively report ``False``.
-        """
-        try:
-            from code_puppy.callbacks import on_check_claude_oauth_token_expiry
-
-            results = on_check_claude_oauth_token_expiry()
-            return any(result is True for result in results)
-        except Exception as exc:
-            logger.debug("Error checking stored token expiry: %s", exc)
-            return False
-
-    @staticmethod
-    async def _check_stored_token_expiry_async() -> bool:
-        """Await stored-token expiry providers from an active event loop."""
-        try:
-            from code_puppy.callbacks import (
-                on_check_claude_oauth_token_expiry_async,
-            )
-
-            results = await on_check_claude_oauth_token_expiry_async()
-            return any(result is True for result in results)
-        except Exception as exc:
-            logger.debug("Error checking stored token expiry: %s", exc)
-            return False
+        self._oauth_token_provider = oauth_token_provider
+        self._oauth_refresh_callback = oauth_refresh_callback
+        self._oauth_origin = httpx2.URL(oauth_origin)
+        self._oauth_enabled = apply_claude_code_prefix
 
     @staticmethod
     def _prefix_tool_names(body: bytes) -> bytes | None:
@@ -228,6 +140,58 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
                     tool["name"] = f"{TOOL_PREFIX}{name}"
                     modified = True
         if not modified:
+            return None
+        return json.dumps(data).encode("utf-8")
+
+    @staticmethod
+    def _ensure_claude_code_system_prompt(body: bytes) -> bytes | None:
+        """Guarantee the first system block is the Claude Code instruction.
+
+        The main agent path already leads with it (the claude_code_oauth
+        plugin's ``prepare_model_prompt`` hook), but internally-built agents
+        — e.g. pydantic-ai-harness's ``SummarizingCompaction`` summarizer —
+        ship their own instructions and never pass through that hook. The
+        OAuth endpoint fingerprints the first system block, so enforce the
+        invariant here, the one choke point every claude-code request
+        crosses. A pre-existing system prompt is demoted to the second
+        block, never dropped. Returns None when the body is already fine.
+        """
+        try:
+            data = json.loads(body.decode("utf-8"))
+        except Exception:
+            return None
+        if not isinstance(data, dict):
+            return None
+        system = data.get("system")
+        if isinstance(system, str):
+            if system == CLAUDE_CODE_SYSTEM_PROMPT:
+                return None
+            system = system.removeprefix(CLAUDE_CODE_SYSTEM_PROMPT)
+            blocks: list[Any] = [{"type": "text", "text": CLAUDE_CODE_SYSTEM_PROMPT}]
+            if system:
+                blocks.append({"type": "text", "text": system})
+            data["system"] = blocks
+        elif isinstance(system, list):
+            first = system[0] if system else None
+            text = first.get("text") if isinstance(first, dict) else None
+            if text == CLAUDE_CODE_SYSTEM_PROMPT:
+                return None
+            # Compaction adds a SystemPromptPart that the SDK joins to the
+            # signature. A matching prefix is not a standalone identity block.
+            # Keep metadata (including cache_control) on the remainder so its
+            # cache boundary still follows all the original content.
+            if isinstance(text, str) and text.startswith(CLAUDE_CODE_SYSTEM_PROMPT):
+                system = [
+                    {**first, "text": text.removeprefix(CLAUDE_CODE_SYSTEM_PROMPT)},
+                    *system[1:],
+                ]
+            data["system"] = [
+                {"type": "text", "text": CLAUDE_CODE_SYSTEM_PROMPT},
+                *system,
+            ]
+        elif system is None:
+            data["system"] = CLAUDE_CODE_SYSTEM_PROMPT
+        else:
             return None
         return json.dumps(data).encode("utf-8")
 
@@ -259,6 +223,9 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
         required_betas = [
             "oauth-2025-04-20",
             "interleaved-thinking-2025-05-14",
+            # Stream tool-call arguments as generated instead of one final
+            # burst; the eager CodeMode pump and speculation need the runway.
+            FINE_GRAINED_TOOL_STREAMING_BETA,
         ]
         if "claude-code-20250219" in incoming_betas:
             required_betas.append("claude-code-20250219")
@@ -273,7 +240,39 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
                 del headers[key]
 
     @staticmethod
-    def _add_beta_query_param(url: httpx.URL) -> httpx.URL:
+    def _ensure_thinking_updates_beta(
+        headers: MutableMapping[str, str], body_bytes: bytes | None
+    ) -> bool:
+        """Add the updates-display beta flag when the body requests it.
+
+        ``thinking.display: "updates"`` (Fable 5.1 progress updates) is
+        rejected without the ``thinking-display-updates-2026-08-18`` beta
+        header. Deciding here — off the final request body — keeps header and
+        body consistent across every transport that rides this client
+        (anthropic, custom_anthropic, claude_code OAuth).
+
+        Returns True when the header was modified.
+        """
+        if not body_bytes:
+            return False
+        try:
+            payload = json.loads(body_bytes.decode("utf-8"))
+        except Exception:
+            return False
+        thinking = payload.get("thinking") if isinstance(payload, dict) else None
+        if not (isinstance(thinking, dict) and thinking.get("display") == "updates"):
+            return False
+        existing = [
+            b.strip() for b in headers.get("anthropic-beta", "").split(",") if b.strip()
+        ]
+        if THINKING_DISPLAY_UPDATES_BETA in existing:
+            return False
+        existing.append(THINKING_DISPLAY_UPDATES_BETA)
+        headers["anthropic-beta"] = ",".join(existing)
+        return True
+
+    @staticmethod
+    def _add_beta_query_param(url: httpx2.URL) -> httpx2.URL:
         """Add ?beta=true query parameter to the URL if not already present."""
         parsed = urlparse(str(url))
         query_params = parse_qs(parsed.query)
@@ -281,33 +280,23 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
             query_params["beta"] = ["true"]
             new_query = urlencode(query_params, doseq=True)
             new_parsed = parsed._replace(query=new_query)
-            return httpx.URL(urlunparse(new_parsed))
+            return httpx2.URL(urlunparse(new_parsed))
         return url
 
     async def send(
-        self, request: httpx.Request, *args: Any, **kwargs: Any
-    ) -> httpx.Response:  # type: ignore[override]
+        self, request: httpx2.Request, *args: Any, **kwargs: Any
+    ) -> httpx2.Response:  # type: ignore[override]
         is_messages_endpoint = request.url.path.endswith("/v1/messages")
-        if not request.extensions.get("claude_oauth_proactive_refresh_attempted"):
-            try:
-                if await self._should_refresh_token_async(request):
-                    refreshed_token = await self._refresh_claude_oauth_token_async()
-                    if refreshed_token:
-                        logger.info("Proactively refreshed token before request")
-                        headers = dict(request.headers)
-                        self._update_auth_headers(headers, refreshed_token)
-                        body_bytes = self._extract_body_bytes(request)
-                        request = self.build_request(
-                            method=request.method,
-                            url=request.url,
-                            headers=headers,
-                            content=body_bytes,
-                        )
-                        request.extensions[
-                            "claude_oauth_proactive_refresh_attempted"
-                        ] = True
-            except Exception as exc:
-                logger.debug("Error during proactive token refresh check: %s", exc)
+        oauth_request = self._is_oauth_request(request)
+        if self._oauth_enabled and not oauth_request:
+            raise ValueError(
+                "Claude OAuth credentials may only be sent to their configured HTTPS origin"
+            )
+        if oauth_request:
+            # httpx follows redirects internally, bypassing our origin guard.
+            # OAuth API requests must not delegate credential routing to it.
+            kwargs["follow_redirects"] = False
+            await self._prepare_oauth_request(request)
         if is_messages_endpoint:
             try:
                 body_bytes = self._extract_body_bytes(request)
@@ -323,6 +312,10 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
                     if prefixed_body is not None:
                         body_bytes = prefixed_body
                         body_modified = True
+                    system_body = self._ensure_claude_code_system_prompt(body_bytes)
+                    if system_body is not None:
+                        body_bytes = system_body
+                        body_modified = True
                 if body_bytes:
                     summarized_body = self._enforce_thinking_display_summary_body(
                         body_bytes
@@ -330,6 +323,10 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
                     if summarized_body is not None:
                         body_bytes = summarized_body
                         body_modified = True
+                # After body transforms settle: updates-display requests
+                # (Fable 5.1) must carry the matching beta header.
+                if self._ensure_thinking_updates_beta(headers, body_bytes):
+                    headers_modified = True
                 if body_modified or headers_modified or url != request.url:
                     try:
                         rebuilt = self.build_request(
@@ -358,8 +355,10 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
                 logger.debug("Error in Claude Code transformations: %s", exc)
         response = await self._send_with_retries(request, *args, **kwargs)
         try:
-            if response.status_code in (400, 401, 403) and not request.extensions.get(
-                "claude_oauth_refresh_attempted"
+            if (
+                oauth_request
+                and response.status_code in (400, 401, 403)
+                and not request.extensions.get("claude_oauth_refresh_attempted")
             ):
                 is_auth_error = response.status_code in (401, 403)
                 if response.status_code == 400:
@@ -370,7 +369,9 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
                         )
                 if is_auth_error:
                     recovered_token = (
-                        self._recover_claude_oauth_token_after_auth_error()
+                        await self._recover_claude_oauth_token_after_auth_error_async(
+                            self._extract_bearer_token(request)
+                        )
                     )
                     if recovered_token:
                         logger.info("Token recovered successfully, retrying request")
@@ -383,6 +384,7 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
                             url=request.url,
                             headers=headers,
                             content=body_bytes,
+                            extensions=dict(request.extensions),
                         )
                         retry_request.extensions["claude_oauth_refresh_attempted"] = (
                             True
@@ -399,10 +401,10 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
         return response
 
     async def _send_with_retries(
-        self, request: httpx.Request, *args: Any, **kwargs: Any
-    ) -> httpx.Response:
+        self, request: httpx2.Request, *args: Any, **kwargs: Any
+    ) -> httpx2.Response:
         """Retry rate limits, server failures, and transient connections."""
-        last_response: httpx.Response | None = None
+        last_response: httpx2.Response | None = None
         last_exception: Exception | None = None
         for attempt in range(MAX_RETRIES + 1):
             status_code: int | None = None
@@ -415,8 +417,9 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
                 ):
                     return response
                 status_code = response.status_code
+                await self._record_retryable_response(response)
                 await response.aclose()
-            except (httpx.ConnectError, httpx.ReadTimeout, httpx.PoolTimeout) as exc:
+            except (httpx2.ConnectError, httpx2.ReadTimeout, httpx2.PoolTimeout) as exc:
                 last_exception = exc
                 if attempt >= MAX_RETRIES:
                     raise
@@ -443,7 +446,9 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
             if status_code is None:
                 logger.warning(
                     "HTTP connection error: %s. Retrying in %.1fs (attempt %d/%d)",
-                    last_exception,
+                    describe_exception(last_exception)
+                    if last_exception is not None
+                    else "unknown connection error",
                     wait_time,
                     attempt + 1,
                     MAX_RETRIES,
@@ -464,7 +469,37 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
         raise RuntimeError("Retry loop completed without response or exception")
 
     @staticmethod
-    def _extract_body_bytes(request: httpx.Request) -> bytes | None:
+    async def _record_retryable_response(response: httpx2.Response) -> None:
+        """Persist why the provider pushed back, so 429s are diagnosable.
+
+        Rate-limit bodies carry the error type (per-minute limit vs usage
+        cap vs overload) and the ``anthropic-ratelimit-*`` headers say which
+        bucket tripped. Without this the error log only ever said "429".
+        """
+        try:
+            body = await response.aread()
+            try:
+                err = json.loads(body).get("error") or {}
+                detail = f"{err.get('type')}: {err.get('message')}"
+            except Exception:
+                detail = body[:200].decode("utf-8", "replace")
+            limits = {
+                k: v
+                for k, v in response.headers.items()
+                if k.lower().startswith("anthropic-ratelimit")
+                or k.lower() == "retry-after"
+            }
+            from code_puppy.error_logging import log_error_message
+
+            log_error_message(
+                f"HTTP {response.status_code} from {response.url.path}: {detail[:300]}",
+                context=f"claude transport retry; limits={limits}",
+            )
+        except Exception as exc:
+            logger.debug("Could not record retryable response: %s", exc)
+
+    @staticmethod
+    def _extract_body_bytes(request: httpx2.Request) -> bytes | None:
         try:
             content = request.content
             if content:
@@ -478,97 +513,3 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
         except Exception:
             pass
         return None
-
-    @staticmethod
-    def _update_auth_headers(
-        headers: MutableMapping[str, str], access_token: str
-    ) -> None:
-        bearer_value = f"Bearer {access_token}"
-        if "Authorization" in headers:
-            headers["Authorization"] = bearer_value
-        elif "authorization" in headers:
-            headers["authorization"] = bearer_value
-        elif "x-api-key" in headers:
-            headers["x-api-key"] = access_token
-        elif "X-API-Key" in headers:
-            headers["X-API-Key"] = access_token
-        else:
-            headers["Authorization"] = bearer_value
-
-    @staticmethod
-    async def _is_cloudflare_html_error(response: httpx.Response) -> bool:
-        """Return whether a 400 HTML response is a Cloudflare auth failure."""
-        if "text/html" not in response.headers.get("content-type", "").lower():
-            return False
-        try:
-            if not getattr(response, "_content", None):
-                await response.aread()
-            raw_content = getattr(response, "_content", None)
-            body = (
-                raw_content.decode("utf-8", errors="ignore")
-                if raw_content
-                else response.text
-            )
-            body_lower = body.lower()
-            return "cloudflare" in body_lower and "400 bad request" in body_lower
-        except Exception as exc:
-            logger.debug("Error checking for Cloudflare error: %s", exc)
-            return False
-
-    def _recover_claude_oauth_token_after_auth_error(self) -> str | None:
-        """Recover an OAuth token after the API rejected the current one.
-        First tries a refresh-token exchange. If that fails, an optional
-        provider-specific callback may run a full interactive OAuth flow.
-        """
-        refreshed_token = self._refresh_claude_oauth_token()
-        if refreshed_token:
-            return refreshed_token
-        if not self._oauth_reauthentication_callback:
-            return None
-        try:
-            reauthenticated_token = self._oauth_reauthentication_callback()
-        except Exception as exc:
-            logger.error("Exception during OAuth reauthentication: %s", exc)
-            return None
-        if not reauthenticated_token:
-            logger.warning("OAuth reauthentication returned no token")
-            return None
-        self._update_auth_headers(self.headers, reauthenticated_token)
-        self._notify_token_recovered(reauthenticated_token)
-        return reauthenticated_token
-
-    def _apply_token_refresh_results(self, results: list[Any]) -> str | None:
-        if not results:
-            return None
-        logger.info("Attempting to refresh Claude Code OAuth token...")
-        refreshed_token = next(
-            (result for result in results if isinstance(result, str) and result),
-            None,
-        )
-        if refreshed_token:
-            self._update_auth_headers(self.headers, refreshed_token)
-            self._notify_token_recovered(refreshed_token)
-            logger.info("Successfully refreshed Claude Code OAuth token")
-        else:
-            logger.warning("Token refresh returned None")
-        return refreshed_token
-
-    def _refresh_claude_oauth_token(self) -> str | None:
-        try:
-            from code_puppy.callbacks import on_refresh_claude_oauth_token
-
-            return self._apply_token_refresh_results(on_refresh_claude_oauth_token())
-        except Exception as exc:
-            logger.error("Exception during token refresh: %s", exc)
-            return None
-
-    async def _refresh_claude_oauth_token_async(self) -> str | None:
-        """Await token-refresh providers from an active event loop."""
-        try:
-            from code_puppy.callbacks import on_refresh_claude_oauth_token_async
-
-            results = await on_refresh_claude_oauth_token_async()
-            return self._apply_token_refresh_results(results)
-        except Exception as exc:
-            logger.error("Exception during token refresh: %s", exc)
-            return None
