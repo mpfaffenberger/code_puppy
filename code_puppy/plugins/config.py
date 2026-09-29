@@ -12,48 +12,14 @@ from __future__ import annotations
 
 import json
 import logging
-from importlib.metadata import entry_points
-from pathlib import Path
-from typing import Set
 
-from code_puppy.config import get_value, get_truthy_bool_value, set_value
+from code_puppy._plugin_i18n_lifecycle import notify_i18n_plugin_state_changed
+from code_puppy.config import get_value, set_value
 
 logger = logging.getLogger(__name__)
 
-# Hidden config key: when truthy, builtins can't be disabled and are hidden from
-# the /plugins menu — a deployment lock for managed distributions to protect the
-# shipped plugin set from end users.
-LOCK_BUILTIN_KEY = "lock_builtin_plugins"
 
-
-def get_lock_builtin_plugins() -> bool:
-    """Whether builtin plugins are locked (un-disableable + hidden)."""
-    return get_truthy_bool_value(LOCK_BUILTIN_KEY, False)
-
-
-def set_lock_builtin_plugins(locked: bool) -> None:
-    """Set the builtin-plugin lock. Idempotent at the config layer."""
-    set_value(LOCK_BUILTIN_KEY, "true" if locked else "false")
-
-
-def is_builtin_plugin(plugin_name: str) -> bool:
-    """True if *plugin_name* belongs to the builtin plugin tier.
-
-    Distribution entry points are the primary source of truth. The filesystem
-    fallback keeps older core installations compatible during migration.
-    """
-    if any(
-        item.name == plugin_name for item in entry_points(group="code_puppy.plugins")
-    ):
-        return True
-
-    import code_puppy.plugins as plugins_pkg
-
-    plugin_dir = Path(plugins_pkg.__file__).parent / plugin_name
-    return plugin_dir.is_dir() and (plugin_dir / "register_callbacks.py").exists()
-
-
-def get_disabled_plugins() -> Set[str]:
+def get_disabled_plugins() -> set[str]:
     """Return the set of explicitly disabled plugin names.
 
     Reads from ``disabled_plugins`` config key (JSON list in puppy.cfg).
@@ -80,19 +46,8 @@ def set_plugin_disabled(plugin_name: str, disabled: bool) -> bool:
     """Disable or re-enable a plugin by name.
 
     Returns ``True`` if the state changed, ``False`` if it was already in the
-    requested state (or if the change was refused).
-
-    When the builtin lock is active, requests to *disable* a builtin plugin
-    are refused outright — re-enabling is always allowed so the lock can
-    never strand a builtin in the disabled set.
+    requested state. Every tier is toggleable -- builtins included.
     """
-    if disabled and get_lock_builtin_plugins() and is_builtin_plugin(plugin_name):
-        logger.warning(
-            f"Refusing to disable builtin plugin '{plugin_name}': "
-            f"builtin plugins are locked ({LOCK_BUILTIN_KEY})."
-        )
-        return False
-
     disabled_plugins = get_disabled_plugins()
 
     if disabled:
@@ -111,4 +66,9 @@ def set_plugin_disabled(plugin_name: str, disabled: bool) -> bool:
         logger.info(f"Enabled plugin: {plugin_name}")
 
     set_value("disabled_plugins", json.dumps(sorted(disabled_plugins)))
+
+    # Plugin catalogs are merged into immutable per-locale snapshots. Rebuild
+    # those lazily after a state transition instead of consulting config on
+    # every translation lookup.
+    notify_i18n_plugin_state_changed()
     return True

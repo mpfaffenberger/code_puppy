@@ -17,7 +17,9 @@ from __future__ import annotations
 
 import configparser
 import io
+import locale
 import logging
+import os
 from collections.abc import Callable
 
 from code_puppy import atomic_io
@@ -41,6 +43,40 @@ def _config_lock(path: str):
     return atomic_io.path_lock(path, timeout=_LOCK_TIMEOUT_SECONDS)
 
 
+def _decode_config_text(raw: bytes) -> str:
+    """Decode config text as UTF-8, with a narrow Windows locale fallback.
+
+    Canonical on-disk encoding is UTF-8 (with or without BOM). For Windows
+    upgrades from older builds that may have locale-encoded config bytes,
+    make one fallback attempt using the active locale encoding before treating
+    the file as corrupt.
+    """
+    try:
+        return raw.decode("utf-8-sig")
+    except UnicodeDecodeError as utf8_error:
+        if os.name != "nt":
+            raise
+
+        fallback_encoding = locale.getpreferredencoding(False)
+        if not fallback_encoding:
+            raise
+
+        try:
+            decoded = raw.decode(fallback_encoding)
+        except (LookupError, UnicodeDecodeError):
+            raise utf8_error
+
+        if "\x00" in decoded or "[" not in decoded:
+            raise utf8_error
+
+        logger.warning(
+            "Loaded config with Windows locale fallback encoding (%s); "
+            "rewrite as UTF-8 on next save",
+            fallback_encoding,
+        )
+        return decoded
+
+
 def _read_unlocked(path: str) -> configparser.ConfigParser:
     """Read and parse a bounded snapshot; propagate filesystem failures."""
     parser = configparser.ConfigParser()
@@ -50,7 +86,7 @@ def _read_unlocked(path: str) -> configparser.ConfigParser:
         raise ConfigFileCorrupt(str(exc)) from exc
 
     try:
-        text = raw.decode("utf-8")
+        text = _decode_config_text(raw)
         if text:
             parser.read_string(text, source=path)
     except (UnicodeDecodeError, configparser.Error) as exc:
