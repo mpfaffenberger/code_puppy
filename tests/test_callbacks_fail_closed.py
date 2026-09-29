@@ -17,6 +17,7 @@ broad `except Exception: pass`, and the tool ran anyway.
 import pytest
 
 from code_puppy import callbacks
+from code_puppy._pydantic_tool_helpers import _GENERIC_BLOCK_REASON, _block_reason
 
 
 @pytest.fixture(autouse=True)
@@ -194,13 +195,9 @@ class TestBlockReasonRendering:
     """An explicit deny must render as a deny whatever the plugin supplied."""
 
     def test_a_non_string_reason_still_renders_a_deny(self):
-        from code_puppy.pydantic_patches import _block_reason
-
         assert _block_reason({"blocked": True, "reason": 123}) == "123"
 
     def test_a_reason_whose_str_raises_falls_back_to_generic_text(self):
-        from code_puppy.pydantic_patches import _GENERIC_BLOCK_REASON, _block_reason
-
         class Hostile:
             def __str__(self):
                 raise RuntimeError("nope")
@@ -214,8 +211,6 @@ class TestBlockReasonRendering:
         )
 
     def test_a_reason_whose_truthiness_raises_still_renders_a_deny(self):
-        from code_puppy.pydantic_patches import _GENERIC_BLOCK_REASON, _block_reason
-
         class Unbooleanable:
             def __bool__(self):
                 raise RuntimeError("nope")
@@ -226,16 +221,12 @@ class TestBlockReasonRendering:
         )
 
     def test_the_marker_still_trims_the_prefix(self):
-        from code_puppy.pydantic_patches import _block_reason
-
         assert (
             _block_reason({"blocked": True, "reason": "noise [BLOCKED] the real one"})
             == "[BLOCKED] the real one"
         )
 
     def test_error_message_wins_over_reason(self):
-        from code_puppy.pydantic_patches import _block_reason
-
         assert (
             _block_reason(
                 {"blocked": True, "error_message": "from error_message", "reason": "x"}
@@ -244,7 +235,5 @@ class TestBlockReasonRendering:
         )
 
     def test_an_absent_or_blank_reason_gets_the_generic_text(self):
-        from code_puppy.pydantic_patches import _GENERIC_BLOCK_REASON, _block_reason
-
         assert _block_reason({"blocked": True}) == _GENERIC_BLOCK_REASON
         assert _block_reason({"blocked": True, "reason": " "}) == _GENERIC_BLOCK_REASON

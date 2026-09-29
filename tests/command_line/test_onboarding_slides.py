@@ -1,6 +1,5 @@
 """Tests for code_puppy/command_line/onboarding_slides.py"""
 
-import sys
 from unittest.mock import patch
 
 import pytest
@@ -40,10 +39,17 @@ class TestGetNavFooter:
 
 
 class TestGetGradientBanner:
-    def test_android_uses_compact_banner(self, monkeypatch):
-        import code_puppy.command_line.onboarding_slides as mod
+    def test_narrow_terminal_uses_compact_banner(self, monkeypatch):
+        import os
 
-        monkeypatch.setattr(sys, "platform", "android")
+        import code_puppy.command_line.onboarding_slides as mod
+        from code_puppy import platform_utils
+
+        monkeypatch.setattr(
+            platform_utils.shutil,
+            "get_terminal_size",
+            lambda fallback=(80, 24): os.terminal_size((50, 24)),
+        )
         with patch("pyfiglet.figlet_format", return_value="BANNER") as figlet:
             content = mod.get_gradient_banner()
 

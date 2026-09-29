@@ -157,7 +157,7 @@ def _build_huge_history(
       - Alternating user prompts, tool_call/tool_return pairs, assistant text
       - Every tool_call has its matching tool_return (no orphans)
       - Payloads distributed so each individual message is well under the
-        50k-token filter_huge_messages cutoff
+        50k-token per-part clamp budget (see _output_limits.py)
 
     Returns a history that will come in close to but not exceeding the target.
     """

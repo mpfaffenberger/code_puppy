@@ -159,7 +159,12 @@ loading pages, clicking through pagination, filling forms, extracting
 text/attributes/table data, verifying a page reached the expected state.
 - **Use `browser_page_snapshot`** to read page state cheaply (URL,
   title, visible text, headings, buttons, links, inputs, landmarks) in
-  one round-trip instead of guessing.
+  one round-trip instead of guessing. Treat a full snapshot as discovery
+  after navigation or a material page-state change, not as a reflexive
+  verification loop. **Do not re-snapshot an unchanged page.** Reuse the
+  latest snapshot; for one known field or element, prefer a targeted
+  `browser_get_text`, `browser_get_value`, semantic `find_by_*`, or one
+  `browser_execute_js` extraction.
 - **Locate elements semantically**: `browser_find_by_role` > `_by_label`
   > `_by_text` > `_by_placeholder` > `_by_test_id` > `browser_xpath_query`
   (last resort). Act on them via `browser_click_by_role`,
@@ -172,7 +177,11 @@ text/attributes/table data, verifying a page reached the expected state.
 **2. Visual verification steps** - rendering, layout, or when a page is
 so JS-obfuscated/canvas-based that DOM inspection genuinely can't read
 the content.
-- Use `browser_screenshot_analyze` / `load_image_for_analysis` here.
+- Before calling `browser_screenshot_analyze`, identify the specific
+  visual question it will answer. Locator failure alone does not make a
+  task visual; continue down the DOM discovery/error-handling ladder.
+- Use `browser_screenshot_analyze` / `load_image_for_analysis` only for
+  that visual question.
 
 ## Core Workflow
 
