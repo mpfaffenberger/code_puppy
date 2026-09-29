@@ -16,46 +16,59 @@ def test_replace_in_file_multiple_replacements(tmp_path):
     path = tmp_path / "multi.txt"
     path.write_text("foo bar baz bar foo")
     reps = [
-        {"old_str": "bar", "new_str": "dog"},
-        {"old_str": "foo", "new_str": "biscuit"},
+        {"old_str": "bar", "new_str": "dog", "replace_all": True},
+        {"old_str": "foo", "new_str": "biscuit", "replace_all": True},
     ]
     res = file_modifications._replace_in_file(None, str(path), reps)
     assert res["success"]
-    assert "dog" in path.read_text() and "biscuit" in path.read_text()
+    assert path.read_text() == "biscuit dog baz dog biscuit"
+
+
+def test_replace_in_file_ambiguous_match_refused(tmp_path):
+    """Multiple matches without replace_all must refuse, not guess."""
+    path = tmp_path / "multi.txt"
+    path.write_text("foo bar baz bar foo")
+    reps = [{"old_str": "bar", "new_str": "dog"}]
+    res = file_modifications._replace_in_file(None, str(path), reps)
+    assert res["error"].startswith("Found 2 matches of the string to replace")
+    assert path.read_text() == "foo bar baz bar foo"
+
+
+def test_replace_in_file_noop_refused(tmp_path):
+    path = tmp_path / "noop.txt"
+    path.write_text("hello")
+    res = file_modifications._replace_in_file(
+        None, str(path), [{"old_str": "hello", "new_str": "hello"}]
+    )
+    assert res["error"].startswith("No changes to make")
 
 
 def test_replace_in_file_unicode(tmp_path):
     path = tmp_path / "unicode.txt"
-    path.write_text("puppy 🐶 says meow")
+    path.write_text("puppy  says meow")
     reps = [{"old_str": "meow", "new_str": "woof"}]
     res = file_modifications._replace_in_file(None, str(path), reps)
     assert res["success"]
     assert "woof" in path.read_text()
 
 
-def test_replace_in_file_near_match(tmp_path):
-    path = tmp_path / "fuzzy.txt"
+def test_replace_in_file_near_match_is_not_found(tmp_path):
+    """No fuzzy matching: an off-by-one old_str refuses and leaves the file alone."""
+    path = tmp_path / "exact.txt"
     path.write_text("abc\ndef\nghijk")
-    # deliberately off by one for fuzzy test
-    reps = [{"old_str": "def\nghij", "new_str": "replaced"}]
+    reps = [{"old_str": "def\nghixk", "new_str": "replaced"}]
     res = file_modifications._replace_in_file(None, str(path), reps)
-    # Depending on scoring, this may or may not match: just test schema
-    assert "diff" in res
+    assert res["error"].startswith("String to replace not found in file.")
+    assert path.read_text() == "abc\ndef\nghijk"
 
 
-def test_fuzzy_match_preserves_trailing_newline(tmp_path):
-    """Fuzzy-match reassembly must preserve a trailing newline."""
+def test_whitespace_mismatch_is_not_found(tmp_path):
     path = tmp_path / "trailing.txt"
-    # File ends with a newline, as most files do
     path.write_text("aaa\nbbb\nccc\n")
-    # Slightly off so exact match fails and fuzzy kicks in
     reps = [{"old_str": "bbb\nccc ", "new_str": "replaced"}]
     res = file_modifications._replace_in_file(None, str(path), reps)
-    if res.get("success"):
-        content = path.read_text()
-        assert content.endswith("\n"), (
-            f"Trailing newline lost after fuzzy reassembly: {content!r}"
-        )
+    assert res["error"].startswith("String to replace not found in file.")
+    assert path.read_text() == "aaa\nbbb\nccc\n"
 
 
 def test_delete_large_snippet(tmp_path):

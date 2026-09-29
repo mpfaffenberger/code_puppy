@@ -51,3 +51,7 @@ code_puppy/bundled_skills/
 
 # Local git worktrees
 .worktrees/
+
+# Cancel-wedge repro harness output (scripts/repro_cancel_wedge.py)
+wedge_artifacts/
+wedge_soak.log

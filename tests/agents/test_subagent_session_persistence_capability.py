@@ -231,7 +231,7 @@ async def test_wrap_run_skips_save_for_system_exit():
 
 @pytest.mark.asyncio
 async def test_combined_capability_composition_saves_once_on_original_instance():
-    """Production shape: the sub-agent site wires THREE capabilities. The
+    """Production shape: the sub-agent site wires several capabilities. The
     run must route through pydantic-ai's real CombinedCapability, produce
     exactly one boundary save, and record custody on the ORIGINAL instance
     the invocation layer holds (default ``for_run`` returns ``self``)."""
@@ -412,12 +412,6 @@ def _invocation_harness(capture):
         )
         p(patch("code_puppy.config.get_value", return_value="true"))
         p(patch("code_puppy.config.get_output_level", return_value="medium"))
-        p(
-            patch(
-                "code_puppy.agents._compaction.make_history_processor",
-                return_value=lambda messages: messages,
-            )
-        )
         p(patch("code_puppy.tools.subagent_invocation.Agent", side_effect=fake_agent))
         p(patch("code_puppy.tools.register_tools_for_agent"))
         p(
