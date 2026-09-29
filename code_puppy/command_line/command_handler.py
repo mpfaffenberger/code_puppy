@@ -186,7 +186,7 @@ def _dispatch_custom_command(command: str, name: str):
 # MAIN COMMAND DISPATCHER
 # ============================================================================
 
-# _show_color_options has been moved to builtin_commands.py
+# The /colors and /diff TUIs were removed: theming owns those settings now.
 
 
 def handle_command(command: str):

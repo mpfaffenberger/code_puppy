@@ -3,34 +3,55 @@ import sys
 
 from code_puppy.callbacks import on_register_agent_tools, on_register_tools
 from code_puppy.messaging import emit_warning
-from code_puppy.tools.agent_tools import register_list_agents
-from code_puppy.tools.subagent_invocation import (
-    register_invoke_agent,
-    register_invoke_agent_with_model,
-)
-from code_puppy.tools.ask_user_question import register_ask_user_question
+from code_puppy.tools._lazy import lazy_registration
 
-from code_puppy.tools.command_runner import (
-    register_agent_run_shell_command,
-    register_agent_share_your_reasoning,
+register_list_agents = lazy_registration(
+    "code_puppy.tools.agent_tools", "register_list_agents"
 )
-from code_puppy.tools.display import (
-    display_non_streamed_result as display_non_streamed_result,
+register_invoke_agent = lazy_registration(
+    "code_puppy.tools.subagent_invocation", "register_invoke_agent"
 )
-from code_puppy.tools.file_modifications import (
-    register_create_file,
-    register_delete_file,
-    register_delete_snippet,
-    register_edit_file,
-    register_replace_in_file,
+register_invoke_agent_with_model = lazy_registration(
+    "code_puppy.tools.subagent_invocation", "register_invoke_agent_with_model"
 )
-from code_puppy.tools.file_operations import (
-    register_grep,
-    register_list_files,
-    register_read_file,
+register_ask_user_question = lazy_registration(
+    "code_puppy.tools.ask_user_question", "register_ask_user_question"
 )
-from code_puppy.tools.image_tools import register_load_image
-from code_puppy.tools.model_tools import register_list_available_models
+register_shell = lazy_registration("code_puppy.tools.command_runner", "register_shell")
+register_agent_share_your_reasoning = lazy_registration(
+    "code_puppy.tools.command_runner", "register_agent_share_your_reasoning"
+)
+display_non_streamed_result = lazy_registration(
+    "code_puppy.tools.display", "display_non_streamed_result"
+)
+register_create_file = lazy_registration(
+    "code_puppy.tools.file_modifications", "register_create_file"
+)
+register_delete_file = lazy_registration(
+    "code_puppy.tools.file_modifications", "register_delete_file"
+)
+register_delete_snippet = lazy_registration(
+    "code_puppy.tools.file_modifications", "register_delete_snippet"
+)
+register_edit_file = lazy_registration(
+    "code_puppy.tools.file_modifications", "register_edit_file"
+)
+register_replace_in_file = lazy_registration(
+    "code_puppy.tools.file_modifications", "register_replace_in_file"
+)
+register_grep = lazy_registration("code_puppy.tools.file_operations", "register_grep")
+register_list_files = lazy_registration(
+    "code_puppy.tools.file_operations", "register_list_files"
+)
+register_read_file = lazy_registration(
+    "code_puppy.tools.file_operations", "register_read_file"
+)
+register_load_image = lazy_registration(
+    "code_puppy.tools.image_tools", "register_load_image"
+)
+register_list_available_models = lazy_registration(
+    "code_puppy.tools.model_tools", "register_list_available_models"
+)
 
 # Map of tool names to their individual registration functions
 TOOL_REGISTRY = {
@@ -50,7 +71,16 @@ TOOL_REGISTRY = {
     "delete_snippet": register_delete_snippet,
     "delete_file": register_delete_file,
     # Command Runner
-    "agent_run_shell_command": register_agent_run_shell_command,
+    "shell": register_shell,
+    "agent_run_shell_command": lambda agent: register_shell(
+        agent, tool_name="agent_run_shell_command"
+    ),
+    "run_shell_command": lambda agent: register_shell(
+        agent, tool_name="run_shell_command"
+    ),
+    "run_shell_commmand": lambda agent: register_shell(
+        agent, tool_name="run_shell_commmand"
+    ),
     "agent_share_your_reasoning": register_agent_share_your_reasoning,
     # User Interaction
     "ask_user_question": register_ask_user_question,
@@ -64,7 +94,7 @@ def _load_browser_tool_registry() -> dict[str, object]:
     if sys.platform == "android":
         return {}
 
-    from code_puppy.tools.browser.tool_registry import BROWSER_TOOL_REGISTRY
+    from code_puppy.tools._browser_registry import BROWSER_TOOL_REGISTRY
 
     return BROWSER_TOOL_REGISTRY
 
@@ -75,6 +105,11 @@ TOOL_REGISTRY.update(_load_browser_tool_registry())
 # registers the expansions INSTEAD (the original is not registered).
 TOOL_EXPANSIONS: dict[str, list[str]] = {
     "edit_file": ["create_file", "replace_in_file", "delete_snippet"],
+    # Compat aliases for the retired provider-specific editors (the Claude
+    # ``edit`` dialect and the Codex ``apply_patch`` envelope). Agent configs
+    # that still list them get the granular tools instead of a silent drop.
+    "edit": ["replace_in_file"],
+    "apply_patch": ["create_file", "replace_in_file", "delete_snippet", "delete_file"],
 }
 
 # Legacy tool names we silently ignore. Truly removed tools only — working
@@ -126,16 +161,6 @@ def _load_plugin_tools() -> None:
     except Exception:
         # Don't let plugin failures break core functionality
         pass
-
-
-# System-prompt note for extended thinking when share_your_reasoning is removed:
-# encourages native thinking blocks between tool calls.
-EXTENDED_THINKING_PROMPT_NOTE = (
-    "\n\nIMPORTANT: You have extended thinking enabled. "
-    "Always think between tool calls or waves of tool calls "
-    "(if running parallel tools). Use your thinking blocks to reason "
-    "about the results before deciding on next steps."
-)
 
 
 def has_extended_thinking_active(model_name: str | None = None) -> bool:

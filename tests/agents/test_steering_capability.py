@@ -8,6 +8,7 @@ now expressed as a pydantic-ai capability:
 - the in-effect instructions are carried onto injected requests
 - injected messages are mirrored into the host's durable history
 - the drain seam only touches the queue the capability owns
+- background completions land first, literally, tagged as silent steers
 """
 
 from types import SimpleNamespace
@@ -18,6 +19,7 @@ from pydantic_ai.capabilities import AbstractCapability
 from pydantic_ai.messages import ModelRequest, UserPromptPart
 
 from code_puppy.agents._steering import SteerInjection, build_steer_injection
+from code_puppy.steer_metadata import STEER_METADATA
 
 
 def _request_context(messages):
@@ -112,7 +114,9 @@ def test_build_steer_injection_mirrors_into_agent_history():
 
 
 def test_build_steer_injection_tolerates_agents_without_history():
-    agent = SimpleNamespace()  # no _message_history attribute
+    # Plain object: weak-referenceable (the completion inbox keys on it) but
+    # with no _message_history attribute.
+    agent = type("BareAgent", (), {})()
     capability = build_steer_injection(agent)
     capability.drain = lambda: ["no crash please"]
 
@@ -179,3 +183,22 @@ async def test_before_model_request_is_native_async():
     result = await capability.before_model_request(Mock(), ctx)
 
     assert result is ctx
+
+
+def test_completions_inject_first_literally_and_silently(monkeypatch):
+    """Completion text is model-facing data: it lands before steers, is never
+    resolved for attachments, and carries the silent-steer metadata."""
+    resolve = Mock(side_effect=lambda text: (f"resolved {text}", text))
+    monkeypatch.setattr("code_puppy.agents._steering.resolve_steer_content", resolve)
+    capability = SteerInjection(
+        drain=lambda: ["steer"], completions=lambda: ["child @secret.txt"]
+    )
+
+    result = _steer(capability, [])
+
+    assert [m.parts[0].content for m in result] == [
+        "child @secret.txt",
+        "resolved steer",
+    ]
+    assert all(m.metadata == STEER_METADATA for m in result)
+    resolve.assert_called_once_with("steer")
