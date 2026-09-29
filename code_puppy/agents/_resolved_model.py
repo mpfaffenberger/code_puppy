@@ -14,7 +14,7 @@ warning dedup, and ``subagent_invocation`` still resolves pins and explicit
 overrides before calling it. This capability only owns the last mile: handing
 the resolved ``Model`` instance to pydantic-ai.
 
-Parity notes (pydantic-ai 2.31.0):
+Parity notes (verified against pydantic-ai 2.51.0):
 
 * **Static contribution, resolved once per run.** A non-callable
   ``get_model()`` return is used directly as the run's model
@@ -47,14 +47,15 @@ deliberately not spec-constructible -- the same precedent as
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Optional
 
 from pydantic_ai.capabilities import AbstractCapability
 from pydantic_ai.models import Model
+from pydantic_ai.tools import AgentDepsT
 
 
 @dataclass
-class ResolvedModel(AbstractCapability[Any]):
+class ResolvedModel(AbstractCapability[AgentDepsT]):
     """Deliver an already-resolved pydantic-ai ``Model`` via ``get_model()``.
 
     ``model`` is the final ``Model`` instance -- callers finish all

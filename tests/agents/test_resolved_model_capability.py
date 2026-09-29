@@ -45,13 +45,21 @@ def _wire_shape(messages: list[ModelMessage]) -> list[tuple]:
 
 
 def _capture_model(reply: str, seen: list[list[ModelMessage]]) -> FunctionModel:
-    """A FunctionModel that records the wire messages of every request."""
+    """A FunctionModel that records the wire messages of every request.
+
+    Supports both plain and streamed requests: agents built with an
+    ``event_stream_handler`` drive the model through the streaming path.
+    """
 
     def respond(messages: list[ModelMessage], _info: AgentInfo) -> ModelResponse:
         seen.append(messages)
         return ModelResponse(parts=[TextPart(reply)])
 
-    return FunctionModel(respond)
+    async def stream_respond(messages: list[ModelMessage], _info: AgentInfo):
+        seen.append(messages)
+        yield reply
+
+    return FunctionModel(respond, stream_function=stream_respond)
 
 
 def test_get_model_returns_exact_instance():
@@ -259,14 +267,7 @@ async def test_subagent_construction_delivers_capability_model():
     from code_puppy.tools import subagent_invocation
 
     seen: list[list[ModelMessage]] = []
-
-    # The sub-agent path drives the model through an event_stream_handler,
-    # so the capture model must support streamed requests.
-    async def stream_respond(messages: list[ModelMessage], _info: AgentInfo):
-        seen.append(messages)
-        yield "subagent-built"
-
-    model = FunctionModel(stream_function=stream_respond)
+    model = _capture_model("subagent-built", seen)
     config = _AgentConfig()
 
     with (
