@@ -1,12 +1,13 @@
 """Full coverage tests for code_puppy/gemini_model.py."""
 
-import uuid
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from types import SimpleNamespace
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
 from pydantic_ai.messages import (
+    BinaryContent,
     ModelRequest,
     ModelResponse,
     RetryPromptPart,
@@ -22,12 +23,11 @@ from pydantic_ai.tools import ToolDefinition
 
 from code_puppy.gemini_model import (
     BYPASS_THOUGHT_SIGNATURE,
+    STEER_PREAMBLE,
     GeminiModel,
     GeminiStreamingResponse,
-    _flatten_union_to_object_gemini,
-    _sanitize_schema_for_gemini,
-    generate_tool_call_id,
 )
+from code_puppy.steer_metadata import STEER_METADATA, is_steer_request
 
 
 @pytest.fixture
@@ -56,219 +56,6 @@ def default_params():
     )
 
 
-# --- Utility functions ---
-
-
-class TestUtilities:
-    def test_generate_tool_call_id(self):
-        result = generate_tool_call_id()
-        uuid.UUID(result)  # should not raise
-
-    def test_bypass_thought_signature(self):
-        assert isinstance(BYPASS_THOUGHT_SIGNATURE, str)
-
-
-# --- Schema sanitization ---
-
-
-class TestSanitizeSchema:
-    def test_non_dict_passthrough(self):
-        assert _sanitize_schema_for_gemini("hello") == "hello"
-        assert _sanitize_schema_for_gemini(42) == 42
-
-    def test_removes_defs_and_additional_properties(self):
-        schema = {
-            "type": "object",
-            "$defs": {"Foo": {"type": "string"}},
-            "additionalProperties": False,
-            "properties": {"x": {"type": "string"}},
-        }
-        result = _sanitize_schema_for_gemini(schema)
-        assert "$defs" not in result
-        assert "additionalProperties" not in result
-        assert result["properties"]["x"]["type"] == "string"
-
-    def test_resolves_ref(self):
-        schema = {
-            "$defs": {"Foo": {"type": "string", "description": "a foo"}},
-            "$ref": "#/$defs/Foo",
-        }
-        result = _sanitize_schema_for_gemini(schema)
-        assert result["type"] == "string"
-
-    def test_resolves_ref_definitions(self):
-        schema = {
-            "definitions": {"Bar": {"type": "integer"}},
-            "$ref": "#/definitions/Bar",
-        }
-        result = _sanitize_schema_for_gemini(schema)
-        assert result["type"] == "integer"
-
-    def test_unresolvable_ref(self):
-        schema = {"$ref": "#/$defs/Missing"}
-        result = _sanitize_schema_for_gemini(schema)
-        assert result == {"type": "object"}
-
-    def test_unknown_ref_format(self):
-        schema = {"$ref": "http://example.com/schema"}
-        result = _sanitize_schema_for_gemini(schema)
-        assert result == {"type": "object"}
-
-    def test_anyof_simple_nullable(self):
-        schema = {
-            "anyOf": [
-                {"type": "string"},
-                {"type": "null"},
-            ],
-            "description": "nullable string",
-        }
-        result = _sanitize_schema_for_gemini(schema)
-        assert result["type"] == "string"
-        assert result["description"] == "nullable string"
-
-    def test_oneof_simple(self):
-        schema = {
-            "oneOf": [
-                {"type": "integer"},
-                {"type": "null"},
-            ],
-        }
-        result = _sanitize_schema_for_gemini(schema)
-        assert result["type"] == "integer"
-
-    def test_anyof_complex_union_with_refs(self):
-        schema = {
-            "$defs": {
-                "TypeA": {
-                    "type": "object",
-                    "properties": {"a": {"type": "string"}},
-                },
-                "TypeB": {
-                    "type": "object",
-                    "properties": {"b": {"type": "integer"}},
-                },
-            },
-            "anyOf": [
-                {"$ref": "#/$defs/TypeA"},
-                {"$ref": "#/$defs/TypeB"},
-            ],
-            "description": "union type",
-        }
-        result = _sanitize_schema_for_gemini(schema)
-        assert result["type"] == "object"
-        assert "a" in result["properties"]
-        assert "b" in result["properties"]
-        assert result["description"] == "union type"
-
-    def test_anyof_with_string_and_objects(self):
-        schema = {
-            "anyOf": [
-                {"type": "string"},
-                {"type": "object", "properties": {"x": {"type": "string"}}},
-                {"type": "object", "properties": {"y": {"type": "integer"}}},
-            ],
-        }
-        result = _sanitize_schema_for_gemini(schema)
-        assert result["type"] == "object"
-        assert "x" in result["properties"]
-        assert "y" in result["properties"]
-
-    def test_allof_merges(self):
-        schema = {
-            "allOf": [
-                {"type": "object", "properties": {"a": {"type": "string"}}},
-                {"properties": {"b": {"type": "integer"}}},
-            ],
-            "description": "merged",
-        }
-        result = _sanitize_schema_for_gemini(schema)
-        assert "a" in result["properties"]
-        assert "b" in result["properties"]
-        assert result["description"] == "merged"
-
-    def test_removes_default_examples_const(self):
-        schema = {
-            "type": "string",
-            "default": "foo",
-            "examples": ["a", "b"],
-            "const": "fixed",
-            "$schema": "http://json-schema.org/draft-07/schema#",
-            "$id": "test",
-        }
-        result = _sanitize_schema_for_gemini(schema)
-        assert "default" not in result
-        assert "examples" not in result
-        assert "const" not in result
-        assert "$schema" not in result
-        assert "$id" not in result
-
-    def test_scalar_value_passthrough(self):
-        """Test that scalar values in schema are returned as-is."""
-        schema = {
-            "type": "object",
-            "properties": {
-                "count": {"type": "integer", "minimum": 0},
-            },
-        }
-        result = _sanitize_schema_for_gemini(schema)
-        # minimum is a scalar that goes through resolve_refs else branch
-        assert result["properties"]["count"]["type"] == "integer"
-
-    def test_recursive_list_processing(self):
-        schema = {
-            "type": "array",
-            "items": {"type": "string"},
-        }
-        result = _sanitize_schema_for_gemini(schema)
-        assert result["type"] == "array"
-        assert result["items"]["type"] == "string"
-
-    def test_ref_with_extra_props(self):
-        schema = {
-            "$defs": {
-                "Foo": {"type": "object", "properties": {"x": {"type": "string"}}}
-            },
-            "$ref": "#/$defs/Foo",
-            "description": "extra desc",
-        }
-        result = _sanitize_schema_for_gemini(schema)
-        assert result["description"] == "extra desc"
-        assert "x" in result["properties"]
-
-
-class TestFlattenUnion:
-    def test_all_null_types(self):
-        result = _flatten_union_to_object_gemini(
-            [{"type": "null"}, {"type": "null"}], {}, lambda x: x
-        )
-        assert result == {"type": "object"}
-
-    def test_string_only(self):
-        result = _flatten_union_to_object_gemini(
-            [{"type": "string"}, {"type": "null"}], {}, lambda x: x
-        )
-        assert result == {"type": "string"}
-
-    def test_non_dict_items_ignored(self):
-        result = _flatten_union_to_object_gemini(
-            ["not a dict", {"type": "string"}], {}, lambda x: x
-        )
-        assert result == {"type": "string"}
-
-    def test_unresolvable_ref_in_union(self):
-        result = _flatten_union_to_object_gemini(
-            [{"$ref": "#/$defs/Missing"}], {}, lambda x: x
-        )
-        assert result == {"type": "object"}
-
-    def test_ref_with_definitions_prefix(self):
-        defs = {"Foo": {"type": "object", "properties": {"x": {"type": "string"}}}}
-        result = _flatten_union_to_object_gemini(
-            [{"$ref": "#/definitions/Foo"}], defs, lambda x: x
-        )
-        assert "x" in result["properties"]
-
-
 # --- GeminiModel properties ---
 
 
@@ -290,8 +77,12 @@ class TestGeminiModelProperties:
         assert model._get_instructions([], None) is None
 
     def test_prepare_request(self, model):
-        s, p = model.prepare_request(None, None)
-        assert s is None and p is None
+        """v2: the base Model.prepare_request runs (identity override deleted)."""
+        from pydantic_ai.models import ModelRequestParameters
+
+        s, p = model.prepare_request(None, ModelRequestParameters())
+        assert s is None
+        assert isinstance(p, ModelRequestParameters)
 
     def test_get_headers(self, model):
         h = model._get_headers()
@@ -348,9 +139,7 @@ class TestMapUserPrompt:
 
     @pytest.mark.anyio
     async def test_list_content_media(self, model):
-        media = MagicMock()
-        media.media_type = "image/png"
-        media.data = b"\x89PNG"
+        media = BinaryContent(media_type="image/png", data=b"\x89PNG")
         part = UserPromptPart(content=[media])
         result = await model._map_user_prompt(part)
         assert "inline_data" in result[0]
@@ -361,19 +150,20 @@ class TestMapUserPrompt:
         media = MagicMock()
         media.media_type = "image/jpeg"
         media.data = "already-base64"
-        part = UserPromptPart(content=[media])
+        # Exercise legacy adapter input without the SDK's stricter validation.
+        part = SimpleNamespace(content=[media])
         result = await model._map_user_prompt(part)
         assert result[0]["inline_data"]["data"] == "already-base64"
 
     @pytest.mark.anyio
     async def test_list_content_other(self, model):
-        part = UserPromptPart(content=[42])
+        part = SimpleNamespace(content=[42])
         result = await model._map_user_prompt(part)
         assert result == [{"text": "42"}]
 
     @pytest.mark.anyio
     async def test_non_string_non_list(self, model):
-        part = UserPromptPart(content=123)
+        part = SimpleNamespace(content=123)
         result = await model._map_user_prompt(part)
         assert result == [{"text": "123"}]
 
@@ -439,15 +229,499 @@ class TestMapMessages:
 
     @pytest.mark.anyio
     async def test_merge_consecutive_model_responses(self, model, default_params):
+        # Trailing user turn keeps the merged model turn out of the tail trim.
         msgs = [
             ModelRequest(parts=[UserPromptPart(content="hi")]),
             ModelResponse(parts=[TextPart(content="a")], model_name="m"),
             ModelResponse(parts=[TextPart(content="b")], model_name="m"),
+            ModelRequest(parts=[UserPromptPart(content="steer")]),
         ]
         _, contents = await model._map_messages(msgs, default_params)
         model_msgs = [c for c in contents if c["role"] == "model"]
         assert len(model_msgs) == 1
         assert len(model_msgs[0]["parts"]) == 2
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        "trailing_parts, case",
+        [
+            ([TextPart(content="partial answer")], "text-only tail"),
+            (
+                [ToolCallPart(tool_name="t", args={}, tool_call_id="id1")],
+                "interrupted tool-call tail",
+            ),
+            (
+                [
+                    TextPart(content="a"),
+                    ToolCallPart(tool_name="t", args={}, tool_call_id="id2"),
+                ],
+                "mixed tail",
+            ),
+        ],
+    )
+    async def test_trailing_model_turns_are_dropped(
+        self, model, default_params, trailing_parts, case
+    ):
+        """Gemini 3.x 400s on a history ending in a model turn."""
+        msgs = [
+            ModelRequest(parts=[UserPromptPart(content="hi")]),
+            ModelResponse(parts=trailing_parts, model_name="m"),
+        ]
+        _, contents = await model._map_messages(msgs, default_params)
+        assert [c["role"] for c in contents] == ["user"], case
+        assert contents[0]["parts"] == [{"text": "hi"}], case
+
+    @pytest.mark.anyio
+    async def test_all_model_turns_falls_back_to_empty_user_turn(
+        self, model, default_params
+    ):
+        """Dropping every turn still yields a valid single user content."""
+        msgs = [ModelResponse(parts=[TextPart(content="orphan")], model_name="m")]
+        _, contents = await model._map_messages(msgs, default_params)
+        assert contents == [{"role": "user", "parts": [{"text": ""}]}]
+
+    @pytest.mark.anyio
+    async def test_interior_model_turns_are_preserved(self, model, default_params):
+        """Only the tail is trimmed; real history stays intact."""
+        msgs = [
+            ModelRequest(parts=[UserPromptPart(content="one")]),
+            ModelResponse(parts=[TextPart(content="two")], model_name="m"),
+            ModelRequest(parts=[UserPromptPart(content="three")]),
+            ModelResponse(parts=[TextPart(content="four")], model_name="m"),
+            ModelRequest(parts=[UserPromptPart(content="steer")]),
+        ]
+        _, contents = await model._map_messages(msgs, default_params)
+        assert [c["role"] for c in contents] == [
+            "user",
+            "model",
+            "user",
+            "model",
+            "user",
+        ]
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        "trailing_parts",
+        (
+            pytest.param(
+                [
+                    ToolReturnPart(
+                        tool_name="shell", content="out", tool_call_id="call-1"
+                    ),
+                    UserPromptPart(content="stop, do this instead"),
+                ],
+                id="same_request",
+            ),
+            pytest.param(None, id="separate_requests"),
+        ),
+    )
+    async def test_tool_return_and_user_text_never_share_a_content(
+        self, model, default_params, trailing_parts
+    ):
+        """Gemini 400s when one user content mixes function_response and text."""
+        msgs = [
+            ModelRequest(parts=[UserPromptPart(content="do the thing")]),
+            ModelResponse(
+                parts=[ToolCallPart(tool_name="shell", args={}, tool_call_id="call-1")],
+                model_name="m",
+            ),
+        ]
+        if trailing_parts is None:
+            msgs.append(
+                ModelRequest(
+                    parts=[
+                        ToolReturnPart(
+                            tool_name="shell", content="out", tool_call_id="call-1"
+                        )
+                    ]
+                )
+            )
+            msgs.append(
+                ModelRequest(parts=[UserPromptPart(content="stop, do this instead")])
+            )
+        else:
+            msgs.append(ModelRequest(parts=trailing_parts))
+
+        _, contents = await model._map_messages(msgs, default_params)
+
+        for content in contents:
+            if content["role"] != "user":
+                continue
+            parts = content["parts"]
+            has_response = any("function_response" in part for part in parts)
+            has_other = any("function_response" not in part for part in parts)
+            assert not (has_response and has_other), content
+
+        # The tool result must still precede the prompt that followed it.
+        response_index = next(
+            i
+            for i, content in enumerate(contents)
+            if any("function_response" in part for part in content["parts"])
+        )
+        text_index = next(
+            i
+            for i, content in enumerate(contents)
+            if any(
+                part.get("text") == "stop, do this instead" for part in content["parts"]
+            )
+        )
+        assert response_index < text_index
+
+    @pytest.mark.anyio
+    async def test_active_steer_is_transient_current_task_guidance(
+        self, model, default_params
+    ):
+        media = BinaryContent(media_type="image/png", data=b"image")
+        msgs = [
+            ModelRequest(parts=[UserPromptPart(content="start")]),
+            ModelResponse(
+                parts=[ToolCallPart(tool_name="shell", args={}, tool_call_id="call-1")],
+                model_name="m",
+            ),
+            ModelRequest(
+                parts=[
+                    ToolReturnPart(
+                        tool_name="shell", content="done", tool_call_id="call-1"
+                    )
+                ]
+            ),
+            ModelRequest(
+                parts=[UserPromptPart(content=["steer", media])],
+                metadata=dict(STEER_METADATA),
+            ),
+        ]
+
+        system_instruction, contents = await model._map_messages(msgs, default_params)
+
+        assert [content["role"] for content in contents] == [
+            "user",
+            "model",
+            "user",
+            "user",
+        ]
+        assert [
+            sorted(part) for content in contents[-2:] for part in content["parts"]
+        ] == [
+            ["function_response"],
+            ["text"],
+            ["text"],
+            ["inline_data"],
+        ]
+        assert contents[-1]["parts"][0]["text"] == STEER_PREAMBLE
+        assert contents[-1]["parts"][1]["text"] == "steer"
+        assert system_instruction is None
+
+        msgs.extend(
+            [
+                ModelResponse(
+                    parts=[
+                        ToolCallPart(tool_name="shell", args={}, tool_call_id="call-2")
+                    ],
+                    model_name="m",
+                ),
+                ModelRequest(
+                    parts=[
+                        ToolReturnPart(
+                            tool_name="shell",
+                            content="done again",
+                            tool_call_id="call-2",
+                        )
+                    ]
+                ),
+            ]
+        )
+        _, continued_contents = await model._map_messages(msgs, default_params)
+        # The steer stays its own text-only block; the tool result that landed
+        # after it starts a new block rather than mixing into the steer.
+        assert [content["role"] for content in continued_contents] == [
+            "user",
+            "model",
+            "user",
+            "user",
+            "model",
+            "user",
+        ]
+        assert continued_contents[3]["parts"] == [
+            {"text": STEER_PREAMBLE},
+            {"text": "steer"},
+            {"inline_data": {"mime_type": "image/png", "data": ANY}},
+        ]
+        assert sorted(continued_contents[-1]["parts"][0]) == ["function_response"]
+
+        msgs.extend(
+            [
+                ModelResponse(parts=[TextPart(content="handled")], model_name="m"),
+                ModelRequest(parts=[UserPromptPart(content="next turn")]),
+            ]
+        )
+        next_system, next_contents = await model._map_messages(msgs, default_params)
+        # Retiring drops the current-task framing, never the user's own words.
+        assert STEER_PREAMBLE not in str(next_contents)
+        assert "steer" not in str(next_system)
+        assert next_contents[3]["parts"] == [
+            {"text": "steer"},
+            {"inline_data": {"mime_type": "image/png", "data": ANY}},
+        ]
+
+    @pytest.mark.anyio
+    async def test_steer_never_mixes_with_a_parallel_tool_result(
+        self, model, default_params
+    ):
+        """A tool call outstanding across a steer must not join the steer block.
+
+        Mixing ``function_response`` with ``text`` in one block is the exact
+        HTTP 400 shape this feature exists to avoid.
+        """
+        msgs = [
+            ModelRequest(parts=[UserPromptPart(content="start")]),
+            ModelResponse(
+                parts=[
+                    ToolCallPart(tool_name="shell", args={}, tool_call_id="call-1"),
+                    ToolCallPart(tool_name="shell", args={}, tool_call_id="call-2"),
+                ],
+                model_name="m",
+            ),
+            ModelRequest(
+                parts=[
+                    ToolReturnPart(
+                        tool_name="shell", content="first", tool_call_id="call-1"
+                    )
+                ]
+            ),
+            ModelRequest(
+                parts=[UserPromptPart(content="steer")],
+                metadata=dict(STEER_METADATA),
+            ),
+            ModelRequest(
+                parts=[
+                    ToolReturnPart(
+                        tool_name="shell", content="second", tool_call_id="call-2"
+                    )
+                ]
+            ),
+        ]
+
+        _, contents = await model._map_messages(msgs, default_params)
+
+        assert [
+            sorted({key for part in content["parts"] for key in part})
+            for content in contents
+        ] == [
+            ["text"],
+            ["function_call", "thoughtSignature"],
+            ["function_response"],
+            ["text"],
+            ["function_response"],
+        ]
+
+    @pytest.mark.anyio
+    async def test_consecutive_steers_share_one_block_and_preamble(
+        self, model, default_params
+    ):
+        msgs = [
+            ModelRequest(parts=[UserPromptPart(content="start")]),
+            ModelRequest(
+                parts=[UserPromptPart(content="first steer")],
+                metadata=dict(STEER_METADATA),
+            ),
+            ModelRequest(
+                parts=[UserPromptPart(content="second steer")],
+                metadata=dict(STEER_METADATA),
+            ),
+        ]
+
+        _, contents = await model._map_messages(msgs, default_params)
+
+        assert [content["role"] for content in contents] == ["user", "user"]
+        assert contents[1]["parts"] == [
+            {"text": STEER_PREAMBLE},
+            {"text": "first steer"},
+            {"text": "second steer"},
+        ]
+
+    @pytest.mark.anyio
+    async def test_steer_system_prompt_part_reaches_system_instruction(
+        self, model, default_params
+    ):
+        """A ``SystemPromptPart`` on a steer must not be silently dropped."""
+        msgs = [
+            ModelRequest(parts=[UserPromptPart(content="start")]),
+            ModelRequest(
+                parts=[
+                    SystemPromptPart(content="be terse"),
+                    UserPromptPart(content="steer"),
+                ],
+                metadata=dict(STEER_METADATA),
+            ),
+        ]
+
+        system_instruction, contents = await model._map_messages(msgs, default_params)
+
+        assert system_instruction["parts"] == [{"text": "be terse"}]
+        assert contents[-1]["parts"] == [
+            {"text": STEER_PREAMBLE},
+            {"text": "steer"},
+        ]
+
+    @pytest.mark.anyio
+    async def test_empty_mapping_prompt_closes_steer_block(self, model, default_params):
+        """A non-steer request that maps to zero parts still closes the steer block."""
+        msgs = [
+            ModelRequest(
+                parts=[UserPromptPart(content="steer1")],
+                metadata=dict(STEER_METADATA),
+            ),
+            ModelRequest(parts=[UserPromptPart(content=[])]),
+            ModelRequest(
+                parts=[UserPromptPart(content="steer2")],
+                metadata=dict(STEER_METADATA),
+            ),
+        ]
+
+        _, contents = await model._map_messages(msgs, default_params)
+
+        assert not any(
+            {k for part in content["parts"] for k in part}
+            >= {"text", "function_response"}
+            for content in contents
+        )
+        assert [content["role"] for content in contents] == ["user", "user"]
+        assert contents[0]["parts"] == [{"text": "steer1"}]
+        assert contents[1]["parts"] == [
+            {"text": STEER_PREAMBLE},
+            {"text": "steer2"},
+        ]
+
+    @pytest.mark.anyio
+    async def test_zero_part_request_does_not_reopen_merge_into_steer_block(
+        self, model, default_params
+    ):
+        """A zero-part request or empty ModelResponse must not merge tool results into steer."""
+        msgs_sys = [
+            ModelResponse(
+                parts=[ToolCallPart(tool_name="shell", args={}, tool_call_id="c1")],
+                model_name="m",
+            ),
+            ModelRequest(
+                parts=[UserPromptPart(content="steer")],
+                metadata=dict(STEER_METADATA),
+            ),
+            ModelRequest(parts=[SystemPromptPart(content="sys")]),
+            ModelRequest(
+                parts=[
+                    ToolReturnPart(tool_name="shell", content="done", tool_call_id="c1")
+                ]
+            ),
+        ]
+        _, contents_sys = await model._map_messages(msgs_sys, default_params)
+        assert not any(
+            {k for part in content["parts"] for k in part}
+            >= {"text", "function_response"}
+            for content in contents_sys
+        )
+        assert [content["role"] for content in contents_sys] == [
+            "model",
+            "user",
+            "user",
+        ]
+        assert contents_sys[1]["parts"] == [
+            {"text": STEER_PREAMBLE},
+            {"text": "steer"},
+        ]
+        assert sorted(contents_sys[2]["parts"][0]) == ["function_response"]
+
+        msgs_empty_resp = [
+            ModelResponse(
+                parts=[ToolCallPart(tool_name="shell", args={}, tool_call_id="c1")],
+                model_name="m",
+            ),
+            ModelRequest(
+                parts=[UserPromptPart(content="steer")],
+                metadata=dict(STEER_METADATA),
+            ),
+            ModelResponse(parts=[], model_name="m"),
+            ModelRequest(
+                parts=[
+                    ToolReturnPart(tool_name="shell", content="done", tool_call_id="c1")
+                ]
+            ),
+        ]
+        _, contents_empty_resp = await model._map_messages(
+            msgs_empty_resp, default_params
+        )
+        assert not any(
+            {k for part in content["parts"] for k in part}
+            >= {"text", "function_response"}
+            for content in contents_empty_resp
+        )
+        assert [content["role"] for content in contents_empty_resp] == [
+            "model",
+            "user",
+            "user",
+        ]
+        assert contents_empty_resp[1]["parts"] == [
+            {"text": STEER_PREAMBLE},
+            {"text": "steer"},
+        ]
+        assert sorted(contents_empty_resp[2]["parts"][0]) == ["function_response"]
+
+    @pytest.mark.anyio
+    async def test_steer_with_tool_return_part_does_not_drop_or_mix(
+        self, model, default_params
+    ):
+        """A steer carrying a spliced ToolReturnPart preserves the tool return without mixing."""
+        msgs = [
+            ModelRequest(parts=[UserPromptPart(content="start")]),
+            ModelResponse(
+                parts=[ToolCallPart(tool_name="shell", args={}, tool_call_id="call-1")],
+                model_name="m",
+            ),
+            ModelRequest(
+                parts=[
+                    ToolReturnPart(
+                        tool_name="shell", content="done", tool_call_id="call-1"
+                    ),
+                    UserPromptPart(content="steer me"),
+                ],
+                metadata=dict(STEER_METADATA),
+            ),
+        ]
+
+        _, contents = await model._map_messages(msgs, default_params)
+
+        assert not any(
+            {k for part in content["parts"] for k in part}
+            >= {"text", "function_response"}
+            for content in contents
+        )
+        assert [content["role"] for content in contents] == [
+            "user",
+            "model",
+            "user",
+            "user",
+        ]
+        assert sorted(contents[2]["parts"][0]) == ["function_response"]
+        assert contents[3]["parts"] == [
+            {"text": STEER_PREAMBLE},
+            {"text": "steer me"},
+        ]
+
+    def test_is_steer_request_handles_non_mapping_metadata(self):
+        req_str = ModelRequest(parts=[UserPromptPart(content="hi")], metadata="invalid")
+        assert is_steer_request(req_str) is False
+
+        req_none = ModelRequest(parts=[UserPromptPart(content="hi")], metadata=None)
+        assert is_steer_request(req_none) is False
+
+        req_valid = ModelRequest(
+            parts=[UserPromptPart(content="hi")], metadata=dict(STEER_METADATA)
+        )
+        assert is_steer_request(req_valid) is True
+
+        req_proxy = ModelRequest(
+            parts=[UserPromptPart(content="hi")], metadata=STEER_METADATA
+        )
+        assert is_steer_request(req_proxy) is True
 
     @pytest.mark.anyio
     async def test_instructions_injected(self, model, default_params):
@@ -521,55 +795,6 @@ class TestMapModelResponse:
         )
         result = model._map_model_response(resp)
         assert result is None
-
-
-# --- Build tools ---
-
-
-class TestBuildTools:
-    def test_build_tools(self, model):
-        tools = [
-            ToolDefinition(
-                name="fn", description="desc", parameters_json_schema={"type": "object"}
-            ),
-            ToolDefinition(name="fn2", description="", parameters_json_schema=None),
-        ]
-        result = model._build_tools(tools)
-        assert len(result) == 1
-        decls = result[0]["functionDeclarations"]
-        assert len(decls) == 2
-        assert "parameters" in decls[0]
-        assert "parameters" not in decls[1]
-
-
-# --- Build generation config ---
-
-
-class TestBuildGenerationConfig:
-    def test_none_settings(self, model):
-        assert model._build_generation_config(None) == {}
-
-    def test_with_temperature(self, model):
-        s = {"temperature": 0.5}
-        result = model._build_generation_config(s)
-        assert result["temperature"] == 0.5
-
-    def test_with_top_p(self, model):
-        result = model._build_generation_config({"top_p": 0.9})
-        assert result["topP"] == 0.9
-
-    def test_with_max_tokens(self, model):
-        result = model._build_generation_config({"max_tokens": 100})
-        assert result["maxOutputTokens"] == 100
-
-    def test_thinking_disabled(self, model):
-        result = model._build_generation_config({"thinking_enabled": False})
-        assert "thinkingConfig" not in result
-
-    def test_thinking_level(self, model):
-        result = model._build_generation_config({"thinking_level": "high"})
-        assert result["thinkingConfig"]["thinkingLevel"] == "high"
-        assert result["thinkingConfig"]["includeThoughts"] is True
 
 
 # --- Request ---
@@ -837,38 +1062,16 @@ class TestRequestStream:
                 pass
 
     @pytest.mark.anyio
-    async def test_stream_thinking_part(self, model, default_params):
-        chunks = [
-            'data: {"candidates": [{"content": {"parts": [{"text": "thinking...", "thought": true}]}}]}',
-        ]
-
-        mock_response = AsyncMock()
-        mock_response.status_code = 200
-
-        async def aiter_lines():
-            for line in chunks:
-                yield line
-
-        mock_response.aiter_lines = aiter_lines
-
-        mock_client = AsyncMock(spec=httpx.AsyncClient)
-        mock_stream_ctx = AsyncMock()
-        mock_stream_ctx.__aenter__ = AsyncMock(return_value=mock_response)
-        mock_stream_ctx.__aexit__ = AsyncMock(return_value=False)
-        mock_client.stream = MagicMock(return_value=mock_stream_ctx)
-        model._http_client = mock_client
-
-        msgs = [ModelRequest(parts=[UserPromptPart(content="hi")])]
-        async with model.request_stream(msgs, None, default_params) as streamed:
-            async for _ in streamed:
-                pass
-
-    @pytest.mark.anyio
-    async def test_stream_no_candidates(self, model, default_params):
-        chunks = [
-            'data: {"usageMetadata": {"promptTokenCount": 5}}',
-        ]
-
+    @pytest.mark.parametrize(
+        "chunks",
+        [
+            [
+                'data: {"candidates": [{"content": {"parts": [{"text": "thinking...", "thought": true}]}}]}'
+            ],
+            ['data: {"usageMetadata": {"promptTokenCount": 5}}'],
+        ],
+    )
+    async def test_stream_handles_chunks(self, model, default_params, chunks):
         mock_response = AsyncMock()
         mock_response.status_code = 200
 

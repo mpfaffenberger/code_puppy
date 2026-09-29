@@ -2,7 +2,7 @@
 
 import pytest
 
-from code_puppy.plugins.wiggum.judge_config import JudgeConfig, JudgeRegistry
+from code_puppy_core_plugins.wiggum.judge_config import JudgeConfig, JudgeRegistry
 from code_puppy.tui.app import build_app
 from code_puppy.tui.screens.base import FilterableListScreen
 from code_puppy.tui.screens.form import FormScreen
@@ -19,7 +19,7 @@ def _patch_models(monkeypatch):
 @pytest.mark.asyncio
 async def test_judges_lists_with_add_entry(monkeypatch):
     monkeypatch.setattr(
-        "code_puppy.plugins.wiggum.judge_config.load_judges",
+        "code_puppy_core_plugins.wiggum.judge_config.load_judges",
         lambda: JudgeRegistry(judges=[JudgeConfig("strict", "m1")]),
     )
     app = build_app()
@@ -34,7 +34,7 @@ async def test_judges_lists_with_add_entry(monkeypatch):
 async def test_judges_add_opens_form(monkeypatch):
     _patch_models(monkeypatch)
     monkeypatch.setattr(
-        "code_puppy.plugins.wiggum.judge_config.load_judges",
+        "code_puppy_core_plugins.wiggum.judge_config.load_judges",
         lambda: JudgeRegistry(judges=[]),
     )
     app = build_app()
@@ -50,7 +50,7 @@ async def test_judges_add_opens_form(monkeypatch):
 @pytest.mark.asyncio
 async def test_judge_select_then_delete_confirms(monkeypatch):
     monkeypatch.setattr(
-        "code_puppy.plugins.wiggum.judge_config.load_judges",
+        "code_puppy_core_plugins.wiggum.judge_config.load_judges",
         lambda: JudgeRegistry(judges=[JudgeConfig("strict", "m1")]),
     )
     app = build_app()
@@ -73,11 +73,11 @@ async def test_judge_select_then_delete_confirms(monkeypatch):
 def test_save_judge_persists(monkeypatch):
     saved = {}
     monkeypatch.setattr(
-        "code_puppy.plugins.wiggum.judge_config.load_judges",
+        "code_puppy_core_plugins.wiggum.judge_config.load_judges",
         lambda: JudgeRegistry(judges=[]),
     )
     monkeypatch.setattr(
-        "code_puppy.plugins.wiggum.judge_config.save_judges",
+        "code_puppy_core_plugins.wiggum.judge_config.save_judges",
         lambda reg: saved.update(judges=list(reg.judges)),
     )
     from code_puppy.tui.menu_judges import _save_judge

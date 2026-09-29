@@ -1,7 +1,7 @@
 """Tests for code_puppy/command_line/onboarding_wizard.py"""
 
 import os
-from unittest.mock import AsyncMock, MagicMock, mock_open, patch
+from unittest.mock import AsyncMock, mock_open, patch
 
 import pytest
 
@@ -54,25 +54,14 @@ class TestShouldShowOnboarding:
             os.environ.pop("CODE_PUPPY_SKIP_TUTORIAL", None)
             assert should_show_onboarding() is True
 
+    @pytest.mark.parametrize(
+        "env_value", ["1", "true", "yes"], ids=["one", "true", "yes"]
+    )
     @patch(f"{MODULE}.has_completed_onboarding", return_value=False)
-    def test_returns_false_when_env_skip_1(self, mock_completed):
+    def test_returns_false_when_env_skip(self, mock_completed, env_value):
         from code_puppy.command_line.onboarding_wizard import should_show_onboarding
 
-        with patch.dict(os.environ, {"CODE_PUPPY_SKIP_TUTORIAL": "1"}):
-            assert should_show_onboarding() is False
-
-    @patch(f"{MODULE}.has_completed_onboarding", return_value=False)
-    def test_returns_false_when_env_skip_true(self, mock_completed):
-        from code_puppy.command_line.onboarding_wizard import should_show_onboarding
-
-        with patch.dict(os.environ, {"CODE_PUPPY_SKIP_TUTORIAL": "true"}):
-            assert should_show_onboarding() is False
-
-    @patch(f"{MODULE}.has_completed_onboarding", return_value=False)
-    def test_returns_false_when_env_skip_yes(self, mock_completed):
-        from code_puppy.command_line.onboarding_wizard import should_show_onboarding
-
-        with patch.dict(os.environ, {"CODE_PUPPY_SKIP_TUTORIAL": "yes"}):
+        with patch.dict(os.environ, {"CODE_PUPPY_SKIP_TUTORIAL": env_value}):
             assert should_show_onboarding() is False
 
 
@@ -124,33 +113,14 @@ class TestOnboardingWizard:
         assert "●" in progress
         assert progress.count("○") == 4
 
-    def test_get_slide_content_slide_0(self):
+    @pytest.mark.parametrize(
+        "slide",
+        [0, 1, 2, 3, 4],
+        ids=["slide_0", "slide_1", "slide_2", "slide_3", "slide_4"],
+    )
+    def test_get_slide_content(self, slide):
         w = self._make_wizard()
-        w.current_slide = 0
-        content = w.get_slide_content()
-        assert isinstance(content, list)
-
-    def test_get_slide_content_slide_1(self):
-        w = self._make_wizard()
-        w.current_slide = 1
-        content = w.get_slide_content()
-        assert isinstance(content, list)
-
-    def test_get_slide_content_slide_2(self):
-        w = self._make_wizard()
-        w.current_slide = 2
-        content = w.get_slide_content()
-        assert isinstance(content, list)
-
-    def test_get_slide_content_slide_3(self):
-        w = self._make_wizard()
-        w.current_slide = 3
-        content = w.get_slide_content()
-        assert isinstance(content, list)
-
-    def test_get_slide_content_slide_4(self):
-        w = self._make_wizard()
-        w.current_slide = 4
+        w.current_slide = slide
         content = w.get_slide_content()
         assert isinstance(content, list)
 
@@ -263,170 +233,132 @@ class TestOnboardingWizard:
 
 
 # ---------------------------------------------------------------------------
-# _get_slide_panel_content
+# Rendering helpers
 # ---------------------------------------------------------------------------
 
 
 class TestGetSlidePanelContent:
-    def test_returns_semantic_formatted_text(self):
-        from prompt_toolkit.formatted_text import FormattedText
-
+    def test_returns_fragments_with_progress_header(self):
         from code_puppy.command_line.onboarding_wizard import (
             OnboardingWizard,
             _get_slide_panel_content,
         )
 
         w = OnboardingWizard()
-        result = _get_slide_panel_content(w)
-        assert isinstance(result, FormattedText)
-        styles = {style for style, _ in result}
-        assert {"class:tui.muted", "class:tui.header"} <= styles
+        fragments = _get_slide_panel_content(w)
+        assert isinstance(fragments, list)
+        assert any("Slide 1 of 5" in text for _, text in fragments)
 
 
-# ---------------------------------------------------------------------------
-# run_onboarding_wizard
-# ---------------------------------------------------------------------------
+class TestFragmentsToLines:
+    def test_splits_on_newlines_and_styles_fragments(self):
+        from code_puppy.command_line.onboarding_wizard import _fragments_to_lines
 
-
-class TestRunOnboardingWizardKeyBindings:
-    """Test inner key-binding handlers by intercepting KeyBindings."""
-
-    def _capture_kb(self):
-        import asyncio
-
-        from code_puppy.command_line.onboarding_wizard import (
-            OnboardingWizard,
-            run_onboarding_wizard,
+        lines = _fragments_to_lines(
+            [("class:tui.title", "Hello\nWorld"), ("class:tui.body", " plain")]
         )
+        assert len(lines) == 2
+        assert "Hello" in lines[0] and "\x1b[" in lines[0]  # styled
+        assert lines[1].endswith(" plain")  # body is unstyled
 
-        captured = {}
-        wizard = OnboardingWizard()
+    def test_unknown_class_renders_plain(self):
+        from code_puppy.command_line.onboarding_wizard import _fragments_to_lines
 
-        with (
-            patch("code_puppy.tools.command_runner.set_awaiting_user_input"),
-            patch(f"{MODULE}.sys") as mock_sys,
-            patch(f"{MODULE}.asyncio") as mock_asyncio,
-            patch("code_puppy.messaging.emit_info"),
-            patch(f"{MODULE}.mark_onboarding_complete"),
-            patch(f"{MODULE}.Application") as MockApp,
-            patch(f"{MODULE}.OnboardingWizard", return_value=wizard),
-            patch(f"{MODULE}.KeyBindings") as MockKB,
-        ):
-            mock_sys.stdout = MagicMock()
-            # Use real KeyBindings
-            from prompt_toolkit.key_binding import KeyBindings as RealKB
+        lines = _fragments_to_lines([("class:tui.whatever", "text")])
+        assert lines == ["text"]
 
-            real_kb = RealKB()
-            MockKB.return_value = real_kb
 
-            app_instance = MagicMock()
+# ---------------------------------------------------------------------------
+# OnboardingTUI (headless scripted drives)
+# ---------------------------------------------------------------------------
 
-            async def fake_run():
-                wizard.result = "skipped"
 
-            app_instance.run_async = fake_run
-            MockApp.return_value = app_instance
+def drive(keys, wizard=None):
+    from io import StringIO
 
-            mock_asyncio.sleep = AsyncMock()
+    from code_puppy.command_line.onboarding_wizard import (
+        OnboardingTUI,
+        OnboardingWizard,
+    )
 
-            loop = asyncio.new_event_loop()
-            try:
-                loop.run_until_complete(run_onboarding_wizard())
-            finally:
-                loop.close()
+    wizard = wizard or OnboardingWizard()
+    script = iter(keys)
+    out = StringIO()
+    OnboardingTUI(
+        wizard,
+        key_source=lambda: next(script),
+        output=out,
+        size=lambda: (90, 30),
+        use_alt_screen=False,
+    ).run()
+    return wizard, out.getvalue()
 
-            captured["kb"] = real_kb
-            captured["wizard"] = wizard
-            captured["app"] = app_instance
 
-        return captured
+class TestOnboardingTUI:
+    def test_right_advances_and_completes_on_last(self):
+        wizard, _ = drive(["right", "right", "right", "right", "right"])
+        assert wizard.result == "completed"
+        assert wizard.current_slide == 4
 
-    def _find_handler(self, kb, key_name):
-        alias_map = {"tab": "c-i", "enter": "c-m"}
-        search = alias_map.get(key_name, key_name)
-        for binding in kb.bindings:
-            keys = [k.value if hasattr(k, "value") else str(k) for k in binding.keys]
-            if search in keys:
-                return binding.handler
-        return None
+    def test_vim_keys_navigate_slides(self):
+        wizard, _ = drive(["l", "l", "h", "escape"])
+        assert wizard.current_slide == 1
+        assert wizard.result == "skipped"
 
-    def test_right_next_slide(self):
-        c = self._capture_kb()
-        handler = self._find_handler(c["kb"], "right")
-        assert handler is not None
-        event = MagicMock()
-        c["wizard"].current_slide = 0
-        c["wizard"].result = None
-        handler(event)
-        assert c["wizard"].current_slide == 1
+    def test_option_navigation_on_model_slide(self):
+        wizard, _ = drive(["right", "j", "j", "k", "escape"])
+        assert wizard.current_slide == 1
+        assert wizard.selected_option == 1
 
-    def test_right_last_slide_completes(self):
-        c = self._capture_kb()
-        handler = self._find_handler(c["kb"], "right")
-        event = MagicMock()
-        c["wizard"].current_slide = c["wizard"].TOTAL_SLIDES - 1
-        handler(event)
-        assert c["wizard"].result == "completed"
-        event.app.exit.assert_called()
+    def test_enter_selects_oauth_option_and_advances(self):
+        # Slide 1, option 0 is chatgpt.
+        wizard, _ = drive(["right", "enter", "escape"])
+        assert wizard.trigger_oauth == "chatgpt"
+        assert wizard.model_choice == "chatgpt"
+        assert wizard.current_slide == 2
 
-    def test_left_prev_slide(self):
-        c = self._capture_kb()
-        handler = self._find_handler(c["kb"], "left")
-        event = MagicMock()
-        c["wizard"].current_slide = 2
-        handler(event)
-        assert c["wizard"].current_slide == 1
+    def test_enter_all_the_way_through_completes(self):
+        wizard, _ = drive(["enter"] * 5)
+        assert wizard.result == "completed"
 
-    def test_down_next_option(self):
-        c = self._capture_kb()
-        handler = self._find_handler(c["kb"], "down")
-        event = MagicMock()
-        c["wizard"].current_slide = 1
-        c["wizard"].selected_option = 0
-        handler(event)
-        assert c["wizard"].selected_option == 1
+    def test_escape_and_ctrl_c_skip(self):
+        wizard, _ = drive(["escape"])
+        assert wizard.result == "skipped"
+        wizard, _ = drive(["ctrl-c"])
+        assert wizard.result == "skipped"
 
-    def test_up_prev_option(self):
-        c = self._capture_kb()
-        handler = self._find_handler(c["kb"], "up")
-        event = MagicMock()
-        c["wizard"].current_slide = 1
-        c["wizard"].selected_option = 1
-        handler(event)
-        assert c["wizard"].selected_option == 0
+    def test_paint_shows_title_and_progress(self):
+        _, out = drive(["escape"])
+        assert "Code Puppy Tutorial" in out
+        assert "Slide 1 of 5" in out
 
-    def test_enter_select_and_next(self):
-        c = self._capture_kb()
-        handler = self._find_handler(c["kb"], "enter")
-        event = MagicMock()
-        c["wizard"].current_slide = 1
-        c["wizard"].selected_option = 0
-        handler(event)
-        assert c["wizard"].current_slide == 2
+    def test_every_line_fits_width(self):
+        from termflow.ansi.utils import visible_length
 
-    def test_enter_on_last_slide(self):
-        c = self._capture_kb()
-        handler = self._find_handler(c["kb"], "enter")
-        event = MagicMock()
-        c["wizard"].current_slide = c["wizard"].TOTAL_SLIDES - 1
-        handler(event)
-        assert c["wizard"].result == "completed"
-        event.app.exit.assert_called()
+        _, out = drive(["right", "j", "right", "escape"])
+        for frame in out.split("\x1b[H"):
+            for line in frame.split("\r\n"):
+                cleaned = line.replace("\x1b[K", "").replace("\x1b[J", "")
+                assert visible_length(cleaned) <= 90
 
-    def test_escape_skips(self):
-        c = self._capture_kb()
-        handler = self._find_handler(c["kb"], "escape")
-        event = MagicMock()
-        handler(event)
-        assert c["wizard"].result == "skipped"
-        event.app.exit.assert_called()
 
-    def test_ctrl_c_skips(self):
-        c = self._capture_kb()
-        handler = self._find_handler(c["kb"], "c-c")
-        event = MagicMock()
-        handler(event)
-        assert c["wizard"].result == "skipped"
+# ---------------------------------------------------------------------------
+# run_onboarding_wizard (entry point, TUI faked)
+# ---------------------------------------------------------------------------
+
+
+def _fake_tui(result, trigger_oauth=None, raises=None):
+    class FakeTUI:
+        def __init__(self, wizard, **kwargs):
+            self._wizard = wizard
+
+        def run(self):
+            if raises is not None:
+                raise raises
+            self._wizard.result = result
+            self._wizard.trigger_oauth = trigger_oauth
+
+    return FakeTUI
 
 
 class TestRunOnboardingWizard:
@@ -434,124 +366,56 @@ class TestRunOnboardingWizard:
     @patch(f"{MODULE}.mark_onboarding_complete")
     @patch("code_puppy.messaging.emit_info")
     @patch("code_puppy.tools.command_runner.set_awaiting_user_input")
-    @patch(f"{MODULE}.sys")
-    @patch(f"{MODULE}.Application")
-    async def test_skipped(self, MockApp, mock_sys, mock_set, mock_emit, mock_mark):
+    async def test_skipped(self, mock_set, mock_emit, mock_mark):
         from code_puppy.command_line.onboarding_wizard import run_onboarding_wizard
 
-        mock_sys.stdout = MagicMock()
-        app_instance = MagicMock()
-
-        async def fake_run_async():
-            pass
-
-        app_instance.run_async = fake_run_async
-        MockApp.return_value = app_instance
-
-        with patch(f"{MODULE}.OnboardingWizard") as MockWizard:
-            wizard = MagicMock()
-            wizard.TOTAL_SLIDES = 5
-            wizard.result = "skipped"
-            wizard._should_exit = True
-            wizard.trigger_oauth = None
-            MockWizard.return_value = wizard
-
+        with patch(f"{MODULE}.OnboardingTUI", _fake_tui("skipped")):
             result = await run_onboarding_wizard()
-            assert result == "skipped"
-            mock_mark.assert_called_once()
+        assert result == "skipped"
+        mock_mark.assert_called_once()
 
+    @pytest.mark.parametrize(
+        ("trigger_oauth", "expected"),
+        [(None, "completed"), ("chatgpt", "chatgpt")],
+        ids=["completed", "trigger_oauth"],
+    )
     @pytest.mark.asyncio
     @patch(f"{MODULE}.mark_onboarding_complete")
     @patch("code_puppy.messaging.emit_info")
     @patch("code_puppy.tools.command_runner.set_awaiting_user_input")
-    @patch(f"{MODULE}.sys")
-    @patch(f"{MODULE}.Application")
-    async def test_completed(self, MockApp, mock_sys, mock_set, mock_emit, mock_mark):
-        from code_puppy.command_line.onboarding_wizard import run_onboarding_wizard
-
-        mock_sys.stdout = MagicMock()
-        app_instance = MagicMock()
-
-        async def fake_run_async():
-            pass
-
-        app_instance.run_async = fake_run_async
-        MockApp.return_value = app_instance
-
-        with patch(f"{MODULE}.OnboardingWizard") as MockWizard:
-            wizard = MagicMock()
-            wizard.TOTAL_SLIDES = 5
-            wizard.result = "completed"
-            wizard._should_exit = True
-            wizard.trigger_oauth = None
-            MockWizard.return_value = wizard
-
-            result = await run_onboarding_wizard()
-            assert result == "completed"
-
-    @pytest.mark.asyncio
-    @patch(f"{MODULE}.mark_onboarding_complete")
-    @patch("code_puppy.messaging.emit_info")
-    @patch("code_puppy.tools.command_runner.set_awaiting_user_input")
-    @patch(f"{MODULE}.sys")
-    @patch(f"{MODULE}.Application")
-    async def test_trigger_oauth(
-        self, MockApp, mock_sys, mock_set, mock_emit, mock_mark
+    async def test_run_wizard_completion(
+        self, mock_set, mock_emit, mock_mark, trigger_oauth, expected
     ):
         from code_puppy.command_line.onboarding_wizard import run_onboarding_wizard
 
-        mock_sys.stdout = MagicMock()
-        app_instance = MagicMock()
-
-        async def fake_run_async():
-            pass
-
-        app_instance.run_async = fake_run_async
-        MockApp.return_value = app_instance
-
-        with patch(f"{MODULE}.OnboardingWizard") as MockWizard:
-            wizard = MagicMock()
-            wizard.TOTAL_SLIDES = 5
-            wizard.result = "completed"
-            wizard._should_exit = True
-            wizard.trigger_oauth = "chatgpt"
-            MockWizard.return_value = wizard
-
+        with patch(f"{MODULE}.OnboardingTUI", _fake_tui("completed", trigger_oauth)):
             result = await run_onboarding_wizard()
-            assert result == "chatgpt"
+        assert result == expected
+        mock_mark.assert_called_once()
+
+    @pytest.mark.asyncio
+    @patch(f"{MODULE}.mark_onboarding_complete")
+    @patch("code_puppy.messaging.emit_info")
+    @patch("code_puppy.tools.command_runner.set_awaiting_user_input")
+    async def test_keyboard_interrupt(self, mock_set, mock_emit, mock_mark):
+        from code_puppy.command_line.onboarding_wizard import run_onboarding_wizard
+
+        with patch(
+            f"{MODULE}.OnboardingTUI", _fake_tui(None, raises=KeyboardInterrupt())
+        ):
+            result = await run_onboarding_wizard()
+        assert result == "skipped"
 
     @pytest.mark.asyncio
     @patch("code_puppy.messaging.emit_info")
     @patch("code_puppy.tools.command_runner.set_awaiting_user_input")
-    @patch(f"{MODULE}.sys")
-    @patch(f"{MODULE}.Application")
-    async def test_keyboard_interrupt(self, MockApp, mock_sys, mock_set, mock_emit):
+    async def test_exception(self, mock_set, mock_emit):
         from code_puppy.command_line.onboarding_wizard import run_onboarding_wizard
 
-        mock_sys.stdout = MagicMock()
-        app_instance = MagicMock()
-        app_instance.run_async = AsyncMock(side_effect=KeyboardInterrupt)
-        MockApp.return_value = app_instance
-
-        with patch(f"{MODULE}.mark_onboarding_complete"):
+        with patch(
+            f"{MODULE}.OnboardingTUI", _fake_tui(None, raises=RuntimeError("boom"))
+        ):
             result = await run_onboarding_wizard()
-            assert result == "skipped"
-
-    @pytest.mark.asyncio
-    @patch("code_puppy.messaging.emit_info")
-    @patch("code_puppy.tools.command_runner.set_awaiting_user_input")
-    @patch(f"{MODULE}.sys")
-    @patch(f"{MODULE}.Application")
-    async def test_exception(self, MockApp, mock_sys, mock_set, mock_emit):
-        from code_puppy.command_line.onboarding_wizard import run_onboarding_wizard
-
-        mock_sys.stdout = MagicMock()
-        app_instance = MagicMock()
-        app_instance.run_async = AsyncMock(side_effect=RuntimeError("boom"))
-        MockApp.return_value = app_instance
-
-        result = await run_onboarding_wizard()
-        # result is None on generic exception
         assert result is None
 
 

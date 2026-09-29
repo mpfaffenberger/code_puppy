@@ -1,8 +1,8 @@
 """Ask User Question tool for code-puppy.
 
 This tool allows agents to ask users interactive multiple-choice questions
-through a terminal TUI interface. Uses prompt_toolkit for the split-panel
-UI similar to the /colors command.
+through a terminal TUI interface. Termflow split-panel UI: question
+headers on the left, the current question and its options on the right.
 """
 
 from .handler import ask_user_question

@@ -10,7 +10,6 @@ This module provides comprehensive coverage for configuration commands including
 - Integration scenarios
 """
 
-import concurrent.futures
 import json
 import tempfile
 from pathlib import Path
@@ -20,7 +19,6 @@ import pytest
 
 # Import the functions we need to test
 from code_puppy.command_line.config_commands import (
-    handle_diff_command,
     handle_pin_model_command,
     handle_set_command,
     handle_unpin_command,
@@ -85,24 +83,22 @@ class TestSetCommand:
 
                     mock_set.assert_called_once_with("test_key", "")
 
-    def test_set_command_value_with_equals(self):
-        """Test set command with value containing equals sign."""
+    @pytest.mark.parametrize(
+        ("command", "key", "value"),
+        [
+            ("/set key=value=with=equals", "key", "value=with=equals"),
+            ("/set invalid_key value", "invalid_key", "value"),
+        ],
+        ids=["value_with_equals", "invalid_key"],
+    )
+    def test_set_command_passthrough(self, command, key, value):
+        """Test set command passes the value through to set_config_value."""
         with patch("code_puppy.config.set_config_value") as mock_set:
             with patch("code_puppy.messaging.emit_success"):
-                result = handle_set_command("/set key=value=with=equals")
+                result = handle_set_command(command)
                 assert result is True
 
-                mock_set.assert_called_once_with("key", "value=with=equals")
-
-    def test_set_command_invalid_key(self):
-        """Test set command with invalid configuration key."""
-        with patch("code_puppy.config.set_config_value") as mock_set:
-            with patch("code_puppy.messaging.emit_success"):
-                result = handle_set_command("/set invalid_key value")
-                assert result is True
-
-                # The actual implementation doesn't validate keys, it just calls set_config_value
-                mock_set.assert_called_once_with("invalid_key", "value")
+                mock_set.assert_called_once_with(key, value)
 
     def test_set_command_no_arguments(self):
         """Test set command with no arguments launches interactive menu."""
@@ -370,117 +366,6 @@ class TestUnpinCommand:
                     mock_error.assert_called_once_with(
                         "Agent 'invalid_agent' not found"
                     )
-
-
-class TestDiffCommand:
-    """Extended tests for diff command functionality."""
-
-    def test_diff_command_successful_configuration(self):
-        """Test diff command with successful configuration."""
-        mock_result = {"add_color": "#00ff00", "del_color": "#ff0000"}
-
-        with patch(
-            "code_puppy.command_line.diff_menu.interactive_diff_picker",
-            return_value=mock_result,
-        ):
-            with patch("code_puppy.config.set_diff_addition_color") as mock_set_add:
-                with patch("code_puppy.config.set_diff_deletion_color") as mock_set_del:
-                    result = handle_diff_command("/diff")
-                    assert result is True
-
-                    mock_set_add.assert_called_once_with("#00ff00")
-                    mock_set_del.assert_called_once_with("#ff0000")
-
-    def test_diff_command_cancelled_selection(self):
-        """Test diff command when user cancels selection."""
-        with patch(
-            "code_puppy.command_line.diff_menu.interactive_diff_picker",
-            return_value=None,
-        ):
-            result = handle_diff_command("/diff")
-            assert result is True
-
-    def test_diff_command_picker_error(self):
-        """Test diff command handles picker errors gracefully."""
-        with patch(
-            "code_puppy.command_line.diff_menu.interactive_diff_picker",
-            side_effect=Exception("Picker failed"),
-        ):
-            # The actual implementation lets the exception propagate
-            with pytest.raises(Exception, match="Picker failed"):
-                handle_diff_command("/diff")
-
-    def test_diff_command_application_error(self):
-        """Test diff command handles configuration application errors."""
-        mock_result = {"add_color": "#00ff00", "del_color": "#ff0000"}
-
-        with patch(
-            "code_puppy.command_line.diff_menu.interactive_diff_picker",
-            return_value=mock_result,
-        ):
-            with patch(
-                "code_puppy.config.set_diff_addition_color",
-                side_effect=Exception("Set failed"),
-            ):
-                with patch("code_puppy.messaging.emit_error") as mock_error:
-                    result = handle_diff_command("/diff")
-                    assert result is True
-
-                    mock_error.assert_called_once_with(
-                        "Failed to apply diff settings: Set failed"
-                    )
-
-    def test_diff_command_concurrent_futures_timeout(self):
-        """Test diff command handles concurrent futures timeout."""
-        with patch("concurrent.futures.ThreadPoolExecutor") as mock_executor_class:
-            mock_executor = MagicMock()
-            mock_executor_class.return_value.__enter__.return_value = mock_executor
-
-            mock_future = MagicMock()
-            mock_future.result.side_effect = concurrent.futures.TimeoutError(
-                "Operation timed out"
-            )
-            mock_executor.submit.return_value = mock_future
-
-            # Should propagate timeout error
-            with pytest.raises(concurrent.futures.TimeoutError):
-                handle_diff_command("/diff")
-
-
-class TestShowColorOptions:
-    """Test the _show_color_options utility function."""
-
-    def test_show_addition_color_options(self):
-        """Test showing color options for additions."""
-        with patch("code_puppy.messaging.emit_info") as mock_emit:
-            _show_color_options("additions")
-
-            # Should emit multiple messages
-            assert mock_emit.call_count >= 3
-
-            # Check for usage instructions
-            usage_call = [
-                call[0][0]
-                for call in mock_emit.call_args_list
-                if "Usage:" in call[0][0]
-            ][0]
-            assert "/diff additions <color_name>" in usage_call
-
-    def test_show_deletion_color_options(self):
-        """Test showing color options for deletions."""
-        with patch("code_puppy.messaging.emit_info") as mock_emit:
-            _show_color_options("deletions")
-
-            # Should emit multiple messages
-            assert mock_emit.call_count >= 3
-
-            # Check for usage instructions
-            usage_call = [
-                call[0][0]
-                for call in mock_emit.call_args_list
-                if "Usage:" in call[0][0]
-            ][0]
-            assert "/diff deletions <color_name>" in usage_call
 
 
 class TestGetAgentByName:

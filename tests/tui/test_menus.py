@@ -6,8 +6,6 @@ from code_puppy.tui.app import build_app
 from code_puppy.tui.menus import open_autosave_picker
 from code_puppy.tui.screens.agent_picker import AgentPickerScreen
 from code_puppy.tui.screens.base import FilterableListScreen, ListChoice
-from code_puppy.tui.screens.colors_picker import ColorsPickerScreen
-from code_puppy.tui.screens.diff_picker import DiffPickerScreen
 from code_puppy.tui.screens.model_settings import (
     ModelSettingDetailScreen,
     ModelSettingsScreen,
@@ -212,118 +210,6 @@ async def test_autosave_no_sessions_no_modal(monkeypatch):
         open_autosave_picker(app)
         await pilot.pause(0.1)
         assert not isinstance(app.screen, SessionPickerScreen)
-
-
-@pytest.mark.asyncio
-async def test_colors_command_opens_banner_picker():
-    app = build_app()
-    async with app.run_test() as pilot:
-        await pilot.pause()
-        app.submit_prompt("/colors")
-        await pilot.pause(0.2)
-        assert isinstance(app.screen, ColorsPickerScreen)
-
-
-@pytest.mark.asyncio
-async def test_colors_two_panel_applies(monkeypatch):
-    applied = {}
-    monkeypatch.setattr(
-        "code_puppy.config.set_banner_color",
-        lambda banner, color: applied.update({"banner": banner, "color": color}),
-    )
-    app = build_app()
-    async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.pause()
-        app.submit_prompt("/colors")
-        await pilot.pause(0.2)
-        assert isinstance(app.screen, ColorsPickerScreen)
-        # Filter to 'thinking' so the highlighted row is order-independent.
-        await pilot.press(*"thinking")
-        await pilot.pause(0.1)
-        await pilot.press("enter")  # open swatches for the highlighted banner
-        await pilot.pause(0.1)
-        assert isinstance(app.screen, FilterableListScreen)
-        await pilot.press(*"blue")
-        await pilot.pause(0.1)
-        await pilot.press("enter")  # choose the color
-        await pilot.pause(0.1)
-    assert applied.get("banner") == "thinking"
-    assert applied.get("color")
-
-
-@pytest.mark.asyncio
-async def test_colors_dismiss_button_closes():
-    app = build_app()
-    async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.pause()
-        app.submit_prompt("/colors")
-        await pilot.pause(0.2)
-        assert isinstance(app.screen, ColorsPickerScreen)
-        await pilot.click("#dismiss")
-        await pilot.pause(0.2)
-        assert not isinstance(app.screen, ColorsPickerScreen)
-
-
-@pytest.mark.asyncio
-async def test_diff_command_opens_color_picker(monkeypatch):
-    monkeypatch.setattr("code_puppy.config.get_diff_addition_color", lambda: "#000000")
-    app = build_app()
-    async with app.run_test() as pilot:
-        await pilot.pause()
-        app.submit_prompt("/diff")
-        await pilot.pause(0.2)
-        assert isinstance(app.screen, DiffPickerScreen)
-
-
-@pytest.mark.asyncio
-async def test_diff_two_panel_applies_both_colors(monkeypatch):
-    applied = {}
-    monkeypatch.setattr("code_puppy.config.get_diff_addition_color", lambda: "#000000")
-    monkeypatch.setattr("code_puppy.config.get_diff_deletion_color", lambda: "#111111")
-    monkeypatch.setattr(
-        "code_puppy.config.set_diff_addition_color",
-        lambda c: applied.__setitem__("add", c),
-    )
-    monkeypatch.setattr(
-        "code_puppy.config.set_diff_deletion_color",
-        lambda c: applied.__setitem__("del", c),
-    )
-    app = build_app()
-    async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.pause()
-        app.submit_prompt("/diff")
-        await pilot.pause(0.2)
-        assert isinstance(app.screen, DiffPickerScreen)
-        # First menu row is "Configure Addition Color".
-        await pilot.press("enter")  # open addition swatch picker
-        await pilot.pause(0.1)
-        assert isinstance(app.screen, FilterableListScreen)
-        await pilot.press("enter")  # choose first addition color
-        await pilot.pause(0.1)
-        assert isinstance(app.screen, DiffPickerScreen)
-        # Move to "Configure Deletion Color" and open its picker.
-        await pilot.press("down")
-        await pilot.pause(0.1)
-        await pilot.press("enter")  # open deletion swatch picker
-        await pilot.pause(0.1)
-        assert isinstance(app.screen, FilterableListScreen)
-        await pilot.press("enter")  # choose first deletion color
-        await pilot.pause(0.1)
-    assert "add" in applied and "del" in applied
-    assert applied["add"].startswith("#") and applied["del"].startswith("#")
-
-
-@pytest.mark.asyncio
-async def test_diff_dismiss_button_closes():
-    app = build_app()
-    async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.pause()
-        app.submit_prompt("/diff")
-        await pilot.pause(0.2)
-        assert isinstance(app.screen, DiffPickerScreen)
-        await pilot.click("#dismiss")
-        await pilot.pause(0.2)
-        assert not isinstance(app.screen, DiffPickerScreen)
 
 
 @pytest.mark.asyncio

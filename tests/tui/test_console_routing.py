@@ -1,49 +1,44 @@
-"""Phase 4 residuals: banners route through the queue (not raw stdout)."""
+"""Phase 4 residuals: tool banners never hit raw stdout in the TUI."""
 
+from io import StringIO
 from types import SimpleNamespace
 
 import pytest
-
-
-class _FakeQueueConsole:
-    def __init__(self, sink):
-        self._sink = sink
-
-    def print(self, *values, **kwargs):
-        self._sink.append(values[0] if values else "")
+from rich.console import Console
 
 
 @pytest.mark.asyncio
-async def test_mcp_tool_call_banner_uses_queue_console(monkeypatch):
-    printed = []
+async def test_mcp_tool_call_line_uses_streaming_console(monkeypatch, capsys):
+    """The compact MCP call line goes to the streaming console the TUI installs
+    (its quiet console), never straight to stdout where it would corrupt the
+    Textual screen."""
+    from code_puppy.agents import event_stream_handler
+    from code_puppy.mcp_ import managed_server
+
+    sink = StringIO()
     monkeypatch.setattr(
-        "code_puppy.messaging.get_queue_console",
-        lambda: _FakeQueueConsole(printed),
+        event_stream_handler,
+        "_streaming_console",
+        Console(file=sink, force_terminal=False, width=120),
     )
+
+    async def no_schema(_call_tool, _name):
+        return None
+
+    monkeypatch.setattr(managed_server, "_input_schema_for_tool", no_schema)
     called = {}
 
-    async def fake_call_tool(name, args, deps):
+    async def fake_call_tool(name, args, metadata=None):
         called["name"] = name
+        called["metadata"] = metadata
         return "ok"
 
-    from code_puppy.mcp_.managed_server import process_tool_call
-
     ctx = SimpleNamespace(deps={"x": 1})
-    result = await process_tool_call(ctx, fake_call_tool, "mytool", {"a": 1})
+    result = await managed_server.process_tool_call(
+        ctx, fake_call_tool, "mytool", {"a": 1}
+    )
 
     assert result == "ok"
-    assert called["name"] == "mytool"
-    assert any("MCP TOOL CALL" in str(p) for p in printed)
-
-
-def test_wiggum_banner_routes_to_queue_in_tui(monkeypatch):
-    monkeypatch.setattr("code_puppy.config._TUI_MODE", True)
-    printed = []
-    monkeypatch.setattr(
-        "code_puppy.messaging.get_queue_console",
-        lambda: _FakeQueueConsole(printed),
-    )
-    from code_puppy.plugins.wiggum.register_callbacks import _display_banner_message
-
-    _display_banner_message("GOAL MODE", "activated", banner_name="llm_judge")
-    assert printed  # routed to the queue, not printed straight to stdout
+    assert called == {"name": "mytool", "metadata": {"deps": {"x": 1}}}
+    assert "mytool" in sink.getvalue()
+    assert "mytool" not in capsys.readouterr().out

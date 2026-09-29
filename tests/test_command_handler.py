@@ -1,6 +1,8 @@
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from code_puppy.command_line.command_handler import handle_command
 from code_puppy.command_line.command_registry import get_command
 
@@ -186,7 +188,8 @@ def test_m_unrecognized_model_lists_options():
         mocks["emit_warning"].stop()
 
 
-def test_set_config_value_equals():
+@pytest.mark.parametrize("command", ["/set pony=rainbow", "/set pony rainbow"])
+def test_set_config_value_equals_or_space(command):
     mocks = setup_messaging_mocks()
     mock_emit_success = mocks["emit_success"].start()
 
@@ -197,30 +200,7 @@ def test_set_config_value_equals():
                 "code_puppy.config.get_config_keys", return_value=["pony", "rainbow"]
             ),
         ):
-            result = handle_command("/set pony=rainbow")
-            assert result is True
-            mock_set_cfg.assert_called_once_with("pony", "rainbow")
-            mock_emit_success.assert_called()
-            assert any(
-                "Set" in str(call) and "pony" in str(call) and "rainbow" in str(call)
-                for call in mock_emit_success.call_args_list
-            )
-    finally:
-        mocks["emit_success"].stop()
-
-
-def test_set_config_value_space():
-    mocks = setup_messaging_mocks()
-    mock_emit_success = mocks["emit_success"].start()
-
-    try:
-        with (
-            patch("code_puppy.config.set_config_value") as mock_set_cfg,
-            patch(
-                "code_puppy.config.get_config_keys", return_value=["pony", "rainbow"]
-            ),
-        ):
-            result = handle_command("/set pony rainbow")
+            result = handle_command(command)
             assert result is True
             mock_set_cfg.assert_called_once_with("pony", "rainbow")
             mock_emit_success.assert_called()
@@ -296,20 +276,24 @@ def test_unknown_command():
         mocks["emit_warning"].stop()
 
 
-def test_bare_slash_shows_current_model():
+@pytest.mark.parametrize(
+    ("active_model", "command"),
+    [("yarn", "/"), ("zoom", "/    ")],
+)
+def test_bare_slash_shows_current_model(active_model, command):
     mocks = setup_messaging_mocks()
     mock_emit_info = mocks["emit_info"].start()
 
     try:
         with patch(
             "code_puppy.command_line.model_picker_completion.get_active_model",
-            return_value="yarn",
+            return_value=active_model,
         ):
-            result = handle_command("/")
+            result = handle_command(command)
             assert result is True
             mock_emit_info.assert_called()
             assert any(
-                "Current Model:" in str(call) and "yarn" in str(call)
+                "Current Model:" in str(call) and active_model in str(call)
                 for call in mock_emit_info.call_args_list
             )
     finally:
@@ -346,26 +330,6 @@ def test_non_command_returns_false():
     # No need for mocks here since we're just testing the return value
     result = handle_command("echo hi")
     assert result is False
-
-
-def test_bare_slash_with_spaces():
-    mocks = setup_messaging_mocks()
-    mock_emit_info = mocks["emit_info"].start()
-
-    try:
-        with patch(
-            "code_puppy.command_line.model_picker_completion.get_active_model",
-            return_value="zoom",
-        ):
-            result = handle_command("/    ")
-            assert result is True
-            mock_emit_info.assert_called()
-            assert any(
-                "Current Model:" in str(call) and "zoom" in str(call)
-                for call in mock_emit_info.call_args_list
-            )
-    finally:
-        mocks["emit_info"].stop()
 
 
 def test_agent_switch_triggers_autosave_rotation():
@@ -551,18 +515,11 @@ def test_tools_read_error():
         mocks["emit_info"].stop()
 
 
-def test_exit_command():
-    """Test that /exit command works and shows Goodbye message."""
+@pytest.mark.parametrize("command", ["/exit", "/quit"])
+def test_exit_or_quit_command(command):
+    """Test that /exit and /quit work and show the Goodbye message."""
     with patch("code_puppy.messaging.emit_success") as mock_success:
-        result = handle_command("/exit")
-        assert result is True
-        mock_success.assert_called_once_with("Goodbye!")
-
-
-def test_quit_command():
-    """Test that /quit command works via alias and shows Goodbye message."""
-    with patch("code_puppy.messaging.emit_success") as mock_success:
-        result = handle_command("/quit")
+        result = handle_command(command)
         assert result is True
         mock_success.assert_called_once_with("Goodbye!")
 
@@ -575,18 +532,11 @@ def test_quit_command():
 class TestRegistryIntegration:
     """Tests for command registry integration with handle_command()."""
 
-    def test_registry_command_is_executed(self):
-        """Test that registered commands are executed via registry."""
-        # /help is registered - verify it's handled
+    @pytest.mark.parametrize("command", ["/help", "/h"])
+    def test_registry_command_and_alias(self, command):
+        """Test that registered /help and its /h alias are executed."""
         with patch("code_puppy.messaging.emit_info") as mock_emit:
-            result = handle_command("/help")
-            assert result is True
-            mock_emit.assert_called()
-
-    def test_command_alias_works(self):
-        """Test that command aliases work (e.g., /h for /help)."""
-        with patch("code_puppy.messaging.emit_info") as mock_emit:
-            result = handle_command("/h")
+            result = handle_command(command)
             assert result is True
             mock_emit.assert_called()
 
@@ -687,10 +637,6 @@ class TestCompactCommand:
             {"role": "user", "content": "Hello"},
         ]
         mock_agent.estimate_tokens_for_message.return_value = 10
-        mock_agent.summarize_messages.return_value = (
-            [{"role": "system", "content": "summarized"}],
-            [],
-        )
 
         with (
             patch(
@@ -701,7 +647,12 @@ class TestCompactCommand:
                 "code_puppy.config.get_compaction_strategy",
                 return_value="summarization",
             ),
-            patch("code_puppy.config.get_protected_token_count", return_value=1000),
+            patch("code_puppy.agents._compaction.build_compaction_strategy"),
+            patch("code_puppy.agents._compaction.resolve_agent_model"),
+            patch(
+                "code_puppy.agents._compaction.run_compaction_sync",
+                return_value=[{"role": "system", "content": "summarized"}],
+            ),
             patch("code_puppy.messaging.emit_info"),
             patch("code_puppy.messaging.emit_success") as mock_success,
         ):
@@ -744,17 +695,18 @@ class TestCompactCommand:
             patch(
                 "code_puppy.config.get_compaction_strategy", return_value="truncation"
             ),
-            patch("code_puppy.config.get_protected_token_count", return_value=1000),
+            patch("code_puppy.agents._compaction.build_compaction_strategy"),
+            patch("code_puppy.agents._compaction.resolve_agent_model"),
             patch(
-                "code_puppy.agents._compaction.truncate",
+                "code_puppy.agents._compaction.run_compaction_sync",
                 return_value=[{"role": "system", "content": "System"}],
-            ) as mock_truncate,
+            ) as mock_compact,
             patch("code_puppy.messaging.emit_info"),
             patch("code_puppy.messaging.emit_success"),
         ):
             result = handle_command("/compact")
             assert result is True
-            mock_truncate.assert_called_once()
+            mock_compact.assert_called_once()
 
 
 class TestTruncateCommand:
@@ -774,6 +726,14 @@ class TestTruncateCommand:
             patch(
                 "code_puppy.agents.agent_manager.get_current_agent",
                 return_value=mock_agent,
+            ),
+            patch("code_puppy.agents._compaction.resolve_agent_model"),
+            patch(
+                "code_puppy.agents._compaction.run_compaction_sync",
+                return_value=[
+                    {"role": "system", "content": "System"},
+                    {"role": "user", "content": "3"},
+                ],
             ),
             patch("code_puppy.messaging.emit_success") as mock_success,
         ):
@@ -966,133 +926,75 @@ class TestGetCommandsHelp:
 class TestCommandRegistry:
     """Tests verifying commands are properly registered."""
 
-    def test_help_command_registered(self):
-        """Test that help command is registered."""
-        cmd = get_command("help")
+    @pytest.mark.parametrize(
+        "name,category",
+        [
+            ("show", "config"),
+            ("compact", "session"),
+            ("truncate", "session"),
+            ("set", "config"),
+            ("agent", "core"),
+            ("mcp", "core"),
+            ("pin_model", "config"),
+            ("unpin", "config"),
+            ("generate-pr-description", "core"),
+            ("plan", "core"),
+            ("dump_context", "session"),
+            ("load_context", "session"),
+        ],
+    )
+    def test_categorized_command_registered(self, name, category):
+        """Commands are registered under their expected category."""
+        cmd = get_command(name)
         assert cmd is not None
-        assert cmd.name == "help"
-        assert "h" in cmd.aliases
+        assert cmd.category == category
 
-    def test_session_command_registered(self):
-        """Test that session command is registered."""
-        cmd = get_command("session")
+    @pytest.mark.parametrize(
+        "name,alias",
+        [
+            ("help", "h"),
+            ("session", "s"),
+            ("exit", "quit"),
+            ("model", "m"),
+            ("agent", "a"),
+            ("clear", "new"),
+        ],
+    )
+    def test_aliased_command_registered(self, name, alias):
+        """Commands advertise their documented alias."""
+        cmd = get_command(name)
         assert cmd is not None
-        assert cmd.name == "session"
-        assert "s" in cmd.aliases
+        assert alias in cmd.aliases
 
-    def test_show_command_registered(self):
-        """Test that show command is registered."""
-        cmd = get_command("show")
-        assert cmd is not None
-        assert cmd.category == "config"
-
-    def test_cd_command_registered(self):
-        """Test that cd command is registered."""
-        cmd = get_command("cd")
-        assert cmd is not None
-
-    def test_tools_command_registered(self):
-        """Test that tools command is registered."""
-        cmd = get_command("tools")
-        assert cmd is not None
-
-    def test_exit_command_registered(self):
-        """Test that exit command is registered."""
-        cmd = get_command("exit")
-        assert cmd is not None
-        assert "quit" in cmd.aliases
-
-    def test_compact_command_registered(self):
-        """Test that compact command is registered."""
-        cmd = get_command("compact")
-        assert cmd is not None
-        assert cmd.category == "session"
+    @pytest.mark.parametrize("name", ["cd", "tools", "autosave_load"])
+    def test_simple_command_registered(self, name):
+        """Commands without extras are still registered."""
+        assert get_command(name) is not None
 
     def test_model_controls_are_not_top_level_commands(self):
         """Reasoning effort and verbosity live only in /model_settings."""
         assert get_command("reasoning") is None
         assert get_command("verbosity") is None
 
-    def test_truncate_command_registered(self):
-        """Test that truncate command is registered."""
-        cmd = get_command("truncate")
-        assert cmd is not None
-        assert cmd.category == "session"
 
-    def test_autosave_load_command_registered(self):
-        """Test that autosave_load command is registered."""
-        cmd = get_command("autosave_load")
-        assert cmd is not None
-
-    def test_set_command_registered(self):
-        """Test that set command is registered."""
-        cmd = get_command("set")
-        assert cmd is not None
-        assert cmd.category == "config"
-
-    def test_agent_command_registered(self):
-        """Test that agent command is registered."""
-        cmd = get_command("agent")
-        assert cmd is not None
-        assert cmd.category == "core"
-
-    def test_model_command_registered(self):
-        """Test that model command is registered."""
-        cmd = get_command("model")
-        assert cmd is not None
-        assert "m" in cmd.aliases
-
-    def test_mcp_command_registered(self):
-        """Test that mcp command is registered."""
-        cmd = get_command("mcp")
-        assert cmd is not None
-        assert cmd.category == "core"
-
-    def test_pin_model_command_registered(self):
-        """Test that pin_model command is registered."""
-        cmd = get_command("pin_model")
-        assert cmd is not None
-        assert cmd.category == "config"
-
-    def test_unpin_command_registered(self):
-        """Test that unpin command is registered."""
-        cmd = get_command("unpin")
-        assert cmd is not None
-        assert cmd.category == "config"
-
-    def test_generate_pr_description_command_registered(self):
-        """Test that generate-pr-description command is registered."""
-        cmd = get_command("generate-pr-description")
-        assert cmd is not None
-        assert cmd.category == "core"
-
-    def test_plan_command_registered(self):
-        """Test that /plan command is registered."""
-        cmd = get_command("plan")
-        assert cmd is not None
-        assert cmd.category == "core"
-
-    def test_dump_context_command_registered(self):
-        """Test that dump_context command is registered."""
-        cmd = get_command("dump_context")
-        assert cmd is not None
-        assert cmd.category == "session"
-
-    def test_load_context_command_registered(self):
-        """Test that load_context command is registered."""
-        cmd = get_command("load_context")
-        assert cmd is not None
-        assert cmd.category == "session"
-
-    def test_diff_command_registered(self):
-        """Test that diff command is registered."""
-        cmd = get_command("diff")
-        assert cmd is not None
-        assert cmd.category == "config"
-
-
-def test_m_command_case_sensitive_baseline():
-    """Test that /m works with exact case (baseline)."""
+@pytest.mark.parametrize(
+    ("input_command", "expected_result", "expected_model", "expect_called"),
+    [
+        ("/m gpt-5", "", "gpt-5", True),
+        ("/M gpt-5", "", "gpt-5", True),
+        ("/m GPT-5", "", "gpt-5", True),
+        ("/MODEL ZAI-GLM-5.1-API", "", "zai-glm-5.1-api", True),
+        ("/Model Gemini-2.5-Flash", "", "gemini-2.5-flash", True),
+        ("/m glm-4.5-air-coding", "", "GLM-4.5-AIR-CODING", True),
+        ("/M GPT-5 tell me a joke", "tell me a joke", "gpt-5", True),
+        ("/M NONEXISTENT-MODEL", None, None, False),
+        ("/M ", None, None, False),
+    ],
+)
+def test_m_command_case_insensitive(
+    input_command, expected_result, expected_model, expect_called
+):
+    """Test case-insensitive /m and /model command matching."""
     test_models = [
         "gpt-5",
         "zai-glm-5.1-api",
@@ -1113,238 +1015,19 @@ def test_m_command_case_sensitive_baseline():
             update_model_in_input,
         )
 
-        result = update_model_in_input("/m gpt-5")
-        assert result == ""  # Command and model stripped
-        mock_set_model.assert_called_once_with("gpt-5")
+        result = update_model_in_input(input_command)
+        if expected_result is None:
+            assert result is None
+        else:
+            assert result == expected_result
+        if expect_called:
+            mock_set_model.assert_called_once_with(expected_model)
+        else:
+            mock_set_model.assert_not_called()
 
 
-def test_m_command_case_insensitive_command():
-    """Test that /M works (case-insensitive command)."""
-    test_models = [
-        "gpt-5",
-        "zai-glm-5.1-api",
-        "gemini-2.5-flash",
-        "GLM-4.5-AIR-CODING",
-    ]
-
-    with (
-        patch(
-            "code_puppy.command_line.model_picker_completion.load_model_names",
-            return_value=test_models,
-        ),
-        patch(
-            "code_puppy.command_line.model_picker_completion.set_active_model"
-        ) as mock_set_model,
-    ):
-        from code_puppy.command_line.model_picker_completion import (
-            update_model_in_input,
-        )
-
-        result = update_model_in_input("/M gpt-5")
-        assert result == ""  # Command and model stripped
-        mock_set_model.assert_called_once_with("gpt-5")
-
-
-def test_m_command_case_insensitive_model_name():
-    """Test that /m works with uppercase model name."""
-    test_models = [
-        "gpt-5",
-        "zai-glm-5.1-api",
-        "gemini-2.5-flash",
-        "GLM-4.5-AIR-CODING",
-    ]
-
-    with (
-        patch(
-            "code_puppy.command_line.model_picker_completion.load_model_names",
-            return_value=test_models,
-        ),
-        patch(
-            "code_puppy.command_line.model_picker_completion.set_active_model"
-        ) as mock_set_model,
-    ):
-        from code_puppy.command_line.model_picker_completion import (
-            update_model_in_input,
-        )
-
-        result = update_model_in_input("/m GPT-5")
-        assert result == ""  # Command and model stripped
-        mock_set_model.assert_called_once_with("gpt-5")
-
-
-def test_model_command_case_insensitive_both():
-    """Test that /MODEL works with uppercase model name."""
-    test_models = [
-        "gpt-5",
-        "zai-glm-5.1-api",
-        "gemini-2.5-flash",
-        "GLM-4.5-AIR-CODING",
-    ]
-
-    with (
-        patch(
-            "code_puppy.command_line.model_picker_completion.load_model_names",
-            return_value=test_models,
-        ),
-        patch(
-            "code_puppy.command_line.model_picker_completion.set_active_model"
-        ) as mock_set_model,
-    ):
-        from code_puppy.command_line.model_picker_completion import (
-            update_model_in_input,
-        )
-
-        result = update_model_in_input("/MODEL ZAI-GLM-5.1-API")
-        assert result == ""  # Command and model stripped
-        mock_set_model.assert_called_once_with("zai-glm-5.1-api")
-
-
-def test_model_command_mixed_case():
-    """Test that /Model works with mixed case model name."""
-    test_models = [
-        "gpt-5",
-        "zai-glm-5.1-api",
-        "gemini-2.5-flash",
-        "GLM-4.5-AIR-CODING",
-    ]
-
-    with (
-        patch(
-            "code_puppy.command_line.model_picker_completion.load_model_names",
-            return_value=test_models,
-        ),
-        patch(
-            "code_puppy.command_line.model_picker_completion.set_active_model"
-        ) as mock_set_model,
-    ):
-        from code_puppy.command_line.model_picker_completion import (
-            update_model_in_input,
-        )
-
-        result = update_model_in_input("/Model Gemini-2.5-Flash")
-        assert result == ""  # Command and model stripped
-        mock_set_model.assert_called_once_with("gemini-2.5-flash")
-
-
-def test_model_command_with_hyphenated_case_insensitive():
-    """Test case-insensitive matching with complex hyphenated model names."""
-    test_models = [
-        "gpt-5",
-        "zai-glm-5.1-api",
-        "gemini-2.5-flash",
-        "GLM-4.5-AIR-CODING",
-    ]
-
-    with (
-        patch(
-            "code_puppy.command_line.model_picker_completion.load_model_names",
-            return_value=test_models,
-        ),
-        patch(
-            "code_puppy.command_line.model_picker_completion.set_active_model"
-        ) as mock_set_model,
-    ):
-        from code_puppy.command_line.model_picker_completion import (
-            update_model_in_input,
-        )
-
-        result = update_model_in_input("/m glm-4.5-air-coding")
-        assert result == ""  # Command and model stripped
-        mock_set_model.assert_called_once_with("GLM-4.5-AIR-CODING")
-
-
-def test_model_command_with_preserved_text():
-    """Test that remaining text is preserved after model stripping."""
-    test_models = [
-        "gpt-5",
-        "zai-glm-5.1-api",
-        "gemini-2.5-flash",
-        "GLM-4.5-AIR-CODING",
-    ]
-
-    with (
-        patch(
-            "code_puppy.command_line.model_picker_completion.load_model_names",
-            return_value=test_models,
-        ),
-        patch(
-            "code_puppy.command_line.model_picker_completion.set_active_model"
-        ) as mock_set_model,
-    ):
-        from code_puppy.command_line.model_picker_completion import (
-            update_model_in_input,
-        )
-
-        result = update_model_in_input("/M GPT-5 tell me a joke")
-        assert result == "tell me a joke"  # Remaining text preserved
-        mock_set_model.assert_called_once_with("gpt-5")
-
-
-def test_nonexistent_model_returns_none():
-    """Test that nonexistent model returns None regardless of case."""
-    test_models = [
-        "gpt-5",
-        "zai-glm-5.1-api",
-        "gemini-2.5-flash",
-        "GLM-4.5-AIR-CODING",
-    ]
-
-    with (
-        patch(
-            "code_puppy.command_line.model_picker_completion.load_model_names",
-            return_value=test_models,
-        ),
-        patch(
-            "code_puppy.command_line.model_picker_completion.set_active_model"
-        ) as mock_set_model,
-    ):
-        from code_puppy.command_line.model_picker_completion import (
-            update_model_in_input,
-        )
-
-        result = update_model_in_input("/M NONEXISTENT-MODEL")
-        assert result is None
-        mock_set_model.assert_not_called()
-
-
-def test_edge_case_empty_after_command():
-    """Test edge case of just command with space."""
-    test_models = [
-        "gpt-5",
-        "zai-glm-5.1-api",
-        "gemini-2.5-flash",
-        "GLM-4.5-AIR-CODING",
-    ]
-
-    with (
-        patch(
-            "code_puppy.command_line.model_picker_completion.load_model_names",
-            return_value=test_models,
-        ),
-        patch(
-            "code_puppy.command_line.model_picker_completion.set_active_model"
-        ) as mock_set_model,
-    ):
-        from code_puppy.command_line.model_picker_completion import (
-            update_model_in_input,
-        )
-
-        result = update_model_in_input("/M ")
-        assert result is None
-        mock_set_model.assert_not_called()
-
-
-# Note: Tests for newly migrated commands (set, agent, model, mcp, pin_model,
-# generate-pr-description, dump_context, load_context, diff) already exist above
-# and in TestCommandRegistry. All logic has been verified to be identical to original.
-# See LOGIC_VERIFICATION.md for detailed verification.
-
-
-def test_agent_command_alias_a_registered():
-    """Test that /a alias is registered for agent command."""
-    cmd = get_command("agent")
-    assert cmd is not None
-    assert "a" in cmd.aliases
+# Note: migrated-command tests (set/agent/model/mcp/pin_model/etc.) live above and
+# in TestCommandRegistry; logic verified identical — see LOGIC_VERIFICATION.md.
 
 
 def test_pin_model_command_case_insensitive_agent():
@@ -1447,7 +1130,7 @@ def test_unpin_command_nonexistent_agent_case_insensitive():
 
 def test_pin_model_completion_case_insensitive_agent():
     """Test that pin model completion works case-insensitively for agents."""
-    from prompt_toolkit.document import Document
+    from termflow.tui.completion import Document
 
     from code_puppy.command_line.pin_command_completion import PinModelCompleter
 
@@ -1475,7 +1158,7 @@ def test_pin_model_completion_case_insensitive_agent():
 
 def test_pin_model_completion_case_insensitive_model():
     """Test that pin model completion works case-insensitively for models."""
-    from prompt_toolkit.document import Document
+    from termflow.tui.completion import Document
 
     from code_puppy.command_line.pin_command_completion import PinModelCompleter
 
@@ -1503,7 +1186,7 @@ def test_pin_model_completion_case_insensitive_model():
 
 def test_unpin_completion_case_insensitive_agent():
     """Test that unpin completion works case-insensitively for agents."""
-    from prompt_toolkit.document import Document
+    from termflow.tui.completion import Document
 
     from code_puppy.command_line.pin_command_completion import UnpinCompleter
 

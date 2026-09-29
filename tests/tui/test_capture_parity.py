@@ -37,6 +37,15 @@ from code_puppy.messaging import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _show_tool_output(monkeypatch):
+    """Tool bodies are collapsed by default in both UIs; these tests check the
+    bridge's rendering fidelity, so opt into ``show_tool_output``."""
+    monkeypatch.setattr(
+        "code_puppy.messaging.rich_renderer.tool_output_visible", lambda: True
+    )
+
+
 def _renderable_messages():
     return [
         TextMessage(level=MessageLevel.INFO, text="hello"),
@@ -58,9 +67,6 @@ def _renderable_messages():
         ShellStartMessage(command="ls -la"),
         ShellLineMessage(line="some output", stream="stdout"),
         AgentReasoningMessage(reasoning="thinking", next_steps="do X"),
-        SubAgentInvocationMessage(
-            agent_name="cooper", session_id="s1", prompt="go", is_new_session=True
-        ),
         DividerMessage(),
         StatusPanelMessage(title="Status", fields={"model": "opus"}),
         VersionCheckMessage(
@@ -99,6 +105,10 @@ def _config_dependent_messages():
 def _skipped_messages():
     return [
         AgentResponseMessage(content="streamed elsewhere", is_markdown=True),
+        # Sub-agent banners render through their own path (never the transcript).
+        SubAgentInvocationMessage(
+            agent_name="cooper", session_id="s1", prompt="go", is_new_session=True
+        ),
         SpinnerControl(action="start", spinner_id="s"),
         UserInputRequest(prompt_id="p", prompt_text="name?"),
         ConfirmationRequest(prompt_id="p", title="Sure?", description="confirm"),

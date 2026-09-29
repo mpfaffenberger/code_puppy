@@ -501,18 +501,11 @@ class HealthMonitor:
             HealthCheckResult with check results
         """
         try:
-            # Get the pydantic server instance
             server.get_pydantic_server()
 
-            # Try to get available tools as a health check
-            # This requires the server to be responsive
+            # NOTE: simplified health check — confirm the server responds and is
+            # configured; no real MCP message is sent.
             try:
-                # Attempt to list tools - this is a good health check for MCP servers
-                # Note: This is a simplified check. In a real implementation,
-                # we'd need to send an actual MCP message
-
-                # For now, we'll check if we can create the server instance
-                # and if it appears to be configured correctly
                 config = server.config.config
                 command = config.get("command")
 

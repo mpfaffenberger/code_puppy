@@ -27,7 +27,7 @@ from code_puppy.command_line.uc_menu import (
     _load_source_code,
     _toggle_tool_enabled,
 )
-from code_puppy.plugins.universal_constructor.models import UCToolInfo
+from code_puppy_core_plugins.universal_constructor.models import UCToolInfo
 
 
 class UCToolsScreen(ModalScreen[None]):

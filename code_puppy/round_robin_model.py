@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, List
 
-from pydantic_ai._run_context import RunContext
+from pydantic_ai import RunContext
 from pydantic_ai.models import (
     Model,
     ModelMessage,
@@ -147,4 +147,9 @@ class RoundRobinModel(Model):
             if span.is_recording():
                 attributes = getattr(span, "attributes", {})
                 if attributes.get("gen_ai.request.model") == self.model_name:
-                    span.set_attributes(model.model_attributes(model))
+                    # v2 moved model_attributes off the Model class into
+                    # pydantic_ai._instrumentation (private — hence the
+                    # suppress guard around this whole block).
+                    from pydantic_ai._instrumentation import model_attributes
+
+                    span.set_attributes(model_attributes(model))

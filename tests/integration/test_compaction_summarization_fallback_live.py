@@ -1,22 +1,29 @@
 """Live integration test for summarization-failure → truncation fallback.
 
-Pins both the main agent and the summarization sub-agent to ``lilac-zai-org-glm-5.1``
-(200k context window via LILAC_API_KEY), then stuffs ~500k tokens of synthetic
-message history into the agent and sends a trivial prompt.
+Pins both the main agent and the summarizer to ``LILAC_MODEL`` (Kimi K2.6,
+262k context window via LILAC_API_KEY), then stuffs ~1.2M estimated tokens of
+synthetic message history into the agent and sends a trivial prompt.
+
+Note on sizing: our char/2.5 estimator overcounts natural-language text
+against Kimi's real tokenizer — a "500k" estimated history tokenizes to
+under 262k for real and the summary call *succeeds*. 1.2M estimated is
+beyond what any tokenizer can squeeze into the window, so the server-side
+rejection (and therefore the fallback) is deterministic.
 
 Expected flow:
-    1. ``compact()`` sees 500k > 200k * 0.5 threshold → strategy=summarization.
-    2. ``split_for_protected_summarization`` carves off ~20k of recent tail.
-    3. The summarization sub-agent gets ~480k tokens shoved at it.
-    4. GLM-5.1's 200k context window rejects the request server-side.
-    5. ``_run_summarization_core`` raises → ``compact()`` catches → falls back
-       to ``_truncate_with_dropped``.
-    6. Truncated history fits, main agent completes the "hi" turn cleanly.
+    1. ``compact()`` sees ~1.2M > 262k * 0.5 threshold → strategy=summarization.
+    2. The harness ``SummarizingCompaction`` asks the summarizer model to chew
+       on the oversized prefix.
+    3. Kimi K2.6's 262k context window rejects the request server-side with a
+       ``ModelAPIError``.
+    4. ``FallbackCompaction`` catches it and advances to
+       ``SlidingWindowCompaction``.
+    5. The slid history fits, main agent completes the "hi" turn cleanly.
 
 What we assert:
     - Summarization was *attempted* (not silently skipped).
     - Summarization actually *failed* (raised an exception).
-    - The truncation fallback path *executed*.
+    - The sliding-window fallback *executed*.
     - History shrank to fit inside the context window.
     - Run completed and produced a response.
     - History integrity preserved (no orphan tool pairs, ends with ModelRequest).
@@ -61,14 +68,12 @@ def _live_lilac_skip_reason() -> str | None:
     run would fail opaquely (run_with_mcp returns None) instead of skipping.
     """
     if not _lilac_key_available():
-        return (
-            "LILAC_API_KEY not set (env or puppy.cfg); GLM-5.1 fallback test skipped."
-        )
+        return "LILAC_API_KEY not set (env or puppy.cfg); lilac fallback test skipped."
     if not _lilac_model_present():
         return (
             f"{LILAC_MODEL!r} not found in models config — models.json is empty "
             "and it was never added to ~/.code_puppy/extra_models.json; "
-            "GLM-5.1 fallback test skipped."
+            "lilac fallback test skipped."
         )
     return None
 
@@ -86,15 +91,14 @@ def _require_integration_env_vars():
     yield
 
 
-# -- Agent fixture pinned to lilac-zai-org-glm-5.1 --------------------------------
+# -- Agent fixture pinned to LILAC_MODEL --------------------------------------
 
 
 @pytest.fixture
-def glm51_agent(monkeypatch):
-    """Fresh CodePuppyAgent pinned to lilac-zai-org-glm-5.1 (200k ctx)."""
+def lilac_agent(monkeypatch):
+    """Fresh CodePuppyAgent pinned to ``LILAC_MODEL`` (Kimi K2.6, 262k ctx)."""
     from code_puppy import config as cp_config
-    from code_puppy import summarization_agent as _sum_mod
-    from code_puppy.agents import _builder, _runtime
+    from code_puppy.agents import _builder, _compaction, _runtime
     from code_puppy.agents import base_agent as _base_agent_mod
     from code_puppy.agents.agent_code_puppy import CodePuppyAgent
 
@@ -119,9 +123,9 @@ def glm51_agent(monkeypatch):
         if hasattr(mod, "get_agent_pinned_model"):
             monkeypatch.setattr(mod, "get_agent_pinned_model", lambda _n: pinned)
 
-    # Critical: summarizer ALSO uses GLM-5.1 (200k ctx) so it will choke on the
-    # 480k-token summarization payload — that's the whole point of this test.
-    monkeypatch.setattr(_sum_mod, "get_summarization_model_name", lambda: pinned)
+    # Critical: summarizer ALSO uses the 262k-ctx lilac model so it will choke
+    # on the 480k-token summarization payload — that's the whole point of this test.
+    monkeypatch.setattr(_compaction, "get_summarization_model_name", lambda: pinned)
 
     # No MCP / no DBOS — keep the test surface small.
     monkeypatch.setenv("disable_mcp_servers", "true")
@@ -137,52 +141,56 @@ def glm51_agent(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_summarization_oversize_falls_back_to_truncation(
-    glm51_agent, monkeypatch
+    lilac_agent, monkeypatch
 ):
-    """500k-token history + GLM-5.1 (200k ctx) + summarization strategy →
-    summarization sub-agent rejects the oversized payload → compact() catches
-    the failure and falls back to truncation → main run still completes.
+    """~1.2M-token history + Kimi K2.6 (262k ctx) + summarization strategy →
+    the summarizer's provider rejects the oversized payload →
+    FallbackCompaction advances to the sliding window → main run completes.
     """
     from code_puppy.agents import _compaction
     from code_puppy.agents._history import estimate_tokens_for_message
 
     # Force summarization strategy with a low threshold so compaction fires
     # immediately, and a small protected window so the summarizer is asked
-    # to chew on a payload that DEFINITELY wont fit in 200k.
+    # to chew on a payload that DEFINITELY wont fit in 262k.
     monkeypatch.setattr(_compaction, "get_compaction_strategy", lambda: "summarization")
     monkeypatch.setattr(_compaction, "get_compaction_threshold", lambda: 0.5)
     monkeypatch.setattr(_compaction, "get_protected_token_count", lambda: 20_000)
 
     # -- Spies ----------------------------------------------------------------
     # We need to confirm BOTH that summarization was attempted AND raised,
-    # AND that the truncation fallback executed. Spy on the two functions
-    # compact() calls directly post-refactor.
+    # AND that the sliding-window fallback executed. Spy on the two harness
+    # strategies FallbackCompaction drives.
+    from pydantic_ai_harness.compaction import (
+        SlidingWindowCompaction,
+        SummarizingCompaction,
+    )
 
     summarize_spy = {"calls": 0, "raised": False, "error_type": None}
-    orig_summarize_core = _compaction._run_summarization_core
+    orig_summarize_compact = SummarizingCompaction.compact
 
-    def spy_summarize_core(*args, **kwargs):
+    async def spy_summarize_compact(self, messages, ctx):
         summarize_spy["calls"] += 1
         try:
-            return orig_summarize_core(*args, **kwargs)
+            return await orig_summarize_compact(self, messages, ctx)
         except Exception as e:
             summarize_spy["raised"] = True
             summarize_spy["error_type"] = type(e).__name__
             raise
 
-    monkeypatch.setattr(_compaction, "_run_summarization_core", spy_summarize_core)
+    monkeypatch.setattr(SummarizingCompaction, "compact", spy_summarize_compact)
 
-    truncate_spy = {"calls": 0, "kept": 0, "dropped": 0}
-    orig_truncate_fallback = _compaction._truncate_with_dropped
+    sliding_spy = {"calls": 0, "before": 0, "kept": 0}
+    orig_sliding_compact = SlidingWindowCompaction.compact
 
-    def spy_truncate_fallback(*args, **kwargs):
-        truncate_spy["calls"] += 1
-        result, dropped = orig_truncate_fallback(*args, **kwargs)
-        truncate_spy["kept"] = len(result)
-        truncate_spy["dropped"] = len(dropped)
-        return result, dropped
+    async def spy_sliding_compact(self, messages, ctx):
+        sliding_spy["calls"] += 1
+        sliding_spy["before"] = len(messages)
+        result = await orig_sliding_compact(self, messages, ctx)
+        sliding_spy["kept"] = len(result)
+        return result
 
-    monkeypatch.setattr(_compaction, "_truncate_with_dropped", spy_truncate_fallback)
+    monkeypatch.setattr(SlidingWindowCompaction, "compact", spy_sliding_compact)
 
     # -- Exception spy (to detect rate limits swallowed by run_agent_task) ---
     from code_puppy.agents import _runtime as _runtime_mod
@@ -198,22 +206,23 @@ async def test_summarization_oversize_falls_back_to_truncation(
     monkeypatch.setattr(_runtime_mod, "emit_exception_diagnostics", spy_emit_diag)
 
     # -- History setup --------------------------------------------------------
-    # 500k tokens — well over the 200k ctx window. The summarization payload
-    # (history minus ~20k protected tail) will be ~480k → guaranteed reject.
-    history = _build_huge_history(target_tokens=500_000)
+    # ~1.2M estimated tokens — far over the 262k ctx window even after real
+    # tokenization compresses our synthetic text. The summarization payload
+    # (history minus ~20k protected tail) is guaranteed to be rejected.
+    history = _build_huge_history(target_tokens=1_200_000)
     before_tokens = sum(estimate_tokens_for_message(m) for m in history)
     before_len = len(history)
 
     print(f"\n[pre-run]  history: {before_len} msgs, ~{before_tokens:,} tokens")
-    assert before_tokens > 400_000, (
-        f"Test setup bug: only built {before_tokens:,} tokens, need >400k to "
+    assert before_tokens > 900_000, (
+        f"Test setup bug: only built {before_tokens:,} tokens, need >900k to "
         "guarantee summarizer overflow."
     )
 
-    glm51_agent.set_message_history(list(history))
+    lilac_agent.set_message_history(list(history))
 
     # -- Kick the run ---------------------------------------------------------
-    result = await glm51_agent.run_with_mcp("hi")
+    result = await lilac_agent.run_with_mcp("hi")
 
     # -- Rate-limit guard ------------------------------------------------------
     # Live integration tests can hit 429s from the provider. If run_with_mcp
@@ -248,35 +257,35 @@ async def test_summarization_oversize_falls_back_to_truncation(
 
     # CORE INVARIANT 1: summarization was attempted
     assert summarize_spy["calls"] >= 1, (
-        "_run_summarization_core was never called — compact() didnt route to "
-        "summarization at all"
+        "SummarizingCompaction was never driven — the FallbackCompaction chain "
+        "didnt route to summarization at all"
     )
 
     # CORE INVARIANT 2: summarization failed (raised)
     assert summarize_spy["raised"], (
-        f"Summarization unexpectedly succeeded — the 500k payload should have "
-        f"overflowed GLM-5.1's 200k ctx. Spy: {summarize_spy}"
+        f"Summarization unexpectedly succeeded — the ~1.2M payload should have "
+        f"overflowed Kimi K2.6's 262k ctx. Spy: {summarize_spy}"
     )
     print(
         f"[summarize] attempts={summarize_spy['calls']} "
         f"raised={summarize_spy['raised']} ({summarize_spy['error_type']})"
     )
 
-    # CORE INVARIANT 3: truncation fallback executed
-    assert truncate_spy["calls"] >= 1, (
-        "_truncate_with_dropped was never called — fallback path didnt fire. "
-        f"Spy: {truncate_spy}"
+    # CORE INVARIANT 3: sliding-window fallback executed
+    assert sliding_spy["calls"] >= 1, (
+        "SlidingWindowCompaction was never driven — fallback path didnt fire. "
+        f"Spy: {sliding_spy}"
     )
-    assert truncate_spy["dropped"] > 0, (
-        f"Fallback truncation didnt drop anything: {truncate_spy}"
+    assert sliding_spy["kept"] < sliding_spy["before"], (
+        f"Fallback sliding window didnt drop anything: {sliding_spy}"
     )
     print(
-        f"[truncate-fallback] calls={truncate_spy['calls']} "
-        f"kept={truncate_spy['kept']} dropped={truncate_spy['dropped']}"
+        f"[sliding-fallback] calls={sliding_spy['calls']} "
+        f"before={sliding_spy['before']} kept={sliding_spy['kept']}"
     )
 
     # CORE INVARIANT 4: history shrank dramatically
-    after_history = glm51_agent.get_message_history()
+    after_history = lilac_agent.get_message_history()
     after_tokens = sum(estimate_tokens_for_message(m) for m in after_history)
     print(
         f"[post-run] history: {len(after_history)} msgs, ~{after_tokens:,} tokens "
@@ -285,11 +294,12 @@ async def test_summarization_oversize_falls_back_to_truncation(
     assert after_tokens < before_tokens, (
         f"History token count did not drop: {before_tokens:,} → {after_tokens:,}"
     )
-    # After truncation the history must fit inside GLM-5.1's window with room
-    # to spare for the response. 200k * 0.95 = 190k headroom check.
+    # After the sliding window the history must fit inside the model's window
+    # with generous headroom (keep_tokens is patched to 20k, so anything near
+    # 190k means the window barely slid at all).
     assert after_tokens < 190_000, (
-        f"Truncated history ({after_tokens:,} tokens) still wouldnt fit in "
-        "GLM-5.1's 200k ctx window — truncation didnt reduce enough."
+        f"Slid history ({after_tokens:,} tokens) is nowhere near the "
+        "20k protected tail — the sliding window didnt reduce enough."
     )
 
     # CORE INVARIANT 5: history integrity preserved

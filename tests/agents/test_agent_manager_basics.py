@@ -451,3 +451,12 @@ class TestAgentManagerBasics:
 
             with pytest.raises(ValueError, match="not found and no fallback"):
                 load_agent("any-agent")
+
+    def test_is_process_alive_non_int_pid(self):
+        """Cover _is_process_alive when the pid cannot be coerced to int and
+        when it is non-positive (folded in from the deleted
+        test_agent_manager_sessions.py)."""
+        from code_puppy.agents.agent_manager import _is_process_alive
+
+        assert _is_process_alive("not-a-pid") is False
+        assert _is_process_alive(0) is False

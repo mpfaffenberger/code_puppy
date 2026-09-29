@@ -158,9 +158,8 @@ def make_dirs(path: str) -> None:
 # ---------------------------------------------------------------------------
 # Traversal (composed from list_dir; backend-agnostic)
 # ---------------------------------------------------------------------------
-# Depth backstop for hostile/buggy backends whose list_dir forms an infinite
-# chain of *distinct* paths (so the visited-set can't catch it). Real source
-# trees are nowhere near this deep; ripgrep (the local path) is likewise bounded.
+# Depth backstop for hostile backends whose list_dir forms an infinite distinct-
+# path chain (visited-set can't catch it); real trees are nowhere near this deep.
 MAX_WALK_DEPTH = 1000
 
 

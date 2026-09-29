@@ -25,7 +25,7 @@ def erase_progress_line(console: Console) -> None:
 
     Replaces the old ``console.print(" " * 50, end="\\r")`` idiom, which
     assumed progress lines never exceed 50 cells. Longer lines (e.g.
-    ``  \U0001f527 Calling agent_run_shell_command... 348 token(s)`` = 52+
+    ``  \U0001f527 Calling shell... 348 token(s)`` = 52+
     cells) left right-edge ghost tails like ``s)`` in the transcript.
     Erase-in-line clears the whole row regardless of length.
     """
@@ -76,9 +76,8 @@ def display_non_streamed_result(
         >>> display_non_streamed_result("# Hello\n\nThis is **bold** text.")
         # Renders with AGENT RESPONSE banner and formatted markdown
     """
-    # Skip display for sub-agents unless verbose mode or high output level.
-    # In ``high`` mode the user has asked for maximum visibility, so sub-agent
-    # responses must render regardless of the legacy ``subagent_verbose`` toggle.
+    # Skip sub-agent display unless verbose or high output level — high mode
+    # overrides the legacy ``subagent_verbose`` toggle (max visibility requested).
     if is_subagent() and not get_subagent_verbose() and get_output_level() != "high":
         return
 

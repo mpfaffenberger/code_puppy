@@ -175,12 +175,12 @@ class PromptArea(TextArea):
 
 
 # ---------------------------------------------------------------------------
-# Status-bar helpers: convert prompt_toolkit FormattedText → Rich Text
+# Status-bar helpers: convert (style, text) prompt fragments → Rich Text
 #
 # The TUI status bar calls the *same* get_prompt_with_active_model() that the
 # classic prompt uses (including all monkey-patches: context_indicator,
 # custom statusline command, …).  All we need is a style-string translation
-# layer so the prompt_toolkit tuples render correctly in Textual/Rich.
+# layer so the prompt fragments render correctly in Textual/Rich.
 # ---------------------------------------------------------------------------
 
 _ANSI_TO_RICH: dict[str, str] = {
@@ -221,7 +221,9 @@ def _pt_style_to_rich(style_str: str) -> str | None:
     in the TUI status bar).
     """
     if style_str.startswith("class:"):
-        cls = style_str[6:]
+        # Fragments may carry several classes ("class:puppy class:tui.header");
+        # the first one names the prompt segment.
+        cls = style_str.split()[0][len("class:") :]
         return _PT_CLASS_TO_RICH.get(cls, "")
 
     parts: list[str] = []
@@ -1867,8 +1869,11 @@ class CooperApp(App):
            status bar is not an interactive prompt.
         """
         try:
-            from code_puppy.plugins.statusline.config import get_command, is_enabled
-            from code_puppy.plugins.statusline.runner import get_status_text
+            from code_puppy_core_plugins.statusline.config import (
+                get_command,
+                is_enabled,
+            )
+            from code_puppy_core_plugins.statusline.runner import get_status_text
 
             if is_enabled() and get_command():
                 raw = get_status_text()
@@ -1877,14 +1882,10 @@ class CooperApp(App):
         except Exception:
             pass
 
-        from prompt_toolkit.formatted_text import to_formatted_text
-
-        from code_puppy.command_line.prompt_toolkit_completion import (
-            get_prompt_with_active_model,
-        )
+        from code_puppy.command_line.completers import get_prompt_with_active_model
 
         try:
-            frags = list(to_formatted_text(get_prompt_with_active_model(base="")))
+            frags = get_prompt_with_active_model(base="")
         except Exception:
             return Text("  ")
 
@@ -1922,7 +1923,7 @@ class CooperApp(App):
 
     def _tick_spinner(self) -> None:
         try:
-            from code_puppy.plugins.puppy_spinner.register_callbacks import (
+            from code_puppy_core_plugins.puppy_spinner.register_callbacks import (
                 _current_frames_and_interval,
             )
 
@@ -1941,7 +1942,7 @@ class CooperApp(App):
         )
 
         try:
-            from code_puppy.plugins.puppy_spinner.register_callbacks import (
+            from code_puppy_core_plugins.puppy_spinner.register_callbacks import (
                 _current_frames_and_interval,
             )
 

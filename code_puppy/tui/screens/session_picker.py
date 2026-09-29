@@ -179,13 +179,14 @@ class SessionPickerScreen(ModalScreen[Optional[str]]):
         if name in self._last_msg_cache:
             return self._last_msg_cache[name]
         try:
-            from code_puppy.command_line.autosave_menu import (
-                _extract_last_user_message,
+            from code_puppy.command_line.session_browser_data import (
+                _user_texts_from,
             )
             from code_puppy.session_storage import load_session
 
             history = load_session(name, self._base_dir)
-            msg = _extract_last_user_message(history)
+            texts = _user_texts_from(history)
+            msg = texts[-1] if texts else "[No messages found]"
         except Exception as exc:
             msg = f"(could not load preview: {exc})"
         # Keep the preview reasonable; the scroll handles the rest.

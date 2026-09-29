@@ -93,8 +93,10 @@ def test_overlong_rows_are_cell_clipped_below_terminal_width():
     bar.set_status_suffix(" | queued: 3")
     bar.set_panel_lines(["sub-agent panel line " * 5])
 
+    from rich.text import Text
+
     for line in bar._inline_lines():
-        assert cell_len(line) < cols
+        assert cell_len(Text.from_ansi(line).plain) < cols
 
 
 def test_inline_surface_retains_every_panel_row():
@@ -145,9 +147,8 @@ def test_spinner_tick_repaints_in_place_without_growing_block():
 
     assert bar._displayed_rows == rows_before
     output = tty.getvalue()
-    # Each of the 3 ticks repaints the same block: exactly rows-1
-    # newlines per repaint, and never a lone "\n" that would scroll
-    # rows into scrollback.
+    # Each of the 3 ticks repaints the same block: exactly rows-1 newlines per
+    # repaint, never a lone "\n" that would scroll rows into scrollback.
     assert output.count("\r\n") == 3 * (rows_before - 1)
     assert output.count("\n") == output.count("\r\n")
 

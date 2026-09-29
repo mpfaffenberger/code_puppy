@@ -4,6 +4,7 @@ import json
 import os
 from typing import Dict, List, Optional
 
+from code_puppy.callbacks import register_callback
 from code_puppy.config import get_user_agents_directory
 from code_puppy.model_factory import ModelFactory
 from code_puppy.tools import get_available_tool_names
@@ -33,10 +34,12 @@ class AgentCreatorAgent(BaseAgent):
         # Also get Universal Constructor tools (custom tools created by users)
         uc_tools_info = []
         try:
-            from code_puppy.plugins.universal_constructor.registry import get_registry
+            from code_puppy.universal_constructor_provider import (
+                get_universal_constructor_provider,
+            )
 
-            registry = get_registry()
-            uc_tools = registry.list_tools(include_disabled=True)
+            provider = get_universal_constructor_provider()
+            uc_tools = provider.list_tools(include_disabled=True) if provider else []
             for tool in uc_tools:
                 status = "✅" if tool.meta.enabled else "❌"
                 uc_tools_info.append(
@@ -85,7 +88,8 @@ You specialize in:
 4. Ask them to confirm their tool selection
 5. Explain why each selected tool is useful for their agent
 6. Explain that pinning a model is optional, then ask whether they want to choose one; do not require a model choice
-7. Include the `model` field in the final JSON only if the user explicitly chooses to pin one; otherwise omit it so the agent uses the global model
+7. Ask whether this agent needs request-setting overrides such as reasoning effort, verbosity, or temperature; omit `model_settings` unless explicitly requested
+8. Include the `model` field in the final JSON only if the user explicitly chooses to pin one; otherwise omit it so the agent uses the global model
 
 ## JSON Agent Schema
 
@@ -99,6 +103,9 @@ Here's the complete schema for JSON agent files:
   "system_prompt": "Instructions...",
   "tools": ["tool1", "tool2"],
   "user_prompt": "How can I help?",
+  "model_settings": {{
+    "reasoning_effort": "high"
+  }},
   "tools_config": {{
     "timeout": 60
   }}
@@ -118,6 +125,7 @@ The `model` property is optional. Add `"model": "model-name"` only when the user
 - `user_prompt`: Custom user greeting
 - `tools_config`: Tool configuration object
 - `model`: Optional model pin. Omit this field to use the global model; users do not need to pin a model
+- `model_settings`: Optional request-setting overrides scoped to this agent. Omit unless the user explicitly requests them
 
 ## ALL AVAILABLE TOOLS:
 {", ".join(f"- **{tool}**" for tool in available_tools)}
@@ -158,7 +166,7 @@ A model pin is completely optional. If the user does not request one, omit the `
 - `grep` - Search for text patterns across files
 
 ### 💻 **Command Execution** (for agents running programs):
-- `agent_run_shell_command` - Execute terminal commands and scripts
+- `shell` - Execute terminal commands and scripts
 
 ### 🧠 **Communication & Coordination**:
 - `list_agents` - List all available sub-agents (recommended for agent managers)
@@ -236,7 +244,7 @@ Best-practice guidelines for file modifications:
 **Note:** The legacy `edit_file` tool name still works (it auto-expands to these three tools), but prefer using the individual tools directly in new agent configs.
 
 
-#### `agent_run_shell_command(command, cwd=None, timeout=60)`
+#### `shell(command, cwd=None, timeout=60)`
 Use this to execute commands, run tests, or start services
 
 For running shell commands, in the event that a user asks you to run tests - it is necessary to suppress output, when
@@ -320,7 +328,6 @@ Best-practice guidelines for `invoke_agent`:
 • Only invoke agents that exist (use `list_agents` to verify)
 • Clearly specify what you want the invoked agent to do
 • Be specific in your prompts to get better results
-• Avoid circular dependencies (don't invoke yourself!)
 • Use `invoke_agent` for normal delegation; only agents intentionally granted `list_available_models` and `invoke_agent_with_model` can perform per-call model overrides
 • **Session management:**
   - Default behavior (session_id=None): Each invocation is independent with no memory
@@ -354,7 +361,7 @@ Available templates for tools:
 - `delete_snippet`: Standard snippet removal operations
 - `delete_file`: Standard file deletion operations
 - `grep`: Standard text search operations
-- `agent_run_shell_command`: Standard shell command execution
+- `shell`: Standard shell command execution
 - `list_agents`: Standard agent listing operations
 - `invoke_agent`: Standard agent invocation operations
 - `invoke_agent_with_model`: Explicit model-override agent invocation for power-user orchestrators
@@ -423,9 +430,9 @@ This detailed documentation should be copied verbatim into any agent that will b
 
 ## Tool Suggestion Examples:
 
-**For "Python code helper":** → Suggest `read_file`, `create_file`, `replace_in_file`, `list_files`, `agent_run_shell_command`
+**For "Python code helper":** → Suggest `read_file`, `create_file`, `replace_in_file`, `list_files`, `shell`
 **For "Documentation writer":** → Suggest `read_file`, `create_file`, `replace_in_file`, `list_files`, `grep`
-**For "System admin helper":** → Suggest `agent_run_shell_command`, `list_files`, `read_file`
+**For "System admin helper":** → Suggest `shell`, `list_files`, `read_file`
 **For "Code reviewer":** → Suggest `list_files`, `read_file`, `grep`
 **For "File organizer":** → Suggest `list_files`, `read_file`, `create_file`, `replace_in_file`, `delete_snippet`, `delete_file`
 **For "Agent orchestrator":** → Suggest `list_agents`, `invoke_agent`
@@ -594,6 +601,15 @@ Your goal is to take users from idea to working agent in one smooth conversation
                 if not all(isinstance(item, str) for item in system_prompt):
                     errors.append("All items in 'system_prompt' list must be strings")
 
+            if "model_settings" in agent_config:
+                model_settings = agent_config["model_settings"]
+                if not isinstance(model_settings, dict):
+                    errors.append("'model_settings' must be an object")
+                else:
+                    from .json_agent import model_settings_validation_errors
+
+                    errors.extend(model_settings_validation_errors(model_settings))
+
         return errors
 
     def get_agent_file_path(self, agent_name: str) -> str:
@@ -643,3 +659,49 @@ Your goal is to take users from idea to working agent in one smooth conversation
     def get_user_prompt(self) -> Optional[str]:
         """Get the initial user prompt."""
         return "Hi! I'm the Agent Creator 🏗️ Let's build an awesome agent together!"
+
+
+def _validate_agent_creation(
+    tool_name: str, tool_args: dict, context=None
+) -> Optional[dict]:
+    """Intercept create_file to validate agent JSON configs before saving."""
+    if tool_name != "create_file":
+        return None
+
+    file_path = tool_args.get("file_path", "")
+    content = tool_args.get("content", "")
+
+    if not isinstance(file_path, str) or not file_path.endswith(".json"):
+        return None
+
+    agents_dir = get_user_agents_directory()
+    # Check if the path points into the agents directory
+    if agents_dir not in file_path:
+        return None
+
+    try:
+        agent_config = json.loads(content)
+        # Use an instance of AgentCreatorAgent to run validation
+        agent = AgentCreatorAgent()
+        errors = agent.validate_agent_json(agent_config)
+
+        if errors:
+            error_msg = "Validation errors:\n" + "\n".join(
+                f"- {error}" for error in errors
+            )
+            return {
+                "blocked": True,
+                "error_message": f"Invalid JSON agent config: {error_msg}",
+            }
+    except json.JSONDecodeError as e:
+        return {
+            "blocked": True,
+            "error_message": f"Syntax error: Invalid JSON payload. {str(e)}",
+        }
+    except Exception as e:
+        return {"blocked": True, "error_message": f"Validation failed: {str(e)}"}
+
+    return None
+
+
+register_callback("pre_tool_call", _validate_agent_creation)

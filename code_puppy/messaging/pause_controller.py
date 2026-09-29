@@ -59,11 +59,8 @@ class PauseController:
         self._compaction_requests: int = 0
         self._resume_event: Optional[asyncio.Event] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
-        # Rendezvous flag: set when a waiter actually parks inside
-        # wait_if_paused (i.e. the agent reached its safe boundary),
-        # cleared on resume. Lets the slash-command consumer wait for
-        # the agent to genuinely stop before taking over the terminal,
-        # instead of trusting the paused *flag* alone.
+        # Rendezvous flag: set when a waiter genuinely parks inside wait_if_paused
+        # (agent at its safe boundary), so the command consumer waits for the real stop.
         self._parked = threading.Event()
         # Resume listeners (tiny pub-sub for things that want to wake up
         # when paused -> not-paused, e.g. the renderer flushing its buffer).
@@ -253,11 +250,8 @@ class PauseController:
                 self._steer_queue_queued.append(text)
             else:
                 self._steer_queue_now.append(text)
-            # Listener always gets the TOTAL across both queues so a single
-            # UI tag (e.g. ``(N pending)``) reflects both now- and
-            # queue-mode items together. Now-mode additions now fire too,
-            # so a freshly-injected /steer text shows up in the status bar
-            # until the history processor drains it.
+            # Report the TOTAL across both queues (single ``(N pending)`` tag);
+            # now-mode additions fire too, so fresh /steer text shows until drained.
             count = len(self._steer_queue_now) + len(self._steer_queue_queued)
         self._fire_steer_queue_listeners(count)
 
@@ -323,6 +317,31 @@ class PauseController:
             total = len(self._steer_queue_now) + len(self._steer_queue_queued)
         self._fire_steer_queue_listeners(total)
         return item
+
+    def pending_steer_counts(self) -> tuple[int, int]:
+        """Atomic snapshot of (steering this turn, queued for later turns)."""
+        with self._lock:
+            return len(self._steer_queue_now), len(self._steer_queue_queued)
+
+    def pop_latest_steer_queued(self) -> Optional[str]:
+        """Reserve the newest queued turn for inline editing."""
+        with self._lock:
+            if not self._steer_queue_queued:
+                return None
+            item = self._steer_queue_queued.pop()
+            total = len(self._steer_queue_now) + len(self._steer_queue_queued)
+        self._fire_steer_queue_listeners(total)
+        return item
+
+    def restore_pending_steer_queued(self, items: List[str]) -> None:
+        """Append reserved turns in their original oldest-first order."""
+        cleaned = [item for item in items if item and item.strip()]
+        if not cleaned:
+            return
+        with self._lock:
+            self._steer_queue_queued.extend(cleaned)
+            total = len(self._steer_queue_now) + len(self._steer_queue_queued)
+        self._fire_steer_queue_listeners(total)
 
     def peek_pending_steer_queued(self) -> List[str]:
         """Copy of the queued-mode queue WITHOUT draining (for the /queue TUI)."""

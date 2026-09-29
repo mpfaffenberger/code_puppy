@@ -5,7 +5,6 @@ Both modes call ``get_prompt_with_active_model`` so any monkey-patches
 """
 
 import pytest
-from prompt_toolkit.formatted_text import FormattedText
 from textual.widgets import Static
 
 from code_puppy.tui.app import build_app
@@ -17,11 +16,10 @@ def _status_text(app) -> str:
 
 
 def _fake_prompt(frags: list[tuple[str, str]]):
-    """Return a zero-arg lambda that returns FormattedText(frags)."""
-    pt = FormattedText(frags)
+    """Return a zero-arg lambda that returns the (style, text) fragments."""
 
     def _fn(base: str = ">>> "):  # noqa: ARG001
-        return pt
+        return list(frags)
 
     return _fn
 
@@ -30,7 +28,7 @@ def _fake_prompt(frags: list[tuple[str, str]]):
 async def test_statusbar_renders_classic_prompt_fields(monkeypatch):
     """Status bar shows the same model/agent/cwd as the classic prompt."""
     monkeypatch.setattr(
-        "code_puppy.command_line.prompt_toolkit_completion.get_prompt_with_active_model",
+        "code_puppy.command_line.completers.get_prompt_with_active_model",
         _fake_prompt(
             [
                 ("bold", " "),
@@ -60,7 +58,7 @@ async def test_statusbar_renders_classic_prompt_fields(monkeypatch):
 async def test_statusbar_reflects_context_indicator(monkeypatch):
     """Context-indicator emoji (already injected by the classic patch) shows up."""
     monkeypatch.setattr(
-        "code_puppy.command_line.prompt_toolkit_completion.get_prompt_with_active_model",
+        "code_puppy.command_line.completers.get_prompt_with_active_model",
         _fake_prompt(
             [
                 ("bold", " "),
@@ -91,8 +89,8 @@ async def test_statusbar_reflects_custom_statusline_command(monkeypatch):
     get_status_text() and feeds the raw ANSI string straight to
     Text.from_ansi().  This is the lossless path that preserves colors.
     """
-    import code_puppy.plugins.statusline.config as _cfg
-    import code_puppy.plugins.statusline.runner as _runner
+    import code_puppy_core_plugins.statusline.config as _cfg
+    import code_puppy_core_plugins.statusline.runner as _runner
 
     monkeypatch.setattr(_cfg, "is_enabled", lambda: True)
     monkeypatch.setattr(_cfg, "get_command", lambda: "echo test")
@@ -141,7 +139,7 @@ async def test_statusbar_degrades_gracefully_on_exception(monkeypatch):
         raise RuntimeError("simulated failure")
 
     monkeypatch.setattr(
-        "code_puppy.command_line.prompt_toolkit_completion.get_prompt_with_active_model",
+        "code_puppy.command_line.completers.get_prompt_with_active_model",
         _boom,
     )
     app = build_app()

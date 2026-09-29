@@ -14,6 +14,7 @@ multi-edit session doesn't thrash reloads.
 
 from __future__ import annotations
 
+import textwrap
 from typing import Dict, List, Optional
 
 from rich.text import Text
@@ -29,18 +30,51 @@ from code_puppy.command_line.set_menu import (
     _Entry,
     _build_entries,
     _coerce_typed_input,
-    _entry_matches,
-)
-from code_puppy.command_line.set_menu_render import (
-    _type_display,
-    truncate,
     value_for_display,
-    wrap,
 )
+from code_puppy.command_line.set_menu_settings import Setting
 from code_puppy.command_line.set_menu_values import (
     display_value,
     is_default_value,
+    mask_value,
 )
+
+_TYPE_DISPLAY = {
+    "bool": "true / false",
+    "int": "integer",
+    "float": "float",
+    "string": "free text",
+}
+
+
+def _entry_matches(entry: _Entry, needle: str) -> bool:
+    """Case-insensitive filter over key, name, description and category."""
+    haystack = (
+        entry.setting.key,
+        entry.setting.display_name,
+        entry.setting.description,
+        entry.category.name,
+    )
+    return any(needle in candidate.lower() for candidate in haystack)
+
+
+def _type_display(setting: Setting, valid_values_str: str) -> str:
+    if setting.type_hint == "choice":
+        return f"one of: {valid_values_str}"
+    return _TYPE_DISPLAY.get(setting.type_hint, setting.type_hint)
+
+
+def _truncate(text: str, max_len: int = 30) -> str:
+    """Truncate ``text`` to ``max_len`` chars, appending ``...`` when cut."""
+    return text if len(text) <= max_len else text[: max_len - 3] + "..."
+
+
+def _shown_value(setting: Setting) -> str:
+    """Effective value for display, masked for sensitive settings (API keys)."""
+    value = value_for_display(setting)
+    if setting.sensitive and value != "(not set)":
+        return mask_value(value)
+    return value
 
 
 class SetPickerScreen(ModalScreen[bool]):
@@ -105,7 +139,7 @@ class SetPickerScreen(ModalScreen[bool]):
 
     # ------------------------------------------------------------------ list
     def _row_label(self, entry: _Entry) -> Text:
-        val = truncate(value_for_display(entry.setting))
+        val = _truncate(_shown_value(entry.setting))
         t = Text(f"  {entry.setting.display_name}")
         t.append("  = ", style="dim")
         if is_default_value(entry.setting):
@@ -215,14 +249,14 @@ class SetPickerScreen(ModalScreen[bool]):
         if current:
             if is_default_value(setting):
                 t.append("(Default) ", style="dim italic")
-            t.append(f"{current}", style="green")
+            t.append(_shown_value(setting), style="green")
         else:
             t.append("(not set)", style="dim")
         if setting.requires_restart:
             t.append("  (restart required)", style="yellow")
         t.append("\n\n")
         t.append("Description:\n", style="bold")
-        for wrapped in wrap(setting.description):
+        for wrapped in textwrap.wrap(setting.description, width=55):
             t.append(f"  {wrapped}\n", style="dim")
         if setting.type_hint == "choice" and setting.valid_values:
             t.append("\nValid Values:\n", style="bold")
@@ -316,7 +350,7 @@ class SetPickerScreen(ModalScreen[bool]):
         from .base import FilterableListScreen, ListChoice
 
         try:
-            from code_puppy.plugins.puppy_spinner.spinners import get_catalogue
+            from code_puppy_core_plugins.puppy_spinner.spinners import get_catalogue
 
             catalogue = get_catalogue()
         except Exception:

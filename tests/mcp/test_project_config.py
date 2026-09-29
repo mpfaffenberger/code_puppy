@@ -144,13 +144,8 @@ def test_loader_ignores_untrusted_project(project, monkeypatch):
     assert merged == {"user_only": "u"}
 
 
-# ---------- CWD == $HOME: the config is its own "project" file ----------------
-#
-# Run `code-puppy` from your home directory and CWD == $HOME, so
-# <CWD>/.code_puppy/mcp_servers.json IS ~/.code_puppy/mcp_servers.json. The
-# gate used to flag that single file as an untrusted *project* config and warn
-# "its servers are NOT loaded" — while the very same file was already loaded as
-# user-level. One file cannot be its own less-trusted twin.
+# CWD == $HOME: <CWD>/.code_puppy/mcp_servers.json IS ~/.code_puppy/mcp_servers.json — the
+# gate must not flag it as an untrusted project config it already loads as user-level.
 
 
 def test_config_that_is_the_user_level_file_is_not_a_project_config(

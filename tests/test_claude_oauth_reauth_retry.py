@@ -2,11 +2,11 @@
 
 from unittest.mock import AsyncMock, Mock, patch
 
-import httpx
+import httpx2
 import pytest
 
 from code_puppy.claude_cache_client import ClaudeCacheAsyncClient
-from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+from code_puppy_core_plugins.claude_code_oauth.register_callbacks import (
     _reauthenticate_after_expired_oauth,
 )
 
@@ -23,13 +23,13 @@ CLOUDFLARE_400_HTML = b"""
 
 @pytest.mark.asyncio
 async def test_cloudflare_400_refresh_failure_runs_oauth_callback_and_retries():
-    failed_response = Mock(spec=httpx.Response)
+    failed_response = Mock(spec=httpx2.Response)
     failed_response.status_code = 400
     failed_response.headers = {"content-type": "text/html; charset=utf-8"}
     failed_response._content = CLOUDFLARE_400_HTML
     failed_response.aclose = AsyncMock()
 
-    success_response = Mock(spec=httpx.Response)
+    success_response = Mock(spec=httpx2.Response)
     success_response.status_code = 200
     success_response.headers = {"content-type": "application/json"}
 
@@ -37,21 +37,22 @@ async def test_cloudflare_400_refresh_failure_runs_oauth_callback_and_retries():
 
     with (
         patch.object(
-            httpx.AsyncClient,
+            httpx2.AsyncClient,
             "send",
             new_callable=AsyncMock,
             side_effect=[failed_response, success_response],
         ) as mock_send,
         patch.object(
             ClaudeCacheAsyncClient,
-            "_refresh_claude_oauth_token",
+            "_refresh_claude_oauth_token_async",
             return_value=None,
         ),
     ):
         client = ClaudeCacheAsyncClient(
+            apply_claude_code_prefix=True,
             oauth_reauthentication_callback=reauth_callback,
         )
-        request = httpx.Request(
+        request = httpx2.Request(
             "POST",
             "https://api.anthropic.com/v1/messages",
             content=b'{"model":"claude-opus-4-7"}',
@@ -69,12 +70,12 @@ async def test_cloudflare_400_refresh_failure_runs_oauth_callback_and_retries():
 
 @pytest.mark.asyncio
 async def test_auth_retry_does_not_run_oauth_callback_when_refresh_succeeds():
-    failed_response = Mock(spec=httpx.Response)
+    failed_response = Mock(spec=httpx2.Response)
     failed_response.status_code = 401
     failed_response.headers = {"content-type": "application/json"}
     failed_response.aclose = AsyncMock()
 
-    success_response = Mock(spec=httpx.Response)
+    success_response = Mock(spec=httpx2.Response)
     success_response.status_code = 200
     success_response.headers = {"content-type": "application/json"}
 
@@ -82,21 +83,22 @@ async def test_auth_retry_does_not_run_oauth_callback_when_refresh_succeeds():
 
     with (
         patch.object(
-            httpx.AsyncClient,
+            httpx2.AsyncClient,
             "send",
             new_callable=AsyncMock,
             side_effect=[failed_response, success_response],
         ),
         patch.object(
             ClaudeCacheAsyncClient,
-            "_refresh_claude_oauth_token",
+            "_refresh_claude_oauth_token_async",
             return_value="refreshed_token",
         ),
     ):
         client = ClaudeCacheAsyncClient(
+            apply_claude_code_prefix=True,
             oauth_reauthentication_callback=reauth_callback,
         )
-        request = httpx.Request(
+        request = httpx2.Request(
             "POST",
             "https://api.anthropic.com/v1/messages",
             content=b'{"model":"claude-opus-4-7"}',
@@ -111,10 +113,10 @@ async def test_auth_retry_does_not_run_oauth_callback_when_refresh_succeeds():
 def test_claude_code_reauth_helper_ignores_non_prefixed_models():
     with (
         patch(
-            "code_puppy.plugins.claude_code_oauth.register_callbacks._perform_authentication"
+            "code_puppy_core_plugins.claude_code_oauth.register_callbacks._perform_authentication"
         ) as mock_auth,
         patch(
-            "code_puppy.plugins.claude_code_oauth.register_callbacks.get_valid_access_token"
+            "code_puppy_core_plugins.claude_code_oauth.register_callbacks.get_valid_access_token"
         ) as mock_token,
     ):
         token = _reauthenticate_after_expired_oauth("claude-opus-4-7")
@@ -127,14 +129,18 @@ def test_claude_code_reauth_helper_ignores_non_prefixed_models():
 def test_claude_code_reauth_helper_runs_flow_for_prefixed_models():
     with (
         patch(
-            "code_puppy.plugins.claude_code_oauth.register_callbacks._perform_authentication"
+            "code_puppy_core_plugins.claude_code_oauth.register_callbacks._perform_authentication"
         ) as mock_auth,
         patch(
-            "code_puppy.plugins.claude_code_oauth.register_callbacks.get_valid_access_token",
+            "code_puppy_core_plugins.claude_code_oauth.register_callbacks.get_valid_access_token",
             return_value="new_oauth_token",
         ),
-        patch("code_puppy.plugins.claude_code_oauth.register_callbacks.emit_warning"),
-        patch("code_puppy.plugins.claude_code_oauth.register_callbacks.emit_success"),
+        patch(
+            "code_puppy_core_plugins.claude_code_oauth.register_callbacks.emit_warning"
+        ),
+        patch(
+            "code_puppy_core_plugins.claude_code_oauth.register_callbacks.emit_success"
+        ),
     ):
         token = _reauthenticate_after_expired_oauth("claude-code-claude-opus-4-7")
 

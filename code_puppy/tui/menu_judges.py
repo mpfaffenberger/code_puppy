@@ -19,7 +19,7 @@ _ADD_ID = "__add_judge__"
 
 
 def open_judges(app: "CooperApp") -> None:
-    from code_puppy.plugins.wiggum.judge_config import load_judges
+    from code_puppy_core_plugins.wiggum.judge_config import load_judges
 
     registry = load_judges()
     choices = [ListChoice(id=_ADD_ID, label="+ Add a judge...", search="add new")]
@@ -61,7 +61,7 @@ def _open_judge_actions(app: "CooperApp", name: str) -> None:
 
 def _open_judge_form(app: "CooperApp", name: Optional[str]) -> None:
     from code_puppy.command_line.model_picker_completion import load_model_names
-    from code_puppy.plugins.wiggum.judge_config import (
+    from code_puppy_core_plugins.wiggum.judge_config import (
         DEFAULT_JUDGE_PROMPT,
         load_judges,
     )
@@ -101,7 +101,7 @@ def _open_judge_form(app: "CooperApp", name: Optional[str]) -> None:
 
 def _save_judge(old_name: Optional[str], values: dict) -> None:
     from code_puppy.messaging import emit_error, emit_success
-    from code_puppy.plugins.wiggum.judge_config import (
+    from code_puppy_core_plugins.wiggum.judge_config import (
         DEFAULT_JUDGE_PROMPT,
         JudgeConfig,
         load_judges,
@@ -139,7 +139,7 @@ def _save_judge(old_name: Optional[str], values: dict) -> None:
 
 def _confirm_delete(app: "CooperApp", name: str) -> None:
     from code_puppy.messaging import ConfirmationRequest, emit_success, emit_warning
-    from code_puppy.plugins.wiggum.judge_config import delete_judge
+    from code_puppy_core_plugins.wiggum.judge_config import delete_judge
 
     request = ConfirmationRequest(
         prompt_id="__judge_delete__",

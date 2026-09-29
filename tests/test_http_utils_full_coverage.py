@@ -35,8 +35,14 @@ class TestResolveProxyConfig:
             assert config.trust_env is True
             assert config.proxy_url == "http://proxy:8080"
 
-    def test_with_http_proxy_only(self):
-        env = {"HTTP_PROXY": "http://proxy:3128"}
+    @pytest.mark.parametrize(
+        "env,expected_proxy",
+        [
+            ({"HTTP_PROXY": "http://proxy:3128"}, "http://proxy:3128"),
+            ({"https_proxy": "http://lower:8080"}, "http://lower:8080"),
+        ],
+    )
+    def test_proxy_env_resolution(self, env, expected_proxy):
         with (
             patch.dict(os.environ, env, clear=True),
             patch("code_puppy.http_utils.get_cert_bundle_path", return_value=None),
@@ -45,19 +51,7 @@ class TestResolveProxyConfig:
             from code_puppy.http_utils import _resolve_proxy_config
 
             config = _resolve_proxy_config()
-            assert config.proxy_url == "http://proxy:3128"
-
-    def test_with_lowercase_proxy(self):
-        env = {"https_proxy": "http://lower:8080"}
-        with (
-            patch.dict(os.environ, env, clear=True),
-            patch("code_puppy.http_utils.get_cert_bundle_path", return_value=None),
-            patch("code_puppy.http_utils.get_http2", return_value=False),
-        ):
-            from code_puppy.http_utils import _resolve_proxy_config
-
-            config = _resolve_proxy_config()
-            assert config.proxy_url == "http://lower:8080"
+            assert config.proxy_url == expected_proxy
 
     def test_disable_retry_transport(self):
         env = {"CODE_PUPPY_DISABLE_RETRY_TRANSPORT": "true"}
@@ -129,67 +123,19 @@ class TestRetryingAsyncClient:
             result = await client.send(MagicMock(spec=httpx.Request))
             assert result.status_code == 200
 
+    @pytest.mark.parametrize(
+        "retry_after",
+        ["2", "Thu, 01 Jan 2099 00:00:00 GMT", "not-a-number-or-date"],
+    )
     @pytest.mark.anyio
-    async def test_retry_with_retry_after_header(self):
+    async def test_retry_respects_retry_after_header(self, retry_after):
         from code_puppy.http_utils import RetryingAsyncClient
 
         client = RetryingAsyncClient(max_retries=1)
 
         resp_429 = MagicMock(spec=httpx.Response)
         resp_429.status_code = 429
-        resp_429.headers = {"Retry-After": "2"}
-        resp_429.aclose = AsyncMock()
-
-        resp_200 = MagicMock(spec=httpx.Response)
-        resp_200.status_code = 200
-
-        with (
-            patch.object(
-                httpx.AsyncClient,
-                "send",
-                new_callable=AsyncMock,
-                side_effect=[resp_429, resp_200],
-            ),
-            patch("asyncio.sleep", new_callable=AsyncMock),
-        ):
-            result = await client.send(MagicMock(spec=httpx.Request))
-            assert result.status_code == 200
-
-    @pytest.mark.anyio
-    async def test_retry_with_http_date_retry_after(self):
-        from code_puppy.http_utils import RetryingAsyncClient
-
-        client = RetryingAsyncClient(max_retries=1)
-
-        resp_429 = MagicMock(spec=httpx.Response)
-        resp_429.status_code = 429
-        resp_429.headers = {"Retry-After": "Thu, 01 Jan 2099 00:00:00 GMT"}
-        resp_429.aclose = AsyncMock()
-
-        resp_200 = MagicMock(spec=httpx.Response)
-        resp_200.status_code = 200
-
-        with (
-            patch.object(
-                httpx.AsyncClient,
-                "send",
-                new_callable=AsyncMock,
-                side_effect=[resp_429, resp_200],
-            ),
-            patch("asyncio.sleep", new_callable=AsyncMock),
-        ):
-            result = await client.send(MagicMock(spec=httpx.Request))
-            assert result.status_code == 200
-
-    @pytest.mark.anyio
-    async def test_retry_with_invalid_retry_after(self):
-        from code_puppy.http_utils import RetryingAsyncClient
-
-        client = RetryingAsyncClient(max_retries=1)
-
-        resp_429 = MagicMock(spec=httpx.Response)
-        resp_429.status_code = 429
-        resp_429.headers = {"Retry-After": "not-a-number-or-date"}
+        resp_429.headers = {"Retry-After": retry_after}
         resp_429.aclose = AsyncMock()
 
         resp_200 = MagicMock(spec=httpx.Response)
@@ -534,16 +480,12 @@ class TestFindAvailablePort:
     def test_returns_none_when_all_busy(self):
         from code_puppy.http_utils import find_available_port
 
-        # Use a very narrow range and bind to all ports
-        socks = []
+        occupied = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
-            for p in range(49900, 49903):
-                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                s.bind(("127.0.0.1", p))
-                socks.append(s)
-            result = find_available_port(start_port=49900, end_port=49902)
+            occupied.bind(("127.0.0.1", 0))
+            occupied.listen(1)
+            port = occupied.getsockname()[1]
+            result = find_available_port(start_port=port, end_port=port)
             assert result is None
         finally:
-            for s in socks:
-                s.close()
+            occupied.close()

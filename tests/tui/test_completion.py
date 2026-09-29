@@ -203,25 +203,29 @@ async def test_escape_dismisses_dropdown():
 async def test_partial_menu_command_runs_on_single_enter(monkeypatch):
     """Typing a few letters of a no-arg menu command + Enter should open it in
     one keystroke (not complete-then-require-a-second-Enter)."""
-    from code_puppy.tui.screens.diff_picker import DiffPickerScreen
+    from code_puppy.tui.screens.onboarding import OnboardingScreen
 
-    monkeypatch.setattr("code_puppy.config.get_diff_addition_color", lambda: "#000000")
+    # Never touch the real onboarding-complete file from tests.
+    monkeypatch.setattr(
+        "code_puppy.command_line.onboarding_wizard.mark_onboarding_complete",
+        lambda: None,
+    )
     app = build_app()
     async with app.run_test(size=(100, 40)) as pilot:
         await pilot.pause()
         prompt = app.query_one("#prompt", PromptArea)
-        prompt.text = "/dif"
-        prompt.move_cursor((0, 4))
+        prompt.text = "/tuto"
+        prompt.move_cursor((0, 5))
         app._refresh_completions()
         await pilot.pause(0.05)
         assert app.completion_visible()
 
-        # One Enter: accept /diff AND open its modal.
+        # One Enter: accept /tutorial AND open its modal.
         submitted = app.accept_completion(submit_if_terminal=True)
         await pilot.pause(0.1)
         assert submitted is True
         assert prompt.text == ""
-        assert isinstance(app.screen, DiffPickerScreen)
+        assert isinstance(app.screen, OnboardingScreen)
 
 
 @pytest.mark.asyncio

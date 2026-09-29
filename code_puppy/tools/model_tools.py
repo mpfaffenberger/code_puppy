@@ -74,7 +74,7 @@ def project_available_model(name: str, config: Any) -> AvailableModelInfo:
 def register_list_available_models(agent):
     """Register the list_available_models tool with the provided agent."""
 
-    @agent.tool
+    @agent.tool(metadata={"speculatable": True})
     def list_available_models(context: RunContext) -> ListAvailableModelsOutput:
         """List configured model aliases usable for explicit model overrides.
 

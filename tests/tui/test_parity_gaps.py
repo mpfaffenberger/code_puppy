@@ -32,7 +32,7 @@ async def test_spinner_uses_active_catalogue_frames():
     async with app.run_test() as pilot:
         await pilot.pause()
         with patch(
-            "code_puppy.plugins.puppy_spinner.register_callbacks._current_frames_and_interval",
+            "code_puppy_core_plugins.puppy_spinner.register_callbacks._current_frames_and_interval",
             return_value=(custom_frames, 0.05),
         ):
             app._spinner_frame = 0

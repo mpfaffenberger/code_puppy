@@ -1,131 +1,23 @@
 """Tests for completions & small modules coverage.
 
 Covers missed lines in:
-- skills_completion.py
 - file_path_completion.py
 - load_context_completion.py
 - model_switching.py
 - markdown_patches.py
 - error_logging.py
 
-Note: mcp_completion.py is covered in tests/command_line/test_mcp_completion.py
+Note: mcp_completion.py and skills_completion.py are covered in
+tests/command_line/test_mcp_completion.py and test_skills_completion.py.
 """
 
 import os
+import shlex
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from prompt_toolkit.document import Document
-
-# ── skills_completion ───────────────────────────────────────────────────
-
-
-class TestLoadCatalogSkillIds:
-    """Cover lines 26-32."""
-
-    def test_success(self):
-        from code_puppy.command_line.skills_completion import load_catalog_skill_ids
-
-        mock_entry = MagicMock()
-        mock_entry.id = "skill-1"
-        mock_catalog = MagicMock()
-        mock_catalog.get_all.return_value = [mock_entry]
-        mock_module = MagicMock()
-        mock_module.catalog = mock_catalog
-
-        import sys
-
-        with patch.dict(
-            sys.modules, {"code_puppy.plugins.agent_skills.skill_catalog": mock_module}
-        ):
-            result = load_catalog_skill_ids()
-        assert result == ["skill-1"]
-
-    def test_exception(self):
-        import sys
-
-        from code_puppy.command_line.skills_completion import load_catalog_skill_ids
-
-        with patch.dict(
-            sys.modules, {"code_puppy.plugins.agent_skills.skill_catalog": None}
-        ):
-            result = load_catalog_skill_ids()
-        assert result == []
-
-
-class TestSkillsCompleterGetCompletions:
-    """Cover lines 62-71, 78-160."""
-
-    def setup_method(self):
-        from code_puppy.command_line.skills_completion import SkillsCompleter
-
-        self.completer = SkillsCompleter()
-
-    def test_no_trigger(self):
-        doc = Document("hello")
-        assert list(self.completer.get_completions(doc, None)) == []
-
-    def test_no_space_after_trigger(self):
-        doc = Document("/skills")
-        assert list(self.completer.get_completions(doc, None)) == []
-
-    def test_show_all_subcommands(self):
-        doc = Document("/skills ")
-        completions = list(self.completer.get_completions(doc, None))
-        names = [c.text for c in completions]
-        assert "list" in names
-        assert "install" in names
-
-    def test_partial_subcommand(self):
-        doc = Document("/skills li")
-        completions = list(self.completer.get_completions(doc, None))
-        names = [c.text for c in completions]
-        assert "list" in names
-
-    def test_install_space_shows_skill_ids(self):
-        with patch.object(
-            self.completer, "_get_skill_ids", return_value=["git-helper", "docker"]
-        ):
-            doc = Document("/skills install ")
-            completions = list(self.completer.get_completions(doc, None))
-        names = [c.text for c in completions]
-        assert "git-helper" in names
-        assert "docker" in names
-
-    def test_install_partial_skill_id(self):
-        with patch.object(
-            self.completer, "_get_skill_ids", return_value=["git-helper", "docker"]
-        ):
-            doc = Document("/skills install gi")
-            completions = list(self.completer.get_completions(doc, None))
-        names = [c.text for c in completions]
-        assert "git-helper" in names
-        assert "docker" not in names
-
-    def test_non_install_subcommand_no_further(self):
-        doc = Document("/skills list ")
-        completions = list(self.completer.get_completions(doc, None))
-        assert completions == []
-
-    def test_get_skill_ids_caches(self):
-        with patch(
-            "code_puppy.command_line.skills_completion.load_catalog_skill_ids",
-            return_value=["s1"],
-        ):
-            result = self.completer._get_skill_ids()
-        assert result == ["s1"]
-        # Cached
-        assert self.completer._get_skill_ids() == ["s1"]
-
-    def test_get_skill_ids_none_returns_empty(self):
-        with patch(
-            "code_puppy.command_line.skills_completion.load_catalog_skill_ids",
-            return_value=None,
-        ):
-            result = self.completer._get_skill_ids()
-        assert result == []
-
+from termflow.tui.completion import Document
 
 # ── file_path_completion ────────────────────────────────────────────────
 
@@ -147,25 +39,15 @@ class TestFilePathCompleterMissedLines:
 
     def test_hidden_files_shown_when_dot_typed(self):
         """Line 41: text_after_symbol ends with '.' in dir listing branch."""
-        # To hit the dir listing branch (line 30-42), pattern.strip("*") must be
-        # empty or end with "/". We use the directory path ending with "/"
-        # and text_after_symbol ending with "." to cover line 41.
+        # Hit the dir-listing branch (line 30-42): pattern.strip("*") must be empty
+        # or end with "/" - use a trailing-"/" path with text_after_symbol ending ".".
         with tempfile.TemporaryDirectory() as tmpdir:
             subdir = Path(tmpdir, "sub")
             subdir.mkdir()
             Path(subdir, ".hidden").touch()
             Path(subdir, "visible").touch()
-            # text_after_symbol = "{subdir}/" -> hits dir listing, but doesn't end with "."
-            # We need a different approach: use "@" then just "*" pattern
-            # Actually line 41 condition: `not f.startswith(".") or text_after_symbol.endswith(".")`
-            # To show hidden files, text_after_symbol must end with "."
-            # And to be in the dir listing branch, pattern.strip("*") must be empty or end with "/"
-            # pattern = text_after_symbol + "*", so if text_after_symbol=".", pattern=".*"
-            # pattern.strip("*") = "." which doesn't end with "/" and isn't empty -> goes to glob
-            # Hmm, we need text ending with "." AND hitting dir listing branch.
-            # That's only possible if text_after_symbol ends with "." AND (is empty or ends with "/")
-            # which is contradictory. So line 41 is about showing non-hidden files by default.
-            # Let's just ensure the dir listing branch works.
+            # Line 41's filter means the dir-listing branch shows non-hidden files by
+            # default; ".*" patterns (hidden files) fall through to the glob branch.
             doc = Document(f"@{subdir}/")
             completions = list(self.completer.get_completions(doc, None))
             texts = [c.text for c in completions]
@@ -210,8 +92,12 @@ class TestFilePathCompleterMissedLines:
             basename = os.path.basename(tmpdir)
             doc = Document(f"@~/{basename}/t")
             completions = list(self.completer.get_completions(doc, None))
-            for c in completions:
-                assert c.text.startswith("~")
+            # Completion insertion is shell-quoted; verify the decoded path,
+            # not whether its serialized form starts with a quote or tilde.
+            assert completions
+            assert [shlex.split(c.text)[0] for c in completions] == [
+                f"~/{basename}/test.txt"
+            ]
 
     def test_nonexistent_dir_listing(self):
         """Line 41: base_path is not a directory → paths = []."""

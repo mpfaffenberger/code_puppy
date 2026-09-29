@@ -41,7 +41,8 @@ def default_params():
 
 class TestGeminiCodeAssistModel:
     def test_model_name(self, model):
-        assert model.model_name() == "gemini-2.0-flash"
+        # v2 Model ABC: model_name is a property.
+        assert model.model_name == "gemini-2.0-flash"
 
     def test_system_property(self, model):
         assert model.system == "google"
@@ -112,9 +113,8 @@ class TestGeminiCodeAssistModel:
             def __str__(self):
                 return "weird-obj"
 
-        # This object's json.dumps with default=str should work,
-        # but let's test with something that makes json.dumps raise TypeError
-        # Actually default=str handles most things. Let's test int (primitive passthrough)
+        # Ints pass through json.dumps untouched (default=str handles the rest) —
+        # covers the primitive-passthrough branch.
         msgs = [
             ModelRequest(
                 parts=[
@@ -166,26 +166,16 @@ class TestGeminiCodeAssistModel:
         decls = body["request"]["tools"][0]["functionDeclarations"]
         assert len(decls) == 2
         assert decls[0]["name"] == "my_tool"
-        assert "parametersJsonSchema" in decls[0]
-        assert "parametersJsonSchema" not in decls[1]
-
-    def test_build_generation_config_none(self, model):
-        assert model._build_generation_config(None) is None
-
-    def test_build_generation_config_empty(self, model):
-        settings = ModelSettings()
-        result = model._build_generation_config(settings)
-        # No fields set -> None or empty
-        assert result is None or result == {}
+        assert "parameters" in decls[0]
+        assert "parameters" not in decls[1]
 
     def test_build_request_with_generation_config(self, model, default_params):
         """Test that generationConfig is added when settings have values."""
-        settings = MagicMock()
-        settings.temperature = 0.7
-        settings.top_p = None
-        settings.max_tokens = None
+        settings = ModelSettings(temperature=0.7)
+
         msgs = [ModelRequest(parts=[UserPromptPart(content="hi")])]
         body = model._build_request(msgs, settings, default_params)
+
         assert "generationConfig" in body["request"]
         assert body["request"]["generationConfig"]["temperature"] == 0.7
 
@@ -208,18 +198,6 @@ class TestGeminiCodeAssistModel:
         fr = body["request"]["contents"][0]["parts"][0]["functionResponse"]
         # Falls back to str()
         assert isinstance(fr["response"]["result"], str)
-
-    def test_build_generation_config_with_values(self, model):
-        # ModelSettings is a TypedDict; the code uses hasattr which works on
-        # objects with real attributes. Use a mock to simulate that.
-        settings = MagicMock()
-        settings.temperature = 0.5
-        settings.top_p = 0.9
-        settings.max_tokens = 100
-        result = model._build_generation_config(settings)
-        assert result["temperature"] == 0.5
-        assert result["topP"] == 0.9
-        assert result["maxOutputTokens"] == 100
 
     def test_parse_response_text(self, model):
         data = {
@@ -334,17 +312,23 @@ class TestStreamedResponse:
 
     def test_usage_default(self, mock_response):
         sr = StreamedResponse(mock_response, "test-model")
-        usage = sr.usage()
+        # v2 StreamedResponse contract: usage is a property.
+        usage = sr.usage
         assert usage.input_tokens == 0
         assert usage.output_tokens == 0
 
     def test_model_name(self, mock_response):
         sr = StreamedResponse(mock_response, "my-model")
-        assert sr.model_name() == "my-model"
+        assert sr.model_name == "my-model"
 
     def test_timestamp(self, mock_response):
         sr = StreamedResponse(mock_response, "m")
-        assert isinstance(sr.timestamp(), datetime)
+        assert isinstance(sr.timestamp, datetime)
+
+    async def test_close_stream_closes_response(self, mock_response):
+        sr = StreamedResponse(mock_response, "m")
+        await sr.close_stream()
+        mock_response.aclose.assert_awaited_once()
 
     @pytest.mark.anyio
     async def test_iter_chunks_text(self, mock_response):

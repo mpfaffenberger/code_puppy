@@ -23,17 +23,14 @@ from code_puppy.list_filtering import query_matches_text
 
 def load_prompt_history() -> List[str]:
     """Return previous prompts newest-first (deduped), from the Ctrl+R source."""
-    try:
-        from code_puppy.config import COMMAND_HISTORY_FILE
-        from prompt_toolkit.history import FileHistory
+    from code_puppy.messaging.editor_history import HistoryStore
 
-        strings = list(FileHistory(COMMAND_HISTORY_FILE).load_history_strings())
-    except Exception:
-        return []
+    # HistoryStore.load() never raises and returns oldest -> newest.
+    strings = reversed(HistoryStore().load())
 
     seen = set()
     out: List[str] = []
-    for s in strings:  # already newest-first
+    for s in strings:
         s = s.rstrip("\n")
         if not s.strip() or s in seen:
             continue

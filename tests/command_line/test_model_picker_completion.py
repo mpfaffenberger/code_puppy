@@ -1,9 +1,11 @@
 """Tests for model_picker_completion.py to achieve 100% coverage."""
 
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import call, patch
 
 import pytest
-from prompt_toolkit.document import Document
+from termflow.tui.completion import Document
+
+from code_puppy.command_line.model_picker_completion import ModelSelectionMenu
 
 
 class TestLoadModelNames:
@@ -125,62 +127,78 @@ class TestModelNameCompleter:
             assert len(completions) == 1
             assert completions[0].text == "claude-3"
 
+    def test_sees_model_added_after_construction(self):
+        """Regression: /add_model writes extra_models.json, but completer
+        stacks (the persistent prompt caches its stack for the whole
+        session) were built before the add -- completions must reflect the
+        config as of *each keystroke*, not as of construction time."""
+        from code_puppy.command_line.model_picker_completion import ModelNameCompleter
+
+        before_add = {"gpt-4o": {}, "claude-3": {}}
+        after_add = {**before_add, "xai-grok-4": {}}
+        states = iter([before_add, after_add])
+
+        def _load():
+            try:
+                return next(states)
+            except StopIteration:
+                raise AssertionError(
+                    "_load_models_config called more times than expected"
+                ) from None
+
+        with (
+            patch(
+                "code_puppy.command_line.model_picker_completion._load_models_config",
+                side_effect=_load,
+            ),
+            patch(
+                "code_puppy.command_line.model_picker_completion.get_active_model",
+                return_value="gpt-4o",
+            ),
+        ):
+            completer = ModelNameCompleter(trigger="/model")
+
+            # Before /add_model: no grok suggestions.
+            completions = list(
+                completer.get_completions(self._make_doc("/model grok"), None)
+            )
+            assert completions == []
+
+            # After /add_model: the newly added model is suggested immediately.
+            completions = list(
+                completer.get_completions(self._make_doc("/model grok"), None)
+            )
+            assert [c.text for c in completions] == ["xai-grok-4"]
+
 
 class TestFindMatchingModel:
-    def test_exact_match(self):
+    @pytest.mark.parametrize(
+        "query,models,expected",
+        [
+            ("gpt-4", ["gpt-4", "claude-3"], "gpt-4"),
+            ("GPT-4", ["gpt-4"], "gpt-4"),
+            ("gpt-4 tell me a joke", ["gpt-4", "gpt-4o"], "gpt-4"),
+            ("gpt", ["gpt-4", "claude-3"], "gpt-4"),
+            ("4.1", ["gpt-4o", "gpt-4.1-mini"], "gpt-4.1-mini"),
+            ("xyz", ["gpt-4", "claude-3"], None),
+            ("gpt-4-turbo hello", ["gpt-4", "gpt-4-turbo"], "gpt-4-turbo"),
+        ],
+        ids=[
+            "exact_match",
+            "case_insensitive",
+            "input_starts_with_model",
+            "prefix_match",
+            "query_match_fallback",
+            "no_match",
+            "longest_model_wins",
+        ],
+    )
+    def test_find_matching_model(self, query, models, expected):
         from code_puppy.command_line.model_picker_completion import (
             _find_matching_model,
         )
 
-        assert _find_matching_model("gpt-4", ["gpt-4", "claude-3"]) == "gpt-4"
-
-    def test_case_insensitive(self):
-        from code_puppy.command_line.model_picker_completion import (
-            _find_matching_model,
-        )
-
-        assert _find_matching_model("GPT-4", ["gpt-4"]) == "gpt-4"
-
-    def test_input_starts_with_model(self):
-        from code_puppy.command_line.model_picker_completion import (
-            _find_matching_model,
-        )
-
-        assert (
-            _find_matching_model("gpt-4 tell me a joke", ["gpt-4", "gpt-4o"]) == "gpt-4"
-        )
-
-    def test_prefix_match(self):
-        from code_puppy.command_line.model_picker_completion import (
-            _find_matching_model,
-        )
-
-        assert _find_matching_model("gpt", ["gpt-4", "claude-3"]) == "gpt-4"
-
-    def test_query_match_fallback(self):
-        from code_puppy.command_line.model_picker_completion import (
-            _find_matching_model,
-        )
-
-        assert _find_matching_model("4.1", ["gpt-4o", "gpt-4.1-mini"]) == "gpt-4.1-mini"
-
-    def test_no_match(self):
-        from code_puppy.command_line.model_picker_completion import (
-            _find_matching_model,
-        )
-
-        assert _find_matching_model("xyz", ["gpt-4", "claude-3"]) is None
-
-    def test_longest_model_wins(self):
-        from code_puppy.command_line.model_picker_completion import (
-            _find_matching_model,
-        )
-
-        # "gpt-4-turbo hello" should match "gpt-4-turbo" not "gpt-4"
-        assert (
-            _find_matching_model("gpt-4-turbo hello", ["gpt-4", "gpt-4-turbo"])
-            == "gpt-4-turbo"
-        )
+        assert _find_matching_model(query, models) == expected
 
 
 class TestUpdateModelInInput:
@@ -227,7 +245,8 @@ class TestUpdateModelInInput:
 
         assert update_model_in_input("hello world") is None
 
-    def test_model_command_no_match(self):
+    @pytest.mark.parametrize("cmd", ["/model xyz", "/m xyz"], ids=["model", "m"])
+    def test_command_no_match(self, cmd):
         from code_puppy.command_line.model_picker_completion import (
             update_model_in_input,
         )
@@ -236,20 +255,14 @@ class TestUpdateModelInInput:
             "code_puppy.command_line.model_picker_completion._load_models_config",
             return_value={"gpt-4": {}},
         ):
-            assert update_model_in_input("/model xyz") is None
+            assert update_model_in_input(cmd) is None
 
-    def test_m_command_no_match(self):
-        from code_puppy.command_line.model_picker_completion import (
-            update_model_in_input,
-        )
-
-        with patch(
-            "code_puppy.command_line.model_picker_completion._load_models_config",
-            return_value={"gpt-4": {}},
-        ):
-            assert update_model_in_input("/m xyz") is None
-
-    def test_model_with_trailing_text(self):
+    @pytest.mark.parametrize(
+        "cmd",
+        ["/model gpt-4 tell me a joke", "/m gpt-4 tell me a joke"],
+        ids=["model", "m"],
+    )
+    def test_command_with_trailing_text(self, cmd):
         from code_puppy.command_line.model_picker_completion import (
             update_model_in_input,
         )
@@ -263,237 +276,148 @@ class TestUpdateModelInInput:
                 "code_puppy.command_line.model_picker_completion.set_model_and_reload_agent"
             ),
         ):
-            result = update_model_in_input("/model gpt-4 tell me a joke")
+            result = update_model_in_input(cmd)
             assert result is not None
             assert "tell me a joke" in result
 
 
 class TestModelSelectionMenu:
-    def test_preselects_active_model_page(self):
-        from code_puppy.command_line.model_picker_completion import (
-            MODEL_PICKER_PAGE_SIZE,
-            ModelSelectionMenu,
-        )
+    """Drive the termflow-backed picker headlessly with scripted keys."""
 
-        models = [f"model-{i}" for i in range(MODEL_PICKER_PAGE_SIZE + 5)]
-        active_model = models[-1]
+    MODELS = [f"model-{i:02d}" for i in range(40)]
 
+    def _drive(self, keys, models=None, active="model-00"):
+        from io import StringIO
+
+        script = iter(keys)
+        out = StringIO()
         with patch(
             "code_puppy.command_line.model_picker_completion.get_active_model",
-            return_value=active_model,
+            return_value=active,
         ):
-            menu = ModelSelectionMenu(models)
-
-        assert menu.selected_index == len(models) - 1
-        assert menu.page == 1
-        assert active_model in menu.models_on_page
-
-    def test_page_navigation_moves_selection_to_page_start(self):
-        from code_puppy.command_line.model_picker_completion import (
-            MODEL_PICKER_PAGE_SIZE,
-            ModelSelectionMenu,
-        )
-
-        models = [f"model-{i}" for i in range(MODEL_PICKER_PAGE_SIZE * 2 + 1)]
-
-        with patch(
-            "code_puppy.command_line.model_picker_completion.get_active_model",
-            return_value="missing-model",
-        ):
-            menu = ModelSelectionMenu(models)
-
-        menu._page_down()
-        assert menu.page == 1
-        assert menu.selected_index == MODEL_PICKER_PAGE_SIZE
-
-        menu._page_up()
-        assert menu.page == 0
-        assert menu.selected_index == 0
-
-    def test_move_down_keeps_selection_visible(self):
-        from code_puppy.command_line.model_picker_completion import (
-            MODEL_PICKER_PAGE_SIZE,
-            ModelSelectionMenu,
-        )
-
-        models = [f"model-{i}" for i in range(MODEL_PICKER_PAGE_SIZE + 1)]
-
-        with patch(
-            "code_puppy.command_line.model_picker_completion.get_active_model",
-            return_value="missing-model",
-        ):
-            menu = ModelSelectionMenu(models)
-
-        menu.selected_index = MODEL_PICKER_PAGE_SIZE - 1
-        menu.page = 0
-        menu._move_down()
-
-        assert menu.selected_index == MODEL_PICKER_PAGE_SIZE
-        assert menu.page == 1
-
-    def test_filter_keeps_current_model_selected_when_visible(self):
-        from code_puppy.command_line.model_picker_completion import ModelSelectionMenu
-
-        with patch(
-            "code_puppy.command_line.model_picker_completion.get_active_model",
-            return_value="claude-3-sonnet",
-        ):
-            menu = ModelSelectionMenu(
-                ["gpt-5-mini", "claude-3-sonnet", "claude-3-opus"]
+            menu_obj = ModelSelectionMenu(model_names=models or self.MODELS)
+            menu = menu_obj.build_menu(
+                key_source=lambda: next(script),
+                output=out,
+                size=lambda: (100, 40),
+                alt_screen=False,
             )
+            result = menu.run()
+        return menu_obj, result, out.getvalue()
 
-        menu._set_filter_text("claude")
+    def test_preselects_active_model(self):
+        _, result, _ = self._drive(["enter"], active="model-17")
+        assert result.item.value == "model-17"
 
-        assert menu.visible_model_names == ["claude-3-sonnet", "claude-3-opus"]
-        assert menu.selected_index == 0
+    def test_active_model_marked(self):
+        _, _, screen = self._drive(["escape"], active="model-01")
+        assert "(active)" in screen
 
-    def test_filter_resets_to_first_visible_match_when_selection_disappears(self):
-        from code_puppy.command_line.model_picker_completion import ModelSelectionMenu
+    def test_page_navigation_moves_selection(self):
+        _, result, _ = self._drive(["page-down", "enter"], active="model-00")
+        assert result.item.value == "model-15"  # MODEL_PICKER_PAGE_SIZE == 15
 
-        with patch(
-            "code_puppy.command_line.model_picker_completion.get_active_model",
-            return_value="gpt-5-mini",
-        ):
-            menu = ModelSelectionMenu(
-                ["gpt-5-mini", "claude-3-sonnet", "claude-3-opus"]
-            )
+    def test_left_right_page_via_bound_keys(self):
+        _, result, _ = self._drive(["right", "enter"], active="model-00")
+        assert result.item.value == "model-15"
+        _, result, _ = self._drive(["right", "left", "enter"], active="model-00")
+        assert result.item.value == "model-00"
 
-        menu._set_filter_text("opus")
+    def test_filter_narrows_matches(self):
+        _, result, _ = self._drive(["3", "9", "enter"])
+        assert result.item.value == "model-39"
 
-        assert menu.visible_model_names == ["claude-3-opus"]
-        assert menu.selected_index == 0
+    def test_ctrl_u_clears_filter(self):
+        _, result, _ = self._drive(["3", "9", "ctrl-u", "enter"])
+        # Filter cleared: cursor clamps back into the full list.
+        assert result.item.value in self.MODELS
 
-    def test_accept_selection_returns_false_when_filter_has_no_matches(self):
-        from code_puppy.command_line.model_picker_completion import ModelSelectionMenu
+    def test_enter_ignored_when_filter_has_no_matches(self):
+        _, result, _ = self._drive(["z", "z", "enter", "escape"])
+        assert result.cancelled
 
-        with patch(
-            "code_puppy.command_line.model_picker_completion.get_active_model",
-            return_value="missing-model",
-        ):
-            menu = ModelSelectionMenu(["gpt-5-mini", "claude-3-sonnet"])
+    def test_no_matches_renders_hint(self):
+        from termflow.ansi.utils import visible
 
-        menu._set_filter_text("nope")
+        _, _, screen = self._drive(["z", "escape"])
+        assert "(no matches)" in visible(screen)
 
-        assert menu._accept_selection() is False
-        assert menu.result is None
-
-    def test_accept_selection_guards_invalid_selected_index(self):
-        from code_puppy.command_line.model_picker_completion import ModelSelectionMenu
-
-        with patch(
-            "code_puppy.command_line.model_picker_completion.get_active_model",
-            return_value="missing-model",
-        ):
-            menu = ModelSelectionMenu(["gpt-5-mini"])
-
-        menu.selected_index = 99
-
-        assert menu._accept_selection() is False
-        assert menu.result is None
-
-    def test_render_no_matches_mentions_filter_and_clear_shortcut(self):
-        from code_puppy.command_line.model_picker_completion import ModelSelectionMenu
-
-        with patch(
-            "code_puppy.command_line.model_picker_completion.get_active_model",
-            return_value="missing-model",
-        ):
-            menu = ModelSelectionMenu(["gpt-5-mini", "claude-3-sonnet"])
-
-        menu._set_filter_text("nope")
-
-        rendered = "".join(text for _, text in menu._render())
-
-        assert "No models match the current filter." in rendered
-        assert "Clear filter" in rendered
-
-
-def _key_tuple(binding) -> tuple:
-    """Normalise a prompt_toolkit binding's keys into plain strings.
-
-    Control keys / special keys are ``Keys`` enum members whose ``.value`` is
-    the canonical string ('c-e', '<any>', ...); literal characters are plain
-    strings already.
-    """
-    return tuple(getattr(k, "value", k) for k in binding.keys)
-
-
-async def _capture_key_bindings(menu):
-    """Run the menu with the prompt_toolkit Application stubbed out and return
-    the KeyBindings object the menu registered.
-
-    The real bindings are built *inside* ``run_async`` and handed to a fresh
-    ``Application``; we intercept that Application so nothing interactive ever
-    launches.
-    """
-    from code_puppy.command_line import model_picker_completion
-
-    captured = {}
-
-    class _FakeApp:
-        def __init__(self, *args, **kwargs):
-            captured["kb"] = kwargs.get("key_bindings")
-
-        async def run_async(self):  # no-op: exit immediately, result stays None
-            return None
-
-        def exit(self, *args, **kwargs):
-            pass
-
-        def invalidate(self):
-            pass
-
-    with patch.object(model_picker_completion, "Application", _FakeApp):
-        await menu.run_async()
-
-    return captured["kb"]
+    def test_escape_cancels(self):
+        menu_obj, result, _ = self._drive(["escape"])
+        assert result.cancelled
+        assert menu_obj.pending_credentials_edit is None
 
 
 class TestModelSelectionMenuKeybindings:
-    """Footgun guard: editing credentials must NOT shadow type-to-filter.
+    def test_edit_credentials_bound_to_ctrl_e(self):
+        from io import StringIO
 
-    The edit-credentials action should live on Ctrl+E ('c-e'). If plain 'e' is
-    bound to it, the more-specific binding wins over the '<any>' filter handler
-    and you can never type the letter 'e' to filter models (deepseek,
-    claude-code, byteplus, ... all contain 'e').
-    """
+        script = iter(["ctrl-e"])
+        with (
+            patch(
+                "code_puppy.command_line.model_picker_completion.get_active_model",
+                return_value="m1",
+            ),
+            patch(
+                "code_puppy.command_line.model_picker_completion.required_env_var_for_model",
+                return_value="API_KEY",
+            ),
+        ):
+            menu_obj = ModelSelectionMenu(model_names=["m1", "m2"])
+            menu = menu_obj.build_menu(
+                key_source=lambda: next(script),
+                output=StringIO(),
+                size=lambda: (100, 30),
+                alt_screen=False,
+            )
+            result = menu.run()
+        assert menu_obj.pending_credentials_edit == "m1"
+        assert result.item.value == "m1"
 
-    @pytest.mark.asyncio
-    async def test_edit_credentials_bound_to_ctrl_e(self):
-        from code_puppy.command_line.model_picker_completion import ModelSelectionMenu
+    def test_ctrl_e_without_env_var_stays_in_menu(self):
+        from io import StringIO
 
+        script = iter(["ctrl-e", "escape"])
+        with (
+            patch(
+                "code_puppy.command_line.model_picker_completion.get_active_model",
+                return_value="m1",
+            ),
+            patch(
+                "code_puppy.command_line.model_picker_completion.required_env_var_for_model",
+                return_value=None,
+            ),
+        ):
+            menu_obj = ModelSelectionMenu(model_names=["m1"])
+            menu = menu_obj.build_menu(
+                key_source=lambda: next(script),
+                output=StringIO(),
+                size=lambda: (100, 30),
+                alt_screen=False,
+            )
+            result = menu.run()
+        assert menu_obj.pending_credentials_edit is None
+        assert result.cancelled
+
+    def test_plain_e_reaches_filter(self):
+        from io import StringIO
+
+        script = iter(["e", "escape"])
         with patch(
             "code_puppy.command_line.model_picker_completion.get_active_model",
-            return_value="missing-model",
+            return_value="alpha",
         ):
-            menu = ModelSelectionMenu(["deepseek", "claude-code", "byteplus"])
-
-        kb = await _capture_key_bindings(menu)
-        all_keys = [_key_tuple(b) for b in kb.bindings]
-
-        assert ("c-e",) in all_keys, (
-            f"edit-credentials must be bound to Ctrl+E; bound keys: {all_keys}"
-        )
-
-    @pytest.mark.asyncio
-    async def test_plain_e_not_bound_so_it_reaches_filter(self):
-        from code_puppy.command_line.model_picker_completion import ModelSelectionMenu
-
-        with patch(
-            "code_puppy.command_line.model_picker_completion.get_active_model",
-            return_value="missing-model",
-        ):
-            menu = ModelSelectionMenu(["deepseek", "claude-code", "byteplus"])
-
-        kb = await _capture_key_bindings(menu)
-        all_keys = [_key_tuple(b) for b in kb.bindings]
-
-        # The '<any>' handler must still be present to do the filtering.
-        assert ("<any>",) in all_keys, f"missing type-to-filter handler: {all_keys}"
-        # Plain 'e' must NOT be bound, or it shadows '<any>' and breaks filtering.
-        assert ("e",) not in all_keys, (
-            f"plain 'e' is bound and shadows type-to-filter; bound keys: {all_keys}"
-        )
+            menu_obj = ModelSelectionMenu(model_names=["alpha", "beta"])
+            menu = menu_obj.build_menu(
+                key_source=lambda: next(script),
+                output=(out := StringIO()),
+                size=lambda: (100, 30),
+                alt_screen=False,
+            )
+            menu.run()
+        # "e" became search text, not a credential action.
+        assert menu_obj.pending_credentials_edit is None
+        assert "search: " in out.getvalue() or "e" in out.getvalue()
 
 
 class TestInteractiveModelPicker:
@@ -517,143 +441,3 @@ class TestInteractiveModelPicker:
         assert result == "gpt-4"
         mock_run.assert_called_once()
         mock_set.assert_has_calls([call(True, notify=False), call(False, notify=False)])
-
-
-class TestGetInputWithModelCompletion:
-    @pytest.mark.asyncio
-    async def test_basic(self):
-        from code_puppy.command_line.model_picker_completion import (
-            get_input_with_model_completion,
-        )
-
-        with (
-            patch(
-                "code_puppy.command_line.model_picker_completion._load_models_config",
-                return_value={"gpt-4": {}},
-            ),
-            patch(
-                "code_puppy.command_line.model_picker_completion.PromptSession"
-            ) as mock_session_cls,
-        ):
-            mock_session = MagicMock()
-            mock_session.prompt_async = MagicMock(
-                return_value=self._make_coro("hello world")
-            )
-            mock_session_cls.return_value = mock_session
-            result = await get_input_with_model_completion()
-            assert result == "hello world"
-
-    @pytest.mark.asyncio
-    async def test_with_model_command(self):
-        from code_puppy.command_line.model_picker_completion import (
-            get_input_with_model_completion,
-        )
-
-        with (
-            patch(
-                "code_puppy.command_line.model_picker_completion._load_models_config",
-                return_value={"gpt-4": {}},
-            ),
-            patch(
-                "code_puppy.command_line.model_picker_completion.PromptSession"
-            ) as mock_session_cls,
-            patch(
-                "code_puppy.command_line.model_picker_completion.set_model_and_reload_agent"
-            ),
-        ):
-            mock_session = MagicMock()
-            mock_session.prompt_async = MagicMock(
-                return_value=self._make_coro("/model gpt-4 hello")
-            )
-            mock_session_cls.return_value = mock_session
-            result = await get_input_with_model_completion()
-            assert "hello" in result
-
-    @pytest.mark.asyncio
-    async def test_with_history_file(self, tmp_path):
-        from code_puppy.command_line.model_picker_completion import (
-            get_input_with_model_completion,
-        )
-
-        hfile = str(tmp_path / "history.txt")
-        with (
-            patch(
-                "code_puppy.command_line.model_picker_completion._load_models_config",
-                return_value={},
-            ),
-            patch(
-                "code_puppy.command_line.model_picker_completion.PromptSession"
-            ) as mock_session_cls,
-        ):
-            mock_session = MagicMock()
-            mock_session.prompt_async = MagicMock(return_value=self._make_coro("test"))
-            mock_session_cls.return_value = mock_session
-            result = await get_input_with_model_completion(history_file=hfile)
-            assert result == "test"
-
-    @staticmethod
-    async def _make_coro(value):
-        return value
-
-    def test_model_idx_not_found(self):
-        """Cover the return None when idx == -1 for /model."""
-        from code_puppy.command_line.model_picker_completion import (
-            update_model_in_input,
-        )
-
-        with (
-            patch(
-                "code_puppy.command_line.model_picker_completion._load_models_config",
-                return_value={"gpt-4": {}},
-            ),
-            patch(
-                "code_puppy.command_line.model_picker_completion.set_model_and_reload_agent"
-            ),
-        ):
-            # Create a case where text.find won't match the pattern
-            # This happens when original text has different spacing
-            result = update_model_in_input("  /model  gpt-4")
-            # The cmd extracted is "/model", rest is "gpt-4"
-            # Pattern is "/model gpt-4" but original has extra spaces
-            # Actually let me trace: content = "/model  gpt-4" (stripped)
-            # content.lower().startswith("/model ") -> True
-            # model_cmd = "/model", rest = " gpt-4".strip() = "gpt-4"
-            # pattern = "/model gpt-4", text = "  /model  gpt-4"
-            # text.find("/model gpt-4") -> -1 because of double space
-            assert result is None
-
-    def test_m_idx_not_found(self):
-        """Cover the return None when idx == -1 for /m."""
-        from code_puppy.command_line.model_picker_completion import (
-            update_model_in_input,
-        )
-
-        with (
-            patch(
-                "code_puppy.command_line.model_picker_completion._load_models_config",
-                return_value={"gpt-4": {}},
-            ),
-            patch(
-                "code_puppy.command_line.model_picker_completion.set_model_and_reload_agent"
-            ),
-        ):
-            result = update_model_in_input("  /m  gpt-4")
-            assert result is None
-
-    def test_m_with_trailing_text(self):
-        from code_puppy.command_line.model_picker_completion import (
-            update_model_in_input,
-        )
-
-        with (
-            patch(
-                "code_puppy.command_line.model_picker_completion._load_models_config",
-                return_value={"gpt-4": {}},
-            ),
-            patch(
-                "code_puppy.command_line.model_picker_completion.set_model_and_reload_agent"
-            ),
-        ):
-            result = update_model_in_input("/m gpt-4 tell me a joke")
-            assert result is not None
-            assert "tell me a joke" in result

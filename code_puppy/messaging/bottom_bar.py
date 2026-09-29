@@ -1,14 +1,20 @@
 """Persistent bottom prompt bar via a terminal scroll region (DECSTBM).
 
-Reserves the bottom rows of the terminal (3 base rows plus one row for
-every active sub-agent panel entry):
+Reserves the bottom rows of the terminal, bottom-up (optional rows exist
+only while they have content):
 
-    rows H-2-n..H-3  sub-agent panel (n = number of panel rows, via set_panel_lines)
-    row  H-2         status line (token/context info, via set_status)
-    row  H-1         prompt line  (the always-available input line)
-    row  H           blank margin
+    row H          status line (token/context info, via set_status)
+    above it       identity line (agent/model metadata, from the
+                   prompt prefix)
+    above it       optional speculation stats row
+                   (via set_speculation_status)
+    above it       completion popup rows, directly below the prompt
+    prompt rows    the always-available input viewport
+                   (1..PROMPT_MAX_ROWS rows)
+    above it       sub-agent panel (n rows, via set_panel_lines)
+    top of band    blank margin (separator below the transcript)
 
-The scrollable region is rows ``1 .. H-3-n``, so
+The scrollable region is rows ``1 .. H-reserved``, so
 all existing streaming output — termflow markdown, thinking stream, tool
 token-count lines — keeps working unmodified: it simply scrolls *inside*
 the region while the reserved rows stay put.
@@ -87,6 +93,7 @@ from .bar_rendering import (
 )
 
 from .bar_painters import PROMPT_MAX_ROWS, BarPainterMixin  # noqa: E402
+from .speculation_line import SpeculationLineMixin  # noqa: E402
 from .transcript_guard import TranscriptGuardMixin  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -111,7 +118,7 @@ SizeProvider = Callable[[], Tuple[int, int]]
 # =============================================================================
 
 
-class BottomBar(TranscriptGuardMixin, BarPainterMixin):
+class BottomBar(TranscriptGuardMixin, SpeculationLineMixin, BarPainterMixin):
     """Scroll-region manager for the persistent bottom prompt.
 
     Use the module-level singleton via :func:`get_bottom_bar` in app code;
@@ -132,16 +139,15 @@ class BottomBar(TranscriptGuardMixin, BarPainterMixin):
         self._rows = 0
         self._cols = 0
         self._status = ""
+        self._tool_progress = ""  # transient tool argument streaming counter
         self._status_prefix = ""  # animated spinner slot (puppy_spinner)
         self._status_suffix = ""  # trailing slot (steer_queue's '(N queued)')
+        self._speculation_status = ""  # optional stats row above identity/context
         self._panel_lines: list[str] = []
         self._popup_lines: list[str] = []  # completion popup (over panel)
         self._popup_selected = -1
-        # Blank rows held below the prompt after the popup shrinks/closes
-        # (high-water residue). The prompt does NOT slide back down when
-        # the menu closes; the slack is reclaimed lazily by
-        # ``notify_transcript_output`` so the prompt falls back into
-        # place while output is scrolling anyway.
+        # High-water popup slack: the prompt doesn't slide back down when the
+        # menu closes; notify_transcript_output reclaims it while output scrolls.
         self._popup_slack = 0
         self._reserved = 0  # reserved-row count while the region is up
         self._paste_armed = False  # bracketed paste (ESC[?2004h) state
@@ -152,10 +158,8 @@ class BottomBar(TranscriptGuardMixin, BarPainterMixin):
         self._prompt_cursor = 0
         self._sigwinch_installed = False
         self._atexit_registered = False
-        # DECTCEM state: the hardware cursor is hidden while the region
-        # is up (the prompt row paints a reverse-video pseudo-cursor;
-        # without hiding, a second "rogue" cursor blinks wherever
-        # streaming output last wrote inside the region).
+        # DECTCEM state: hide the hardware cursor while the region is up — the
+        # prompt paints a pseudo-cursor; otherwise a "rogue" cursor blinks inside.
         self._cursor_hidden = False
         # Windows scrollback guard (no-op state on POSIX) — see
         # transcript_guard.TranscriptGuardMixin.
@@ -219,6 +223,12 @@ class BottomBar(TranscriptGuardMixin, BarPainterMixin):
         with self._lock:
             return self._status
 
+    def set_tool_progress(self, text: str) -> None:
+        """Update tool streaming progress without clobbering other status slots."""
+        with self._lock:
+            self._tool_progress = text or ""
+            self._sync_reserved(self._status_seq)
+
     def set_status_prefix(self, text: str) -> None:
         """Update the spinner slot painted BEFORE the status text.
 
@@ -278,6 +288,8 @@ class BottomBar(TranscriptGuardMixin, BarPainterMixin):
         """
         cleaned = [_sanitize(str(line)) for line in (lines or [])][:POPUP_MAX_ROWS]
         with self._lock:
+            if cleaned == self._popup_lines and selected == self._popup_selected:
+                return
             old_block = len(self._popup_lines) + self._popup_slack
             self._popup_lines = cleaned
             self._popup_selected = selected
@@ -324,12 +336,18 @@ class BottomBar(TranscriptGuardMixin, BarPainterMixin):
         ``prefix_sgrs``: per-char SGR codes for the prefix (out-of-band
         — in-band escapes would be sanitized away).
         """
+        from .identity_line import split_identity
+
         with self._lock:
-            self._prompt_prefix = prefix or ""
-            self._prompt_prefix_sgrs = list(prefix_sgrs or [])
+            (
+                self._prompt_prefix,
+                self._prompt_prefix_sgrs,
+                self._identity_text,
+                self._identity_sgrs,
+            ) = split_identity(prefix or "", list(prefix_sgrs or []))
             self._prompt_buffer = buffer or ""
             self._prompt_cursor = max(0, cursor_pos)
-            self._sync_reserved(self._prompt_seq)
+            self._sync_reserved(lambda: self._prompt_seq() + self._identity_seq())
 
     def _sync_reserved(self, painter) -> None:
         """Repaint (or resize the reserved area) after a state change.
@@ -379,7 +397,7 @@ class BottomBar(TranscriptGuardMixin, BarPainterMixin):
             with self._lock:
                 self._suspend_depth -= 1
                 if self._suspend_depth == 0 and self._active:
-                    self._establish()
+                    self._establish(preserve_slack=True)
 
     # =========================================================================
     # Geometry / resize
@@ -392,7 +410,16 @@ class BottomBar(TranscriptGuardMixin, BarPainterMixin):
         Windows (no SIGWINCH there).
         """
         cols, rows = self._safe_size()
-        if (cols, rows) != (self._cols, self._rows):
+        if (cols, rows) == (self._cols, self._rows):
+            return
+        if self._region_up and rows == self._rows:
+            # Horizontal dragging is not a fresh allocation. Re-establishing
+            # feeds a whole footer's worth of LFs on EVERY width change,
+            # pushing blank rows / chrome into scrollback. Reuse the existing
+            # band; only wrapped input or panel changes may alter its height.
+            self._cols = cols
+            self._resize_reserved(self._reserved)
+        else:
             self._establish()
 
     def _on_resize(self) -> None:
@@ -449,15 +476,29 @@ class BottomBar(TranscriptGuardMixin, BarPainterMixin):
     # Region establish / teardown
     # =========================================================================
 
-    def _establish(self) -> None:
-        """Set the scroll region, park the cursor inside it, paint rows."""
+    def _establish(self, preserve_slack: bool = False) -> None:
+        """Set the scroll region, park the cursor inside it, paint rows.
+
+        ``preserve_slack``: keep pending popup slack (the lazy-reclaim
+        gap below the prompt) across the rebuild. Only the suspend-exit
+        path passes True — the primary screen came back byte-identical
+        from the alt screen, so the slack rows are still physically
+        blank under the transcript. Dropping them there shrinks the
+        reserved band and re-parks the transcript cursor BELOW where
+        output actually ended, scrolling a slack-sized blank gap into
+        the transcript on every menu run. Honored only while the
+        geometry is unchanged; a resize invalidates row positions and
+        sheds the slack like any other rebuild.
+        """
         cols, rows = self._safe_size()
         old_rows = self._rows
         old_reserved = self._reserved if self._region_up else 0
+        size_changed = (cols, rows) != (self._cols, self._rows)
         self._cols, self._rows = cols, rows
-        # Full rebuild = fresh geometry: leftover popup slack (the
-        # lazy-reclaim gap below the prompt) is meaningless here.
-        self._popup_slack = 0
+        if not preserve_slack or size_changed:
+            # Full rebuild = fresh geometry: leftover popup slack is
+            # meaningless here.
+            self._popup_slack = 0
         reserved = self._total_reserved()
         if rows < reserved + 1:
             # Terminal too small for a region + reserved rows; if one was
@@ -481,29 +522,51 @@ class BottomBar(TranscriptGuardMixin, BarPainterMixin):
         top = rows - reserved
         parts = []
         if old_reserved and old_rows > 0:
-            # Re-establish after a resize: the old bar rows were painted
-            # at the PREVIOUS geometry and nothing repaints over them —
-            # without an explicit erase they linger as ghost duplicates
-            # ("multiples of UI elements") at their old positions while
-            # the fresh bar paints at the new bottom. Reset the region
-            # first so the erases can reach rows outside the incoming
-            # one, then blank the old reserved band (clamped to the new
-            # screen height).
+            # Re-establish after a resize: old rows were painted at the previous
+            # geometry and linger as ghosts. Reset the region so erases can reach
+            # outside the incoming one, then blank the old band (clamped to height).
             parts.append(_RESET_REGION)
             for row in range(
                 max(1, old_rows - old_reserved + 1), min(old_rows, rows) + 1
             ):
                 parts.append(f"\x1b[{row};1H{_CLEAR_LINE}")
-        parts += [
-            # Push existing content up so the reserved rows start blank.
-            "\n" * reserved,
-            # DECSTBM: scrollable region = rows 1..H-reserved. Homes cursor.
-            f"\x1b[1;{top}r",
-            # CRITICAL: park the cursor INSIDE the scrollable area so
-            # subsequent console prints scroll rather than overwriting
-            # the reserved rows.
-            f"\x1b[{top};1H",
-        ]
+        if self._guard_scroll_fix:
+            # Windows: the transcript-guard simulator must know the exact
+            # cursor row, so keep the deterministic park at (top, 1) that
+            # ``_guard_on_establish`` advertises to it.
+            parts += [
+                # Push existing content up so the reserved rows start blank.
+                "\n" * reserved,
+                # DECSTBM: scrollable region = rows 1..H-reserved. Homes cursor.
+                f"\x1b[1;{top}r",
+                # Park the cursor INSIDE the scrollable area so prints
+                # scroll instead of overwriting the reserved rows.
+                f"\x1b[{top};1H",
+            ]
+        else:
+            # CURSOR CONTRACT (see _resize_reserved): transcript prints land
+            # at the current cursor, so the region rebuild must hand the
+            # cursor back where output actually ended — parking at the
+            # region bottom teleported the next print there, scrolling a
+            # screen-sized blank gap into the transcript after every menu
+            # whenever the transcript hadn't filled the screen.
+            parts += [
+                # Push existing content up so the bottom `reserved` rows are
+                # blank. Scrolls only the exact amount needed (LFs above the
+                # bottom just move the cursor).
+                "\n" * reserved,
+                # Step back up to the writer's row. Scroll-count invariant:
+                # post-push row = min(H, C + reserved), so CUU `reserved`
+                # lands on min(H - reserved, C) = the writer's row clamped
+                # into the new region. Column is untouched (mid-line
+                # streaming stays intact, same as _resize_reserved).
+                f"\x1b[{reserved}A",
+                _SAVE_CURSOR,
+                # DECSTBM: scrollable region = rows 1..H-reserved. Homes cursor.
+                f"\x1b[1;{top}r",
+                # Restore the writer position (always inside the region).
+                _RESTORE_CURSOR,
+            ]
         if not self._cursor_hidden:
             # DECTCEM hide: the prompt row renders a pseudo-cursor; the
             # hardware cursor must not blink inside the scroll region.
@@ -529,9 +592,12 @@ class BottomBar(TranscriptGuardMixin, BarPainterMixin):
         Caller holds the lock and guarantees the terminal size hasn't
         changed (``_ensure_geometry`` ran first). Scrollback-safe:
 
-        * Growing (region shrinks): scroll the region content up by the
-          delta first (``CSI S``), so the newly-reserved rows are blank
-          instead of eating visible output.
+        * Growing (region shrinks): make the newly-reserved rows blank by
+          feeding LFs from the writer's row and walking back up — this
+          scrolls only the amount the content actually needs (zero when
+          the transcript hasn't reached the region bottom), instead of a
+          blind ``CSI S`` by the full delta that shoved a short
+          transcript toward the top of the screen on every popup open.
         * Shrinking (region grows): clear the vacated reserved rows so no
           stale panel paint lingers inside the scrollable area.
 
@@ -550,37 +616,47 @@ class BottomBar(TranscriptGuardMixin, BarPainterMixin):
             # handles the dormant transition.
             self._establish()
             return
-        parts = [_SAVE_CURSOR]
+        parts = []
         delta_up = 0
+        guard_scrolled = 0
         if new_reserved > old_reserved:
-            # Blank the soon-to-be-reserved rows by scrolling content up.
+            # Blank the soon-to-be-reserved rows.
             delta_up = new_reserved - old_reserved
             if self._guard_scroll_fix:
-                # Windows: CSI S inside a restricted region DESTROYS the
-                # scrolled lines (they never reach scrollback). Reset the
-                # margins and feed LFs at the physical bottom row instead
-                # — visually identical, but the lines pan into history.
+                # Windows: CSI S inside a restricted region DESTROYS scrolled
+                # lines; reset margins + feed LFs at the physical bottom. The
+                # full-delta scroll is deterministic, which the transcript-
+                # guard simulator requires (RESTORE + CUU delta below).
+                parts.append(_SAVE_CURSOR)
                 parts.append("\x1b[r")
                 parts.append(f"\x1b[{rows};1H" + "\n" * delta_up)
+                guard_scrolled = delta_up
             else:
-                parts.append(f"\x1b[{delta_up}S")
+                # LFs from the writer's row: the region scrolls only once
+                # the cursor hits the region bottom, i.e. exactly as much
+                # as the content needs (zero for a short transcript). CUU
+                # by the same count is scroll-invariant, landing back on
+                # the writer's row (clamped into the incoming region), so
+                # no post-region fixup is needed.
+                parts.append("\n" * delta_up + f"\x1b[{delta_up}A" + _SAVE_CURSOR)
         else:
+            parts.append(_SAVE_CURSOR)
             # Clear rows being returned to the scroll region.
             for row in range(rows - old_reserved + 1, rows - new_reserved + 1):
                 parts.append(f"\x1b[{row};1H{_CLEAR_LINE}")
         top = rows - new_reserved
         parts.append(f"\x1b[1;{top}r")  # DECSTBM homes the cursor
-        # Restore the transcript cursor (DECSTBM homed it). After a grow
-        # the content scrolled up by ``delta_up``, so the cursor must
-        # follow its line up (CUU clamps at the region top — safe).
+        # DECSTBM homed the cursor; put it back on the writer's row. On the
+        # Windows path the content scrolled a full ``delta_up``, so the
+        # restored cursor must follow its line up (CUU clamps — safe).
         parts.append(_RESTORE_CURSOR)
-        if delta_up:
-            parts.append(f"\x1b[{delta_up}A")
+        if guard_scrolled:
+            parts.append(f"\x1b[{guard_scrolled}A")
         self._reserved = new_reserved
         parts.append(self._reserved_rows_seq())
         self._write("".join(parts))
-        if delta_up:
-            self._guard_on_resize_scroll(delta_up)
+        if guard_scrolled:
+            self._guard_on_resize_scroll(guard_scrolled)
 
     def _teardown(self) -> None:
         """Reset to a full-screen region and clear the reserved rows.
@@ -593,10 +669,17 @@ class BottomBar(TranscriptGuardMixin, BarPainterMixin):
         self._guard_on_teardown()  # flush withheld tail BEFORE our escapes
         rows = self._safe_size()[1]
         reserved = self._reserved or self._total_reserved()
-        parts = [_RESET_REGION]
+        # CURSOR CONTRACT: the transcript cursor is put back wherever the
+        # streaming writer left it, NOT parked at the band top. Transcript
+        # prints land at the current cursor (nobody re-seeks), so parking
+        # here teleported the print position to the bottom of the screen:
+        # suspended-mode output (shell commands, credential prompts) and
+        # the post-menu re-establish both inherited a screen-sized blank
+        # gap whenever the transcript hadn't filled the screen yet.
+        parts = [_SAVE_CURSOR, _RESET_REGION]
         for row in range(max(1, rows - reserved + 1), rows + 1):
             parts.append(f"\x1b[{row};1H{_CLEAR_LINE}")
-        parts.append(f"\x1b[{max(1, rows - reserved + 1)};1H")
+        parts.append(_RESTORE_CURSOR)
         if self._cursor_hidden:
             # Give the hardware cursor back — every exit path (stop,
             # suspend-enter, dormant, emergency) funnels through here.

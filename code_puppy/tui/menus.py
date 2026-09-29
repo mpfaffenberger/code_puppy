@@ -193,20 +193,6 @@ def open_set_picker(app: "CooperApp") -> None:
     app.push_screen(SetPickerScreen(), _done)
 
 
-def open_diff_picker(app: "CooperApp") -> None:
-    """Two-panel /diff: addition/deletion menu + live preview (mirrors classic)."""
-    from .screens.diff_picker import DiffPickerScreen
-
-    app.push_screen(DiffPickerScreen())
-
-
-def open_colors_picker(app: "CooperApp") -> None:
-    """Two-panel /colors: banner list + live preview (mirrors classic)."""
-    from .screens.colors_picker import ColorsPickerScreen
-
-    app.push_screen(ColorsPickerScreen())
-
-
 def open_history(app: "CooperApp") -> None:
     """Open the prompt-history picker; drop the chosen prompt into the input.
 
@@ -266,8 +252,6 @@ MENU_OPENERS: Dict[str, Callable[["CooperApp"], None]] = {
     "a": open_agent_picker,
     "agents": open_agent_picker,
     "set": open_set_picker,
-    "diff": open_diff_picker,
-    "colors": open_colors_picker,
     "history": open_history,
     "model_settings": open_model_settings,
     "ms": open_model_settings,

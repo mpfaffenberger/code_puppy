@@ -40,18 +40,15 @@ from typing import Callable, Dict, List, Optional, Tuple
 # Hard bounds -- the user cannot escape these regardless of config.
 MIN_DELAY_SECONDS: float = 1.0
 MAX_DELAY_SECONDS: float = 30.0
-# Ceiling on attempts. With the 30s delay cap, worst-case *sleep* time is
-# ``(MAX_ATTEMPTS_CEILING - 1) * 30s`` = ~49.5 minutes at 100 attempts -- a
-# generous budget for a stubborn rate limit, yet nowhere near a runaway (24h
-# would need ~2880 retries). Bumping this stays safe as long as it's kept far
-# below ``86400 / 30 = 2880``.
+# Ceiling on attempts: worst-case sleep ≈ (MAX-1)*30s ≈ 49.5 min at 100 — a
+# generous budget for a stubborn rate limit, yet far from a 24h runaway (~2880
+# retries). Bump only while keeping it well below ``86400/30``.
 MAX_ATTEMPTS_CEILING: int = 100
 MIN_ATTEMPTS_FLOOR: int = 1
 
-# Absolute backstop on TOTAL retries within a single turn when progress-aware
-# reset is active. The per-turn no-progress budget refreshes on genuine forward
-# progress, so this only guards the pathological "one unit of progress, then
-# die, forever" cycle. Kept far below the ~2880-retry/24h runaway line.
+# Absolute backstop on TOTAL retries per turn when progress-aware reset is
+# active: the no-progress budget refreshes on real progress, so this only
+# guards the "one step forward, then die forever" cycle.
 PROGRESS_RETRY_TOTAL_CEILING: int = 200
 
 # Strategy name -> (base_seconds, exponent). All exponential-with-equal-jitter,
@@ -63,9 +60,8 @@ STRATEGIES: Dict[str, Tuple[float, float]] = {
 }
 STRATEGY_NAMES: Tuple[str, ...] = tuple(STRATEGIES)
 
-# Role -> (default_strategy, default_max_attempts). Sub-agents default to a much
-# longer budget than the main loop because losing a sub-agent's accumulated work
-# (a whole review, a whole plan) to a transient blip is never acceptable.
+# Role -> (default_strategy, default_max_attempts). Sub-agents get a much
+# longer budget: losing a whole review/plan to a transient blip is never OK.
 _ROLE_DEFAULTS: Dict[str, Tuple[str, int]] = {
     "main": ("balanced", 5),
     "subagent": ("balanced", 9),
@@ -119,9 +115,8 @@ class RetryProfile:
         delays: List[float] = []
         capped = 0.0
         for i in range(max(0, self.max_attempts - 1)):
-            # Short-circuit once we've reached the ceiling: never compute
-            # ``exponent ** i`` for large ``i`` (it can OverflowError for big
-            # attempt counts), and there's nothing left to grow toward anyway.
+            # Short-circuit at the ceiling: avoids OverflowError from
+            # ``exponent ** i`` for large ``i``; nothing left to grow toward.
             if capped < MAX_DELAY_SECONDS:
                 try:
                     raw = base * (exponent**i)
@@ -158,9 +153,9 @@ def make(
 
 # --- Config resolution -------------------------------------------------------
 #
-# Reads live in this module (not config.py) to keep the config surface small and
-# avoid a circular import: config.py is imported by nearly everything, whereas
-# this module is only pulled in lazily by the retry call sites.
+# Reads live here (not config.py) to keep the config surface small and avoid a
+# circular import: config.py is imported by nearly everything; this module is
+# only pulled in lazily by the retry call sites.
 
 
 def per_model_key(model_name: str, role: str, field: str) -> str:

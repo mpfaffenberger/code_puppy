@@ -5,9 +5,9 @@ custom MCP servers with JSON configuration.
 """
 
 import json
-import os
 
 from code_puppy.command_line.utils import safe_input
+from code_puppy.i18n import t
 from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 
 # Example configurations for each server type
@@ -49,23 +49,23 @@ def prompt_and_install_custom_server(manager) -> bool:
     Returns:
         True if successful, False otherwise
     """
-    from code_puppy.config import MCP_SERVERS_FILE
+    from code_puppy.command_line.mcp.mcp_servers_store import upsert_mcp_server
     from code_puppy.mcp_.managed_server import ServerConfig
 
     from .utils import find_server_id_by_name
 
-    emit_info("\n➕ Add Custom MCP Server\n")
-    emit_info("  Configure your own MCP server using JSON.\n")
+    emit_info(t("mcp.custom_server.header"))
+    emit_info(t("mcp.custom_server.subheader"))
 
     # Get server name
     try:
         server_name = safe_input("  Server name: ")
         if not server_name:
-            emit_warning("Server name is required")
+            emit_warning(t("mcp.custom_server.name_required"))
             return False
     except (KeyboardInterrupt, EOFError):
         emit_info("")
-        emit_warning("Cancelled")
+        emit_warning(t("mcp.custom_server.cancelled"))
         return False
 
     # Check if server already exists
@@ -74,41 +74,41 @@ def prompt_and_install_custom_server(manager) -> bool:
         try:
             override = safe_input(f"  Server '{server_name}' exists. Override? [y/N]: ")
             if not override.lower().startswith("y"):
-                emit_warning("Cancelled")
+                emit_warning(t("mcp.custom_server.cancelled"))
                 return False
         except (KeyboardInterrupt, EOFError):
             emit_info("")
-            emit_warning("Cancelled")
+            emit_warning(t("mcp.custom_server.cancelled"))
             return False
 
     # Select server type
-    emit_info("\n  Select server type:\n")
-    emit_info("    1. 📟 stdio  - Local command (npx, python, uvx, etc.)")
-    emit_info("    2. 🌐 http   - HTTP endpoint")
-    emit_info("    3. 📡 sse    - Server-Sent Events\n")
+    emit_info(t("mcp.custom_server.type_header"))
+    emit_info(t("mcp.custom_server.type_stdio"))
+    emit_info(t("mcp.custom_server.type_http"))
+    emit_info(t("mcp.custom_server.type_sse"))
 
     try:
         type_choice = safe_input("  Enter choice [1-3]: ")
     except (KeyboardInterrupt, EOFError):
         emit_info("")
-        emit_warning("Cancelled")
+        emit_warning(t("mcp.custom_server.cancelled"))
         return False
 
     type_map = {"1": "stdio", "2": "http", "3": "sse"}
     server_type = type_map.get(type_choice)
     if not server_type:
-        emit_warning("Invalid choice")
+        emit_warning(t("mcp.custom_server.invalid_choice"))
         return False
 
     # Show example for selected type
     example = CUSTOM_SERVER_EXAMPLES.get(server_type, "{}")
-    emit_info(f"\n  Example {server_type} configuration:\n")
+    emit_info(t("mcp.custom_server.example_header", server_type=server_type))
     for line in example.split("\n"):
         emit_info(f"    {line}")
     emit_info("")
 
     # Get JSON configuration
-    emit_info("  Enter your JSON configuration (paste and press Enter twice):\n")
+    emit_info(t("mcp.custom_server.json_prompt"))
 
     json_lines = []
     empty_count = 0
@@ -125,29 +125,29 @@ def prompt_and_install_custom_server(manager) -> bool:
                 json_lines.append(line)
     except (KeyboardInterrupt, EOFError):
         emit_info("")
-        emit_warning("Cancelled")
+        emit_warning(t("mcp.custom_server.cancelled"))
         return False
 
     json_str = "\n".join(json_lines).strip()
     if not json_str:
-        emit_warning("No configuration provided")
+        emit_warning(t("mcp.custom_server.no_config"))
         return False
 
     # Parse JSON
     try:
         config_dict = json.loads(json_str)
     except json.JSONDecodeError as e:
-        emit_error(f"Invalid JSON: {e}")
+        emit_error(t("mcp.custom_server.invalid_json", error=e))
         return False
 
     # Validate required fields based on type
     if server_type == "stdio":
         if "command" not in config_dict:
-            emit_error("stdio servers require a 'command' field")
+            emit_error(t("mcp.custom_server.stdio_missing_command"))
             return False
     elif server_type in ("http", "sse"):
         if "url" not in config_dict:
-            emit_error(f"{server_type} servers require a 'url' field")
+            emit_error(t("mcp.custom_server.url_missing", server_type=server_type))
             return False
 
     # Create server config
@@ -164,30 +164,16 @@ def prompt_and_install_custom_server(manager) -> bool:
         server_id = manager.register_server(server_config)
 
         if not server_id:
-            emit_error("Failed to register server")
+            emit_error(t("mcp.custom_server.register_failed"))
             return False
 
         # Save to mcp_servers.json for persistence
-        if os.path.exists(MCP_SERVERS_FILE):
-            with open(MCP_SERVERS_FILE, "r") as f:
-                data = json.load(f)
-                servers = data.get("mcp_servers", {})
-        else:
-            servers = {}
-            data = {"mcp_servers": servers}
-
-        # Add new server with type
         save_config = config_dict.copy()
         save_config["type"] = server_type
-        servers[server_name] = save_config
+        upsert_mcp_server(server_name, save_config)
 
-        # Save back
-        os.makedirs(os.path.dirname(MCP_SERVERS_FILE), exist_ok=True)
-        with open(MCP_SERVERS_FILE, "w") as f:
-            json.dump(data, f, indent=2)
-
-        emit_success(f"\n  ✅ Successfully added custom server '{server_name}'!")
-        emit_info(f"  Use '/mcp start {server_name}' to start the server.\n")
+        emit_success(t("mcp.custom_server.success", server_name=server_name))
+        emit_info(t("mcp.custom_server.start_hint", server_name=server_name))
 
         # Strict opt-in: prompt the user to bind this server to agents.
         try:
@@ -197,10 +183,10 @@ def prompt_and_install_custom_server(manager) -> bool:
 
             prompt_bind_after_install_sync(server_name)
         except Exception as exc:
-            emit_warning(f"Bind prompt skipped: {exc}")
+            emit_warning(t("mcp.custom_server.bind_skipped", error=exc))
 
         return True
 
     except Exception as e:
-        emit_error(f"Failed to add server: {e}")
+        emit_error(t("mcp.custom_server.add_failed", error=e))
         return False
