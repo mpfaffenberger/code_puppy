@@ -188,6 +188,15 @@ async def main():
         help="Write aggregate headless model usage as JSON",
     )
     parser.add_argument(
+        "--result-conversation",
+        type=Path,
+        metavar="PATH",
+        help=(
+            "With --prompt, export the full conversation (every model request "
+            "and response, including tool calls) as JSON to PATH"
+        ),
+    )
+    parser.add_argument(
         "--agent",
         "-a",
         type=str,
@@ -251,6 +260,8 @@ async def main():
     callbacks.on_register_cli_args(parser)
 
     args = parser.parse_args()
+    if args.result_conversation is not None and not args.prompt:
+        parser.error("--result-conversation requires --prompt")
     _initialize_locale()
     if args.disable_ask_user_question:
         os.environ["CODE_PUPPY_DISABLE_ASK_USER_QUESTION"] = "1"
@@ -586,6 +597,7 @@ async def main():
                 message_renderer,
                 session_name=resolved_resume_session,
                 usage_file=args.usage_file,
+                conversation_file=args.result_conversation,
             )
         else:
             # Default to interactive mode (no args = same as -i)
@@ -1449,13 +1461,15 @@ async def execute_single_prompt(
     *,
     session_name: str | None = None,
     usage_file: Path | None = None,
+    conversation_file: Path | None = None,
 ) -> None:
     """Execute one headless ``-p`` prompt, dispatching commands and autosaving.
 
     Agent turns persist under the explicitly resumed session, when supplied,
     or under this process's generated autosave session otherwise. Handled
     slash commands and shell pass-through do not create or overwrite sessions
-    because they never invoke the agent.
+    because they never invoke the agent. ``conversation_file`` receives the
+    full conversation of a completed agent run (``--result-conversation``).
     """
     from code_puppy.command_line.shell_passthrough import (
         execute_shell_passthrough,
@@ -1527,7 +1541,12 @@ async def execute_single_prompt(
         # The runtime result includes the final assistant response that the
         # incremental history can otherwise miss.
         if hasattr(result, "all_messages"):
-            agent.set_message_history(list(result.all_messages()))
+            history = list(result.all_messages())
+            agent.set_message_history(history)
+            if conversation_file is not None:
+                from code_puppy.session_storage import export_conversation
+
+                export_conversation(conversation_file, history)
 
     except asyncio.CancelledError:
         emit_warning(t("cli.headless.cancelled"))
