@@ -134,15 +134,15 @@ def _to_rich_color(color: str) -> str:
 
 
 def get_rich_colors() -> RichColors:
-    """Return Rich styles backed by the shared prompt-toolkit palette."""
-    from code_puppy.callbacks import on_prompt_toolkit_style
+    """Return Rich styles backed by the shared termflow palette."""
+    from code_puppy.command_line.tui_style import menu_style
 
-    style = on_prompt_toolkit_style()
+    style = menu_style()
     if style is None:
         return _DEFAULT_RICH
 
-    muted = style.get_attrs_for_style_str("class:tui.muted").color
-    if not muted or muted == "default":
+    muted = getattr(style, "grey", None)
+    if not muted:
         return _DEFAULT_RICH
 
     muted_style = f"{_to_rich_color(muted)} italic"
