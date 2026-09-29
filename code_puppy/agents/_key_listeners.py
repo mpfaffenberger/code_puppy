@@ -411,10 +411,13 @@ _WIN_EXTENDED_KEYS = {
 #: Max chars drained from the console input queue in one poll tick.
 _WIN_BURST_CAP = 4096
 
-#: CSI-u Shift+Enter — editor_keys maps body "13;2u" → newline.
+#: CSI-u modified Enter sequences consumed by ``editor_keys``.
 _SHIFT_ENTER_SEQ = "\x1b[13;2u"
+_CTRL_ENTER_SEQ = "\x1b[13;5u"
 
 _VK_SHIFT = 0x10
+_VK_CONTROL = 0x11
+_VK_RETURN = 0x0D
 
 
 def _win_shift_is_down() -> bool:
@@ -423,9 +426,8 @@ def _win_shift_is_down() -> bool:
     Classic console input (``getwch``) encodes Shift+Enter as a plain
     ``\\r`` — byte-identical to bare Enter — and neither Windows
     Terminal nor conhost honors the xterm modifyOtherKeys arming that
-    disambiguates it on POSIX terminals (Ctrl+Enter only works because
-    the console happens to encode it as ``\\n``). Asking the OS for the
-    live modifier state is the only way to tell the two apart. Fails
+    disambiguates it on POSIX terminals. Asking the OS for the live
+    modifier state is the only way to tell modified Enter apart. Fails
     False (= plain Enter, submit) on headless/remote sessions where no
     local keyboard exists.
     """
@@ -437,8 +439,21 @@ def _win_shift_is_down() -> bool:
         return False
 
 
+def _win_ctrl_enter_is_down() -> bool:
+    """Whether Ctrl and Enter are both physically held (best-effort)."""
+    try:
+        import ctypes
+
+        get_state = ctypes.windll.user32.GetAsyncKeyState
+        return bool(get_state(_VK_CONTROL) & 0x8000 and get_state(_VK_RETURN) & 0x8000)
+    except Exception:
+        return False
+
+
 def _windows_char_to_seq(
-    value: str, shift_is_down: Callable[[], bool] = _win_shift_is_down
+    value: str,
+    shift_is_down: Callable[[], bool] = _win_shift_is_down,
+    ctrl_enter_is_down: Callable[[], bool] = _win_ctrl_enter_is_down,
 ) -> Optional[str]:
     """Translate chars whose classic-console encoding is ambiguous.
 
@@ -448,6 +463,8 @@ def _windows_char_to_seq(
     """
     if value == "\r" and shift_is_down():
         return _SHIFT_ENTER_SEQ
+    if value == "\n" and ctrl_enter_is_down():
+        return _CTRL_ENTER_SEQ
     return None
 
 
@@ -507,12 +524,19 @@ def _coalesce_paste_burst(items: list) -> Optional[str]:
     if any(kind != "char" for kind, _ in items):
         return None
     payload = "".join(value for _, value in items)
-    if "\x1b" in payload and _PASTE_OPEN not in payload and _PASTE_CLOSE not in payload:
+    if _PASTE_OPEN in payload or _PASTE_CLOSE in payload:
+        return payload
+    if "\x1b" in payload:
         # With VT input, special keys arrive as ESC sequences, not
         # \x00/\xe0 pairs — an arrow press is a 3+ all-text burst that
-        # would read as a paste. Pastes are always bracketed (while
-        # ?2004h is armed), so an ESC burst without markers is typing:
-        # dispatch per key and let the editor's CSI state machine cope.
+        # would read as a paste. Terminal pastes carry bracket markers,
+        # so an unmarked ESC burst is typing.
+        return None
+    if any(ord(ch) < 32 and ch not in "\t\r\n" or ch == "\x7f" for ch in payload):
+        # Held control keys repeat fast enough to land 3+ events inside
+        # one poll tick. In particular, misclassifying repeated Backspace
+        # as paste makes deletion appear to hitch whenever a burst is
+        # inserted as control text instead of dispatched as key presses.
         return None
     return payload
 
@@ -556,8 +580,7 @@ def _route_windows_burst(
     """
     payload = _coalesce_paste_burst(items)
     if _editor_paste_active():
-        for _, value in items:
-            _feed_line_editor(value)
+        _feed_line_editor("".join(value for _, value in items))
     elif payload is not None and (_PASTE_OPEN in payload or _PASTE_CLOSE in payload):
         _feed_line_editor(payload)
     elif payload is not None:
@@ -650,7 +673,10 @@ def _listen_windows_loop(
                 pass
 
         try:
-            if msvcrt.kbhit():
+            from code_puppy.agents._windows_console import read_vt_burst
+
+            items = read_vt_burst(_WIN_BURST_CAP)
+            if items is None and msvcrt.kbhit():
                 # Drain the WHOLE pending burst this tick (one char per
                 # 50ms tick made a 200-char paste take ten seconds). Note
                 # the pair's second half sits in the CRT pushback buffer
@@ -659,6 +685,7 @@ def _listen_windows_loop(
                 # the editor); unknown pairs are swallowed. Wart: a
                 # literal typed 'à' is indistinguishable and blocks briefly.
                 items = _drain_windows_burst(msvcrt)
+            if items:
                 _route_windows_burst(
                     items, on_escape, cancel_agent_char, on_cancel_agent
                 )
@@ -682,7 +709,10 @@ def _listen_windows_loop(
             in_outage = False
             backoff = _RECOVERY_INITIAL_BACKOFF_S
             emit_info("Windows key listener recovered.")
-        time.sleep(0.05)
+        # Check stop/suspend between batches, but don't throttle a paste
+        # while input is available. Only idle polls need a sleep.
+        if not items:
+            stop_event.wait(0.05)
 
 
 # =============================================================================

@@ -37,13 +37,14 @@ Feature-parity notes:
 
 The inherited :meth:`~pydantic_ai.capabilities.AbstractCapability.get_serialization_name`
 default is deliberately kept: the only fields are plain data
-(``model_name``/``max_tokens``), so the capability stays spec-constructible;
-a spec-built instance recomputes its snapshot from the same config the
-constructor path reads.
+(``model_name``/``max_tokens``/``overrides``), so the capability stays
+spec-constructible; a spec-built instance recomputes its snapshot from the
+same config the constructor path reads.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -63,6 +64,9 @@ class PerModelSettings(AbstractCapability[Any]):
 
     model_name: str
     max_tokens: int | None = None
+    # Per-agent request-setting overrides (``get_model_settings_overrides``);
+    # they beat global and per-model settings inside make_model_settings.
+    overrides: Mapping[str, object] | None = None
 
     def __post_init__(self) -> None:
         # Snapshot at construction: parity with the old constructor-kwarg
@@ -70,7 +74,7 @@ class PerModelSettings(AbstractCapability[Any]):
         # a plain attribute (not a dataclass field) so __init__/repr/eq keep
         # describing the capability by its inputs, not its derived payload.
         self._settings: ModelSettings = make_model_settings(
-            self.model_name, self.max_tokens
+            self.model_name, self.max_tokens, overrides=self.overrides
         )
 
     def get_model_settings(self) -> ModelSettings:

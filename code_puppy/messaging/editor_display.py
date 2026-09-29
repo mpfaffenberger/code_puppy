@@ -16,7 +16,8 @@ The REAL buffer keeps the path — submit-time attachment resolution
 from __future__ import annotations
 
 import logging
-from typing import List, Tuple
+from pathlib import Path
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -27,12 +28,12 @@ MAX_TEXT_LENGTH_FOR_REALTIME = 500
 _ESCAPE_MARKER = "\u0000ESCAPED_SPACE\u0000"
 
 
-def to_display(text: str, cursor: int) -> Tuple[str, int]:
+def to_display(text: str, cursor: int) -> tuple[str, int]:
     """Map ``(buffer, cursor)`` to ``(display_text, display_cursor)``.
 
     Recognised attachment spans render as ``[png image]`` /
-    ``[pdf document]`` / ``[file attachment]`` tags. Never raises — any
-    failure falls back to the untransformed input.
+    ``[mp4 video]`` / ``[pdf document]`` / ``[file attachment]`` tags.
+    Never raises — any failure falls back to the untransformed input.
     """
     try:
         return _transform(text, cursor)
@@ -41,7 +42,7 @@ def to_display(text: str, cursor: int) -> Tuple[str, int]:
         return text, cursor
 
 
-def _transform(text: str, cursor: int) -> Tuple[str, int]:
+def _transform(text: str, cursor: int) -> tuple[str, int]:
     if not text or len(text) > MAX_TEXT_LENGTH_FOR_REALTIME:
         return text, cursor
     # Cheap pre-check: every detectable path/link contains a separator.
@@ -54,7 +55,7 @@ def _transform(text: str, cursor: int) -> Tuple[str, int]:
         return text, cursor
     replacements.sort(key=lambda item: item[0])
 
-    display_parts: List[str] = []
+    display_parts: list[str] = []
     display_cursor = None
     src = 0
     disp = 0
@@ -77,7 +78,7 @@ def _transform(text: str, cursor: int) -> Tuple[str, int]:
     return "".join(display_parts), display_cursor
 
 
-def _find_spans(text: str) -> List[Tuple[int, int, str]]:
+def _find_spans(text: str) -> list[tuple[int, int, str]]:
     """Locate ``(start, end, tag)`` spans for recognised attachments.
 
     Mirrors ``AttachmentPlaceholderProcessor.apply_transformation``'s
@@ -86,6 +87,7 @@ def _find_spans(text: str) -> List[Tuple[int, int, str]]:
     from code_puppy.command_line.attachments import (
         DEFAULT_ACCEPTED_DOCUMENT_EXTENSIONS,
         DEFAULT_ACCEPTED_IMAGE_EXTENSIONS,
+        DEFAULT_ACCEPTED_VIDEO_EXTENSIONS,
         _detect_path_tokens,
         _tokenise,
     )
@@ -97,7 +99,7 @@ def _find_spans(text: str) -> List[Tuple[int, int, str]]:
     masked_text = text.replace(r"\ ", _ESCAPE_MARKER)
     token_view = list(_tokenise(masked_text))
 
-    spans: List[Tuple[int, int, str]] = []
+    spans: list[tuple[int, int, str]] = []
     search_cursor = 0
     for detection in detections:
         tag: str | None = None
@@ -105,12 +107,19 @@ def _find_spans(text: str) -> List[Tuple[int, int, str]]:
             suffix = detection.path.suffix.lower()
             if suffix in DEFAULT_ACCEPTED_IMAGE_EXTENSIONS:
                 tag = f"[{suffix.lstrip('.') or 'image'} image]"
+            elif suffix in DEFAULT_ACCEPTED_VIDEO_EXTENSIONS:
+                tag = f"[{suffix.lstrip('.') or 'video'} video]"
             elif suffix in DEFAULT_ACCEPTED_DOCUMENT_EXTENSIONS:
                 tag = f"[{suffix.lstrip('.') or 'file'} document]"
             else:
                 tag = "[file attachment]"
         elif detection.link is not None:
-            tag = "[link]"
+            url = str(getattr(detection.link.url_part, "url", "") or "")
+            link_suffix = Path(urlparse(url).path).suffix.lower()
+            if link_suffix in DEFAULT_ACCEPTED_VIDEO_EXTENSIONS:
+                tag = f"[{link_suffix.lstrip('.') or 'video'} video]"
+            else:
+                tag = "[link]"
         if not tag:
             continue
 

@@ -30,7 +30,7 @@ def test_snapshot_is_taken_at_construction_and_frozen():
         first = cap.get_model_settings()
         second = cap.get_model_settings()
 
-    factory.assert_called_once_with(_MODEL_NAME, 111)
+    factory.assert_called_once_with(_MODEL_NAME, 111, overrides=None)
     assert first is second
     assert first == ModelSettings(max_tokens=111)
 
@@ -40,6 +40,19 @@ def test_capability_matches_make_model_settings():
     cap = PerModelSettings(_MODEL_NAME)
 
     assert cap.get_model_settings() == make_model_settings(_MODEL_NAME)
+
+
+def test_per_agent_overrides_reach_the_factory():
+    """Per-agent overrides ride into make_model_settings unchanged."""
+    overrides = {"reasoning_effort": "high"}
+    payload = ModelSettings(max_tokens=5)
+    with patch.object(
+        _model_settings, "make_model_settings", return_value=payload
+    ) as factory:
+        cap = PerModelSettings(_MODEL_NAME, overrides=overrides)
+
+    factory.assert_called_once_with(_MODEL_NAME, None, overrides=overrides)
+    assert cap.get_model_settings() is payload
 
 
 async def test_wire_parity_with_model_settings_kwarg():
@@ -152,7 +165,7 @@ def test_stays_spec_constructible():
     ) as factory:
         cap = PerModelSettings.from_spec(_MODEL_NAME, max_tokens=123)
 
-    factory.assert_called_once_with(_MODEL_NAME, 123)
+    factory.assert_called_once_with(_MODEL_NAME, 123, overrides=None)
     assert isinstance(cap, PerModelSettings)
     assert cap.model_name == _MODEL_NAME
     assert cap.max_tokens == 123
