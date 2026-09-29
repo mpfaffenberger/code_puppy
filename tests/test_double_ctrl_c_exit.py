@@ -18,10 +18,6 @@ import pytest
 
 import code_puppy.cli_runner as cli_runner
 import code_puppy.messaging.run_ui as run_ui
-from code_puppy.command_line.prompt_toolkit_completion import (
-    mark_non_ctrl_c_cancel,
-    pop_non_ctrl_c_cancel,
-)
 from code_puppy.messaging.line_editor import RunningLineEditor
 
 
@@ -168,18 +164,14 @@ def _force_classic(monkeypatch):
 @pytest.mark.asyncio
 async def test_classic_double_ctrl_c_quits(monkeypatch, renderer):
     _force_classic(monkeypatch)
-    pop_non_ctrl_c_cancel()  # hygiene: never inherit a stale marker
     monkeypatch.setattr(cli_runner, "time", _FakeTime([100.0, 100.3]))
 
-    async def fake_classic_input(*a, **k):
+    def fake_classic_input(*a, **k):
         raise KeyboardInterrupt
 
     successes = []
     with (
-        patch(
-            "code_puppy.command_line.prompt_toolkit_completion.get_input_with_combined_completion",
-            fake_classic_input,
-        ),
+        patch("builtins.input", fake_classic_input),
         patch("code_puppy.messaging.emit_info", lambda msg, **k: None),
         patch("code_puppy.messaging.emit_warning", lambda msg, **k: None),
         patch(
@@ -197,12 +189,11 @@ async def test_classic_double_ctrl_c_quits(monkeypatch, renderer):
 @pytest.mark.asyncio
 async def test_classic_slow_ctrl_c_taps_do_not_quit(monkeypatch, renderer):
     _force_classic(monkeypatch)
-    pop_non_ctrl_c_cancel()
     # Two taps 0.6 s apart, then /exit ends the loop normally.
     monkeypatch.setattr(cli_runner, "time", _FakeTime([100.0, 100.6]))
     events = iter([KeyboardInterrupt, KeyboardInterrupt, "/exit"])
 
-    async def fake_classic_input(*a, **k):
+    def fake_classic_input(*a, **k):
         item = next(events)
         if item is KeyboardInterrupt:
             raise KeyboardInterrupt
@@ -210,10 +201,7 @@ async def test_classic_slow_ctrl_c_taps_do_not_quit(monkeypatch, renderer):
 
     successes = []
     with (
-        patch(
-            "code_puppy.command_line.prompt_toolkit_completion.get_input_with_combined_completion",
-            fake_classic_input,
-        ),
+        patch("builtins.input", fake_classic_input),
         patch("code_puppy.messaging.emit_info", lambda msg, **k: None),
         patch("code_puppy.messaging.emit_warning", lambda msg, **k: None),
         patch(
@@ -226,45 +214,3 @@ async def test_classic_slow_ctrl_c_taps_do_not_quit(monkeypatch, renderer):
         )
 
     assert not any("Ctrl+D" in s for s in successes)  # quit came from /exit
-
-
-@pytest.mark.asyncio
-async def test_classic_double_escape_never_quits(monkeypatch, renderer):
-    """Escape marks itself non-Ctrl+C; two fast Escapes must not exit."""
-    _force_classic(monkeypatch)
-    pop_non_ctrl_c_cancel()
-    monkeypatch.setattr(cli_runner, "time", _FakeTime([100.0, 100.1]))
-    events = iter(["esc", "esc", "/exit"])
-
-    async def fake_classic_input(*a, **k):
-        item = next(events)
-        if item == "esc":
-            mark_non_ctrl_c_cancel()  # what the Escape keybinding does
-            raise KeyboardInterrupt
-        return item
-
-    successes = []
-    with (
-        patch(
-            "code_puppy.command_line.prompt_toolkit_completion.get_input_with_combined_completion",
-            fake_classic_input,
-        ),
-        patch("code_puppy.messaging.emit_info", lambda msg, **k: None),
-        patch("code_puppy.messaging.emit_warning", lambda msg, **k: None),
-        patch(
-            "code_puppy.messaging.emit_success",
-            lambda msg, **k: successes.append(str(msg)),
-        ),
-    ):
-        await asyncio.wait_for(
-            cli_runner.interactive_mode(renderer, initial_command=None), 10.0
-        )
-
-    assert not any("Ctrl+D" in s for s in successes)
-
-
-def test_cancel_source_marker_round_trip():
-    assert pop_non_ctrl_c_cancel() is False
-    mark_non_ctrl_c_cancel()
-    assert pop_non_ctrl_c_cancel() is True
-    assert pop_non_ctrl_c_cancel() is False

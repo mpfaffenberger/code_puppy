@@ -13,13 +13,18 @@ from __future__ import annotations
 
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple
 
 from pydantic_ai import Agent as PydanticAgent
 from pydantic_ai.capabilities import ProcessHistory
 
-from code_puppy.agents._compaction import make_history_processor
+from code_puppy.agents._code_mode import (
+    bind_declared_speculation,
+    build_speculative_code_mode,
+)
+from code_puppy.agents._compaction import HistoryCompaction
 from code_puppy.agents._model_message_transform import build_model_message_transform
+from code_puppy.agents._subagent_recursion import build_subagent_recursion_guard
 from code_puppy.agents._output_limits import (
     build_response_clamp,
     build_tool_output_limits,
@@ -27,6 +32,7 @@ from code_puppy.agents._output_limits import (
 from code_puppy.agents._run_telemetry import RunTelemetry
 from code_puppy.agents._steer_processor import make_steer_history_processor
 from code_puppy.agents.event_stream_handler import event_stream_handler
+from code_puppy.events.bridge import CapabilityEventBridge
 from code_puppy.callbacks import (
     on_pre_mcp_autostart,
     on_pre_mcp_autostart_sync,
@@ -42,6 +48,9 @@ from code_puppy.config import (
 from code_puppy.mcp_ import get_mcp_manager
 from code_puppy.messaging import emit_error, emit_info, emit_warning
 from code_puppy.model_factory import ModelFactory, make_model_settings
+
+if TYPE_CHECKING:
+    from code_puppy.model_utils import PreparedPrompt
 
 _AGENT_RULE_FILES = ("AGENTS.md", "AGENT.md", "agents.md", "agent.md")
 _CODE_PUPPY_DIR = ".code_puppy"
@@ -262,6 +271,9 @@ def _iter_autostart_targets(manager: Any, agent_name: str):
         config = manager.get_server_by_name(server_name)
         if config is None:
             _warn_missing_server(agent_name, server_name)
+            continue
+        suppressed = getattr(manager, "is_autostart_suppressed", None)
+        if suppressed is not None and suppressed(config.id) is True:
             continue
         try:
             status = manager.get_server_status(config.id)
@@ -531,8 +543,9 @@ def _build_gpt_5_6_invoke_agent_guard_text() -> str:
 
     Reading the limit at prompt-assembly time (rather than baking it into a
     module constant) guarantees the model-facing guidance and the runtime
-    enforcement in ``subagent_invocation._gpt_5_6_recursion_blocked`` can
-    never drift out of sync -- they both resolve to
+    enforcement (``subagent_invocation.recursion_guard_error``, applied by
+    the ``SubagentRecursionGuard`` capability and the in-tool guest
+    fallback) can never drift out of sync -- they all resolve to
     ``get_subagent_recursion_limit_gpt_5_6()``.
     """
     # Local import to avoid a top-level ``code_puppy.config`` cycle -- this
@@ -554,14 +567,17 @@ def _build_gpt_5_6_invoke_agent_guard_text() -> str:
 _GPT_5_6_RUN_SHELL_COMMAND_GUARD_TEXT = """
 
 ## Shell Safety (GPT-5.6)
-Before using `agent_run_shell_command`, prefer inspection and dry runs. Confirm
+Before using `shell`, prefer inspection and dry runs. Confirm
 with the user before irreversible deletion, overwrites, history rewrites,
 database or production mutations, or other actions without a clear rollback.
 """
 
 
 def _is_gpt_5_6_family(model_name: Optional[str]) -> bool:
-    return bool(model_name and "gpt-5.6" in model_name.lower())
+    """GPT-5.6 and newer (incl. GPT-6) get the shell-safety guard."""
+    from code_puppy.model_utils import supports_gpt_responses_controls
+
+    return supports_gpt_responses_controls(model_name)
 
 
 def _agent_exposes_tool(agent: Any, tool_name: str) -> bool:
@@ -571,32 +587,29 @@ def _agent_exposes_tool(agent: Any, tool_name: str) -> bool:
         return False
 
 
-def _assemble_instructions(agent: Any, resolved_model_name: str) -> str:
-    """Compose full system prompt + puppy rules + extended-thinking note."""
+def _assemble_instructions(agent: Any, resolved_model_name: str) -> PreparedPrompt:
+    """Compose full system prompt + puppy rules.
+
+    Returns the model-prepared prompt: ``instructions`` for the agent plus any
+    standing ``system_prompt`` a plugin wants emitted as its own
+    ``SystemPromptPart`` ahead of them.
+    """
     from code_puppy.model_utils import prepare_prompt_for_model
-    from code_puppy.tools import (
-        EXTENDED_THINKING_PROMPT_NOTE,
-        has_extended_thinking_active,
-    )
 
     instructions = agent.get_full_system_prompt()
     puppy_rules = load_puppy_rules()
     if puppy_rules:
         instructions += f"\n{puppy_rules}"
 
-    if has_extended_thinking_active(resolved_model_name):
-        instructions += EXTENDED_THINKING_PROMPT_NOTE
-
     if _is_gpt_5_6_family(resolved_model_name):
         if _agent_exposes_tool(agent, "invoke_agent"):
             instructions += _build_gpt_5_6_invoke_agent_guard_text()
-        if _agent_exposes_tool(agent, "agent_run_shell_command"):
+        if _agent_exposes_tool(agent, "shell"):
             instructions += _GPT_5_6_RUN_SHELL_COMMAND_GUARD_TEXT
 
-    prepared = prepare_prompt_for_model(
+    return prepare_prompt_for_model(
         agent.get_model_name(), instructions, "", prepend_system_to_user=False
     )
-    return prepared.instructions
 
 
 def build_pydantic_agent(
@@ -614,15 +627,17 @@ def build_pydantic_agent(
     - ``agent._last_model_name``      ← resolved model name
     - ``agent.pydantic_agent``        ← the final (possibly plugin-wrapped) agent
     - ``agent._code_generation_agent`` ← same as ``pydantic_agent``
-    - ``agent._mcp_servers``          ← MCP toolsets (post-filter)
+    - ``agent._mcp_servers``          ← MCP toolsets (post-filter,
+      post-``transform_mcp_toolsets``)
     - ``agent._run_telemetry``        ← the ``RunTelemetry`` capability instance
       (``run_with_mcp`` consumes its run-end capture; see ``_run_telemetry.py``)
 
     The build happens in two passes: we construct once with ``toolsets=[]`` so
     we can introspect registered tool names, then rebuild with MCP servers
-    filtered against those names to prevent collisions. Plugins may wrap the
-    final pydantic agent via the ``wrap_pydantic_agent`` hook (e.g. to swap
-    in a durable-exec wrapper).
+    filtered against those names to prevent collisions and passed through
+    ``agent.transform_mcp_toolsets()`` (a subclass extension seam, no-op by
+    default). Plugins may wrap the final pydantic agent via the
+    ``wrap_pydantic_agent`` hook (e.g. to swap in a durable-exec wrapper).
     """
     from code_puppy.tools import register_tools_for_agent
 
@@ -636,14 +651,20 @@ def build_pydantic_agent(
         message_group,
         agent_name=getattr(agent, "name", None),
     )
-    instructions = _assemble_instructions(agent, resolved_model_name)
+    prepared = _assemble_instructions(agent, resolved_model_name)
     mcp_servers = load_mcp_servers(agent_name=getattr(agent, "name", None))
-    model_settings = make_model_settings(resolved_model_name)
-    history_processor = make_history_processor(agent)
+    model_settings = make_model_settings(
+        resolved_model_name,
+        overrides=agent.get_model_settings_overrides(),
+    )
+    history_compaction = HistoryCompaction(agent)
     steer_processor = make_steer_history_processor(agent)
     logical_agent_name = getattr(agent, "name", None) or agent.__class__.__name__
+    # Read before ``_new_pydantic_agent`` runs: the closure's capability list
+    # conditions the recursion guard on the agent's declared tool surface.
+    agent_tools = agent.get_available_tools()
     # One instance shared by both construction passes (the probe never runs,
-    # so its capture slot stays empty) — mirrors the single-instance hoists
+    # so its capture slot stays empty), mirroring the single-instance hoists
     # elsewhere in this builder; safe because the defaults of for_agent /
     # for_run return self and binding never mutates the instance.
     run_telemetry = RunTelemetry()
@@ -655,28 +676,53 @@ def build_pydantic_agent(
             # caller's frame variables, so observability spans read
             # "invoke_agent pydantic_agent" instead of the logical agent name.
             name=logical_agent_name,
-            instructions=instructions,
+            # A standing system_prompt (if any) becomes its own SystemPromptPart
+            # in the first request, rendered ahead of the instructions block.
+            system_prompt=prepared.system_prompt_parts,
+            instructions=prepared.instructions,
             output_type=output_type,
             retries=3,
             toolsets=toolsets,
             # Order matters: compaction first (may trim history to fit
             # context), THEN steer injection (a fresh steer must not be
-            # compacted away). ProcessHistory capabilities apply in
+            # compacted away). Both hit before_model_request — the exact
+            # seam ProcessHistory uses — and capabilities apply in
             # registration order (replaces the deprecated
             # `history_processors=` kwarg, removed in pydantic-ai v2).
             # ToolOutputLimits reduces oversized tool returns on a different
             # hook (after_tool_execute), so its position is inert; the
-            # response clamp runs before_model_request after both history
-            # processors. The plugin transform wraps the final model request.
-            # RunTelemetry observes the finished result on after_run — a
-            # seam disjoint from every hook above, so its position is inert.
+            # response clamp runs before_model_request after compaction and
+            # steering. The plugin transform wraps the final model request.
             capabilities=[
                 *build_tool_output_limits(),
-                ProcessHistory(history_processor),
+                history_compaction,
                 ProcessHistory(steer_processor),
                 build_response_clamp(),
                 build_model_message_transform(logical_agent_name),
+                # Sub-agent recursion guards on the wrap_tool_execute seam
+                # (denies invoke_agent calls past the depth caps before the
+                # tool body runs). Sole wrap_tool_execute implementer, so
+                # position is inert.
+                *build_subagent_recursion_guard(agent_tools),
+                # Speculative CodeMode, when the config flag is on: folds the
+                # agent's whole tool surface into a run_code sandbox and
+                # launches literal-argument calls while the snippet is still
+                # streaming (harness#699 dogfood). Its own ordering is
+                # declared outermost by the capability, so list position is
+                # inert; its speculation lifecycle leaves as typed
+                # code_mode.* CapabilityEvents for the bridge below.
+                *build_speculative_code_mode(agent_tools),
+                # RunTelemetry observes the finished result on after_run, a
+                # seam disjoint from every hook above, so its position is
+                # inert (kept ahead of the bridge, which must stay last).
                 run_telemetry,
+                # LAST: the app-side event bridge. Capabilities above emit
+                # typed CapabilityEvents; the bridge's @on_event listeners
+                # translate them into legacy callbacks/spinner/messaging.
+                # Listener order follows registration order, so keeping it
+                # last means app observation runs after every capability
+                # listener that owns domain behavior.
+                CapabilityEventBridge(agent=agent),
             ],
             model_settings=model_settings,
         )
@@ -684,7 +730,6 @@ def build_pydantic_agent(
     # Pass 1: build with empty toolsets so we can see what pydantic-ai + our
     # tool registry actually produced, and filter MCP to avoid name clashes.
     probe_agent = _new_pydantic_agent(toolsets=[])
-    agent_tools = agent.get_available_tools()
     register_tools_for_agent(
         probe_agent,
         agent_tools,
@@ -697,19 +742,45 @@ def build_pydantic_agent(
         mcp_servers, existing_tool_names
     )
 
+    # Extension seam; see BaseAgent.transform_mcp_toolsets for the contract
+    # (fails open on raise/bad return type -- not safe for security gating).
+    final_mcp_servers = filtered_mcp_servers
+    try:
+        transformed = agent.transform_mcp_toolsets(filtered_mcp_servers)
+    except Exception as exc:
+        emit_warning(
+            f"transform_mcp_toolsets override for agent '{logical_agent_name}' "
+            f"raised {exc!r}; falling back to unmodified MCP toolsets.",
+            message_group=message_group,
+        )
+    else:
+        if isinstance(transformed, list):
+            final_mcp_servers = transformed
+        else:
+            emit_warning(
+                "transform_mcp_toolsets override for agent "
+                f"'{logical_agent_name}' returned "
+                f"{type(transformed).__name__}, not a list; falling back to "
+                "unmodified MCP toolsets.",
+                message_group=message_group,
+            )
+
     # Pass 2: real build. MCP servers always go in the constructor; plugins
     # (e.g. DBOS) may swap them at run time via ``agent_run_context``.
-    final_pydantic = _new_pydantic_agent(toolsets=filtered_mcp_servers)
+    final_pydantic = _new_pydantic_agent(toolsets=final_mcp_servers)
     register_tools_for_agent(
         final_pydantic,
         agent_tools,
         model_name=resolved_model_name,
         agent_name=logical_agent_name,
     )
+    # Tools now exist: speculate every one that declares itself speculatable
+    # (plugin tools included). The probe agent never runs, so it is not bound.
+    bind_declared_speculation(final_pydantic)
 
     agent.cur_model = model
     agent._last_model_name = resolved_model_name
-    agent._mcp_servers = filtered_mcp_servers
+    agent._mcp_servers = final_mcp_servers
     agent._run_telemetry = run_telemetry
 
     wrapped = on_wrap_pydantic_agent(
