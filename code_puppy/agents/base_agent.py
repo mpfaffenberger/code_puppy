@@ -25,6 +25,7 @@ from code_puppy.agents._builder import (
     build_tool_probe_for_agent,
     reload_mcp_servers,
 )
+from code_puppy.agents._native_tools import iter_function_toolsets
 from code_puppy.agents._history import (
     estimate_context_overhead,
     estimate_tokens_for_message,
@@ -41,26 +42,6 @@ from code_puppy.model_factory import ModelFactory
 should_retry_streaming_exception = should_retry_streaming
 
 __all__ = ["BaseAgent", "should_retry_streaming_exception"]
-
-
-def _iter_function_toolsets(node: Any):
-    """Yield every ``FunctionToolset`` reachable from a toolset ``node``.
-
-    Capability-delivered toolsets (``NativeTools`` via ``get_toolset()``)
-    surface on the agent's public ``toolsets`` property wrapped in
-    ``CombinedToolset``/``CapabilityOwnedToolset`` chains; combined nodes
-    expose ``.toolsets`` and wrapper nodes expose ``.wrapped``. Recurse
-    through both.
-    """
-    from pydantic_ai.toolsets import FunctionToolset
-
-    if isinstance(node, FunctionToolset):
-        yield node
-    for child in getattr(node, "toolsets", None) or []:
-        yield from _iter_function_toolsets(child)
-    wrapped = getattr(node, "wrapped", None)
-    if wrapped is not None:
-        yield from _iter_function_toolsets(wrapped)
 
 
 def _extract_pydantic_agent_tools(pyd_agent: Any) -> Optional[Dict[str, Any]]:
@@ -84,7 +65,7 @@ def _extract_pydantic_agent_tools(pyd_agent: Any) -> Optional[Dict[str, Any]]:
     tools: Dict[str, Any] = {}
     try:
         for node in getattr(pyd_agent, "toolsets", None) or []:
-            for fts in _iter_function_toolsets(node):
+            for fts in iter_function_toolsets(node):
                 tools.update(getattr(fts, "tools", None) or {})
     except Exception:
         # Best-effort estimator input -- fall through to the direct reads.
@@ -155,6 +136,15 @@ class BaseAgent(ABC):
 
     def get_user_prompt(self) -> Optional[str]:
         return None
+
+    def get_model_settings_overrides(self) -> Dict[str, Any]:
+        """Return request-setting overrides scoped to this agent.
+
+        Values use the same setting names as ``/model_settings`` and take
+        precedence over global and per-model standard settings. Unsupported
+        settings are filtered for the effective model before requests run.
+        """
+        return {}
 
     def get_runtime_model_name_override(self) -> Optional[str]:
         """Return a temporary per-run model override, if one is active."""
@@ -287,7 +277,7 @@ class BaseAgent(ABC):
                 user_prompt="",
                 prepend_system_to_user=False,
             )
-            resolved = prepared.instructions or system_prompt
+            resolved = prepared.system_text or system_prompt
         except Exception:
             resolved = system_prompt
 
@@ -329,6 +319,24 @@ class BaseAgent(ABC):
         return await run_with_mcp(self, prompt, **kwargs)
 
     # ---- MCP integration shims --------------------------------------------
+    def transform_mcp_toolsets(self, toolsets: List[Any]) -> List[Any]:
+        """Extension seam: post-process resolved MCP toolsets before build.
+
+        Called exactly once by ``_builder.build_pydantic_agent`` after MCP
+        toolsets have been resolved and filtered for tool-name collisions,
+        but before the final ``pydantic_ai.Agent`` is constructed. The
+        default implementation is a no-op identity transform. Subclasses may
+        override this to wrap, filter, or replace toolsets -- for example to
+        compact oversized tool results, or gate certain servers behind
+        runtime conditions.
+
+        Must return a list of toolsets; the builder fails open on a raise
+        or a non-list return (falls back to the pre-override list), so
+        gating logic that must never be bypassed should fail closed itself
+        (e.g. return an empty list) rather than rely on that fallback.
+        """
+        return toolsets
+
     def update_mcp_tool_cache_sync(self) -> None:
         """Best-effort warm of each MCP toolset's tool-definition cache.
 

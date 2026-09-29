@@ -28,7 +28,7 @@ falls back to ``ctx.max_retries``).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Optional, Sequence
+from typing import Any, Iterator, Optional, Sequence
 
 from pydantic_ai.capabilities import AbstractCapability
 from pydantic_ai.toolsets import FunctionToolset
@@ -58,6 +58,25 @@ def build_native_toolset(
         agent_name=agent_name,
     )
     return toolset
+
+
+def iter_function_toolsets(node: object) -> Iterator[FunctionToolset]:
+    """Yield every ``FunctionToolset`` reachable from a toolset ``node``.
+
+    Capability-delivered toolsets (``NativeTools`` via ``get_toolset()``)
+    surface on the agent's public ``toolsets`` property wrapped in
+    ``CombinedToolset``/``CapabilityOwnedToolset`` chains; combined nodes
+    expose ``.toolsets`` and wrapper nodes expose ``.wrapped``. Recurse
+    through both, so callers that used to read ``toolset.tools`` off the
+    top level still see natively delivered tools.
+    """
+    if isinstance(node, FunctionToolset):
+        yield node
+    for child in getattr(node, "toolsets", None) or []:
+        yield from iter_function_toolsets(child)
+    wrapped = getattr(node, "wrapped", None)
+    if wrapped is not None:
+        yield from iter_function_toolsets(wrapped)
 
 
 @dataclass

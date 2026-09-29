@@ -29,7 +29,12 @@ from pydantic_ai import Agent, RunContext
 from pydantic_ai.models.test import TestModel
 from pydantic_ai.toolsets import FunctionToolset
 
-from code_puppy.agents._native_tools import NativeTools, build_native_toolset
+from code_puppy.agents._code_mode import DeclaredSpeculation
+from code_puppy.agents._native_tools import (
+    NativeTools,
+    build_native_toolset,
+    iter_function_toolsets,
+)
 from code_puppy.agents.base_agent import _extract_pydantic_agent_tools
 
 
@@ -357,3 +362,38 @@ def test_extractor_still_handles_legacy_agent_tool_registration():
 
 def test_extractor_none_for_none_agent():
     assert _extract_pydantic_agent_tools(None) is None
+
+
+# ---------------------------------------------------------------------------
+# Consumers that walk the agent's toolsets see capability-delivered tools
+# ---------------------------------------------------------------------------
+
+
+def _speculatable_native_agent() -> Agent:
+    toolset: FunctionToolset = FunctionToolset()
+
+    @toolset.tool_plain(metadata={"speculatable": True})
+    def smart_grep(query: str) -> str:
+        """A natively delivered tool that declares itself speculatable."""
+        return query
+
+    return Agent(TestModel(), capabilities=[NativeTools(toolset)])
+
+
+def test_iter_function_toolsets_reaches_capability_toolset():
+    agent = _speculatable_native_agent()
+    names = {
+        name
+        for node in agent.toolsets
+        for toolset in iter_function_toolsets(node)
+        for name in toolset.tools
+    }
+    assert "smart_grep" in names
+
+
+def test_declared_speculation_sees_native_tools_capability():
+    """CodeMode's allowlist must find speculatable tools delivered by
+    NativeTools, which surface wrapped rather than at the top level."""
+    speculate = DeclaredSpeculation(["grep"])
+    speculate.bind(_speculatable_native_agent())
+    assert list(speculate) == ["grep", "smart_grep"]

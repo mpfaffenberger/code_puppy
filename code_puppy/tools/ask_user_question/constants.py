@@ -15,7 +15,9 @@ MAX_QUESTION_LENGTH: Final[int] = 500
 MAX_OTHER_TEXT_LENGTH: Final[int] = 500
 
 # UI settings
-DEFAULT_TIMEOUT_SECONDS: Final[int] = 300  # 5 minutes
+# Interactive questions wait for the user by default. Direct callers may still
+# provide a finite inactivity timeout when they need one.
+DEFAULT_TIMEOUT_SECONDS: Final[int | None] = None
 TIMEOUT_WARNING_SECONDS: Final[int] = 60  # Show warning at 60s remaining
 AUTO_ADD_OTHER_OPTION: Final[bool] = True
 
