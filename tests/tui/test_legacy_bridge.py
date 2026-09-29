@@ -66,6 +66,9 @@ async def test_user_approval_routes_through_bus_in_tui(monkeypatch):
     import asyncio
 
     monkeypatch.setattr("code_puppy.config._TUI_MODE", True)
+    # The approval lock is a process-wide cached asyncio.Lock; a prior test's
+    # event loop may still own it, so give this loop a fresh one.
+    monkeypatch.setattr("code_puppy.tools.common._APPROVAL_ASYNC_LOCK", None)
     from code_puppy.tools.common import get_user_approval_async
     from code_puppy.tui.screens.interactive import ConfirmModal
 
@@ -92,6 +95,8 @@ async def test_user_approval_routes_through_bus_in_tui(monkeypatch):
             if app.screen.query("#opt-0"):
                 break
             await pilot.pause(0.05)
-        await pilot.click("#opt-0")  # Approve
+        # Press the button directly: on short CI terminals the long dialog can
+        # push it outside the visible region, where pilot.click() raises.
+        app.screen.query_one("#opt-0").press()  # Approve
         await asyncio.wait_for(task, timeout=3)
     assert holder["r"][0] is True

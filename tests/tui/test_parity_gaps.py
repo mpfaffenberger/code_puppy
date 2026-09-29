@@ -23,7 +23,9 @@ from code_puppy.tui.app import build_app
 @pytest.mark.asyncio
 async def test_spinner_uses_active_catalogue_frames():
     """_render_spinner pulls frames from puppy_spinner.spinners, not FRAMES."""
-    custom_frames = ("[@]", "[A]", "[@]")
+    # Every frame is the marker: the 0.05s tick timer can advance the index
+    # between render and assertion, so the check must be index-independent.
+    custom_frames = ("[@]", "[@]", "[@]")
     fake_spinner = MagicMock()
     fake_spinner.frames = custom_frames
     fake_spinner.interval = 0.05

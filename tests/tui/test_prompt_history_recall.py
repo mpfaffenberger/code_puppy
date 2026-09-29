@@ -6,6 +6,8 @@ the TUI's ``PromptArea`` previously never wired up -- bare Up/Down just fell
 through to TextArea's own (no-op, single-line) cursor movement.
 """
 
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 from textual.widgets import TextArea
 
@@ -74,6 +76,13 @@ async def test_down_restores_working_text(monkeypatch, tmp_path):
 @pytest.mark.asyncio
 async def test_submit_resets_history_browsing(monkeypatch, tmp_path):
     _seed_history(monkeypatch, tmp_path, ["first prompt"])
+    # Submitting starts an agent turn; stub it (a cancelled turn) so the test
+    # never reaches a real model and the prompt stays usable.
+    monkeypatch.setattr(
+        "code_puppy.cli_runner.run_prompt_with_attachments",
+        AsyncMock(return_value=(None, None)),
+    )
+    monkeypatch.setattr("code_puppy.agents.get_current_agent", MagicMock)
     app = build_app()
     async with app.run_test(size=(100, 30)) as pilot:
         await pilot.pause()
