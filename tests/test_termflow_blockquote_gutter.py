@@ -42,7 +42,9 @@ def _render_plain(markdown_text: str, *, width: int = 80) -> str:
 
     out = io.StringIO()
     parser = Parser()
-    renderer = Renderer(output=out, width=width, features=RenderFeatures(clipboard=False))
+    renderer = Renderer(
+        output=out, width=width, features=RenderFeatures(clipboard=False)
+    )
     for line in markdown_text.split("\n"):
         renderer.render_all(parser.parse_line(line))
     renderer.render_all(parser.finalize())
@@ -110,9 +112,7 @@ def test_quoted_prose_line_also_loses_its_gutter(restore_termflow_parser):
 
     plain = _render_plain(MADISON_REPLY)
     assert "Hey Madison, your screenshots explain it. Try this:" in plain
-    prose_line = next(
-        line for line in plain.split("\n") if "Hey Madison" in line
-    )
+    prose_line = next(line for line in plain.split("\n") if "Hey Madison" in line)
     for gutter in GUTTER_CHARS:
         assert gutter not in prose_line
 
