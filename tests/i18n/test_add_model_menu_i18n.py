@@ -55,6 +55,15 @@ def test_registry_keys_interpolate():
     assert "boom" in translate.t("model_menu.registry.load_error", error="boom")
 
 
+@pytest.mark.parametrize("locale", ["en-US", "es", "fr-CA"])
+def test_registry_loaded_reports_both_counts_in_every_locale(locale):
+    """Placeholder names are the call site's contract, not the translator's."""
+    translate.set_locale(locale)
+    rendered = translate.t("model_menu.registry.loaded", providers=65, models=1371)
+    assert "65" in rendered and "1371" in rendered
+    assert not _PLACEHOLDER.search(rendered)
+
+
 def test_extra_models_keys_interpolate():
     translate.set_locale("en-US")
     assert "boom" in translate.t("model_menu.extra_models.parse_error", error="boom")

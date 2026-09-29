@@ -21,14 +21,25 @@ PROMPT_TEXT = "You are a helpful puppy.\n\nAlways fetch."
 
 
 def _capture_model(captured: list):
-    """FunctionModel that records each request's wire instructions."""
+    """FunctionModel that records each request's wire instructions.
 
-    def model_function(messages, info):
+    Supports both request modes: ``build_pydantic_agent`` wires capabilities
+    that drive the model through its streaming path.
+    """
+
+    def _record(messages) -> None:
         requests = [m for m in messages if isinstance(m, ModelRequest)]
         captured.append(requests[-1].instructions if requests else None)
+
+    def model_function(messages, info):
+        _record(messages)
         return ModelResponse(parts=[TextPart("woof")])
 
-    return FunctionModel(model_function)
+    async def stream_function(messages, info):
+        _record(messages)
+        yield "woof"
+
+    return FunctionModel(model_function, stream_function=stream_function)
 
 
 def _run_and_capture(agent: Agent) -> str | None:
@@ -146,7 +157,7 @@ def test_build_pydantic_agent_delivers_assembled_prompt():
     ):
         # Computed under the same patches, so ambient plugin prompt
         # fragments can't skew the exact-equality assertion below.
-        expected = _builder._assemble_instructions(cfg, "test-model")
+        expected = _builder._assemble_instructions(cfg, "test-model").instructions
         built = _builder.build_pydantic_agent(cfg)
         built.run_sync("hi")
 

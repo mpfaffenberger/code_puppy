@@ -45,14 +45,14 @@ class TestRenderQuestionPanel:
     def test_basic_render_single_select(self):
         state = _make_state()
         result = render_question_panel(state)
-        text = _strip_ansi(result.value)
+        text = _strip_ansi(result)
         assert "What do you want?" in text
         assert "Test" in text
 
     def test_basic_render_multi_select(self):
         state = _make_state(multi_select=True)
         result = render_question_panel(state)
-        text = _strip_ansi(result.value)
+        text = _strip_ansi(result)
         assert "select multiple" in text
 
     def test_uses_default_colors_when_none(self):
@@ -71,20 +71,20 @@ class TestRenderQuestionPanel:
         state = _make_state()
         state.show_help = True
         result = render_question_panel(state)
-        text = _strip_ansi(result.value)
+        text = _strip_ansi(result)
         assert "KEYBOARD SHORTCUTS" in text
 
     def test_other_option_rendered(self):
         state = _make_state()
         result = render_question_panel(state)
-        text = _strip_ansi(result.value)
+        text = _strip_ansi(result)
         assert "Other" in text
 
     def test_other_text_displayed(self):
         state = _make_state()
         state.other_texts[0] = "custom value"
         result = render_question_panel(state)
-        text = _strip_ansi(result.value)
+        text = _strip_ansi(result)
         assert "custom value" in text
 
     def test_entering_other_text_mode(self):
@@ -92,7 +92,7 @@ class TestRenderQuestionPanel:
         state.entering_other_text = True
         state.other_text_buffer = "myinput"
         result = render_question_panel(state)
-        text = _strip_ansi(result.value)
+        text = _strip_ansi(result)
         assert "myinput" in text
         assert "Enter to confirm" in text
 
@@ -123,7 +123,7 @@ class TestRenderQuestionPanel:
 
         state.last_activity_time = time.monotonic() - 25
         result = render_question_panel(state)
-        text = _strip_ansi(result.value)
+        text = _strip_ansi(result)
         assert "Timeout" in text or "timeout" in text.lower()
 
     def test_multiple_questions_progress(self):
@@ -149,14 +149,14 @@ class TestRenderQuestionPanel:
         ]
         state = QuestionUIState(questions)
         result = render_question_panel(state)
-        text = _strip_ansi(result.value)
+        text = _strip_ansi(result)
         assert "1/2" in text
 
     def test_last_question_help_text(self):
         """On last question, 'Enter Next' should not appear."""
         state = _make_state()
         result = render_question_panel(state)
-        text = _strip_ansi(result.value)
+        text = _strip_ansi(result)
         # Single question = last question, no "Enter Next"
         assert "Enter Next" not in text
         assert "Submit" in text
@@ -182,7 +182,7 @@ class TestRenderHelpOverlay:
         )
         colors = RichColors()
         result = _render_help_overlay(console, buf, colors)
-        text = _strip_ansi(result.value)
+        text = _strip_ansi(result)
         assert "KEYBOARD SHORTCUTS" in text
         assert "Navigation" in text
         assert "Selection" in text
@@ -272,7 +272,7 @@ class TestMarkupInjectionResistance:
         # The exact shape that caused Mike's doom loop.
         state = self._state_with(header="/agents-menu-integration")
         result = render_question_panel(state)
-        text = _strip_ansi(result.value)
+        text = _strip_ansi(result)
         # Header still appears, brackets are literal, and no error fallback fired.
         assert "agents-menu-integration" in text
         assert "render error" not in text
@@ -280,14 +280,14 @@ class TestMarkupInjectionResistance:
     def test_header_with_unmatched_closing_tag_does_not_raise(self):
         state = self._state_with(header="/red")
         result = render_question_panel(state)
-        text = _strip_ansi(result.value)
+        text = _strip_ansi(result)
         assert "render error" not in text
         assert "red" in text
 
     def test_question_text_with_brackets_does_not_raise(self):
         state = self._state_with(question_text="Choose [/foo] or bar?")
         result = render_question_panel(state)
-        text = _strip_ansi(result.value)
+        text = _strip_ansi(result)
         assert "render error" not in text
         assert "foo" in text and "bar" in text
 
@@ -301,4 +301,4 @@ class TestMarkupInjectionResistance:
         monkeypatch.setattr(renderers, "_render_question_panel_unsafe", boom)
         state = self._state_with()
         result = render_question_panel(state)  # must not raise
-        assert "render error" in _strip_ansi(result.value)
+        assert "render error" in _strip_ansi(result)
