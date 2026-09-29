@@ -23,6 +23,7 @@ Usage:
 import importlib.metadata
 import json
 import logging
+import re
 import warnings
 from typing import Any
 
@@ -654,6 +655,100 @@ def patch_termflow_code_padding() -> bool:
         )
 
 
+_BLOCKQUOTE_MARKER_RE = re.compile(r"^(?:\s*>\s?)+")
+
+
+def _strip_blockquote_markers(line: str) -> str:
+    """Drop any leading ``>`` blockquote markers (any nesting depth)."""
+    return _BLOCKQUOTE_MARKER_RE.sub("", line)
+
+
+def _dequote_blockquotes_parse_line(original_parse_line):
+    """Wrap ``Parser.parse_line``: flatten blockquote markup first.
+
+    Outside a code block, always strip leading ``>`` markers -- that's what
+    lets a fenced code block (or heading, or list) nested in a quote reach
+    termflow's normal top-level parsing instead of being flattened to one
+    inline-formatted line by ``_try_parse_block_quote``.
+
+    Once inside a fence, only keep stripping if *that fence itself* was
+    opened from inside a quote (tracked via ``_copyable_quoted_fence`` on
+    the parser instance) -- otherwise a real top-level fence containing a
+    line that legitimately starts with ``>`` (e.g. a shell redirect) would
+    get corrupted.
+    """
+
+    def patched(self, line: str):
+        in_code_before = self.state.is_in_code()
+        quoted_fence = getattr(self, "_copyable_quoted_fence", False)
+        opened_via_quote = False
+
+        if not in_code_before:
+            de_quoted = _strip_blockquote_markers(line)
+            opened_via_quote = de_quoted != line
+            line = de_quoted
+        elif quoted_fence:
+            line = _strip_blockquote_markers(line)
+
+        events = original_parse_line(self, line)
+
+        now_in_code = self.state.is_in_code()
+        if not in_code_before and now_in_code:
+            self._copyable_quoted_fence = opened_via_quote
+        elif in_code_before and not now_in_code:
+            self._copyable_quoted_fence = False
+
+        return events
+
+    patched._code_puppy_dequote_blockquotes = True  # type: ignore[attr-defined]
+    return patched
+
+
+def patch_termflow_blockquote_gutter() -> bool:
+    """Flatten markdown blockquotes before termflow's parser sees them.
+
+    termflow's blockquote handling (``Parser._try_parse_block_quote``) strips
+    leading ``>`` markers and emits the remainder as one flat
+    ``BlockquoteLineEvent`` -- it never re-runs fence/heading/list detection
+    on quoted content. That causes two copy/paste bugs whenever an agent
+    replies with a blockquote containing a fenced code block (a common
+    "text to paste" shape, e.g. a Slack reply with a code snippet):
+
+    1. Every quoted line renders with a literal ``\u2502`` gutter glyph
+       (``Renderer._margin()``) that survives copy/paste.
+    2. The nested fence is never recognized as code, so its lines fall
+       through to *inline* formatting instead -- markdown emphasis eats
+       real characters (``"*$p*"`` loses its asterisks) and the fence
+       markers themselves get misread as stray inline backticks.
+
+    termflow ships no style knob for gutter-free quotes, and its line-by-line
+    parser can't nest a real fence inside a quote. The smallest fix that
+    addresses the actual cause: strip blockquote markers from each line
+    before the parser sees it, so quoted content -- including any code
+    fence -- runs through termflow's normal (correct, gutter-free) top-level
+    parsing paths. Markdown outside blockquotes is untouched.
+    """
+    try:
+        from termflow.parser import Parser
+    except ImportError as exc:
+        return _optional_lib_missing("patch_termflow_blockquote_gutter", exc)
+
+    try:
+        if getattr(Parser.parse_line, "_code_puppy_dequote_blockquotes", False):
+            return True  # already applied
+        Parser.parse_line = _dequote_blockquotes_parse_line(Parser.parse_line)
+        return True
+    except Exception as exc:
+        return _patch_failed(
+            "patch_termflow_blockquote_gutter",
+            exc,
+            "blockquotes keep the '\u2502' gutter and nested fenced code "
+            "blocks lose characters to markdown emphasis (copy/paste "
+            "corruption).",
+            target="termflow",
+        )
+
+
 def _render_table_header_rule(state, margin, style) -> str:
     """Header/body divider using double-line chars (╞═╪═╡), mirroring
     ``termflow.render.table.render_table_separator`` but visually heavier.
@@ -820,6 +915,7 @@ _ALL_PATCHES = (
     patch_tool_call_callbacks,
     patch_termflow_clipboard,
     patch_termflow_code_padding,
+    patch_termflow_blockquote_gutter,
     patch_termflow_table_row_separators,
 )
 
