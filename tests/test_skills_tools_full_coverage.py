@@ -15,7 +15,9 @@ def _register_and_get(register_func):
     agent = MagicMock()
     captured = {}
 
-    def tool_decorator(func):
+    def tool_decorator(func=None, *, metadata=None):
+        if func is None:
+            return tool_decorator
         captured["fn"] = func
         return func
 

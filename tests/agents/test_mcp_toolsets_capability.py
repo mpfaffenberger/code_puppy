@@ -307,12 +307,21 @@ async def test_builder_collision_filter_still_applies():
         seen_tool_names.append({t.name for t in info.function_tools})
         return ModelResponse(parts=[TextPart("woof")])
 
+    async def stream_function(_messages, info: AgentInfo):
+        # The built agent may run in streaming mode (e.g. when a capability
+        # observes the event stream), so record the tool surface here too.
+        seen_tool_names.append({t.name for t in info.function_tools})
+        yield "woof"
+
     cfg = _FakeAgentConfig()
     with (
         patch.object(
             _builder,
             "load_model_with_fallback",
-            lambda *a, **k: (FunctionModel(model_function), "test-model"),
+            lambda *a, **k: (
+                FunctionModel(model_function, stream_function=stream_function),
+                "test-model",
+            ),
         ),
         patch.object(_builder.ModelFactory, "load_config", staticmethod(dict)),
         patch.object(_builder, "load_mcp_servers", lambda **k: [server]),

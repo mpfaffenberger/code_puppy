@@ -34,7 +34,7 @@ def handle_chord(ed, ch: str) -> bool:
     return False
 
 
-def apply_action(ed, action: Optional[str]) -> None:
+def apply_action(ed, action: Optional[str]) -> Optional[str]:
     """Dispatch a classified key action against editor ``ed``."""
     if action is None:
         return
@@ -47,10 +47,12 @@ def apply_action(ed, action: Optional[str]) -> None:
     if ed._rsearch.active:
         return  # navigation/insertion is inert during reverse search
     if action == "newline":
-        # Shift+Enter / Ctrl+Enter: insert a newline in ANY mode — the
-        # soft-wrap viewport grows even in single-line mode.
+        # Shift+Enter inserts a newline in any mode.
         ed._insert_text("\n")
-        return
+        return None
+    if action == "submit_now":
+        # Ctrl+Enter steers the in-flight run; idle routing starts a turn.
+        return ed._submit(mode="now")
     menu_open = ed._completion_open()
     if action == "up":
         if menu_open:
@@ -59,7 +61,15 @@ def apply_action(ed, action: Optional[str]) -> None:
             ed._cursor = ek.line_up(ed._buffer, ed._cursor)
             ed._repaint()
         else:
-            ed._history_recall(ed._history.up(ed._buffer))
+            handled, text, suppressions = ed._queued_messages.up(ed._buffer)
+            if handled:
+                ed._history.reset()
+                ed._history_recall(text)
+            else:
+                suppress_recent = getattr(ed._history, "suppress_recent", None)
+                if suppressions and suppress_recent is not None:
+                    suppress_recent(suppressions)
+                ed._history_recall(ed._history.up(text))
     elif action == "down":
         if menu_open:
             ed._completion.move(1)
@@ -67,7 +77,11 @@ def apply_action(ed, action: Optional[str]) -> None:
             ed._cursor = ek.line_down(ed._buffer, ed._cursor)
             ed._repaint()
         else:
-            ed._history_recall(ed._history.down(ed._buffer))
+            handled, text = ed._queued_messages.down(ed._buffer)
+            if handled:
+                ed._history_recall(text)
+            else:
+                ed._history_recall(ed._history.down(ed._buffer))
     elif action == "shift_tab":
         if menu_open:
             ed._completion.move(-1)

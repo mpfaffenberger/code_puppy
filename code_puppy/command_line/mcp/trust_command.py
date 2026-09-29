@@ -150,11 +150,14 @@ class TrustCommand(MCPCommandBase):
 
     def _revoke(self, group_id: str) -> None:
         if revoke_project_mcp():
+            try:
+                self.manager.sync_from_config()
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.warning("Post-revoke registry sync failed: %s", exc)
             emit_info(
                 Text.from_markup(
                     "[green]\u2713 Revoked[/green] trust for this project's MCP "
-                    "config. Its servers will no longer load. Restart or re-sync "
-                    "to drop already-registered ones."
+                    "config. Its servers will no longer load."
                 ),
                 message_group=group_id,
             )
