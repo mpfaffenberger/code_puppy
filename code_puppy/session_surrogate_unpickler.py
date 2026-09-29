@@ -72,9 +72,9 @@ _TZINFO_EQUIVALENTS: Dict[Tuple[str, str], Callable[..., Any]] = {
     ("pydantic_core", "TzInfo"): _tz_from_utc_offset,
 }
 
-# Genuine timezone libraries: unpickle their classes for real when the
-# library is installed; otherwise fall back to surrogates as usual.
-_TZ_LIBRARY_PREFIXES = ("pytz", "dateutil.tz")
+# pytz / dateutil.tz must NOT go through super().find_class: those packages
+# re-export os/sys the same way uuid and collections did. Known tzinfo
+# shapes are rebuilt via _TZINFO_EQUIVALENTS; everything else is a surrogate.
 
 
 class SurrogateBase:
@@ -145,14 +145,6 @@ class SurrogateUnpickler(pickle.Unpickler):
         equivalent = _TZINFO_EQUIVALENTS.get((module, name))
         if equivalent is not None:
             return equivalent
-        if any(
-            module == prefix or module.startswith(prefix + ".")
-            for prefix in _TZ_LIBRARY_PREFIXES
-        ):
-            try:
-                return super().find_class(module, name)
-            except Exception:  # noqa: BLE001 - library absent/renamed
-                pass
         return self._surrogate_for(module, name)
 
     def _tz_tolerant(self, obj: Any) -> Any:

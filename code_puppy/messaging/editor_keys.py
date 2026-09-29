@@ -61,13 +61,13 @@ _CSI_ACTIONS = {
     "1;9B": "down",
     "200~": "paste_start",  # bracketed paste opener (ESC[?2004h mode)
     "12~": "f2",  # F2 (CSI variant)
-    # Modified Enter → newline, via CSI-u OR modifyOtherKeys (CSI >4;1m).
+    # Modified Enter via CSI-u or modifyOtherKeys (CSI >4;1m).
     # Plain-\r terminals can't encode Shift+Enter (use Ctrl+J/F2); Windows
-    # synthesizes 13;2u itself — see _key_listeners._windows_char_to_seq.
+    # synthesizes these sequences — see _key_listeners._windows_char_to_seq.
     "13;2u": "newline",  # Shift+Enter (CSI-u)
-    "13;5u": "newline",  # Ctrl+Enter  (CSI-u)
+    "13;5u": "submit_now",  # Ctrl+Enter (CSI-u)
     "27;2;13~": "newline",  # Shift+Enter (modifyOtherKeys)
-    "27;5;13~": "newline",  # Ctrl+Enter  (modifyOtherKeys)
+    "27;5;13~": "submit_now",  # Ctrl+Enter (modifyOtherKeys)
     # Other modifier combos on Enter (e.g. 13;3u = Alt+Enter via CSI-u)
     # intentionally unmapped → swallowed by the unknown-CSI safety.
 }

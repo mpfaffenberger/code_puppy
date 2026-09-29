@@ -3,6 +3,7 @@ Tests for ManagedMCPServer.
 """
 
 import os
+from contextlib import nullcontext
 from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
@@ -225,7 +226,7 @@ class TestManagedMCPServerEnableFromConfig:
         assert server.is_enabled() is False
 
 
-# --- process_tool_call (also touches get_banner_color + coerce guards) ---
+# --- process_tool_call (compact tool line + coerce guards) ---
 
 
 class TestProcessToolCall:
@@ -235,9 +236,10 @@ class TestProcessToolCall:
         mock_ctx.deps = {"some": "deps"}
         mock_call_tool = AsyncMock(return_value="tool_result")
 
-        with patch("rich.console.Console") as mock_console_cls:
-            mock_console = Mock()
-            mock_console_cls.return_value = mock_console
+        with patch(
+            "code_puppy.messaging.tool_output.compact_tool_output",
+            side_effect=lambda *_: nullcontext(),
+        ) as mock_compact:
             result = await process_tool_call(
                 ctx=mock_ctx,
                 call_tool=mock_call_tool,
@@ -245,8 +247,8 @@ class TestProcessToolCall:
                 tool_args={"arg1": "value1"},
             )
 
-        mock_console.print.assert_called_once()
-        assert "test_tool" in mock_console.print.call_args[0][0]
+        # Same compact bullet line as builtin tools -- no legacy banner.
+        mock_compact.assert_called_once_with("test_tool", {"arg1": "value1"})
         mock_call_tool.assert_called_once_with(
             "test_tool", {"arg1": "value1"}, metadata={"deps": mock_ctx.deps}
         )
@@ -258,10 +260,9 @@ class TestProcessToolCall:
         mock_ctx.deps = None
         mock_call_tool = AsyncMock(return_value="result")
 
-        with patch("rich.console.Console"):
-            result = await process_tool_call(
-                ctx=mock_ctx, call_tool=mock_call_tool, name="t", tool_args={}
-            )
+        result = await process_tool_call(
+            ctx=mock_ctx, call_tool=mock_call_tool, name="t", tool_args={}
+        )
 
         mock_call_tool.assert_called_once_with("t", {}, metadata={"deps": None})
         assert result == "result"
@@ -270,19 +271,20 @@ class TestProcessToolCall:
     async def test_unwraps_functools_partial_for_schema_lookup(self):
         """Schema lookup unwraps functools.partial (MCPToolset.call_tool shape)."""
         import functools
+        from types import SimpleNamespace
 
         mock_ctx = Mock()
         mock_ctx.deps = None
 
+        schema = {
+            "type": "object",
+            "properties": {"flag": {"type": "boolean"}},
+        }
+
         class FakeToolset:
             async def list_tools(self):
-                tool = Mock()
-                tool.name = "t"
-                tool.inputSchema = {
-                    "type": "object",
-                    "properties": {"flag": {"type": "boolean"}},
-                }
-                return [tool]
+                # MCP SDK v2 field name (snake_case), like a real Tool object.
+                return [SimpleNamespace(name="t", input_schema=schema)]
 
             async def direct_call_tool(self, name, args, *, metadata=None):
                 return args
@@ -290,12 +292,42 @@ class TestProcessToolCall:
         toolset = FakeToolset()
         call_tool = functools.partial(toolset.direct_call_tool)
 
-        with patch("rich.console.Console"):
-            result = await process_tool_call(
-                ctx=mock_ctx, call_tool=call_tool, name="t", tool_args={"flag": "true"}
-            )
+        result = await process_tool_call(
+            ctx=mock_ctx, call_tool=call_tool, name="t", tool_args={"flag": "true"}
+        )
 
         # Stringified bool got coerced using the schema found via the partial
+        assert result == {"flag": True}
+
+    @pytest.mark.asyncio
+    async def test_schema_lookup_falls_back_to_legacy_input_schema(self):
+        """MCP SDK v1 ``inputSchema`` still resolves via the compat helper."""
+        import functools
+        from types import SimpleNamespace
+
+        mock_ctx = Mock()
+        mock_ctx.deps = None
+
+        schema = {
+            "type": "object",
+            "properties": {"flag": {"type": "boolean"}},
+        }
+
+        class FakeToolset:
+            async def list_tools(self):
+                # Legacy camelCase field name; no ``input_schema`` attribute.
+                return [SimpleNamespace(name="t", inputSchema=schema)]
+
+            async def direct_call_tool(self, name, args, *, metadata=None):
+                return args
+
+        toolset = FakeToolset()
+        call_tool = functools.partial(toolset.direct_call_tool)
+
+        result = await process_tool_call(
+            ctx=mock_ctx, call_tool=call_tool, name="t", tool_args={"flag": "true"}
+        )
+
         assert result == {"flag": True}
 
 
@@ -412,6 +444,27 @@ class TestCreateServerSSE:
     def test_no_headers_no_factory(self):
         _, _, mock_transport = _sse({"url": "http://x"})
         assert mock_transport.call_args.kwargs["httpx_client_factory"] is None
+
+
+class TestToolErrorsAreNotFatal:
+    """A failing MCP tool must degrade the turn, never end the session.
+
+    Under the default ``"retry"``, exhausting the budget raises
+    ``UnexpectedModelBehavior`` — not an ``McpError``, so it reaches the
+    generic handler and aborts the run.
+    """
+
+    def test_sse_marks_tool_errors_failed(self):
+        _, mock_toolset, _ = _sse()
+        assert mock_toolset.call_args.kwargs["tool_error_behavior"] == "failed"
+
+    def test_http_marks_tool_errors_failed(self):
+        _, mock_toolset, _ = _http()
+        assert mock_toolset.call_args.kwargs["tool_error_behavior"] == "failed"
+
+    def test_stdio_marks_tool_errors_failed(self):
+        _, _, mock_cls = _stdio()
+        assert mock_cls.call_args.kwargs["tool_error_behavior"] == "failed"
 
 
 class TestCreateServerStdio:

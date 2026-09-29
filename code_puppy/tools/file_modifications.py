@@ -10,10 +10,12 @@ Key guarantees
 
 from __future__ import annotations
 
+import asyncio
 import difflib
 import json
 import os
 import traceback
+from pathlib import Path
 from code_puppy.undo_manager import UndoManager
 import warnings
 from typing import Annotated, Any, Dict, List, Union
@@ -32,9 +34,9 @@ from code_puppy.messaging import (  # Structured messaging types
 )
 from code_puppy.tools import fs_access
 from code_puppy.tools.common import (
-    _find_best_window,
     generate_group_id,
     resolve_path,
+    read_text_sanitized,
     write_project_file,
 )
 from code_puppy.tools.file_permission_state import (
@@ -43,6 +45,75 @@ from code_puppy.tools.file_permission_state import (
     get_last_user_feedback,
     was_diff_already_shown,
 )
+
+
+def _split_existing(path: Path) -> tuple[Path, tuple[str, ...]]:
+    """Deepest existing ancestor of *path*, plus the missing trailing names."""
+    missing: list[str] = []
+    current = path
+    while True:
+        if current.exists():
+            return current.resolve(), tuple(reversed(missing))
+        parent = current.parent
+        if parent == current:
+            return current, tuple(reversed(missing))
+        missing.append(current.name)
+        current = parent
+
+
+def _casefold_has_prefix(parts: tuple[str, ...], prefix: tuple[str, ...]) -> bool:
+    if len(parts) < len(prefix):
+        return False
+    return all(a.casefold() == b.casefold() for a, b in zip(prefix, parts))
+
+
+def _is_inside_user_plugin_root(target: Path, root: Path) -> bool:
+    """Containment that survives APFS case-folding. ``Path.resolve`` does not."""
+    target_existing, target_rest = _split_existing(target)
+    root_existing, root_rest = _split_existing(root)
+
+    if os.path.samefile(target_existing, root_existing):
+        return _casefold_has_prefix(target_rest, root_rest)
+
+    current = target_existing
+    while True:
+        if os.path.samefile(current, root_existing):
+            return not root_rest
+        parent = current.parent
+        if parent == current:
+            return False
+        current = parent
+
+
+def _is_user_plugin_tree_path(file_path: str) -> bool:
+    """True if *file_path* is inside ``~/.code_puppy/plugins``.
+
+    That tree is imported at the next process start with no trust ceremony.
+    File tools must not plant ``register_callbacks.py`` there.
+    Canonicalization errors fail closed (treated as inside).
+    """
+    from code_puppy.plugins import USER_PLUGINS_DIR
+
+    try:
+        resolved = Path(resolve_path(file_path)).resolve()
+        root = Path(USER_PLUGINS_DIR).expanduser().resolve()
+        return _is_inside_user_plugin_root(resolved, root)
+    except (OSError, RuntimeError, ValueError):
+        return True
+
+
+def _refuse_user_plugin_tree(file_path: str) -> Dict[str, Any] | None:
+    if not _is_user_plugin_tree_path(file_path):
+        return None
+    return {
+        "success": False,
+        "path": file_path,
+        "message": (
+            "Refused: file tools cannot modify ~/.code_puppy/plugins. "
+            "That directory is imported at startup."
+        ),
+        "changed": False,
+    }
 
 
 def _permission_denied(permission_results: List[Any]) -> bool:
@@ -227,19 +298,16 @@ def _delete_snippet_from_file(
     try:
         if not fs_access.exists(file_path) or not fs_access.is_file(file_path):
             return {"error": f"File '{file_path}' does not exist.", "diff": diff_text}
-        original = fs_access.read_text(file_path)
-        # Sanitize any surrogate characters from reading
-        try:
-            original = original.encode("utf-8", errors="surrogatepass").decode(
-                "utf-8", errors="replace"
-            )
-        except (UnicodeEncodeError, UnicodeDecodeError):
-            pass
+
+        # Sanitize any surrogate characters from reading.
+        original = read_text_sanitized(file_path)
+
         if snippet not in original:
             return {
                 "error": f"Snippet not found in file '{file_path}'.",
                 "diff": diff_text,
             }
+
         modified = original.replace(snippet, "", 1)
         from code_puppy.config import get_diff_context_lines
 
@@ -252,7 +320,9 @@ def _delete_snippet_from_file(
                 n=get_diff_context_lines(),
             )
         )
+
         write_project_file(file_path, modified)
+
         return {
             "success": True,
             "path": file_path,
@@ -260,14 +330,65 @@ def _delete_snippet_from_file(
             "changed": True,
             "diff": diff_text,
         }
+
     except Exception as exc:
         return {"error": str(exc), "diff": diff_text}
+
+
+def apply_replacements_to_content(
+    content: str, replacements: List[Dict[str, Any]]
+) -> Dict[str, Any]:
+    """Apply targeted replacements to ``content`` (pure, no I/O).
+
+    Returns ``{"content": new_content}`` on success or ``{"error": message}``.
+    This is the single source of truth for replacement semantics: the
+    ``replace_in_file`` tool and permission-preview rendering (e.g. the
+    ``file_permission_handler`` core plugin) must all go through it so a
+    preview always shows exactly what the engine will do.
+
+    Matching is exact. A no-op, an unmatched ``old_str``, or an ambiguous
+    ``old_str`` (multiple hits without ``replace_all``) is refused rather
+    than guessed at -- a silent wrong-location edit is worse than an error
+    the model can correct.
+    """
+    modified = content
+    for rep in replacements:
+        old_snippet = rep.get("old_str", "")
+        new_snippet = rep.get("new_str", "")
+        replace_all = bool(rep.get("replace_all", False))
+
+        if old_snippet == new_snippet:
+            return {
+                "error": (
+                    "No changes to make: old_str and new_str are exactly the same."
+                )
+            }
+        if not old_snippet or old_snippet not in modified:
+            return {
+                "error": f"String to replace not found in file.\nString: {old_snippet}"
+            }
+
+        matches = modified.count(old_snippet)
+        if matches > 1 and not replace_all:
+            return {
+                "error": (
+                    f"Found {matches} matches of the string to replace, but "
+                    "replace_all is false. To replace all occurrences, set "
+                    "replace_all to true. To replace only one occurrence, "
+                    "provide more surrounding context to uniquely identify "
+                    f"the instance.\nString: {old_snippet}"
+                )
+            }
+
+        modified = modified.replace(old_snippet, new_snippet, -1 if replace_all else 1)
+
+    return {"content": modified}
 
 
 def _replace_in_file(
     context: RunContext | None,
     path: str,
-    replacements: List[Dict[str, str]],
+    replacements: List[Dict[str, Any]],
     message_group: str | None = None,
 ) -> Dict[str, Any]:
     UndoManager().record_change(path, "replace_in_file")
@@ -278,55 +399,20 @@ def _replace_in_file(
         if not fs_access.exists(file_path) or not fs_access.is_file(file_path):
             return {"error": f"File '{file_path}' does not exist.", "diff": diff_text}
 
-        original = fs_access.read_text(file_path)
+        # Sanitize any surrogate characters from reading.
+        original = read_text_sanitized(file_path)
 
-        # Sanitize any surrogate characters from reading
-        try:
-            original = original.encode("utf-8", errors="surrogatepass").decode(
-                "utf-8", errors="replace"
-            )
-        except (UnicodeEncodeError, UnicodeDecodeError):
-            pass
-
-        modified = original
-        for rep in replacements:
-            old_snippet = rep.get("old_str", "")
-            new_snippet = rep.get("new_str", "")
-
-            if old_snippet and old_snippet in modified:
-                modified = modified.replace(old_snippet, new_snippet, 1)
-                continue
-
-            had_trailing_newline = modified.endswith("\n")
-            orig_lines = modified.splitlines()
-            loc, score = _find_best_window(orig_lines, old_snippet)
-
-            if score < 0.95 or loc is None:
-                return {
-                    "error": "No suitable match in file (JW < 0.95)",
-                    "jw_score": score,
-                    "received": old_snippet,
-                    "diff": "",
-                }
-
-            start, end = loc
-            prefix = "\n".join(orig_lines[:start])
-            suffix = "\n".join(orig_lines[end:])
-            parts = []
-            if prefix:
-                parts.append(prefix)
-            parts.append(new_snippet.rstrip("\n"))
-            if suffix:
-                parts.append(suffix)
-            modified = "\n".join(parts)
-            if had_trailing_newline and not modified.endswith("\n"):
-                modified += "\n"
+        engine_result = apply_replacements_to_content(original, replacements)
+        if "error" in engine_result:
+            return {**engine_result, "diff": ""}
+        modified = engine_result["content"]
 
         if modified == original:
             emit_warning(
                 "No changes to apply – proposed content is identical.",
                 message_group=message_group,
             )
+
             return {
                 "success": False,
                 "path": file_path,
@@ -346,7 +432,9 @@ def _replace_in_file(
                 n=get_diff_context_lines(),
             )
         )
+
         write_project_file(file_path, modified)
+
         return {
             "success": True,
             "path": file_path,
@@ -354,6 +442,7 @@ def _replace_in_file(
             "changed": True,
             "diff": diff_text,
         }
+
     except Exception as exc:
         return {"error": str(exc), "diff": diff_text}
 
@@ -382,14 +471,11 @@ def _write_to_file(
         from code_puppy.config import get_diff_context_lines
 
         if exists:
-            old_content = fs_access.read_text(file_path)
-            try:
-                old_content = old_content.encode(
-                    "utf-8", errors="surrogatepass"
-                ).decode("utf-8", errors="replace")
-            except (UnicodeEncodeError, UnicodeDecodeError):
-                pass
+            # Sanitize any surrogate characters from reading.
+            old_content = read_text_sanitized(file_path)
+
             old_lines = old_content.splitlines(keepends=True)
+
         else:
             old_lines = []
 
@@ -400,10 +486,11 @@ def _write_to_file(
             tofile=f"b/{os.path.basename(file_path)}",
             n=get_diff_context_lines(),
         )
+
         diff_text = "".join(diff_lines)
 
-        # Create local dirs only for local writes; a FS backend (e.g. ACP host)
-        # manages its own topology.
+        # Create local dirs only for local writes.
+        # An FS backend like ACP host manages its own topology.
         fs_access.make_dirs(os.path.dirname(file_path) or ".")
         write_project_file(file_path, content)
 
@@ -424,7 +511,11 @@ def _write_to_file(
 def delete_snippet_from_file(
     context: RunContext, file_path: str, snippet: str, message_group: str | None = None
 ) -> Dict[str, Any]:
-    # Use the plugin system for permission handling with operation data
+    refused = _refuse_user_plugin_tree(file_path)
+    if refused is not None:
+        return refused
+
+    # Use the plugin system for permission handling with operation data.
     from code_puppy.callbacks import on_file_permission
 
     operation_data = {"snippet": snippet}
@@ -432,13 +523,14 @@ def delete_snippet_from_file(
         context, file_path, "delete snippet from", None, message_group, operation_data
     )
 
-    # If any permission handler denies the operation, return cancelled result
+    # If any permission handler denies the operation, return cancelled result.
     if _permission_denied(permission_results):
         return _create_rejection_response(file_path)
 
     res = _delete_snippet_from_file(
         context, file_path, snippet, message_group=message_group
     )
+
     diff = res.get("diff", "")
     if diff:
         _emit_diff_message(file_path, "modify", diff)
@@ -452,6 +544,9 @@ def write_to_file(
     overwrite: bool,
     message_group: str | None = None,
 ) -> Dict[str, Any]:
+    refused = _refuse_user_plugin_tree(path)
+    if refused is not None:
+        return refused
     # Use the plugin system for permission handling with operation data
     from code_puppy.callbacks import on_file_permission
 
@@ -478,9 +573,12 @@ def write_to_file(
 def replace_in_file(
     context: RunContext,
     path: str,
-    replacements: List[Dict[str, str]],
+    replacements: List[Dict[str, Any]],
     message_group: str | None = None,
 ) -> Dict[str, Any]:
+    refused = _refuse_user_plugin_tree(path)
+    if refused is not None:
+        return refused
     # Use the plugin system for permission handling with operation data
     from code_puppy.callbacks import on_file_permission
 
@@ -504,6 +602,9 @@ async def delete_snippet_from_file_async(
     context: RunContext, file_path: str, snippet: str, message_group: str | None = None
 ) -> Dict[str, Any]:
     """Async permission-aware variant of ``delete_snippet_from_file``."""
+    refused = _refuse_user_plugin_tree(file_path)
+    if refused is not None:
+        return refused
     from code_puppy.callbacks import on_file_permission_async
 
     operation_data = {"snippet": snippet}
@@ -513,8 +614,12 @@ async def delete_snippet_from_file_async(
     if _permission_denied(permission_results):
         return _create_rejection_response(file_path)
 
-    res = _delete_snippet_from_file(
-        context, file_path, snippet, message_group=message_group
+    res = await asyncio.to_thread(
+        _delete_snippet_from_file,
+        context,
+        file_path,
+        snippet,
+        message_group=message_group,
     )
     diff = res.get("diff", "")
     if diff:
@@ -530,6 +635,9 @@ async def write_to_file_async(
     message_group: str | None = None,
 ) -> Dict[str, Any]:
     """Async permission-aware variant of ``write_to_file``."""
+    refused = _refuse_user_plugin_tree(path)
+    if refused is not None:
+        return refused
     from code_puppy.callbacks import on_file_permission_async
 
     operation_data = {"content": content, "overwrite": overwrite}
@@ -539,8 +647,13 @@ async def write_to_file_async(
     if _permission_denied(permission_results):
         return _create_rejection_response(path)
 
-    res = _write_to_file(
-        context, path, content, overwrite=overwrite, message_group=message_group
+    res = await asyncio.to_thread(
+        _write_to_file,
+        context,
+        path,
+        content,
+        overwrite=overwrite,
+        message_group=message_group,
     )
     diff = res.get("diff", "")
     if diff:
@@ -552,10 +665,13 @@ async def write_to_file_async(
 async def replace_in_file_async(
     context: RunContext,
     path: str,
-    replacements: List[Dict[str, str]],
+    replacements: List[Dict[str, Any]],
     message_group: str | None = None,
 ) -> Dict[str, Any]:
     """Async permission-aware variant of ``replace_in_file``."""
+    refused = _refuse_user_plugin_tree(path)
+    if refused is not None:
+        return refused
     from code_puppy.callbacks import on_file_permission_async
 
     operation_data = {"replacements": replacements}
@@ -565,7 +681,13 @@ async def replace_in_file_async(
     if _permission_denied(permission_results):
         return _create_rejection_response(path)
 
-    res = _replace_in_file(context, path, replacements, message_group=message_group)
+    res = await asyncio.to_thread(
+        _replace_in_file,
+        context,
+        path,
+        replacements,
+        message_group=message_group,
+    )
     diff = res.get("diff", "")
     if diff:
         _emit_diff_message(path, "modify", diff)
@@ -726,33 +848,33 @@ async def _edit_file_async(
 def _delete_file(
     context: RunContext, file_path: str, message_group: str | None = None
 ) -> Dict[str, Any]:
+    refused = _refuse_user_plugin_tree(file_path)
+    if refused is not None:
+        return refused
+
     UndoManager().record_change(file_path, "delete_file")
     file_path = resolve_path(file_path)
 
-    # Use the plugin system for permission handling with operation data
+    # Use the plugin system for permission handling with operation data.
     from code_puppy.callbacks import on_file_permission
 
-    operation_data = {}  # No additional data needed for delete operations
+    operation_data = {}  # No additional data needed for delete operations.
     permission_results = on_file_permission(
         context, file_path, "delete", None, message_group, operation_data
     )
 
-    # If any permission handler denies the operation, return cancelled result
+    # If any permission handler denies the operation, return cancelled result.
     if _permission_denied(permission_results):
         return _create_rejection_response(file_path)
 
     try:
         if not fs_access.exists(file_path) or not fs_access.is_file(file_path):
             res = {"error": f"File '{file_path}' does not exist.", "diff": ""}
+
         else:
-            original = fs_access.read_text(file_path)
-            # Sanitize any surrogate characters from reading
-            try:
-                original = original.encode("utf-8", errors="surrogatepass").decode(
-                    "utf-8", errors="replace"
-                )
-            except (UnicodeEncodeError, UnicodeDecodeError):
-                pass
+            # Sanitize any surrogate characters from reading.
+            original = read_text_sanitized(file_path)
+
             from code_puppy.config import get_diff_context_lines
 
             diff_text = "".join(
@@ -764,7 +886,9 @@ def _delete_file(
                     n=get_diff_context_lines(),
                 )
             )
+
             fs_access.delete_file(file_path)
+
             res = {
                 "success": True,
                 "path": file_path,
@@ -772,6 +896,7 @@ def _delete_file(
                 "changed": True,
                 "diff": diff_text,
             }
+
     except Exception as exc:
         _log_error("Unhandled exception in delete_file", exc)
         res = {"error": str(exc), "diff": ""}
@@ -786,6 +911,10 @@ async def _delete_file_async(
     context: RunContext, file_path: str, message_group: str | None = None
 ) -> Dict[str, Any]:
     """Async permission-aware variant of ``_delete_file``."""
+    refused = _refuse_user_plugin_tree(file_path)
+    if refused is not None:
+        return refused
+
     file_path = resolve_path(file_path)
 
     from code_puppy.callbacks import on_file_permission_async
@@ -794,20 +923,18 @@ async def _delete_file_async(
     permission_results = await on_file_permission_async(
         context, file_path, "delete", None, message_group, operation_data
     )
+
     if _permission_denied(permission_results):
         return _create_rejection_response(file_path)
 
-    try:
-        if not fs_access.exists(file_path) or not fs_access.is_file(file_path):
-            res = {"error": f"File '{file_path}' does not exist.", "diff": ""}
-        else:
-            original = fs_access.read_text(file_path)
-            try:
-                original = original.encode("utf-8", errors="surrogatepass").decode(
-                    "utf-8", errors="replace"
-                )
-            except (UnicodeEncodeError, UnicodeDecodeError):
-                pass
+    def _delete() -> Dict[str, Any]:
+        try:
+            if not fs_access.exists(file_path) or not fs_access.is_file(file_path):
+                return {"error": f"File '{file_path}' does not exist.", "diff": ""}
+
+            # Sanitize any surrogate characters from reading.
+            original = read_text_sanitized(file_path)
+
             from code_puppy.config import get_diff_context_lines
 
             diff_text = "".join(
@@ -819,17 +946,22 @@ async def _delete_file_async(
                     n=get_diff_context_lines(),
                 )
             )
+
             fs_access.delete_file(file_path)
-            res = {
+
+            return {
                 "success": True,
                 "path": file_path,
                 "message": f"File '{file_path}' deleted successfully.",
                 "changed": True,
                 "diff": diff_text,
             }
-    except Exception as exc:
-        _log_error("Unhandled exception in delete_file", exc)
-        res = {"error": str(exc), "diff": ""}
+
+        except Exception as exc:
+            _log_error("Unhandled exception in delete_file", exc)
+            return {"error": str(exc), "diff": ""}
+
+    res = await asyncio.to_thread(_delete)
 
     diff = res.get("diff", "")
     if diff:
@@ -990,13 +1122,14 @@ _REPLACEMENT_ITEM_SCHEMA = {
     "properties": {
         "old_str": {"type": "string"},
         "new_str": {"type": "string"},
+        "replace_all": {"type": "boolean", "default": False},
     },
     "required": ["old_str", "new_str"],
 }
 
 # Type alias used by the tool signature.  The Annotated + WithJsonSchema
 # tells Pydantic to emit _REPLACEMENT_ITEM_SCHEMA inline instead of a $ref.
-InlineReplacement = Annotated[Dict[str, str], WithJsonSchema(_REPLACEMENT_ITEM_SCHEMA)]
+InlineReplacement = Annotated[Dict[str, Any], WithJsonSchema(_REPLACEMENT_ITEM_SCHEMA)]
 
 
 def _try_json_repair(v: Any) -> Any:
@@ -1047,13 +1180,15 @@ def register_replace_in_file(agent):
         """Apply targeted text replacements to an existing file.
 
         Each replacement specifies an old_str to find and a new_str to replace it with.
+        old_str must match exactly and uniquely; if it occurs more than once, either
+        add surrounding context or set replace_all=true on that replacement.
         Replacements are applied sequentially. Prefer this over full file rewrites.
         """
         group_id = generate_group_id("replace_in_file", file_path)
         try:
             # Validate up front so a malformed payload returns a clean error
             # instead of tearing down the whole agent run via pydantic_ai.
-            normalized: List[Dict[str, str]] = []
+            normalized: List[Dict[str, Any]] = []
             for idx, raw in enumerate(replacements):
                 # Per-item json_repair: some models stringify each replacement
                 # individually — heal before strict validation.
@@ -1074,7 +1209,13 @@ def register_replace_in_file(agent):
                             f"both 'old_str' and 'new_str'."
                         )
                     }
-                normalized.append({"old_str": r["old_str"], "new_str": r["new_str"]})
+                normalized.append(
+                    {
+                        "old_str": r["old_str"],
+                        "new_str": r["new_str"],
+                        "replace_all": bool(r.get("replace_all", False)),
+                    }
+                )
 
             result = await _replace_in_file_helper(
                 context, file_path, normalized, message_group=group_id

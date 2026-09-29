@@ -68,7 +68,7 @@ class TestClaudeCodeAliases:
     @pytest.mark.parametrize(
         "provider_name,internal_name",
         [
-            ("Bash", "agent_run_shell_command"),
+            ("Bash", "shell"),
             ("Glob", "list_files"),
             ("Read", "read_file"),
             ("Grep", "grep"),
@@ -86,7 +86,7 @@ class TestClaudeCodeAliases:
     @pytest.mark.parametrize(
         "provider_name,internal_name",
         [
-            ("Bash", "agent_run_shell_command"),
+            ("Bash", "shell"),
             ("Glob", "list_files"),
             ("Read", "read_file"),
             ("Grep", "grep"),
@@ -111,7 +111,7 @@ class TestClaudeCodeAliases:
     @pytest.mark.parametrize(
         "provider_name,internal_name",
         [
-            ("Bash", "agent_run_shell_command"),
+            ("Bash", "shell"),
             ("Glob", "list_files"),
             ("Read", "read_file"),
             ("Grep", "grep"),
@@ -156,7 +156,7 @@ class TestClaudeCodeAliases:
     @pytest.mark.parametrize(
         "provider_name,internal_name",
         [
-            ("Bash", "agent_run_shell_command"),
+            ("Bash", "shell"),
             ("Glob", "list_files"),
             ("Read", "read_file"),
             ("Grep", "grep"),
@@ -199,18 +199,18 @@ class TestGetAliasesUnknown:
 class TestCaseInsensitivity:
     def test_bash_lowercase(self):
         group = get_aliases("bash")
-        assert "agent_run_shell_command" in group
+        assert "shell" in group
 
     def test_bash_uppercase(self):
         group = get_aliases("BASH")
-        assert "agent_run_shell_command" in group
+        assert "shell" in group
 
     def test_bash_mixed(self):
         group = get_aliases("BaSh")
-        assert "agent_run_shell_command" in group
+        assert "shell" in group
 
     def test_internal_name_case_variations(self):
-        group = get_aliases("AGENT_RUN_SHELL_COMMAND")
+        group = get_aliases("SHELL")
         assert "Bash" in group
 
     def test_glob_case_insensitive(self):
@@ -268,10 +268,10 @@ class TestBuildLookup:
 
     def test_build_lookup_includes_internal_names(self):
         result = _build_lookup()
-        assert "agent_run_shell_command" in result
+        assert "shell" in result
 
     def test_build_lookup_bash_group_bidirectional(self):
         result = _build_lookup()
         bash_group = result["bash"]
-        internal_group = result["agent_run_shell_command"]
+        internal_group = result["shell"]
         assert bash_group == internal_group
