@@ -26,16 +26,6 @@ def get_max_pause_seconds_effective() -> float:
         return 180.0
 
 
-def get_goal_max_iterations_effective() -> int:
-    """Mirrors the goal-iteration clamp owned by the wiggum plugin."""
-    val = get_value("goal_max_iterations")
-    try:
-        n = int(val) if val else 10  # GOAL_MAX_ITERATIONS_DEFAULT
-    except (TypeError, ValueError):
-        n = 10
-    return max(1, min(n, 1000))
-
-
 def get_disable_mcp_servers_effective() -> bool:
     """Mirrors the inline check at ``tools/subagent_invocation.py``.
 

@@ -23,7 +23,6 @@ from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
     ModelResponse,
-    ModelResponsePart,
     ModelResponseStreamEvent,
     RetryPromptPart,
     SystemPromptPart,
@@ -35,8 +34,15 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.models import Model, ModelRequestParameters, StreamedResponse
 from pydantic_ai.settings import ModelSettings
-from pydantic_ai.tools import ToolDefinition
 from pydantic_ai.usage import RequestUsage
+
+from code_puppy.gemini_common import (
+    _build_tools,
+    _parse_candidate_parts,
+    generate_tool_call_id,
+    _build_generation_config,
+)
+from code_puppy.steer_metadata import is_steer_request
 
 logger = logging.getLogger(__name__)
 
@@ -44,192 +50,36 @@ logger = logging.getLogger(__name__)
 # This allows function calls to work with thinking models.
 BYPASS_THOUGHT_SIGNATURE = "context_engineering_is_the_way_to_go"
 
+# Frames an in-flight /steer as guidance for the running task rather than a
+# new turn. Model-facing prompt text, so deliberately not translated.
+STEER_PREAMBLE = (
+    "Additional guidance for the current task; continue the existing workflow:"
+)
 
-def generate_tool_call_id() -> str:
-    """Generate a unique tool call ID."""
-    return str(uuid.uuid4())
 
+def _split_mixed_user_contents(contents: list[dict[str, Any]]) -> None:
+    """Split user turns carrying both function responses and other parts.
 
-def _flatten_union_to_object_gemini(union_items: list, defs: dict, resolve_fn) -> dict:
-    """Flatten a union of object types into a single object with all properties.
-
-    For discriminated unions like EditFilePayload, we merge all object types
-    into one with all properties (Gemini doesn't support anyOf/oneOf).
+    Gemini rejects a user content that mixes ``function_response`` with text.
+    The consecutive-user merge in ``_map_messages`` produces exactly that
+    whenever a tool return is followed by a user prompt with no model turn
+    between them, which ``/steer`` and Ctrl+C-interrupted runs both do.
     """
-    import copy as copy_module
-
-    merged_properties = {}
-    has_string_type = False
-
-    for item in union_items:
-        if not isinstance(item, dict):
+    split: list[dict[str, Any]] = []
+    for content in contents:
+        parts = content.get("parts", [])
+        if content.get("role") != "user":
+            split.append(content)
             continue
-
-        # Resolve $ref first
-        if "$ref" in item:
-            ref_path = item["$ref"]
-            ref_name = None
-            if ref_path.startswith("#/$defs/"):
-                ref_name = ref_path[8:]
-            elif ref_path.startswith("#/definitions/"):
-                ref_name = ref_path[14:]
-            if ref_name and ref_name in defs:
-                item = copy_module.deepcopy(defs[ref_name])
-            else:
-                continue
-
-        if item.get("type") == "string":
-            has_string_type = True
+        response_parts = [part for part in parts if "function_response" in part]
+        other_parts = [part for part in parts if "function_response" not in part]
+        if not response_parts or not other_parts:
+            split.append(content)
             continue
-
-        if item.get("type") == "null":
-            continue
-
-        if item.get("type") == "object" or "properties" in item:
-            props = item.get("properties", {})
-            for prop_name, prop_schema in props.items():
-                if prop_name not in merged_properties:
-                    merged_properties[prop_name] = resolve_fn(
-                        copy_module.deepcopy(prop_schema)
-                    )
-
-    if not merged_properties:
-        return {"type": "string"} if has_string_type else {"type": "object"}
-
-    return {
-        "type": "object",
-        "properties": merged_properties,
-    }
-
-
-def _sanitize_schema_for_gemini(schema: dict) -> dict:
-    """Sanitize JSON schema for Gemini API compatibility.
-
-    Removes/transforms fields that Gemini doesn't support:
-    - $defs, definitions, $schema, $id
-    - additionalProperties
-    - $ref (inlined)
-    - anyOf/oneOf/allOf (flattened - Gemini doesn't support unions!)
-      - For unions of objects: merges into single object with all properties
-      - For simple unions (string | null): picks first non-null type
-    """
-    import copy
-
-    if not isinstance(schema, dict):
-        return schema
-
-    # Make a deep copy to avoid modifying original
-    schema = copy.deepcopy(schema)
-
-    # Extract $defs for reference resolution
-    defs = schema.pop("$defs", schema.pop("definitions", {}))
-
-    def resolve_refs(obj):
-        """Recursively resolve $ref references and clean schema."""
-        if isinstance(obj, dict):
-            # Handle anyOf/oneOf unions
-            for union_key in ["anyOf", "oneOf"]:
-                if union_key in obj:
-                    union = obj[union_key]
-                    if isinstance(union, list):
-                        # Check if this is a complex union of objects
-                        object_count = 0
-                        has_refs = False
-                        for item in union:
-                            if isinstance(item, dict):
-                                if "$ref" in item:
-                                    has_refs = True
-                                    object_count += 1
-                                elif (
-                                    item.get("type") == "object" or "properties" in item
-                                ):
-                                    object_count += 1
-
-                        # If multiple objects or has refs, flatten to single object
-                        if object_count > 1 or has_refs:
-                            flattened = _flatten_union_to_object_gemini(
-                                union, defs, resolve_refs
-                            )
-                            if "description" in obj:
-                                flattened["description"] = obj["description"]
-                            return flattened
-
-                        # Simple union - pick first non-null type
-                        for item in union:
-                            if isinstance(item, dict) and item.get("type") != "null":
-                                result = dict(item)
-                                if "description" in obj:
-                                    result["description"] = obj["description"]
-                                return resolve_refs(result)
-
-            # Handle allOf by merging all schemas
-            if "allOf" in obj:
-                all_of = obj["allOf"]
-                if isinstance(all_of, list):
-                    merged = {}
-                    merged_properties = {}
-                    for item in all_of:
-                        if isinstance(item, dict):
-                            resolved_item = resolve_refs(item)
-                            if "properties" in resolved_item:
-                                merged_properties.update(
-                                    resolved_item.pop("properties")
-                                )
-                            merged.update(resolved_item)
-                    if merged_properties:
-                        merged["properties"] = merged_properties
-                    for k, v in obj.items():
-                        if k != "allOf":
-                            merged[k] = v
-                    return resolve_refs(merged)
-
-            # Check for $ref
-            if "$ref" in obj:
-                ref_path = obj["$ref"]
-                ref_name = None
-
-                # Parse ref like "#/$defs/SomeType" or "#/definitions/SomeType"
-                if ref_path.startswith("#/$defs/"):
-                    ref_name = ref_path[8:]
-                elif ref_path.startswith("#/definitions/"):
-                    ref_name = ref_path[14:]
-
-                if ref_name and ref_name in defs:
-                    resolved = resolve_refs(copy.deepcopy(defs[ref_name]))
-                    other_props = {k: v for k, v in obj.items() if k != "$ref"}
-                    if other_props:
-                        resolved.update(resolve_refs(other_props))
-                    return resolved
-                else:
-                    return {"type": "object"}
-
-            # Recursively process and transform
-            result = {}
-            for key, value in obj.items():
-                # Skip unsupported fields
-                if key in (
-                    "$defs",
-                    "definitions",
-                    "$schema",
-                    "$id",
-                    "additionalProperties",
-                    "default",
-                    "examples",
-                    "const",
-                    "anyOf",  # Skip any remaining union types
-                    "oneOf",
-                    "allOf",
-                ):
-                    continue
-
-                result[key] = resolve_refs(value)
-            return result
-        elif isinstance(obj, list):
-            return [resolve_refs(item) for item in obj]
-        else:
-            return obj
-
-    return resolve_refs(schema)
+        # Tool results first: they answer the model's preceding call.
+        split.append({"role": "user", "parts": response_parts})
+        split.append({"role": "user", "parts": other_parts})
+    contents[:] = split
 
 
 class GeminiModel(Model):
@@ -338,8 +188,88 @@ class GeminiModel(Model):
         """Map pydantic-ai messages to Gemini API format."""
         contents: list[dict[str, Any]] = []
         system_parts: list[dict[str, Any]] = []
+        # A normal user prompt starts the next turn and retires older steers.
+        # A retired steer keeps the user's words (parity with every other
+        # provider, which never drop the message) and loses only the
+        # current-task framing.
+        last_prompt_index = max(
+            (
+                i
+                for i, message in enumerate(messages)
+                if isinstance(message, ModelRequest)
+                and not is_steer_request(message)
+                and any(isinstance(part, UserPromptPart) for part in message.parts)
+            ),
+            default=-1,
+        )
+        # Gemini 400s on a block mixing function_response with text, so a steer
+        # block stays closed to later merges: a tool result outstanding across
+        # the steer starts its own block instead of being absorbed.
+        steer_block_open = False
+        steer_blocks: set[int] = set()
 
-        for m in messages:
+        def _is_steer_block(block: dict[str, Any] | None) -> bool:
+            return block is not None and id(block) in steer_blocks
+
+        for i, m in enumerate(messages):
+            if is_steer_request(m):
+                tool_parts: list[dict[str, Any]] = []
+                steer_parts: list[dict[str, Any]] = []
+                for part in m.parts:
+                    if isinstance(part, SystemPromptPart):
+                        system_parts.append({"text": part.content})
+                    elif isinstance(part, UserPromptPart):
+                        steer_parts.extend(await self._map_user_prompt(part))
+                    elif isinstance(part, ToolReturnPart):
+                        tool_parts.append(
+                            {
+                                "function_response": {
+                                    "name": part.tool_name,
+                                    "response": part.model_response_object(),
+                                    "id": part.tool_call_id,
+                                }
+                            }
+                        )
+                    elif isinstance(part, RetryPromptPart):
+                        if part.tool_name is None:
+                            steer_parts.append({"text": part.model_response()})
+                        else:
+                            tool_parts.append(
+                                {
+                                    "function_response": {
+                                        "name": part.tool_name,
+                                        "response": {"error": part.model_response()},
+                                        "id": part.tool_call_id,
+                                    }
+                                }
+                            )
+
+                if tool_parts:
+                    # Tool returns (e.g. spliced by prune_interrupted_tool_calls)
+                    # must precede steer guidance and never mix into a steer block.
+                    if (
+                        contents
+                        and contents[-1].get("role") == "user"
+                        and not _is_steer_block(contents[-1])
+                    ):
+                        contents[-1]["parts"].extend(tool_parts)
+                    else:
+                        contents.append({"role": "user", "parts": tool_parts})
+                    steer_block_open = False
+
+                if steer_parts:
+                    if steer_block_open and contents and _is_steer_block(contents[-1]):
+                        # Consecutive steers share one block and one preamble.
+                        # A kind change (retired -> active) can only happen
+                        # across the normal prompt that closes the block.
+                        contents[-1]["parts"].extend(steer_parts)
+                    else:
+                        if i > last_prompt_index:
+                            steer_parts.insert(0, {"text": STEER_PREAMBLE})
+                        contents.append({"role": "user", "parts": steer_parts})
+                        steer_blocks.add(id(contents[-1]))
+                        steer_block_open = True
+                continue
             if isinstance(m, ModelRequest):
                 message_parts: list[dict[str, Any]] = []
 
@@ -375,10 +305,15 @@ class GeminiModel(Model):
 
                 if message_parts:
                     # Merge with previous user message if exists
-                    if contents and contents[-1].get("role") == "user":
+                    if (
+                        contents
+                        and contents[-1].get("role") == "user"
+                        and not _is_steer_block(contents[-1])
+                    ):
                         contents[-1]["parts"].extend(message_parts)
                     else:
                         contents.append({"role": "user", "parts": message_parts})
+                steer_block_open = False
 
             elif isinstance(m, ModelResponse):
                 model_parts = self._map_model_response(m)
@@ -388,6 +323,15 @@ class GeminiModel(Model):
                         contents[-1]["parts"].extend(model_parts["parts"])
                     else:
                         contents.append(model_parts)
+                steer_block_open = False
+
+        # Gemini 3.x 400s on a history ending in a model turn, which /steer
+        # injection and interrupted tool calls both produce. Same trim
+        # _compaction.py :: history_processor() does for Anthropic prefill.
+        while contents and contents[-1].get("role") == "model":
+            contents.pop()
+
+        _split_mixed_user_contents(contents)
 
         # Ensure at least one content
         if not contents:
@@ -454,61 +398,37 @@ class GeminiModel(Model):
             return None
         return {"role": "model", "parts": parts}
 
-    def _build_tools(self, tools: list[ToolDefinition]) -> list[dict[str, Any]]:
-        """Build tool definitions for the API."""
-        function_declarations = []
-
-        for tool in tools:
-            func_decl: dict[str, Any] = {
-                "name": tool.name,
-                "description": tool.description or "",
-            }
-            if tool.parameters_json_schema:
-                # Sanitize schema for Gemini compatibility
-                func_decl["parameters"] = _sanitize_schema_for_gemini(
-                    tool.parameters_json_schema
-                )
-            function_declarations.append(func_decl)
-
-        return [{"functionDeclarations": function_declarations}]
-
-    def _build_generation_config(
-        self, model_settings: ModelSettings | None
+    def _build_request_body(
+        self,
+        system_instruction,
+        contents,
+        model_settings,
+        model_request_parameters,
+        *,
+        streaming: bool,
     ) -> dict[str, Any]:
-        """Build generation config from model settings."""
-        config: dict[str, Any] = {}
+        body: dict[str, Any] = {"contents": contents}
 
-        if model_settings:
-            # ModelSettings is a TypedDict, so use .get() for all access
-            temperature = model_settings.get("temperature")
-            if temperature is not None:
-                config["temperature"] = temperature
+        gen_config = _build_generation_config(model_settings)
+        if gen_config:
+            body["generationConfig"] = gen_config
 
-            top_p = model_settings.get("top_p")
-            if top_p is not None:
-                config["topP"] = top_p
+        if system_instruction:
+            body["systemInstruction"] = system_instruction
 
-            max_tokens = model_settings.get("max_tokens")
-            if max_tokens is not None:
-                config["maxOutputTokens"] = max_tokens
+        # Add tools.
+        if model_request_parameters.function_tools:
+            body["tools"] = _build_tools(model_request_parameters.function_tools)
 
-            # Handle Gemini 3 Pro thinking settings
-            thinking_enabled = model_settings.get("thinking_enabled")
-            thinking_level = model_settings.get("thinking_level")
-
-            # Build thinkingConfig if thinking settings are present
-            if thinking_enabled is False:
-                # Disable thinking by not including thinkingConfig
-                pass
-            elif thinking_level is not None:
-                # Gemini 3 Pro uses thinkingLevel with values "low" or "high"
-                # includeThoughts=True is required to surface the thinking in the response
-                config["thinkingConfig"] = {
-                    "thinkingLevel": thinking_level,
-                    "includeThoughts": True,
+            if streaming:
+                body["toolConfig"] = {
+                    "functionCallingConfig": {
+                        "mode": "AUTO",
+                        "streamFunctionCallArguments": True,
+                    }
                 }
 
-        return config
+        return body
 
     async def request(
         self,
@@ -521,26 +441,20 @@ class GeminiModel(Model):
             messages, model_request_parameters
         )
 
-        # Build request body
-        body: dict[str, Any] = {"contents": contents}
+        body = self._build_request_body(
+            system_instruction=system_instruction,
+            contents=contents,
+            model_settings=model_settings,
+            model_request_parameters=model_request_parameters,
+            streaming=False,
+        )
 
-        gen_config = self._build_generation_config(model_settings)
-        if gen_config:
-            body["generationConfig"] = gen_config
-        if system_instruction:
-            body["systemInstruction"] = system_instruction
-
-        # Add tools
-        if model_request_parameters.function_tools:
-            body["tools"] = self._build_tools(model_request_parameters.function_tools)
-
-        # Make request
+        # Make request.
         client = await self._get_client()
         url = f"{self._base_url}/models/{self._model_name}:generateContent"
         headers = self._get_headers()
 
         response = await client.post(url, json=body, headers=headers)
-
         if response.status_code != 200:
             raise RuntimeError(
                 f"Gemini API error {response.status_code}: {response.text}"
@@ -559,37 +473,7 @@ class GeminiModel(Model):
                 usage=RequestUsage(),
             )
 
-        candidate = candidates[0]
-        content = candidate.get("content", {})
-        parts = content.get("parts", [])
-
-        response_parts: list[ModelResponsePart] = []
-
-        for part in parts:
-            if part.get("thought") and part.get("text") is not None:
-                # Thinking part
-                signature = part.get("thoughtSignature")
-                response_parts.append(
-                    ThinkingPart(content=part["text"], signature=signature)
-                )
-            elif "text" in part:
-                response_parts.append(TextPart(content=part["text"]))
-            elif "functionCall" in part:
-                fc = part["functionCall"]
-                response_parts.append(
-                    ToolCallPart(
-                        tool_name=fc["name"],
-                        args=fc.get("args", {}),
-                        tool_call_id=fc.get("id") or generate_tool_call_id(),
-                    )
-                )
-
-        # Extract usage
-        usage_meta = data.get("usageMetadata", {})
-        usage = RequestUsage(
-            input_tokens=usage_meta.get("promptTokenCount", 0),
-            output_tokens=usage_meta.get("candidatesTokenCount", 0),
-        )
+        usage, response_parts = _parse_candidate_parts(data, candidates)
 
         return ModelResponse(
             parts=response_parts,
@@ -612,26 +496,15 @@ class GeminiModel(Model):
             messages, model_request_parameters
         )
 
-        # Build request body
-        body: dict[str, Any] = {"contents": contents}
+        body = self._build_request_body(
+            system_instruction=system_instruction,
+            contents=contents,
+            model_settings=model_settings,
+            model_request_parameters=model_request_parameters,
+            streaming=True,
+        )
 
-        gen_config = self._build_generation_config(model_settings)
-        if gen_config:
-            body["generationConfig"] = gen_config
-        if system_instruction:
-            body["systemInstruction"] = system_instruction
-
-        # Add tools
-        if model_request_parameters.function_tools:
-            body["tools"] = self._build_tools(model_request_parameters.function_tools)
-            body["toolConfig"] = {
-                "functionCallingConfig": {
-                    "mode": "AUTO",
-                    "streamFunctionCallArguments": True,
-                }
-            }
-
-        # Make streaming request
+        # Make streaming request.
         client = await self._get_client()
         url = (
             f"{self._base_url}/models/{self._model_name}:streamGenerateContent?alt=sse"
@@ -652,11 +525,13 @@ class GeminiModel(Model):
                     line = line.strip()
                     if not line:
                         continue
+
                     if line.startswith("data: "):
                         json_str = line[6:]
                         if json_str:
                             try:
                                 yield json.loads(json_str)
+
                             except json.JSONDecodeError:
                                 continue
 

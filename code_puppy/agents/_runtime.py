@@ -21,6 +21,8 @@ import asyncio
 import json
 import re
 import signal
+import ssl
+import sys
 import threading
 import uuid
 from contextlib import AsyncExitStack
@@ -28,7 +30,12 @@ from typing import Any, Callable, Iterator, List, Optional, Sequence, Type, Unio
 
 import httpcore
 import httpx
-import mcp
+
+try:  # pragma: no cover - mcp version dependent
+    from mcp.shared.exceptions import McpError
+except ImportError:  # newer mcp SDKs renamed McpError -> MCPError
+    from mcp.shared.exceptions import MCPError as McpError
+
 from pydantic_ai import (
     BinaryContent,
     DocumentUrl,
@@ -36,6 +43,7 @@ from pydantic_ai import (
     UnexpectedModelBehavior,
     UsageLimitExceeded,
     UsageLimits,
+    VideoUrl,
 )
 from pydantic_ai.exceptions import RunCancelled
 
@@ -44,17 +52,6 @@ try:  # pragma: no cover - pydantic-ai version dependent
 except ImportError:
     ModelHTTPError = None  # type: ignore[misc,assignment]
 
-try:  # pragma: no cover - optional dependency
-    from openai import APIError as OpenAIAPIError
-except ImportError:
-    OpenAIAPIError = None  # type: ignore[assignment]
-
-try:  # pragma: no cover - optional dependency
-    from anthropic import APIConnectionError as AnthropicAPIConnectionError
-    from anthropic import APIStatusError as AnthropicAPIStatusError
-except ImportError:
-    AnthropicAPIConnectionError = None  # type: ignore[assignment]
-    AnthropicAPIStatusError = None  # type: ignore[assignment]
 
 try:  # pragma: no cover - pydantic-ai version dependent
     from pydantic_ai.exceptions import ModelAPIError
@@ -151,6 +148,33 @@ _RETRYABLE_EXCEPTIONS: tuple = (
     httpcore.RemoteProtocolError,
 )
 
+# AnyIO normally translates TLS failures through httpcore/httpx, but a failure
+# while reading an established stream can escape as a raw ``ssl.SSLError``.
+# Keep this allowlist narrow: certificate and protocol errors need user action,
+# while a corrupted TLS record on an existing SSE stream is safe to retry.
+# Only the reason observed escaping raw from AnyIO is included; add another
+# reason only after confirming that it can bypass the httpx/httpcore wrappers.
+_RETRYABLE_TLS_REASONS = frozenset({"DECRYPTION_FAILED_OR_BAD_RECORD_MAC"})
+
+
+def _is_retryable_tls_stream_error(exc: BaseException) -> bool:
+    """Return whether ``exc`` is a known transient raw TLS stream failure."""
+    if not isinstance(exc, ssl.SSLError):
+        return False
+
+    reason = getattr(exc, "reason", None)
+    if isinstance(reason, str) and reason.upper() in _RETRYABLE_TLS_REASONS:
+        return True
+    if reason is not None:
+        return False
+
+    # Hand-built exceptions and some Python/OpenSSL combinations omit
+    # ``.reason`` but preserve its stable symbolic name in the message.
+    message = str(exc).upper()
+    return any(
+        f"[SSL: {tls_reason}]" in message for tls_reason in _RETRYABLE_TLS_REASONS
+    )
+
 
 def _matches_retryable_snippet(msg: str) -> bool:
     """Return True if ``msg`` matches any known transient pattern.
@@ -166,6 +190,18 @@ def _matches_retryable_snippet(msg: str) -> bool:
 
 # Matches a ``[HTTP 502]`` style marker some gateways embed in the message.
 _EMBEDDED_HTTP_STATUS_RE = re.compile(r"\[HTTP\s+(\d{3})\]", re.IGNORECASE)
+
+
+def _sdk_exception(module: str, name: str) -> type | None:
+    """Resolve a provider-SDK exception class only if that SDK is loaded.
+
+    An exception raised by a vendor SDK can only exist if the SDK is already
+    in ``sys.modules``, so peeking there (rather than importing) keeps
+    ``openai``/``anthropic`` (~200ms cold apiece) off the startup path for
+    providers this run never touches. ``None`` doubles as "not installed".
+    """
+    loaded = sys.modules.get(module)
+    return getattr(loaded, name, None) if loaded is not None else None
 
 
 def _is_transient_status(status_code: object) -> bool:
@@ -223,6 +259,8 @@ def _is_retryable_one(exc: BaseException) -> bool:
     """
     if isinstance(exc, _RETRYABLE_EXCEPTIONS):
         return True
+    if _is_retryable_tls_stream_error(exc):
+        return True
 
     msg = str(exc)
 
@@ -234,7 +272,8 @@ def _is_retryable_one(exc: BaseException) -> bool:
     if isinstance(exc, UnexpectedModelBehavior):
         return _matches_retryable_snippet(msg)
 
-    if OpenAIAPIError is not None and isinstance(exc, OpenAIAPIError):
+    openai_api_error = _sdk_exception("openai", "APIError")
+    if openai_api_error is not None and isinstance(exc, openai_api_error):
         # 5xx and 429 are transient regardless of wording; the SDK exposes the
         # HTTP status on APIStatusError subclasses (connection/timeout errors
         # have none and are covered by the transport branch above). Mirrors the
@@ -256,14 +295,16 @@ def _is_retryable_one(exc: BaseException) -> bool:
                 return _matches_retryable_snippet(body_msg)
 
     # Anthropic SDK: a bare APIConnectionError is, by definition, transient.
-    if AnthropicAPIConnectionError is not None and isinstance(
-        exc, AnthropicAPIConnectionError
+    anthropic_connection_error = _sdk_exception("anthropic", "APIConnectionError")
+    if anthropic_connection_error is not None and isinstance(
+        exc, anthropic_connection_error
     ):
         return True
 
     # Anthropic SDK: status errors are retryable on 5xx (or unset) OR when the
     # message/body matches a gateway-transient snippet (e.g. upstream_idle_timeout).
-    if AnthropicAPIStatusError is not None and isinstance(exc, AnthropicAPIStatusError):
+    anthropic_status_error = _sdk_exception("anthropic", "APIStatusError")
+    if anthropic_status_error is not None and isinstance(exc, anthropic_status_error):
         status_code = getattr(exc, "status_code", None)
         if status_code is None or (isinstance(status_code, int) and status_code >= 500):
             return True
@@ -524,7 +565,7 @@ def _sanitize_prompt(prompt: str) -> str:
 def _build_prompt_payload(
     prompt: str,
     attachments: Optional[Sequence[BinaryContent]],
-    link_attachments: Optional[Sequence[Union[ImageUrl, DocumentUrl]]],
+    link_attachments: Optional[Sequence[Union[ImageUrl, DocumentUrl, VideoUrl]]],
 ) -> Union[str, List[Any]]:
     """Merge prompt + binary/link attachments into the pydantic-ai payload shape."""
     parts: List[Any] = []
@@ -600,6 +641,36 @@ def _checkpoint_cancelled_history(exc_group: BaseException, agent: Any) -> None:
         pass
 
 
+def _is_mcp_transport_failure(exc: BaseException) -> bool:
+    """True for an HTTP/SSE MCP connector that could not be reached.
+
+    A stdio server's readiness is probed at startup, but an HTTP/SSE
+    connector is only dialed when the run task enters the combined toolset.
+    A 401 (expired token, wrong host), a 5xx, or a refused/timed-out
+    connection therefore surfaces mid-run as a raw ``httpx`` error from
+    inside the transport, not as an ``McpError`` — the protocol never got
+    far enough to speak MCP.
+
+    Without this it reaches the generic arm, prints a traceback, and ends
+    the run. One unreachable connector must not do that: the model and
+    every healthy toolset are still usable, so we degrade like ``McpError``.
+
+    Matched by type rather than message so it holds across httpx versions.
+    Note this is deliberately broader than ``_RETRYABLE_EXCEPTIONS``, which
+    excludes ``HTTPStatusError`` because a 401 is not worth retrying — it is
+    still worth surviving.
+    """
+    return isinstance(
+        exc,
+        (
+            httpx.HTTPStatusError,
+            httpx.TransportError,  # ConnectError, ReadTimeout, PoolTimeout, ...
+            httpcore.ConnectError,
+            httpcore.ConnectTimeout,
+        ),
+    )
+
+
 def _collect_exceptions(
     group: BaseException, predicate: Callable[[BaseException], bool]
 ) -> List[BaseException]:
@@ -619,7 +690,7 @@ def _collect_exceptions(
 
 
 # Depth of in-flight ``run_with_mcp`` calls (main-loop-thread-only, so a
-# plain int is race-free). Depth > 0 = NESTED run (e.g. shell_safety): those
+# plain int is race-free). Depth > 0 = NESTED run (e.g. auto_continue): those
 # must NOT touch process-wide interactive state — PauseController (would
 # drain the user's queued steers!), SIGINT handler, shell cancel bridge, or
 # the key-listener cancel hotkey.
@@ -631,7 +702,7 @@ async def run_with_mcp(
     prompt: str,
     *,
     attachments: Optional[Sequence[BinaryContent]] = None,
-    link_attachments: Optional[Sequence[Union[ImageUrl, DocumentUrl]]] = None,
+    link_attachments: Optional[Sequence[Union[ImageUrl, DocumentUrl, VideoUrl]]] = None,
     output_type: Optional[Type[Any]] = None,
     **kwargs: Any,
 ) -> Any:
@@ -663,7 +734,7 @@ async def _run_with_mcp_impl(
     prompt: str,
     *,
     attachments: Optional[Sequence[BinaryContent]] = None,
-    link_attachments: Optional[Sequence[Union[ImageUrl, DocumentUrl]]] = None,
+    link_attachments: Optional[Sequence[Union[ImageUrl, DocumentUrl, VideoUrl]]] = None,
     output_type: Optional[Type[Any]] = None,
     is_nested_run: bool = False,
     **kwargs: Any,
@@ -746,23 +817,18 @@ async def _run_with_mcp_impl(
         # honoured), built once so a run has consistent backoff behaviour.
         from code_puppy.agents.retry_profiles import make_streaming_retry
 
-        _main_retry = make_streaming_retry(
-            "main",
-            agent.get_model_name(),
-            # Completed steps are checkpointed into _message_history, so a
-            # growing history means real progress → refresh the budget.
-            progress_fn=lambda: len(agent._message_history or []),
-        )
+        from code_puppy.agents.retry_checkpoint import RetryCheckpoint, resumable_call
 
-        @_main_retry
-        async def _call() -> Any:
-            return await pydantic_agent.run(
-                prompt_to_use,
-                message_history=agent._message_history,
-                usage_limits=usage_limits,
-                event_stream_handler=stream_handler,
-                **kwargs,
-            )
+        checkpoint = RetryCheckpoint(agent)
+        _main_retry = make_streaming_retry(
+            "main", agent.get_model_name(), progress_fn=checkpoint.progress
+        )
+        run_options = dict(
+            usage_limits=usage_limits, event_stream_handler=stream_handler, **kwargs
+        )
+        _call = _main_retry(
+            resumable_call(agent, pydantic_agent, prompt_to_use, **run_options)
+        )
 
         async def _call_with_exception_recovery() -> Any:
             """Run ``_call`` and let plugins request one exception retry."""
@@ -793,26 +859,27 @@ async def _run_with_mcp_impl(
         # (before every model call); ``queue``-mode ones drain between runs
         # below — additive, won't interrupt in-progress work.
         async def _follow_up_run(follow_up_prompt: Any) -> Any:
-            @_main_retry
-            async def _call_follow_up() -> Any:
-                return await pydantic_agent.run(
-                    follow_up_prompt,
-                    message_history=agent._message_history,
-                    usage_limits=usage_limits,
-                    event_stream_handler=stream_handler,
-                    **kwargs,
-                )
-
-            return await _call_follow_up()
+            call = _main_retry(
+                resumable_call(agent, pydantic_agent, follow_up_prompt, **run_options)
+            )
+            return await call()
 
         hook_retries_used = 0
         queued_steers_used = 0
         max_hook_retries = get_max_hook_retries()
         max_queued_steers = 50  # safety cap to prevent runaway loops
 
+        # A nested run (structured-output assessments, model judges, ...)
+        # shares the process-wide PauseController with the outer run, but the
+        # user is talking to the OUTER agent. Letting a nested run drain the
+        # queue feeds the user's message to a throwaway agent whose output is
+        # discarded -- the message is simply lost. Same invariant the cancel
+        # path already enforces via ``drain_pause_state_on_cancel``.
+        may_drain_queued_steers = not is_nested_run
+
         while True:
             # 1) Drain queue-mode steers FIRST (user-priority over hook retries).
-            if queued_steers_used < max_queued_steers:
+            if may_drain_queued_steers and queued_steers_used < max_queued_steers:
                 steer_text = prepare_queued_steer_injection(agent, result)
                 if steer_text is not None:
                     queued_steers_used += 1
@@ -881,7 +948,7 @@ async def _run_with_mcp_impl(
                 "by saying 'please continue' or similar.",
                 group_id=group_id,
             )
-        except* mcp.shared.exceptions.McpError as mcp_error:
+        except* McpError as mcp_error:
             # Already announced by blocking_startup.py with a /mcp logs hint —
             # just give a single short, actionable nudge.
             emit_info(
@@ -924,6 +991,26 @@ async def _run_with_mcp_impl(
                     not isinstance(e, (asyncio.CancelledError, UsageLimitExceeded))
                 ),
             )
+            # An HTTP/SSE connector that 401'd or was unreachable is
+            # degraded, not fatal — treat it like McpError: one short nudge,
+            # no traceback, don't re-raise. Pulled out BEFORE the diagnostics
+            # dump so one dead connector can't abort the turn.
+            mcp_transport = [e for e in unexpected if _is_mcp_transport_failure(e)]
+            unexpected = [e for e in unexpected if e not in mcp_transport]
+            if mcp_transport:
+                import logging as _logging
+
+                _logging.getLogger(__name__).debug(
+                    "MCP transport failure(s) during agent run: %s", mcp_transport
+                )
+                emit_warning(
+                    "An MCP server was unreachable this turn (auth or "
+                    "connection failure), so the turn stopped before the model "
+                    "ran — but your session is fine. Fix or disable that "
+                    "connector and resend: [cyan]/mcp status[/cyan] to see "
+                    "which one, [cyan]/mcp logs <name>[/cyan] for details.",
+                    group_id=group_id,
+                )
             for exc in unexpected:
                 emit_exception_diagnostics(exc, group_id=group_id)
             # Re-raise, else the bare except* would silently mask all errors
