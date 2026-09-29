@@ -15,11 +15,9 @@ from __future__ import annotations
 
 from typing import Tuple
 
-from code_puppy.callbacks import get_feature_capability
 from code_puppy.command_line.set_menu_schema import Setting, SettingsCategory
 from code_puppy.command_line.set_menu_shims import (
     get_disable_mcp_servers_effective,
-    get_goal_max_iterations_effective,
     get_max_pause_seconds_effective,
 )
 from code_puppy.config import (
@@ -35,9 +33,6 @@ from code_puppy.config import (
     get_diff_deletion_color,
     get_disable_dangerous_command_guard,
     get_enable_streaming,
-    get_frontend_emitter_enabled,
-    get_frontend_emitter_max_recent_events,
-    get_frontend_emitter_queue_size,
     get_global_model_name,
     get_grep_max_matches,
     get_grep_output_verbose,
@@ -333,49 +328,8 @@ _FEATURES = SettingsCategory(
             type_hint="bool",
             effective_getter=get_universal_constructor_enabled,
         ),
-        Setting(
-            key="enable_dbos",
-            display_name="DBOS Durable Execution",
-            description="Enable DBOS durable execution plugin.",
-            type_hint="bool",
-            effective_getter=lambda: get_feature_capability("dbos_durable_exec"),
-            requires_restart=True,
-        ),
-        Setting(
-            key="frontend_emitter_enabled",
-            display_name="Frontend Emitter",
-            description="Enable the frontend event emitter for external integrations.",
-            type_hint="bool",
-            effective_getter=get_frontend_emitter_enabled,
-        ),
-        Setting(
-            key="frontend_emitter_max_recent_events",
-            display_name="Emitter Max Events",
-            description="Maximum number of recent events kept in the emitter buffer.",
-            type_hint="int",
-            effective_getter=get_frontend_emitter_max_recent_events,
-        ),
-        Setting(
-            key="frontend_emitter_queue_size",
-            display_name="Emitter Queue Size",
-            description="Size of the frontend emitter event queue.",
-            type_hint="int",
-            effective_getter=get_frontend_emitter_queue_size,
-        ),
-    ),
-)
-
-
-_GOAL = SettingsCategory(
-    name="Goal",
-    settings=(
-        Setting(
-            key="goal_max_iterations",
-            display_name="Goal Max Iterations",
-            description="Maximum number of iterations for goal-driven tasks (1-1000).",
-            type_hint="int",
-            effective_getter=get_goal_max_iterations_effective,
-        ),
+        # Plugin-owned features (DBOS, frontend emitter, ...) merge in here
+        # via the register_settings hook.
     ),
 )
 
@@ -666,7 +620,6 @@ SETTINGS_CATEGORIES: Tuple[SettingsCategory, ...] = (
     _OUTPUT,
     _FEATURES,
     _MCP,
-    _GOAL,
     _KEYBOARD,
     _DIFF,
     _RETRY,

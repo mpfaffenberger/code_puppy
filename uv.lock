@@ -466,7 +466,7 @@ requires-dist = [
     { name = "azure-identity", specifier = ">=1.15.0" },
     { name = "boto3", specifier = ">=1.43.9" },
     { name = "boto3", marker = "extra == 'bedrock'", specifier = ">=1.35.0" },
-    { name = "code-puppy-core-plugins", specifier = ">=0.0.74" },
+    { name = "code-puppy-core-plugins", specifier = ">=0.0.75" },
     { name = "dbos", marker = "extra == 'durable'", specifier = ">=2.11.0" },
     { name = "httpx", extras = ["http2"], specifier = ">=0.24.1" },
     { name = "httpx2", specifier = ">=2.7" },
@@ -508,7 +508,7 @@ dev = [
 
 [[package]]
 name = "code-puppy-core-plugins"
-version = "0.0.74"
+version = "0.0.75"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
@@ -531,9 +531,9 @@ dependencies = [
     { name = "tree-sitter-swift" },
     { name = "tree-sitter-typescript" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c2/b2/0b2c8116a39b0df38ddfbdde5121de7bde6539059259d60fcefc138b7dc9/code_puppy_core_plugins-0.0.74.tar.gz", hash = "sha256:297de7a45e2d260460426954c82690167838f68bfff870fe12bfe7e7dbe40c68", size = 581996, upload-time = "2026-09-28T14:04:57.141Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/55/7d/7368d9fa129df85f4c0aafb587b7347ee2bf573cb806459501378fc43795/code_puppy_core_plugins-0.0.75.tar.gz", hash = "sha256:c11b6579c568b33606ab804ec0e00558ed4a5d3326878fcd98f04110a8a167a5", size = 582923, upload-time = "2026-09-29T18:39:25.955Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f1/d3/478488ad5153574ea60163959ef12643aa7f02a924a1ab22cc2284378fc1/code_puppy_core_plugins-0.0.74-py3-none-any.whl", hash = "sha256:3173a06eb5833d70960b93d6dda2b66945c43dcd787e5287bf2f253a82fb8aa0", size = 787380, upload-time = "2026-09-28T14:04:55.515Z" },
+    { url = "https://files.pythonhosted.org/packages/fb/0c/7539f654de3160828503a7f9d5b3ac0f3adbdb07ad61bbbe9099b4b8501b/code_puppy_core_plugins-0.0.75-py3-none-any.whl", hash = "sha256:664540a13adae6db1a39c99d53f9a5a901a1b479d2e177d6f26e28ed6199fd6d", size = 788561, upload-time = "2026-09-29T18:39:24.504Z" },
 ]
 
 [[package]]

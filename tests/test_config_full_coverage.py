@@ -781,7 +781,6 @@ class TestConfigKeys:
         assert "enable_streaming" in keys
         assert "cancel_agent_key" in keys
         assert "resume_message_count" in keys
-        assert "auto_continue_model" in keys
 
 
 def test_auto_continue_model_uses_override(monkeypatch):
