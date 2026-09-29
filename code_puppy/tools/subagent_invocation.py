@@ -11,7 +11,6 @@ from functools import partial
 from typing import Set
 
 from pydantic_ai import Agent, RunContext, UsageLimits
-from pydantic_ai.capabilities import ProcessHistory
 
 from code_puppy.agent_execution_context import executing_agent_context
 from code_puppy.callbacks import (
@@ -112,6 +111,55 @@ def _gpt_5_6_recursion_blocked() -> bool:
     return attempted_depth > get_subagent_recursion_limit_gpt_5_6()
 
 
+def recursion_guard_error(agent_name: str) -> str | None:
+    """Verdict of the recursion guards: the denial message, or None if allowed.
+
+    Single source of truth for both custodies -- the
+    ``SubagentRecursionGuard`` capability (``wrap_tool_execute`` seam, wired
+    at both pydantic-agent construction sites) and the in-tool guest
+    fallback in ``_invoke_agent_impl`` -- so the two verdicts can never
+    drift.
+    """
+    if _subagent_recursion_blocked():
+        return t(
+            "subagent.recursion_limit_reached",
+            limit=get_subagent_recursion_limit(),
+            agent=agent_name,
+        )
+    if _gpt_5_6_recursion_blocked():
+        return t(
+            "subagent.gpt_5_6_recursion_blocked",
+            agent=agent_name,
+            depth=get_subagent_depth() + 1,
+            limit=get_subagent_recursion_limit_gpt_5_6(),
+        )
+    return None
+
+
+def denied_invocation_output(
+    *,
+    agent_name: str,
+    model_name: str | None,
+    include_usage_metrics: bool,
+    error: str,
+) -> AgentInvokeOutput:
+    """Emit the denial and build the model-facing error output.
+
+    Shared by both recursion-guard custodies so the user-visible emit and
+    the model-visible output stay byte-identical regardless of which layer
+    denies. Mirrors the historical blocked path exactly: ``session_id`` is
+    deliberately left ``None`` even when the caller supplied one.
+    """
+    emit_error(error, message_group=generate_group_id("invoke_agent", agent_name))
+    return build_invoke_output(
+        include_usage_metrics=include_usage_metrics,
+        response=None,
+        agent_name=agent_name,
+        model_name=model_name,
+        error=error,
+    )
+
+
 def _subagent_identity_prompt(agent_name: str) -> str:
     """Build explicit nesting context for the child agent's system prompt."""
     depth = get_subagent_depth() + 1
@@ -124,12 +172,11 @@ You are the sub-agent `{agent_name}`, not the main agent. Your nesting depth is
 {depth} (main agent = 0). Invocation chain: {chain}. The configured maximum
 sub-agent depth is {limit}; {remaining} deeper level(s) remain.
 
-Complete your assigned task directly. NEVER invoke yourself, an agent already in
-the invocation chain, or another agent merely to repeat/continue your own role.
-Default to no further delegation. If delegation is truly essential, invoke at
-most one child level for a narrowly scoped task, tell that child to complete the
-work directly without further delegation, then finish the task yourself. Do not
-create recursive, cyclic, or open-ended agent chains."""
+Complete your assigned task directly. Prefer doing the work yourself over
+spawning more agents, but delegation is permitted -- including invoking an agent
+whose name matches your own -- as long as it serves the task. The recursion guard
+above enforces the depth cap automatically, so nesting beyond it is refused
+rather than forbidden by convention."""
 
 
 def _contains_cancellation(exc: BaseException) -> bool:
@@ -186,6 +233,8 @@ async def _invoke_agent_impl(
     model_name: str | None = None,
     emit_response_message: bool = True,
     include_usage_metrics: bool = False,
+    is_fork: bool = False,
+    background: bool = False,
 ) -> AgentInvokeOutput:
     """Invoke a sub-agent, optionally suppressing its standard response message.
 
@@ -194,33 +243,33 @@ async def _invoke_agent_impl(
     ``AgentInvokeOutput``) and whether any timing/usage instrumentation runs
     at all, so ``invoke_agent`` callers see zero behavioral or performance
     change from before this instrumentation existed.
+
+    ``is_fork`` is set by the ``/fork`` plugin (a companion package,
+    ``code_puppy_core_plugins.fork.register_callbacks::_run_fork``, which
+    feature-detects this kwarg via ``inspect.signature`` before passing it --
+    this repo has no direct caller). It flags the emitted
+    ``SubAgentInvocationMessage`` so renderers can show a distinct banner
+    instead of the generic tool-call one.
+
+    ``background`` is set by the ``background_agents`` core plugin (which
+    feature-detects this kwarg via ``inspect.signature`` before passing it).
+    It flags the emitted ``SubAgentInvocationMessage`` so renderers can mark
+    the invocation as background -- it does not change execution semantics.
     """
     from code_puppy.agents.agent_manager import load_agent
 
     group_id = generate_group_id("invoke_agent", agent_name)
-    if _subagent_recursion_blocked():
-        error = t(
-            "subagent.recursion_limit_reached",
-            limit=get_subagent_recursion_limit(),
-            agent=agent_name,
-        )
-    elif _gpt_5_6_recursion_blocked():
-        error = t(
-            "subagent.gpt_5_6_recursion_blocked",
-            agent=agent_name,
-            depth=get_subagent_depth() + 1,
-            limit=get_subagent_recursion_limit_gpt_5_6(),
-        )
-    else:
-        error = None
-
+    # Guest custody of the recursion guards: agents built by code_puppy carry
+    # ``SubagentRecursionGuard`` (wrap_tool_execute), which denies before this
+    # body runs, making this re-check an unreachable no-op there. It stays for
+    # direct callers and foreign registrations of the invoke tools. The shared
+    # verdict/denial helpers keep both custodies byte-identical.
+    error = recursion_guard_error(agent_name)
     if error:
-        emit_error(error, message_group=group_id)
-        return build_invoke_output(
-            include_usage_metrics=include_usage_metrics,
-            response=None,
+        return denied_invocation_output(
             agent_name=agent_name,
             model_name=model_name,
+            include_usage_metrics=include_usage_metrics,
             error=error,
         )
 
@@ -275,6 +324,8 @@ async def _invoke_agent_impl(
             is_new_session=is_new_session,
             message_count=len(message_history),
             model_name=model_name,
+            is_fork=is_fork,
+            background=background,
         )
     )
 
@@ -302,7 +353,7 @@ async def _invoke_agent_impl(
         agent_config = load_agent(agent_name)
 
         with agent_config.temporary_model_name_override(model_name):
-            # Seed history so make_history_processor (wired into history_processors)
+            # Seed history so HistoryCompaction (wired into capabilities)
             # mutates ``agent_config._message_history`` in place — letting us read
             # partial progress off the wrapper after a mid-run crash.
             agent_config.set_message_history(list(message_history))
@@ -369,7 +420,8 @@ async def _invoke_agent_impl(
             # via BaseAgent — appending again would double-inject them.
             from code_puppy.model_utils import prepare_prompt_for_model
 
-            # Handle claude-code models: swap instructions, and prepend system prompt only on first message
+            # Model-family prep (e.g. claude-code): may split off a standing
+            # system_prompt part, or touch the user prompt on the first message.
             prepared = prepare_prompt_for_model(
                 effective_model_name,
                 instructions,
@@ -379,7 +431,10 @@ async def _invoke_agent_impl(
             instructions = prepared.instructions
             prompt = prepared.user_prompt
 
-            model_settings = make_model_settings(effective_model_name)
+            model_settings = make_model_settings(
+                effective_model_name,
+                overrides=agent_config.get_model_settings_overrides(),
+            )
 
             # Warm up bound MCP servers with the ASYNC autostart variant: the run
             # is wrapped in create_task, and the sync variant races pydantic-ai's
@@ -400,14 +455,23 @@ async def _invoke_agent_impl(
                     await autostart_bound_servers_async(manager, bound_agent_name)
                 mcp_servers = manager.get_servers_for_agent(agent_name=bound_agent_name)
 
-            from code_puppy.agents._compaction import make_history_processor
+            from code_puppy.agents._code_mode import (
+                bind_declared_speculation,
+                build_speculative_code_mode,
+            )
+            from code_puppy.agents._compaction import HistoryCompaction
             from code_puppy.agents._json_repair import build_tool_call_json_repair
+            from code_puppy.agents._subagent_recursion import (
+                build_subagent_recursion_guard,
+            )
+            from code_puppy.events.bridge import CapabilityEventBridge
             from code_puppy.agents._model_message_transform import (
                 build_model_message_transform,
             )
 
             # Build the pydantic-ai agent. MCP servers always included; plugins
             # (e.g. DBOS) may swap them via the agent_run_context hook.
+            agent_tools = agent_config.get_available_tools()
             temp_agent = Agent(
                 model=model,
                 # Explicit name: without it pydantic-ai infers one from the
@@ -415,18 +479,33 @@ async def _invoke_agent_impl(
                 # span reads "invoke_agent temp_agent" instead of the logical
                 # agent name (e.g. "invoke_agent web-retriever").
                 name=agent_name,
+                system_prompt=prepared.system_prompt_parts,
                 instructions=instructions,
                 output_type=str,
                 retries=3,
                 toolsets=mcp_servers,
-                # ProcessHistory capability replaces the deprecated
-                # `history_processors=` kwarg (removed in pydantic-ai v2).
-                # ToolCallJsonRepair rides the before_tool_validate seam
-                # (position inert relative to the history hooks).
+                # HistoryCompaction hits before_model_request (the seam the
+                # deprecated `history_processors=` kwarg fed, removed in
+                # pydantic-ai v2). ToolCallJsonRepair rides the
+                # before_tool_validate seam (position inert relative to the
+                # history hooks).
                 capabilities=[
                     *build_tool_call_json_repair(),
-                    ProcessHistory(make_history_processor(agent_config)),
+                    HistoryCompaction(agent_config),
                     build_model_message_transform(agent_name),
+                    # Recursion guards ride the wrap_tool_execute seam so a
+                    # sub-agent's own invoke_agent calls are denied before
+                    # the tool body runs. Sole wrap_tool_execute implementer,
+                    # so position is inert.
+                    *build_subagent_recursion_guard(agent_tools),
+                    # Speculative CodeMode when the config flag is on: the
+                    # whole tool surface folds into run_code with early
+                    # launches during streaming (harness#699 dogfood); same
+                    # wiring as the main builder.
+                    *build_speculative_code_mode(agent_tools),
+                    # LAST: app-side event bridge translating typed
+                    # CapabilityEvents into legacy callbacks/messaging.
+                    CapabilityEventBridge(agent=agent_config),
                 ],
                 model_settings=model_settings,
             )
@@ -434,10 +513,11 @@ async def _invoke_agent_impl(
             # Register the tools that the agent needs
             from code_puppy.tools import register_tools_for_agent
 
-            agent_tools = agent_config.get_available_tools()
             register_tools_for_agent(
                 temp_agent, agent_tools, model_name=effective_model_name
             )
+            # Same as the main builder: speculate declared tools, plugins' too.
+            bind_declared_speculation(temp_agent)
 
             # Allow plugins to wrap the agent (e.g. DBOS durable-exec wrapper).
             temp_agent = on_wrap_pydantic_agent(
@@ -690,25 +770,38 @@ def register_invoke_agent(agent):
         agent_name: str,
         prompt: str,
         session_id: str | None = None,
+        background: bool = False,
         **_ignored_kwargs,
-    ) -> AgentInvokeOutput:
+    ) -> AgentInvokeOutput | dict:
         """Invoke a specific sub-agent using its configured model.
 
-        Delegation safety: never invoke yourself or an agent already in the
-        invocation chain. Default to doing the work directly. If delegation is
-        essential, go at most one level deeper for one narrowly scoped task and
-        explicitly tell that child not to delegate further. Never create cyclic,
-        recursive, or open-ended delegation chains.
+        Prefer doing the work directly, but delegation is allowed -- including
+        to an agent whose name matches the caller's. Nesting is capped by the
+        recursion guard rather than by convention.
 
         Args:
             agent_name: Name of the sub-agent to invoke.
             prompt: Task prompt for the sub-agent.
             session_id: Optional kebab-case session id for continuing memory.
+            background: Return immediately and deliver completion automatically
+                to the main agent, even after its turn ends. Defaults to False.
 
         Returns:
             AgentInvokeOutput: Contains response, agent_name, session_id,
             effective model_name, and error fields.
         """
+        if background:
+            try:
+                from code_puppy_core_plugins.background_agents.register_callbacks import (
+                    launch_background_agent,
+                )
+            except ImportError:
+                return {
+                    "error": "Background delegation requires an updated core plugin bundle."
+                }
+            return await launch_background_agent(
+                context, agent_name, prompt, session_id
+            )
         return await _invoke_agent_impl(
             context=context,
             agent_name=agent_name,
@@ -743,10 +836,9 @@ def register_invoke_agent_with_model(agent):
 
         Use this only when a model override is intentionally required. For
         normal delegation, use invoke_agent so the sub-agent's configured model
-        is respected. Never invoke yourself or an agent already in the invocation
-        chain. Default to doing the work directly; if delegation is essential,
-        go at most one level deeper for one narrowly scoped task, tell that child
-        not to delegate further, and never create recursive or cyclic chains.
+        is respected. Prefer doing the work directly, but delegation is allowed
+        -- including to an agent whose name matches the caller's. Nesting is
+        capped by the recursion guard rather than by convention.
 
         Args:
             agent_name: Name of the sub-agent to invoke.

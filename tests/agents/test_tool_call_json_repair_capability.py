@@ -161,6 +161,19 @@ async def test_repair_failure_is_swallowed(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_shape_changing_repair_is_rejected(monkeypatch):
+    # Shared policy with the patch: a repair that is no longer a JSON object
+    # is refused, so validation sees the model's original bytes.
+    monkeypatch.setattr(
+        json_repair_module.json_repair, "repair_json", lambda _args: "[1]"
+    )
+    call = _call(BROKEN_ARGS)
+    result = await _invoke_seam(call, BROKEN_ARGS)
+    assert result == BROKEN_ARGS
+    assert call.args == BROKEN_ARGS
+
+
+@pytest.mark.asyncio
 async def test_missing_json_repair_dependency_noops(monkeypatch):
     monkeypatch.setattr(json_repair_module, "json_repair", None)
     call = _call(BROKEN_ARGS)

@@ -50,6 +50,8 @@ from pydantic_ai.capabilities import AbstractCapability
 from pydantic_ai.messages import ToolCallPart
 from pydantic_ai.tools import ToolDefinition
 
+from code_puppy.pydantic_patches import _repair_tool_call_json
+
 try:  # pragma: no cover - exercised via the None-fallback tests
     import json_repair
 except ImportError:  # pragma: no cover - optional dependency absent
@@ -77,24 +79,21 @@ class ToolCallJsonRepair(AbstractCapability[Any]):
         """Return repaired raw args; mirror the repair onto ``call.args``.
 
         Only string args are candidates (dict args already parsed upstream).
-        Repair failures are swallowed — the original args proceed to
-        validation, which produces the retry the model would have earned
-        anyway. Both guards match the patch byte-for-byte.
+        The repair itself is the patch's shared helper, so both tiers apply
+        the same policy: strict parse first, repair only on failure, and
+        reject any repair that changes the top-level object shape. Repair
+        failures fall back to the original args, which then earn the retry
+        the model would have gotten anyway.
         """
-        if json_repair is None:
+        if json_repair is None or not isinstance(args, str) or not args:
             return args
-        if isinstance(args, str) and args:
-            try:
-                repaired = json_repair.repair_json(args)
-                if repaired != args:
-                    # Same in-place custody the patch performed: this is the
-                    # ToolCallPart recorded in the run's message state, so
-                    # history shows the repaired JSON the tool actually ran
-                    # with.
-                    call.args = repaired
-                    return repaired
-            except Exception:
-                pass  # let validation surface the original breakage
+        repaired = _repair_tool_call_json(args)
+        if repaired != args:
+            # Same in-place custody the patch performed: this is the
+            # ToolCallPart recorded in the run's message state, so history
+            # shows the repaired JSON the tool actually ran with.
+            call.args = repaired
+            return repaired
         return args
 
 
