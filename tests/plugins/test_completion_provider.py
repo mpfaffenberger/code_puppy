@@ -1,7 +1,6 @@
-"""Completion-provider seam and Ollama plugin registration tests."""
+"""Completion-provider seam (core side; plugin registrations are tested upstream)."""
 
-from prompt_toolkit.completion import Completer, Completion
-from prompt_toolkit.document import Document
+from termflow.tui.completion import Completer, Completion, Document
 
 from code_puppy import callbacks
 from code_puppy.messaging.editor_completion import build_completer
@@ -37,16 +36,3 @@ def test_build_completer_includes_registered_provider(monkeypatch):
     completer = build_completer()
 
     assert "-command" in _completion_texts(completer, "/plugin")
-
-
-def test_ollama_plugin_registers_completion_provider(monkeypatch):
-    monkeypatch.setitem(callbacks._callbacks, "register_completion_provider", [])
-    from code_puppy_core_plugins.ollama_setup.register_callbacks import (
-        _completion_provider,
-    )
-
-    callbacks.register_callback("register_completion_provider", _completion_provider)
-
-    assert "glm-5:cloud" in _completion_texts(
-        callbacks.get_completion_providers()[0], "/ollama-setup g"
-    )

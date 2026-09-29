@@ -531,7 +531,7 @@ async def test_nested_run_does_not_drain_records(_isolated_runtime):
 
 
 def test_builder_orders_notes_before_compaction():
-    """The capability must precede the compaction ProcessHistory so
+    """The capability must precede the HistoryCompaction capability so
     compaction sees the notes exactly as it saw the old eager append."""
     import inspect
 
@@ -539,7 +539,7 @@ def test_builder_orders_notes_before_compaction():
 
     source = inspect.getsource(_builder)
     notes_pos = source.index("InterruptedSubagentNotes(),")
-    compaction_pos = source.index("ProcessHistory(history_processor)")
+    compaction_pos = source.index("history_compaction,")
     assert notes_pos < compaction_pos
 
 

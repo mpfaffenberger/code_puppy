@@ -195,8 +195,8 @@ class InterruptedSubagentNotes(AbstractCapability[Any]):
     """Splice this turn's interrupted-sub-agent notes into the model request.
 
     Stateless: all per-turn state lives on the ambient
-    :class:`InterruptNoteObservation`. Wire it before the compaction
-    ``ProcessHistory`` so compaction sees the notes exactly as it saw the old
+    :class:`InterruptNoteObservation`. Wire it before the
+    :class:`HistoryCompaction` capability so compaction sees the notes exactly as it saw the old
     eager append.
     """
 

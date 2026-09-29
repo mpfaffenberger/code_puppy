@@ -1,51 +1,31 @@
-"""Universal Constructor (UC) interactive TUI menu.
+"""Universal Constructor (UC) interactive TUI menu, on termflow.
 
-Provides a split-panel interface for browsing and managing UC tools
-with live preview of tool details and inline source code viewing.
+A Menu over UC tools with a details preview pane; ``Enter`` opens the
+tool's source in a Pager (theme-aware pygments highlighting via the
+``termflow_highlighter`` callback), ``e`` toggles enabled, ``d``
+deletes, ``Esc`` exits.
 """
 
 from __future__ import annotations
 
 import asyncio
-import sys
 import unicodedata
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, List, Optional, Tuple
-
-from prompt_toolkit.application import Application
-from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.layout import Dimension, HSplit, Layout, VSplit, Window
-from prompt_toolkit.layout.controls import FormattedTextControl
-from prompt_toolkit.widgets import Frame
+from typing import TYPE_CHECKING, Any, Callable, List, Optional, Tuple
 
 from code_puppy.command_line.command_registry import register_command
-from code_puppy.command_line.pagination import (
-    ensure_visible_page,
-    get_page_bounds,
-    get_page_for_index,
-    get_total_pages,
-)
 from code_puppy.messaging import emit_error, emit_info, emit_success
 from code_puppy.tools.command_runner import set_awaiting_user_input
-from code_puppy.callbacks import on_prompt_toolkit_style
 
 if TYPE_CHECKING:
     UCToolInfo = Any
 
-
-PAGE_SIZE = 10  # Tools per page
-SOURCE_PAGE_SIZE = 30  # Lines of source per page
+_TOGGLE = "__toggle_tool__"
+_DELETE = "__delete_tool__"
 
 
 def _sanitize_display_text(text: str) -> str:
-    """Remove or replace characters that cause terminal rendering issues.
-
-    Args:
-        text: Text that may contain emojis or wide characters
-
-    Returns:
-        Sanitized text safe for prompt_toolkit rendering
-    """
+    """Remove or replace characters that cause terminal rendering issues."""
     result = []
     for char in text:
         cat = unicodedata.category(char)
@@ -65,24 +45,21 @@ def _sanitize_display_text(text: str) -> str:
             "Pi",
             "Pf",
             "Po",  # Punctuation
-            "Zs",  # Space
             "Sm",
             "Sc",
-            "Sk",  # Safe symbols
+            "Sk",  # Symbols (math, currency, modifier)
+            "Zs",  # Space separator
         )
-        if cat in safe_categories:
+        if cat in safe_categories and (ord(char) < 0x1F000):
             result.append(char)
-
-    cleaned = " ".join("".join(result).split())
-    return cleaned
+        elif cat == "So":
+            # Other symbols (includes emojis) - replace with placeholder
+            result.append("*")
+    return "".join(result)
 
 
 def _get_tool_entries() -> List[UCToolInfo]:
-    """Get all UC tools sorted by name.
-
-    Returns:
-        List of UCToolInfo sorted by full_name.
-    """
+    """Get all UC tools sorted by name."""
     from code_puppy.universal_constructor_provider import (
         get_universal_constructor_provider,
     )
@@ -95,22 +72,13 @@ def _get_tool_entries() -> List[UCToolInfo]:
 
 
 def _toggle_tool_enabled(tool: UCToolInfo) -> bool:
-    """Toggle a tool's enabled status by modifying its source file.
-
-    Args:
-        tool: The tool to toggle.
-
-    Returns:
-        True if successful, False otherwise.
-    """
+    """Toggle a tool's enabled status by modifying its source file."""
     try:
         source_path = Path(tool.source_path)
         content = source_path.read_text()
 
-        # Find and flip the enabled flag in TOOL_META
         new_enabled = not tool.meta.enabled
 
-        # Try to find and replace the enabled line
         import re
 
         # Match 'enabled': True/False or "enabled": True/False
@@ -123,7 +91,6 @@ def _toggle_tool_enabled(tool: UCToolInfo) -> bool:
 
         if count == 0:
             # No explicit enabled field - add it to TOOL_META
-            # Find TOOL_META = { and add enabled after the opening brace
             meta_pattern = r"(TOOL_META\s*=\s*\{)"
             new_content, meta_count = re.subn(
                 meta_pattern, f'\\1\n    "enabled": {new_enabled},', content
@@ -144,21 +111,13 @@ def _toggle_tool_enabled(tool: UCToolInfo) -> bool:
 
 
 def _delete_tool(tool: UCToolInfo) -> bool:
-    """Delete a UC tool by removing its source file.
-
-    Args:
-        tool: The tool to delete.
-
-    Returns:
-        True if successful, False otherwise.
-    """
+    """Delete a UC tool by removing its source file."""
     try:
         source_path = Path(tool.source_path)
         if not source_path.exists():
             emit_error(f"Tool file not found: {source_path}")
             return False
 
-        # Delete the file
         source_path.unlink()
 
         # Try to clean up empty parent directories (namespace folders)
@@ -188,14 +147,7 @@ def _delete_tool(tool: UCToolInfo) -> bool:
 
 
 def _load_source_code(tool: UCToolInfo) -> Tuple[List[str], Optional[str]]:
-    """Load source code lines from a tool's file.
-
-    Args:
-        tool: The tool to load source for.
-
-    Returns:
-        Tuple of (lines list, error message or None)
-    """
+    """Load source code lines from a tool's file."""
     try:
         source_path = Path(tool.source_path)
         content = source_path.read_text()
@@ -204,688 +156,196 @@ def _load_source_code(tool: UCToolInfo) -> Tuple[List[str], Optional[str]]:
         return [], f"Could not read source: {e}"
 
 
-def _render_menu_panel(
-    tools: List[UCToolInfo],
-    page: int,
-    selected_idx: int,
-) -> List:
-    """Render the left menu panel with pagination.
-
-    Args:
-        tools: List of UCToolInfo objects
-        page: Current page number (0-indexed)
-        selected_idx: Currently selected index (global)
-
-    Returns:
-        List of (style, text) tuples for FormattedTextControl
-    """
-    lines = []
-    total_pages = get_total_pages(len(tools), PAGE_SIZE)
-    start_idx, end_idx = get_page_bounds(page, len(tools), PAGE_SIZE)
-
-    lines.append(("class:tui.header", "UC Tools"))
-    lines.append(("class:tui.muted", f" (Page {page + 1}/{total_pages})"))
-    lines.append(("", "\n\n"))
-
-    if not tools:
-        lines.append(("class:tui.warning", "  No UC tools found.\n"))
-        lines.append(("class:tui.muted", "  Ask the LLM to create one!\n"))
-        lines.append(("", "\n"))
-    else:
-        for i in range(start_idx, end_idx):
-            tool = tools[i]
-            is_selected = i == selected_idx
-
-            safe_name = _sanitize_display_text(tool.full_name)
-
-            # Selection indicator
-            if is_selected:
-                lines.append(("class:tui.selected", "> "))
-                lines.append(("class:tui.selected", safe_name))
-            else:
-                lines.append(("", "  "))
-                lines.append(("", safe_name))
-
-            # Status indicator
-            if tool.meta.enabled:
-                lines.append(("class:tui.success", " [on]"))
-            else:
-                lines.append(("class:tui.error", " [off]"))
-
-            # Namespace tag if present
-            if tool.meta.namespace:
-                lines.append(("class:tui.title", f" ({tool.meta.namespace})"))
-
-            lines.append(("", "\n"))
-
-    # Navigation hints
-    lines.append(("", "\n"))
-    lines.append(("class:tui.help-key", "  [up]/[down] "))
-    lines.append(("", "Navigate\n"))
-    lines.append(("class:tui.help-key", "  [left]/[right] "))
-    lines.append(("", "Page\n"))
-    lines.append(("class:tui.help-key", "  Enter  "))
-    lines.append(("", "View source\n"))
-    lines.append(("class:tui.help-key", "  E "))
-    lines.append(("", "Toggle enabled\n"))
-    lines.append(("class:tui.error", "  D "))
-    lines.append(("", "Delete tool\n"))
-    lines.append(("class:tui.help-key", "  Esc "))
-    lines.append(("", "Exit"))
-
-    return lines
+# ---------------------------------------------------------------------------
+# Rendering
+# ---------------------------------------------------------------------------
 
 
-def _render_preview_panel(tool: Optional[UCToolInfo]) -> List:
-    """Render the right preview panel with tool details.
+def _style():
+    from termflow.render.style import RenderStyle
 
-    Args:
-        tool: UCToolInfo or None
+    from code_puppy.command_line.tui_style import menu_style
 
-    Returns:
-        List of (style, text) tuples for FormattedTextControl
-    """
-    lines = []
+    return menu_style() or RenderStyle.default()
 
-    lines.append(("class:tui.title", " TOOL DETAILS"))
-    lines.append(("", "\n\n"))
 
+def _ansi(color: str, text: str) -> str:
+    from termflow.ansi.codes import RESET
+    from termflow.ansi.color import fg_color
+
+    return f"{fg_color(color)}{text}{RESET}"
+
+
+def tool_details(tool: Optional[UCToolInfo]) -> str:
+    """Preview pane: tool metadata."""
+    import textwrap
+
+    s = _style()
+    lines = [_ansi(s.bright, "TOOL DETAILS"), ""]
     if not tool:
-        lines.append(("class:tui.warning", "  No tool selected.\n"))
-        lines.append(("class:tui.muted", "  Create some with the LLM!\n"))
-        return lines
+        lines.append(_ansi(s.error, "No tool selected."))
+        lines.append(_ansi(s.grey, "Create some with the LLM!"))
+        return "\n".join(lines)
 
-    safe_name = _sanitize_display_text(tool.meta.name)
-    safe_desc = _sanitize_display_text(tool.meta.description)
-
-    # Tool name
-    lines.append(("class:tui.label", "Name: "))
-    lines.append(("class:tui.help-key", safe_name))
-    lines.append(("", "\n\n"))
-
-    # Full name (with namespace)
+    lines.append(f"Name: {_ansi(s.head, _sanitize_display_text(tool.meta.name))}")
     if tool.meta.namespace:
-        lines.append(("class:tui.label", "Full Name: "))
-        lines.append(("", tool.full_name))
-        lines.append(("", "\n\n"))
-
-    # Status
-    lines.append(("class:tui.label", "Status: "))
-    if tool.meta.enabled:
-        lines.append(("class:tui.success", "ENABLED"))
-    else:
-        lines.append(("class:tui.error", "DISABLED"))
-    lines.append(("", "\n\n"))
-
-    # Version
-    lines.append(("class:tui.label", "Version: "))
-    lines.append(("", tool.meta.version))
-    lines.append(("", "\n\n"))
-
-    # Author (if present)
+        lines.append(f"Full Name: {tool.full_name}")
+    status = (
+        _ansi(s.head, "ENABLED") if tool.meta.enabled else _ansi(s.error, "DISABLED")
+    )
+    lines.append(f"Status: {status}")
+    lines.append(f"Version: {tool.meta.version}")
     if tool.meta.author:
-        lines.append(("class:tui.label", "Author: "))
-        lines.append(("", tool.meta.author))
-        lines.append(("", "\n\n"))
-
-    # Signature
-    lines.append(("class:tui.label", "Signature: "))
-    lines.append(("class:tui.warning", tool.signature))
-    lines.append(("", "\n\n"))
-
-    # Description (word-wrapped)
-    lines.append(("class:tui.label", "Description:"))
-    lines.append(("", "\n"))
-
-    words = safe_desc.split()
-    current_line = ""
-    for word in words:
-        if len(current_line) + len(word) + 1 > 50:
-            lines.append(("class:tui.muted", f"  {current_line}"))
-            lines.append(("", "\n"))
-            current_line = word
-        else:
-            current_line = word if not current_line else current_line + " " + word
-    if current_line:
-        lines.append(("class:tui.muted", f"  {current_line}"))
-        lines.append(("", "\n"))
-
-    lines.append(("", "\n"))
-
-    # Docstring preview (if available)
+        lines.append(f"Author: {tool.meta.author}")
+    lines.append(f"Signature: {_ansi(s.symbol, tool.signature)}")
+    lines += ["", _ansi(s.head, "Description:")]
+    for wrapped in textwrap.wrap(_sanitize_display_text(tool.meta.description), 50):
+        lines.append(_ansi(s.grey, f"  {wrapped}"))
     if tool.docstring:
-        lines.append(("class:tui.label", "Docstring:"))
-        lines.append(("", "\n"))
         doc_preview = tool.docstring[:150]
         if len(tool.docstring) > 150:
             doc_preview += "..."
-        lines.append(("class:tui.muted", f"  {doc_preview}"))
-        lines.append(("", "\n\n"))
-
-    # Source path
-    lines.append(("class:tui.label", "Source:"))
-    lines.append(("", "\n"))
-    lines.append(("class:tui.muted", f"  {tool.source_path}"))
-    lines.append(("", "\n"))
-
-    return lines
+        lines += ["", _ansi(s.head, "Docstring:")]
+        for doc_line in doc_preview.splitlines():
+            lines.append(_ansi(s.grey, f"  {doc_line}"))
+    lines += ["", _ansi(s.head, "Source:"), _ansi(s.grey, f"  {tool.source_path}")]
+    return "\n".join(lines)
 
 
-def _render_source_panel(
-    tool: UCToolInfo,
-    source_lines: List[str],
-    scroll_offset: int,
-    error: Optional[str] = None,
-) -> List:
-    """Render source code panel with syntax highlighting.
+def highlight_source_lines(source_lines: List[str]) -> List[str]:
+    """Colorize Python source with the theme-aware termflow highlighter."""
+    from termflow.syntax import Highlighter
 
-    Args:
-        tool: The tool being viewed
-        source_lines: List of source code lines
-        scroll_offset: Current scroll position (line number)
-        error: Error message if source couldn't be loaded
+    from code_puppy.callbacks import on_termflow_highlighter
 
-    Returns:
-        List of (style, text) tuples for FormattedTextControl
-    """
-    lines = []
+    try:
+        highlighter = on_termflow_highlighter(Highlighter())
+        return [highlighter.highlight_line(line, "python") for line in source_lines]
+    except Exception:
+        return list(source_lines)
 
-    # Header
-    lines.append(("class:tui.header", f" SOURCE: {tool.full_name}"))
-    lines.append(("", "\n"))
-    lines.append(("class:tui.muted", f" {tool.source_path}"))
-    lines.append(("", "\n"))
-    lines.append(("class:tui.muted", "─" * 70))
-    lines.append(("", "\n"))
 
-    if error:
-        lines.append(("class:tui.error", f"  Error: {error}\n"))
-        return lines
+# ---------------------------------------------------------------------------
+# Widgets
+# ---------------------------------------------------------------------------
 
-    if not source_lines:
-        lines.append(("class:tui.warning", "  (empty file)\n"))
-        return lines
 
-    # Calculate visible range
-    total_lines = len(source_lines)
-    visible_lines = SOURCE_PAGE_SIZE
-    end_offset = min(scroll_offset + visible_lines, total_lines)
+def build_tools_menu(tools: List[UCToolInfo], initial_index: int = 0, **overrides):
+    """Tool list with preview; e/d exit with action sentinels."""
+    from termflow.tui import MenuBuilder, MenuItem
+    from termflow.tui.menu import MenuResult
 
-    # Line number width for padding
-    line_num_width = len(str(total_lines))
+    from code_puppy.command_line.tui_style import themed
 
-    # Render visible source lines with basic syntax highlighting
-    for i in range(scroll_offset, end_offset):
-        line_num = i + 1
-        line_content = source_lines[i]
-
-        # Line number
-        lines.append(("class:tui.muted", f" {line_num:>{line_num_width}} │ "))
-
-        # Basic syntax highlighting
-        highlighted = _highlight_python_line(line_content)
-        lines.extend(highlighted)
-        lines.append(("", "\n"))
-
-    # Footer with scroll info
-    lines.append(("class:tui.muted", "─" * 70))
-    lines.append(("", "\n"))
-
-    # Scroll position indicator
-    current_page = scroll_offset // SOURCE_PAGE_SIZE + 1
-    total_pages = (total_lines + SOURCE_PAGE_SIZE - 1) // SOURCE_PAGE_SIZE
-    lines.append(
-        (
-            "class:tui.muted",
-            f" Lines {scroll_offset + 1}-{end_offset} of {total_lines}",
+    items = [
+        MenuItem(
+            f"{'+' if t.meta.enabled else '-'} {t.full_name}",
+            value=t,
+            description=_sanitize_display_text(t.meta.description)[:60],
         )
+        for t in tools
+    ]
+
+    def action_handler(sentinel):
+        def handler(_menu, item):
+            return MenuResult(item=MenuItem("", value=(sentinel, item.value)))
+
+        return handler
+
+    builder = themed(
+        MenuBuilder("UC Tools")
+        .items(items)
+        .list_width(40)
+        .alt_screen(False)
+        .initial_index(min(initial_index, max(len(items) - 1, 0)))
+        .preview(
+            lambda item: tool_details(
+                item.value if not isinstance(item.value, tuple) else item.value[1]
+            )
+        )
+        .footer_hint("Enter view source - e toggle - d delete - Esc exit")
+        .on_key("e", action_handler(_TOGGLE))
+        .on_key("d", action_handler(_DELETE))
     )
-    lines.append(("class:tui.muted", f" (Page {current_page}/{total_pages})"))
-    lines.append(("", "\n\n"))
-
-    # Navigation hints for source view
-    lines.append(("class:tui.muted", "  [up]/[down] "))
-    lines.append(("", "Scroll\n"))
-    lines.append(("class:tui.muted", "  [PgUp]/[PgDn] "))
-    lines.append(("", "Page\n"))
-    lines.append(("class:tui.help-key", "  Esc/Q "))
-    lines.append(("", "Back to list\n"))
-    lines.append(("class:tui.error", "  Ctrl+C "))
-    lines.append(("", "Exit"))
-
-    return lines
+    for name, value in overrides.items():
+        getattr(builder, name)(value)
+    return builder.build()
 
 
-def _highlight_python_line(line: str) -> List[Tuple[str, str]]:
-    """Apply basic Python syntax highlighting to a line.
+def view_tool_source(tool: UCToolInfo, **overrides) -> None:
+    """Show a tool's source in a Pager (blocking)."""
+    from termflow.tui import PagerBuilder
 
-    Args:
-        line: A single line of Python code
+    from code_puppy.command_line.tui_style import menu_style
 
-    Returns:
-        List of (style, text) tuples
-    """
-    result = []
+    source_lines, error = _load_source_code(tool)
+    lines = [error] if error else highlight_source_lines(source_lines)
+    builder = (
+        PagerBuilder(f"Source - {tool.full_name}")
+        .lines(lines)
+        .footer_hint("j/k scroll - g/G jump - q/Esc back")
+        .alt_screen(False)
+    )
+    style = menu_style()
+    if style is not None:
+        builder.style(style)
+    for name, value in overrides.items():
+        getattr(builder, name)(value)
+    builder.build().run()
 
-    # Keywords
-    keywords = {
-        "def",
-        "class",
-        "return",
-        "if",
-        "else",
-        "elif",
-        "for",
-        "while",
-        "try",
-        "except",
-        "finally",
-        "with",
-        "as",
-        "import",
-        "from",
-        "True",
-        "False",
-        "None",
-        "and",
-        "or",
-        "not",
-        "in",
-        "is",
-        "lambda",
-        "yield",
-        "raise",
-        "pass",
-        "break",
-        "continue",
-        "async",
-        "await",
-    }
 
-    # Simple tokenization
-    if not line.strip():
-        result.append(("", line))
-        return result
+# ---------------------------------------------------------------------------
+# Flow
+# ---------------------------------------------------------------------------
 
-    # Check for comments
-    if line.lstrip().startswith("#"):
-        result.append(("class:tui.muted italic", line))
-        return result
 
-    # Check for strings (simplified)
-    stripped = line.lstrip()
-    if stripped.startswith('"""') or stripped.startswith("'''"):
-        result.append(("fg:ansigreen", line))
-        return result
-
-    # Word-by-word highlighting
-    import re
-
-    tokens = re.split(r"(\s+|[()\[\]{}:,=.])", line)
-
-    in_string = False
-    string_char = None
-
-    for token in tokens:
-        if not token:
+def run_uc_picker_flow(
+    tools_menu_factory: Callable = build_tools_menu,
+    source_viewer: Callable = view_tool_source,
+    toggle_tool: Callable = _toggle_tool_enabled,
+    delete_tool: Callable = _delete_tool,
+) -> Optional[str]:
+    """Browse loop. Returns the last-viewed tool name, or None."""
+    result: Optional[str] = None
+    cursor = 0
+    while True:
+        tools = _get_tool_entries()
+        menu_result = tools_menu_factory(tools, initial_index=cursor).run()
+        if menu_result.cancelled or menu_result.item is None:
+            break
+        value = menu_result.item.value
+        if isinstance(value, tuple):
+            action, tool = value
+            cursor = next(
+                (i for i, t in enumerate(tools) if t.full_name == tool.full_name), 0
+            )
+            if action == _TOGGLE:
+                toggle_tool(tool)
+            elif action == _DELETE:
+                delete_tool(tool)
+                cursor = 0
             continue
+        tool = value
+        cursor = next(
+            (i for i, t in enumerate(tools) if t.full_name == tool.full_name), 0
+        )
+        result = tool.full_name
+        source_viewer(tool)
 
-        # Track string state
-        if not in_string and (token.startswith('"') or token.startswith("'")):
-            in_string = True
-            string_char = token[0]
-            result.append(("fg:ansigreen", token))
-            if (
-                len(token) > 1
-                and token.endswith(string_char)
-                and not token.endswith("\\" + string_char)
-            ):
-                in_string = False
-            continue
-
-        if in_string:
-            result.append(("fg:ansigreen", token))
-            if token.endswith(string_char) and not token.endswith("\\" + string_char):
-                in_string = False
-            continue
-
-        # Keywords
-        if token in keywords:
-            result.append(("fg:ansimagenta bold", token))
-        # Numbers
-        elif token.isdigit():
-            result.append(("fg:ansicyan", token))
-        # Function/class names (after def/class)
-        elif result and len(result) >= 1:
-            prev_text = result[-1][1].strip() if result[-1][1] else ""
-            if prev_text in ("def", "class"):
-                result.append(("fg:ansiyellow bold", token))
-            else:
-                result.append(("", token))
-        else:
-            result.append(("", token))
-
+    emit_info("Exited UC tool browser")
     return result
 
 
-def _show_source_code(tool: UCToolInfo) -> None:
-    """Display the full source code of a tool (legacy, for external use).
-
-    Args:
-        tool: The tool to show source for.
-    """
-    from rich.panel import Panel
-    from rich.syntax import Syntax
-
-    try:
-        source_code = Path(tool.source_path).read_text()
-        syntax = Syntax(
-            source_code,
-            "python",
-            theme="monokai",
-            line_numbers=True,
-            word_wrap=True,
-        )
-        panel = Panel(
-            syntax,
-            title=f"[bold cyan]{tool.full_name}[/bold cyan]",
-            border_style="cyan",
-            padding=(0, 1),
-        )
-        emit_info(panel)
-    except Exception as e:
-        emit_error(f"Could not read source: {e}")
-
-
 async def interactive_uc_picker() -> Optional[str]:
-    """Show interactive TUI to browse UC tools.
-
-    Returns:
-        Tool name that was selected for viewing, or None if cancelled.
-    """
-    tools = _get_tool_entries()
-
-    # State
-    selected_idx = [0]
-    current_page = [0]
-    result = [None]  # Tool name to view
-    pending_action = [None]  # 'toggle', 'view', or None
-    view_mode = ["list"]  # 'list' or 'source'
-    source_scroll = [0]  # Scroll offset in source view
-    source_lines = [[]]  # Cached source lines
-    source_error = [None]  # Error loading source
-
-    total_pages = [get_total_pages(len(tools), PAGE_SIZE)]
-
-    def get_current_tool() -> Optional[UCToolInfo]:
-        if 0 <= selected_idx[0] < len(tools):
-            return tools[selected_idx[0]]
-        return None
-
-    def refresh_tools(selected_name: Optional[str] = None) -> None:
-        nonlocal tools
-        tools = _get_tool_entries()
-        total_pages[0] = get_total_pages(len(tools), PAGE_SIZE)
-
-        if not tools:
-            selected_idx[0] = 0
-            current_page[0] = 0
-            return
-
-        if selected_name:
-            for idx, t in enumerate(tools):
-                if t.full_name == selected_name:
-                    selected_idx[0] = idx
-                    break
-            else:
-                selected_idx[0] = min(selected_idx[0], len(tools) - 1)
-        else:
-            selected_idx[0] = min(selected_idx[0], len(tools) - 1)
-
-        current_page[0] = get_page_for_index(selected_idx[0], PAGE_SIZE)
-
-    # Build UI controls
-    menu_control = FormattedTextControl(text="")
-    preview_control = FormattedTextControl(text="")
-    source_control = FormattedTextControl(text="")
-
-    def update_list_display():
-        """Update the list view panels."""
-        menu_control.text = _render_menu_panel(tools, current_page[0], selected_idx[0])
-        preview_control.text = _render_preview_panel(get_current_tool())
-
-    def update_source_display():
-        """Update the source view panel."""
-        tool = get_current_tool()
-        if tool:
-            source_control.text = _render_source_panel(
-                tool, source_lines[0], source_scroll[0], source_error[0]
-            )
-
-    # Windows for list view
-    menu_window = Window(
-        content=menu_control, wrap_lines=False, width=Dimension(weight=40)
-    )
-    preview_window = Window(
-        content=preview_control, wrap_lines=False, width=Dimension(weight=60)
-    )
-
-    # Window for source view (full width)
-    source_window = Window(
-        content=source_control, wrap_lines=True, width=Dimension(weight=100)
-    )
-
-    # Frames
-    menu_frame = Frame(menu_window, width=Dimension(weight=40), title="UC Tools")
-    preview_frame = Frame(preview_window, width=Dimension(weight=60), title="Preview")
-    source_frame = Frame(
-        source_window, width=Dimension(weight=100), title="Source Code"
-    )
-
-    # Containers
-    list_container = VSplit([menu_frame, preview_frame])
-    source_container = HSplit([source_frame])
-
-    # Key bindings for LIST mode
-    list_kb = KeyBindings()
-
-    @list_kb.add("up")
-    def _list_up(event):
-        if selected_idx[0] > 0:
-            selected_idx[0] -= 1
-            current_page[0] = ensure_visible_page(
-                selected_idx[0],
-                current_page[0],
-                len(tools),
-                PAGE_SIZE,
-            )
-            update_list_display()
-
-    @list_kb.add("down")
-    def _list_down(event):
-        if selected_idx[0] < len(tools) - 1:
-            selected_idx[0] += 1
-            current_page[0] = ensure_visible_page(
-                selected_idx[0],
-                current_page[0],
-                len(tools),
-                PAGE_SIZE,
-            )
-            update_list_display()
-
-    @list_kb.add("left")
-    def _list_left(event):
-        if current_page[0] > 0:
-            current_page[0] -= 1
-            selected_idx[0] = current_page[0] * PAGE_SIZE
-            update_list_display()
-
-    @list_kb.add("right")
-    def _list_right(event):
-        if current_page[0] < total_pages[0] - 1:
-            current_page[0] += 1
-            selected_idx[0] = current_page[0] * PAGE_SIZE
-            update_list_display()
-
-    @list_kb.add("e")
-    def _list_toggle(event):
-        if get_current_tool():
-            pending_action[0] = "toggle"
-            event.app.exit()
-
-    @list_kb.add("d")
-    def _list_delete(event):
-        if get_current_tool():
-            pending_action[0] = "delete"
-            event.app.exit()
-
-    @list_kb.add("escape")
-    def _list_escape(event):
-        result[0] = None
-        pending_action[0] = "exit"
-        event.app.exit()
-
-    @list_kb.add("enter")
-    def _list_enter(event):
-        tool = get_current_tool()
-        if tool:
-            # Switch to source view
-            view_mode[0] = "source"
-            source_scroll[0] = 0
-            source_lines[0], source_error[0] = _load_source_code(tool)
-            pending_action[0] = "switch_to_source"
-            event.app.exit()
-
-    @list_kb.add("c-c")
-    def _list_exit(event):
-        result[0] = None
-        pending_action[0] = "exit"
-        event.app.exit()
-
-    # Key bindings for SOURCE mode
-    source_kb = KeyBindings()
-
-    @source_kb.add("up")
-    def _source_up(event):
-        if source_scroll[0] > 0:
-            source_scroll[0] -= 1
-            update_source_display()
-
-    @source_kb.add("down")
-    def _source_down(event):
-        max_scroll = max(0, len(source_lines[0]) - SOURCE_PAGE_SIZE)
-        if source_scroll[0] < max_scroll:
-            source_scroll[0] += 1
-            update_source_display()
-
-    @source_kb.add("pageup")
-    def _source_pageup(event):
-        source_scroll[0] = max(0, source_scroll[0] - SOURCE_PAGE_SIZE)
-        update_source_display()
-
-    @source_kb.add("pagedown")
-    def _source_pagedown(event):
-        max_scroll = max(0, len(source_lines[0]) - SOURCE_PAGE_SIZE)
-        source_scroll[0] = min(max_scroll, source_scroll[0] + SOURCE_PAGE_SIZE)
-        update_source_display()
-
-    @source_kb.add("escape")
-    def _source_escape(event):
-        view_mode[0] = "list"
-        pending_action[0] = "switch_to_list"
-        event.app.exit()
-
-    @source_kb.add("q")
-    def _source_q(event):
-        view_mode[0] = "list"
-        pending_action[0] = "switch_to_list"
-        event.app.exit()
-
-    @source_kb.add("c-c")
-    def _source_exit(event):
-        result[0] = None
-        pending_action[0] = "exit"
-        event.app.exit()
+    """Show interactive TUI to browse UC tools."""
+    from code_puppy.command_line.menu_session import menu_session
 
     set_awaiting_user_input(True)
-
-    # Enter alternate screen buffer
-    sys.stdout.write("\033[?1049h")
-    sys.stdout.write("\033[2J\033[H")
-    sys.stdout.flush()
-    await asyncio.sleep(0.05)
-
     try:
-        while True:
-            # Clear screen
-            sys.stdout.write("\033[2J\033[H")
-            sys.stdout.flush()
-
-            if view_mode[0] == "list":
-                # List view
-                update_list_display()
-                layout = Layout(list_container)
-                app = Application(
-                    layout=layout,
-                    key_bindings=list_kb,
-                    full_screen=False,
-                    mouse_support=False,
-                    style=on_prompt_toolkit_style(),
-                )
-            else:
-                # Source view
-                update_source_display()
-                layout = Layout(source_container)
-                app = Application(
-                    layout=layout,
-                    key_bindings=source_kb,
-                    full_screen=False,
-                    mouse_support=False,
-                    style=on_prompt_toolkit_style(),
-                )
-
-            await app.run_async()
-
-            # Handle actions
-            if pending_action[0] == "toggle":
-                tool = get_current_tool()
-                if tool:
-                    selected_name = tool.full_name
-                    _toggle_tool_enabled(tool)
-                    refresh_tools(selected_name=selected_name)
-                pending_action[0] = None
-                continue
-
-            if pending_action[0] == "delete":
-                tool = get_current_tool()
-                if tool:
-                    _delete_tool(tool)
-                    refresh_tools()  # Don't try to keep selection on deleted tool
-                pending_action[0] = None
-                continue
-
-            if pending_action[0] == "switch_to_source":
-                pending_action[0] = None
-                continue
-
-            if pending_action[0] == "switch_to_list":
-                pending_action[0] = None
-                continue
-
-            if pending_action[0] == "exit":
-                break
-
-            # Default: exit
-            break
-
+        with menu_session():
+            return await asyncio.to_thread(run_uc_picker_flow)
     finally:
-        # Exit alternate screen buffer
-        sys.stdout.write("\033[?1049l")
-        sys.stdout.flush()
         set_awaiting_user_input(False)
-
-    emit_info("Exited UC tool browser")
-    return result[0]
 
 
 @register_command(
@@ -895,16 +355,7 @@ async def interactive_uc_picker() -> Optional[str]:
     category="tools",
 )
 def handle_uc_command(command: str) -> bool:
-    """Handle the /uc command - opens the interactive TUI.
-
-    Args:
-        command: The full command string.
-
-    Returns:
-        True always (command completed).
-    """
-    import asyncio
-
+    """Handle the /uc command - opens the interactive TUI."""
     try:
         try:
             loop = asyncio.get_running_loop()

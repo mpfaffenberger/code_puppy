@@ -5,6 +5,7 @@ returned, -t restricts types, and a trailing value flag errors instead of
 silently re-scoping the search.
 """
 
+from code_puppy.config import GREP_MAX_MATCHES_DEFAULT
 from code_puppy.tools import file_operations
 from code_puppy.tools.file_operations import (
     _MAX_GREP_CONTEXT_ROWS,
@@ -29,6 +30,51 @@ def test_grep_returns_context_lines(tmp_path):
     # a.py contributes 2 matches + 2 context lines; b.txt contributes 1 match.
     assert "line3" in contents and "line5" in contents
     assert contents.count("match") == 3
+
+
+def test_grep_searches_a_root_nested_under_an_ignored_directory(tmp_path):
+    """A root sitting *inside* an ignored directory name must still be searched.
+
+    ``DIR_IGNORE_PATTERNS`` carries ``**/tmp/**`` (and ``**/.cache/**``,
+    ``**/node_modules/**`` ...) to prune a project's own scratch dirs. Matched
+    against absolute paths they also matched the search root's *ancestors*, so a
+    root under /tmp -- every pytest tmp_path on Linux, and any project parked in
+    /tmp, ~/.cache or node_modules -- had every file skipped: zero matches, no
+    error, completely silent. CI only runs macOS, whose temp dirs live elsewhere.
+    """
+    root = tmp_path / ".cache" / "checkout"
+    root.mkdir(parents=True)
+    (root / "app.py").write_text("needle\n")
+
+    out = _grep(None, "needle", str(root))
+
+    assert out.error is None
+    assert [m.line_content for m in out.matches] == ["needle"]
+
+
+def test_grep_still_prunes_ignored_dirs_inside_the_search_root(tmp_path):
+    """The ancestor fix must not weaken ignoring below the root.
+
+    Also pins that reported paths stay absolute now that ripgrep is handed '.'.
+    """
+    (tmp_path / "node_modules").mkdir()
+    (tmp_path / "node_modules" / "vendored.py").write_text("needle\n")
+    (tmp_path / "app.py").write_text("needle\n")
+
+    out = _grep(None, "needle", str(tmp_path))
+
+    assert out.error is None
+    assert {m.file_path for m in out.matches} == {str(tmp_path / "app.py")}
+
+
+def test_grep_missing_directory_names_the_directory(tmp_path):
+    """A bad target must blame itself, not the ripgrep binary we cwd'd into it."""
+    missing = tmp_path / "nope"
+
+    out = _grep(None, "needle", str(missing))
+
+    assert out.matches == []
+    assert out.error is not None and "does not exist" in out.error
 
 
 def test_grep_type_flag_restricts_matches(tmp_path):
@@ -112,3 +158,87 @@ def test_emit_grep_result_excludes_context_from_counts(monkeypatch):
     # ...but only the two real hits (in a.py and b.py) feed the counts.
     assert captured["msg"].total_matches == 2
     assert captured["msg"].files_searched == 2
+
+
+def _write_hits(path, count):
+    path.write_text("".join(f"hit {i}\n" for i in range(count)))
+
+
+def test_grep_beyond_budget_is_flagged_truncated(tmp_path):
+    """More matches than the budget -> truncated=True, budget-sized result (#903)."""
+    for name in ("a.py", "b.py", "c.py"):
+        _write_hits(tmp_path / name, 30)
+
+    out = _grep(None, "hit", str(tmp_path))
+
+    assert out.error is None
+    assert len(out.matches) == GREP_MAX_MATCHES_DEFAULT
+    assert out.truncated is True
+
+
+def test_grep_exactly_at_budget_is_not_truncated(tmp_path):
+    """Exactly the budget is complete, not truncated -- never lie either way."""
+    _write_hits(tmp_path / "a.py", 20)
+    _write_hits(tmp_path / "b.py", GREP_MAX_MATCHES_DEFAULT - 20)
+
+    out = _grep(None, "hit", str(tmp_path))
+
+    assert out.error is None
+    assert len(out.matches) == GREP_MAX_MATCHES_DEFAULT
+    assert out.truncated is False
+
+
+def test_grep_single_file_beyond_budget_is_flagged_truncated(tmp_path):
+    """ripgrep's per-file --max-count must not mask truncation in one fat file."""
+    _write_hits(tmp_path / "fat.py", GREP_MAX_MATCHES_DEFAULT + 1)
+
+    out = _grep(None, "hit", str(tmp_path))
+
+    assert out.error is None
+    assert len(out.matches) == GREP_MAX_MATCHES_DEFAULT
+    assert out.truncated is True
+
+
+def test_grep_truncation_survives_context_lines(tmp_path):
+    """Context rows neither consume the budget nor hide that it overflowed."""
+    lines = ["target", "filler"] * (GREP_MAX_MATCHES_DEFAULT + 5)
+    (tmp_path / "ctx.py").write_text("\n".join(lines) + "\n")
+
+    out = _grep(None, "-A 1 target", str(tmp_path))
+
+    real = [m for m in out.matches if not m.is_context]
+    assert len(real) == GREP_MAX_MATCHES_DEFAULT
+    assert out.truncated is True
+
+
+def test_grep_match_budget_is_configurable(tmp_path, monkeypatch):
+    """`grep_max_matches` moves the cap; truncation semantics follow it."""
+    import code_puppy.config as cp_config
+
+    monkeypatch.setattr(cp_config, "get_grep_max_matches", lambda: 5)
+    _write_hits(tmp_path / "a.py", 6)
+
+    out = _grep(None, "hit", str(tmp_path))
+    assert len(out.matches) == 5
+    assert out.truncated is True
+
+    (tmp_path / "a.py").unlink()
+    _write_hits(tmp_path / "b.py", 5)
+    out = _grep(None, "hit", str(tmp_path))
+    assert len(out.matches) == 5
+    assert out.truncated is False
+
+
+def test_emit_grep_result_forwards_truncated_to_ui(monkeypatch):
+    captured = {}
+
+    class _Bus:
+        def emit(self, message):
+            captured["msg"] = message
+
+    monkeypatch.setattr(file_operations, "get_message_bus", lambda: _Bus())
+
+    out = _emit_grep_result("t", ".", [], None, truncated=True)
+
+    assert out.truncated is True
+    assert captured["msg"].truncated is True
