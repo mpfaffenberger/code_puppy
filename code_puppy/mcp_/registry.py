@@ -14,7 +14,7 @@ from typing import Dict, List, Optional
 
 from code_puppy import config
 
-from .managed_server import ServerConfig
+from .managed_server import ServerConfig, _expand_env_vars
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -262,13 +262,14 @@ class ServerRegistry:
                 errors.append(
                     f"{server_type.upper()} server URL must be a non-empty string"
                 )
-            elif not (
-                server_config["url"].startswith("http://")
-                or server_config["url"].startswith("https://")
-            ):
-                errors.append(
-                    f"{server_type.upper()} server URL must start with http:// or https://"
-                )
+            else:
+                # Match startup's expansion, but retain the template in config.
+                # Expanded values can contain secrets: never echo them in errors.
+                expanded_url = _expand_env_vars(server_config["url"])
+                if not expanded_url.startswith(("http://", "https://")):
+                    errors.append(
+                        f"{server_type.upper()} server URL must start with http:// or https://"
+                    )
 
             # Optional parameter validation
             if "timeout" in server_config:

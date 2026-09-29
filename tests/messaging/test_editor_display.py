@@ -49,6 +49,20 @@ class TestToDisplayTags:
         assert str(png) not in display
         assert display.startswith("look at ")
 
+    def test_video_path_renders_mp4_tag(self, tmp_path):
+        clip = tmp_path / "clip.mp4"
+        clip.write_bytes(b"fake-mp4")
+        text = f"watch {clip}"
+        display, _ = to_display(text, len(text))
+        assert "[mp4 video]" in display
+        assert str(clip) not in display
+
+    def test_video_url_renders_mov_tag(self):
+        url = "https://cdn.example.com/demo.mov"
+        display, _ = to_display(f"watch {url}", 0)
+        assert "[mov video]" in display
+        assert url not in display
+
     def test_unsupported_extension_no_tag(self, tmp_path):
         # .txt is neither image nor document: detection marks it
         # unsupported -> has_path() False -> no tag (classic parity).

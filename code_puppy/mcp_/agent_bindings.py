@@ -73,6 +73,18 @@ def _write(data: Dict[str, Any]) -> None:
     with tmp.open("w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, sort_keys=True)
     tmp.replace(path)
+    invalidate_agent_mcp_cache()
+
+
+def invalidate_agent_mcp_cache(agent_name: str | None = None) -> None:
+    """Discard the current agent's stale toolsets without starting any servers."""
+    from code_puppy.agents import agent_manager
+
+    agent = getattr(agent_manager, "_CURRENT_AGENT", None)
+    if agent is not None and (agent_name is None or agent.name == agent_name):
+        agent._code_generation_agent = None
+        agent.pydantic_agent = None
+        agent._mcp_servers = []
 
 
 # ---------- public API -------------------------------------------------------
@@ -139,6 +151,8 @@ def get_bound_servers(agent_name: str) -> Dict[str, Dict[str, Any]]:
         merged[name] = dict(opts)
     for name, opts in session.items():
         merged[name] = dict(opts)
+    for name in _read().get("unbound", {}).get(agent_name, []):
+        merged.pop(name, None)
     return merged
 
 
@@ -168,6 +182,10 @@ def set_binding(
     bindings = data.setdefault("bindings", {})
     agent_block = bindings.setdefault(agent_name, {})
     agent_block[server_name] = {"auto_start": bool(auto_start)}
+    blocked = data.get("unbound", {}).get(agent_name, [])
+    if server_name in blocked:
+        blocked.remove(server_name)
+    remove_session_binding(agent_name, server_name)
     _write(data)
 
 
@@ -186,6 +204,7 @@ def set_session_binding(
     """
     agent_block = _session_bindings.setdefault(agent_name, {})
     agent_block[server_name] = {"auto_start": bool(auto_start)}
+    invalidate_agent_mcp_cache(agent_name)
 
 
 def remove_session_binding(agent_name: str, server_name: str) -> bool:
@@ -196,6 +215,7 @@ def remove_session_binding(agent_name: str, server_name: str) -> bool:
     del agent_block[server_name]
     if not agent_block:
         del _session_bindings[agent_name]
+    invalidate_agent_mcp_cache(agent_name)
     return True
 
 
@@ -205,6 +225,27 @@ def clear_session_bindings() -> None:
 
 
 def remove_binding(agent_name: str, server_name: str) -> bool:
+    """Revoke a binding and cancel an outstanding start for that server."""
+    removed = _remove_binding(agent_name, server_name)
+    if removed:
+        # Menus run on worker threads; cleanup belongs on the task's loop.
+        from code_puppy.mcp_ import manager as manager_module
+
+        manager = manager_module._manager_instance
+        if manager is not None:
+            for server_id, task in list(
+                getattr(manager, "_pending_start_tasks", {}).items()
+            ):
+                server = manager.get_server(server_id)
+                if server is not None and server.config.name == server_name:
+                    if not task.done() and not task.get_loop().is_closed():
+                        task.get_loop().call_soon_threadsafe(
+                            manager.stop_server_sync, server_id
+                        )
+    return removed
+
+
+def _remove_binding(agent_name: str, server_name: str) -> bool:
     """Unbind ``server_name`` from ``agent_name``. Returns True if removed.
 
     Removes from both the persistent file *and* the session overlay, so an
@@ -213,9 +254,16 @@ def remove_binding(agent_name: str, server_name: str) -> bool:
     """
     session_removed = remove_session_binding(agent_name, server_name)
     data = _read()
+    declared = server_name in _load_json_declared_bindings(agent_name)
+    already_blocked = server_name in data.get("unbound", {}).get(agent_name, [])
+    if declared and not already_blocked:
+        data.setdefault("unbound", {}).setdefault(agent_name, []).append(server_name)
     bindings = data.get("bindings", {})
     agent_block = bindings.get(agent_name)
     if not agent_block or server_name not in agent_block:
+        if declared and not already_blocked:
+            _write(data)
+            return True
         return session_removed
     del agent_block[server_name]
     if not agent_block:

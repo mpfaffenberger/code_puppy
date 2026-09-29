@@ -242,16 +242,21 @@ class TestAskUserQuestion:
             ),
         ):
             mock_val.return_value = MagicMock(questions=[MagicMock()])
-            result = ask_user_question(
-                [
-                    {
-                        "question": "q",
-                        "header": "h",
-                        "options": [{"label": "a"}, {"label": "b"}],
-                    }
-                ]
-            )
+            questions = [
+                {
+                    "question": "q",
+                    "header": "h",
+                    "options": [{"label": "a"}, {"label": "b"}],
+                }
+            ]
+
+            result = ask_user_question(questions, timeout=5)
             assert result.timed_out is True
+            assert "5 seconds" in result.error
+
+            result_without_timeout = ask_user_question(questions)
+            assert result_without_timeout.timed_out is False
+            assert "no timeout was configured" in result_without_timeout.error
 
     def test_cancelled(self):
         with (

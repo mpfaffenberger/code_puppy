@@ -10,19 +10,11 @@ import pytest
 
 from code_puppy.command_line.agent_menu import (
     PAGE_SIZE,
+    _agent_items,
     _get_agent_entries,
-    _render_menu_panel,
-    _render_preview_panel,
+    _render_agent_details,
+    build_agent_menu,
 )
-
-
-def _get_text_from_formatted(result):
-    """Extract plain text from formatted text control output.
-
-    The render functions return List[(style, text)] tuples.
-    This helper extracts just the text content for easier assertions.
-    """
-    return "".join(text for _, text in result)
 
 
 class TestPageSizeConstant:
@@ -161,329 +153,146 @@ class TestGetAgentEntries:
             assert f"agent_{i:02d}" in agent_names
 
 
-class TestRenderMenuPanel:
-    """Test the _render_menu_panel function."""
+class TestAgentItems:
+    """Test the _agent_items row builder."""
 
-    def test_renders_empty_list(self):
-        """Test rendering when no agents are available."""
-        result = _render_menu_panel([], page=0, selected_idx=0, current_agent_name="")
-
-        text = _get_text_from_formatted(result)
-        assert "No agents found" in text
-        # Should show page 1 of 1 even for empty list
-        assert "Page 1/1" in text
-
-    def test_renders_single_agent(self):
-        """Test rendering a single agent.
-
-        Note: Emojis are stripped from display names for clean terminal rendering.
-        """
-        entries = [("code_puppy", "Code Puppy 🐶", "A friendly assistant.")]
-
-        result = _render_menu_panel(
-            entries, page=0, selected_idx=0, current_agent_name=""
-        )
-
-        text = _get_text_from_formatted(result)
-        # Emojis are sanitized for clean terminal rendering
-        assert "Code Puppy" in text
-        assert "Page 1/1" in text
-
-    @pytest.mark.parametrize(
-        ("current", "frag"),
-        [("", "▶"), ("agent2", "current")],
-        ids=["highlights_selected_agent", "marks_current_agent"],
-    )
-    def test_selection_and_current_marker(self, current, frag):
-        """Test that the selected agent is highlighted and current agent marked."""
+    @patch("code_puppy.command_line.agent_menu._get_pinned_model")
+    def test_labels_and_markers(self, mock_pinned):
+        mock_pinned.return_value = None
         entries = [
-            ("agent1", "Agent One", "Description 1"),
-            ("agent2", "Agent Two", "Description 2"),
+            ("agent1", "Agent One", "First"),
+            ("agent2", "Agent Two", "Second"),
         ]
+        items = _agent_items(entries, current_agent_name="agent2")
 
-        result = _render_menu_panel(
-            entries, page=0, selected_idx=0, current_agent_name=current
-        )
+        assert [it.value for it in items] == ["agent1", "agent2"]
+        assert items[0].label == "Agent One"
+        assert items[0].description == ""
+        assert "(current)" in items[1].description
 
-        text = _get_text_from_formatted(result)
-        assert frag in text
+    @patch("code_puppy.command_line.agent_menu._get_pinned_model")
+    def test_pinned_model_marker(self, mock_pinned):
+        mock_pinned.return_value = "gpt-5"
+        items = _agent_items([("a", "A", "desc")], current_agent_name="")
+        assert "-> gpt-5" in items[0].description
 
-    @patch("code_puppy.command_line.agent_menu.get_agent_pinned_model")
-    def test_shows_pinned_model_marker(self, mock_pinned_model):
-        """Test that pinned models are displayed in the menu."""
-        mock_pinned_model.return_value = "gpt-4"
-        entries = [("agent1", "Agent One", "Description 1")]
+    @patch("code_puppy.command_line.agent_menu._get_pinned_model")
+    def test_display_names_are_sanitized(self, mock_pinned):
+        mock_pinned.return_value = None
+        items = _agent_items([("a", "Agent \U0001f436 One", "d")], "")
+        assert items[0].label == "Agent One"
 
-        result = _render_menu_panel(
-            entries, page=0, selected_idx=0, current_agent_name=""
-        )
 
-        text = _get_text_from_formatted(result)
-        assert "gpt-4" in text
+class TestRenderAgentDetails:
+    """Test the ANSI preview pane."""
 
-    @patch("code_puppy.command_line.agent_menu.get_agent_pinned_model")
-    def test_unpinned_model_shows_no_marker(self, mock_pinned_model):
-        """Test that unpinned agents show no pinned model marker."""
-        mock_pinned_model.return_value = None
-        entries = [("agent1", "Agent One", "Description 1")]
+    @patch("code_puppy.command_line.agent_menu.get_bound_servers")
+    @patch("code_puppy.command_line.agent_menu._get_pinned_model")
+    def test_renders_core_fields(self, mock_pinned, mock_bound):
+        mock_pinned.return_value = None
+        mock_bound.return_value = {}
+        details = _render_agent_details(("a1", "Agent One", "Does things."), "a1")
 
-        result = _render_menu_panel(
-            entries, page=0, selected_idx=0, current_agent_name=""
-        )
+        assert "AGENT DETAILS" in details
+        assert "a1" in details
+        assert "Agent One" in details
+        assert "default" in details  # unpinned model
+        assert "none bound (strict opt-in)" in details
+        assert "Does things." in details
+        assert "Currently Active" in details
 
-        text = _get_text_from_formatted(result)
-        # Should not show any model name after the agent name
-        assert "Agent One\n" in text or result[-3][1] == "Agent One"
-        # Verify no arrow/pinned indicator
-        lines = text.split("\n")
-        agent_line = [line for line in lines if "Agent One" in line]
-        assert len(agent_line) == 1
-        assert "→" not in agent_line[0]
+    @patch("code_puppy.command_line.agent_menu.get_bound_servers")
+    @patch("code_puppy.command_line.agent_menu._get_pinned_model")
+    def test_renders_pinned_and_bindings(self, mock_pinned, mock_bound):
+        mock_pinned.return_value = "gpt-5"
+        mock_bound.return_value = {
+            "srv1": {"auto_start": True},
+            "srv2": {},
+        }
+        details = _render_agent_details(("a1", "Agent One", "d"), "other")
+
+        assert "gpt-5" in details
+        assert "2 bound (1 auto-start)" in details
+        assert "Not active" in details
+
+    @patch("code_puppy.command_line.agent_menu.get_bound_servers")
+    @patch("code_puppy.command_line.agent_menu._get_pinned_model")
+    def test_long_description_is_wrapped(self, mock_pinned, mock_bound):
+        mock_pinned.return_value = None
+        mock_bound.return_value = {}
+        long_desc = "word " * 40
+        details = _render_agent_details(("a1", "A", long_desc), "")
+        assert all(len(line) <= 60 for line in details.splitlines() if "word" in line)
+
+
+class TestBuildAgentMenu:
+    """Drive the termflow menu headlessly with scripted keys."""
+
+    def _drive(self, keys, entries, current="", initial=0):
+        from io import StringIO
+
+        script = iter(keys)
+        out = StringIO()
+        pending = {"action": None}
+        with (
+            patch(
+                "code_puppy.command_line.agent_menu._get_pinned_model",
+                return_value=None,
+            ),
+            patch(
+                "code_puppy.command_line.agent_menu.get_bound_servers",
+                return_value={},
+            ),
+        ):
+            menu = build_agent_menu(
+                entries,
+                current,
+                pending,
+                initial,
+                key_source=lambda: next(script),
+                output=out,
+                size=lambda: (120, 40),
+                alt_screen=False,
+            )
+            result = menu.run()
+        return result, pending, out.getvalue()
+
+    ENTRIES = [
+        ("agent1", "Agent One", "First agent"),
+        ("agent2", "Agent Two", "Second agent"),
+        ("agent3", "Agent Three", "Third agent"),
+    ]
+
+    def test_enter_selects_highlighted(self):
+        result, pending, _ = self._drive(["down", "enter"], self.ENTRIES)
+        assert result.item.value == "agent2"
+        assert pending["action"] is None
+
+    def test_escape_cancels(self):
+        result, _, _ = self._drive(["escape"], self.ENTRIES)
+        assert result.cancelled
+
+    def test_initial_index_preselects(self):
+        result, _, _ = self._drive(["enter"], self.ENTRIES, initial=2)
+        assert result.item.value == "agent3"
 
     @pytest.mark.parametrize(
-        ("n_entries", "page", "selected_idx", "frag1", "frag2"),
-        [
-            (25, 0, 0, "Page 1/3", "Agent 00"),
-            (25, 1, 10, "Page 2/3", "Agent 10"),
-            (15, 1, 12, "▶", "Agent 12"),
-            (15, 0, 9, "▶", "Agent 09"),
-        ],
-        ids=[
-            "pagination_page_zero",
-            "pagination_page_one",
-            "selected_agent_on_second_page",
-            "menu_panel_last_item_on_page_selected",
-        ],
+        "key,action", [("p", "pin"), ("b", "bind"), ("c", "clone"), ("d", "delete")]
     )
-    def test_pagination(self, n_entries, page, selected_idx, frag1, frag2):
-        """Test pagination info and selection highlighting."""
-        entries = [
-            (f"agent_{i:02d}", f"Agent {i:02d}", f"Desc {i:02d}")
-            for i in range(n_entries)
-        ]
+    def test_action_keys_exit_with_pending_action(self, key, action):
+        result, pending, _ = self._drive([key], self.ENTRIES)
+        assert pending["action"] == action
+        assert result.item.value == "agent1"
 
-        result = _render_menu_panel(
-            entries, page=page, selected_idx=selected_idx, current_agent_name=""
-        )
+    def test_current_agent_marked(self):
+        _, _, screen = self._drive(["escape"], self.ENTRIES, current="agent2")
+        assert "(current)" in screen
 
-        text = _get_text_from_formatted(result)
-        assert frag1 in text
-        assert frag2 in text
+    def test_pagination_hides_offpage_agents(self):
+        entries = [(f"agent{i:02d}", f"Agent {i:02d}", "d") for i in range(25)]
+        _, _, screen = self._drive(["escape"], entries)
+        from termflow.ansi.utils import visible
 
-    def test_pagination_last_page(self):
-        """Test pagination shows correct info for last page."""
-        entries = [
-            (f"agent_{i:02d}", f"Agent {i:02d}", f"Desc {i:02d}") for i in range(25)
-        ]
-
-        result = _render_menu_panel(
-            entries, page=2, selected_idx=20, current_agent_name=""
-        )
-
-        text = _get_text_from_formatted(result)
-        # Should show page 3 of 3
-        assert "Page 3/3" in text
-
-    def test_shows_navigation_hints(self):
-        """Test that navigation hints are displayed."""
-        result = _render_menu_panel([], page=0, selected_idx=0, current_agent_name="")
-
-        text = _get_text_from_formatted(result)
-        assert "↑↓" in text
-        assert "←→" in text
-        assert "Enter" in text
-        assert "P" in text
-        assert "Pin model" in text
-        assert "C" in text
-        assert "Clone" in text
-        assert "D" in text
-        assert "Delete clone" in text
-        assert "Ctrl+C" in text
-        assert "Navigate" in text
-        assert "Page" in text
-        assert "Select" in text
-        assert "Cancel" in text
-
-    def test_shows_agents_header(self):
-        """Test that Agents header is displayed."""
-        result = _render_menu_panel([], page=0, selected_idx=0, current_agent_name="")
-
-        text = _get_text_from_formatted(result)
-        assert "Agents" in text
-
-    def test_current_agent_indicator_with_selection(self):
-        """Test that both selection and current markers can appear."""
-        entries = [
-            ("agent1", "Agent One", "Description 1"),
-            ("agent2", "Agent Two", "Description 2"),
-        ]
-
-        # Select agent2 which is also the current agent
-        result = _render_menu_panel(
-            entries, page=0, selected_idx=1, current_agent_name="agent2"
-        )
-
-        text = _get_text_from_formatted(result)
-        assert "▶" in text  # Selection
-        assert "current" in text  # Current marker
-
-
-class TestRenderPreviewPanel:
-    """Test the _render_preview_panel function."""
-
-    def test_renders_no_selection(self):
-        """Test rendering when no agent is selected."""
-        result = _render_preview_panel(entry=None, current_agent_name="")
-
-        text = _get_text_from_formatted(result)
-        assert "No agent selected" in text
-        assert "AGENT DETAILS" in text
-
-    @pytest.mark.parametrize(
-        ("entry", "current", "frag1", "frag2"),
-        [
-            (
-                ("code_puppy", "Code Puppy ", "A friendly assistant."),
-                "",
-                "Name:",
-                "code_puppy",
-            ),
-            (
-                ("code_puppy", "Code Puppy ", "A friendly assistant."),
-                "",
-                "Display Name:",
-                "Code Puppy",
-            ),
-            (
-                ("code_puppy", "Code Puppy ", "A friendly coding assistant dog."),
-                "",
-                "Description:",
-                "friendly",
-            ),
-            (
-                ("code_puppy", "Code Puppy ", "A friendly assistant."),
-                "other_agent",
-                "Status:",
-                "Not active",
-            ),
-        ],
-        ids=[
-            "renders_agent_name",
-            "renders_display_name",
-            "renders_description",
-            "renders_status_not_active",
-        ],
-    )
-    def test_renders_preview_fields(self, entry, current, frag1, frag2):
-        """Test that core preview fields are displayed."""
-        result = _render_preview_panel(entry, current_agent_name=current)
-
-        text = _get_text_from_formatted(result)
-        assert frag1 in text
-        assert frag2 in text
-
-    @pytest.mark.parametrize(
-        ("pinned", "frag"),
-        [("gpt-4", "gpt-4"), (None, "default")],
-        ids=["renders_pinned_model", "renders_unpinned_model_shows_default"],
-    )
-    @patch("code_puppy.command_line.agent_menu.get_agent_pinned_model")
-    def test_renders_pinned_model(self, mock_pinned_model, pinned, frag):
-        """Test that pinned model (or default) is shown in the preview panel."""
-        mock_pinned_model.return_value = pinned
-        entry = ("code_puppy", "Code Puppy ", "A friendly assistant.")
-
-        result = _render_preview_panel(entry, current_agent_name="")
-
-        text = _get_text_from_formatted(result)
-        assert "Pinned Model:" in text
-        assert frag in text
-
-    @pytest.mark.parametrize(
-        ("entry", "current", "frag1", "frag2", "frag3"),
-        [
-            (
-                ("code_puppy", "Code Puppy ", "A friendly assistant."),
-                "code_puppy",
-                "Status:",
-                "Currently Active",
-                "",
-            ),
-            (
-                (
-                    "test_agent",
-                    "Test Agent",
-                    "First line of description.\nSecond line of description.\nThird line.",
-                ),
-                "",
-                "First line",
-                "Second line",
-                "Third line",
-            ),
-            (
-                ("test_agent", "Test Agent", ""),
-                "",
-                "Name:",
-                "test_agent",
-                "Display Name:",
-            ),
-        ],
-        ids=[
-            "renders_status_currently_active",
-            "handles_multiline_description",
-            "handles_empty_description",
-        ],
-    )
-    def test_renders_status_and_description(self, entry, current, frag1, frag2, frag3):
-        """Test status marker and multi-line/empty description rendering."""
-        result = _render_preview_panel(entry, current_agent_name=current)
-
-        text = _get_text_from_formatted(result)
-        assert frag1 in text
-        assert frag2 in text
-        assert frag3 in text
-
-    def test_handles_long_description(self):
-        """Test handling of very long descriptions that need word wrapping."""
-        long_description = (
-            "This is a very long description that should be wrapped appropriately "
-            "to fit within the preview panel boundaries without causing display issues."
-        )
-        entry = ("test_agent", "Test Agent", long_description)
-
-        result = _render_preview_panel(entry, current_agent_name="")
-
-        text = _get_text_from_formatted(result)
-        # Should contain parts of the description
-        assert "very long description" in text
-        assert "wrapped" in text
-
-    @pytest.mark.parametrize(
-        ("entry", "frag"),
-        [
-            (("agent1", "Agent One", "Description"), "AGENT DETAILS"),
-            (
-                (
-                    "emoji_agent",
-                    "Emoji Agent ",
-                    "An agent with emojis  and special chars: <>&",
-                ),
-                "Emoji Agent",
-            ),
-            (
-                ("minimal_agent", "Minimal Agent", "No description available"),
-                "No description available",
-            ),
-        ],
-        ids=[
-            "renders_header",
-            "handles_description_with_special_characters",
-            "preview_panel_with_no_description_default",
-        ],
-    )
-    def test_renders_preview_fragment(self, entry, frag):
-        """Test assorted preview panel fragments render correctly."""
-        result = _render_preview_panel(entry, current_agent_name="")
-
-        text = _get_text_from_formatted(result)
-        assert frag in text
+        text = visible(screen)
+        assert "Agent 00" in text
+        assert "Agent 15" not in text

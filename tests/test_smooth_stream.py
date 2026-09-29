@@ -15,8 +15,15 @@ from code_puppy.agents.smooth_stream import (
 )
 
 
+class _TtyStringIO(io.StringIO):
+    """A capture buffer that claims to be a terminal (smoothing is TTY-gated)."""
+
+    def isatty(self) -> bool:
+        return True
+
+
 def _plain_console() -> tuple[Console, io.StringIO]:
-    buf = io.StringIO()
+    buf = _TtyStringIO()
     console = Console(file=buf, force_terminal=False, width=200, no_color=True)
     return console, buf
 
@@ -192,6 +199,13 @@ def test_make_thinking_smoother_enabled_by_default(monkeypatch):
     assert isinstance(make_thinking_smoother(console), ThinkingStreamSmoother)
 
 
+def test_make_thinking_smoother_skips_non_tty(monkeypatch):
+    """Pipes/CI never see the typewriter, whatever the config toggle says."""
+    monkeypatch.setattr("code_puppy.config.get_smooth_thinking_stream", lambda: True)
+    console = Console(file=io.StringIO(), force_terminal=False, width=200)
+    assert make_thinking_smoother(console) is None
+
+
 # ── SmoothTermflowWriter ────────────────────────────────────────────────
 
 ESC = "\x1b"
@@ -253,4 +267,10 @@ def test_make_smooth_termflow_writer_respects_disabled(monkeypatch):
 
 def test_make_smooth_termflow_writer_enabled_by_default(monkeypatch):
     monkeypatch.setattr("code_puppy.config.get_smooth_response_stream", lambda: True)
-    assert isinstance(make_smooth_termflow_writer(io.StringIO()), SmoothTermflowWriter)
+    assert isinstance(make_smooth_termflow_writer(_TtyStringIO()), SmoothTermflowWriter)
+
+
+def test_make_smooth_termflow_writer_skips_non_tty(monkeypatch):
+    """Pipes/CI never see the typewriter, whatever the config toggle says."""
+    monkeypatch.setattr("code_puppy.config.get_smooth_response_stream", lambda: True)
+    assert make_smooth_termflow_writer(io.StringIO()) is None

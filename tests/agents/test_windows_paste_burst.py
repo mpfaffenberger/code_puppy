@@ -10,6 +10,7 @@ bursts in a synthesized bracketed paste.
 import pytest
 
 from code_puppy.agents._key_listeners import (
+    _CTRL_ENTER_SEQ,
     _PASTE_CLOSE,
     _PASTE_OPEN,
     _SHIFT_ENTER_SEQ,
@@ -95,6 +96,15 @@ class TestCoalesce:
         items = [("char", "a"), ("seq", "\x1b[A"), ("char", "b"), ("char", "c")]
         assert _coalesce_paste_burst(items) is None
 
+    @pytest.mark.parametrize("backspace", ["\x08", "\x7f"])
+    def test_backspace_repeat_burst_is_typing(self, backspace):
+        items = [("char", backspace)] * 6
+        assert _coalesce_paste_burst(items) is None
+
+    def test_other_control_key_repeat_burst_is_typing(self):
+        items = [("char", "\x17")] * 3  # Ctrl+W
+        assert _coalesce_paste_burst(items) is None
+
     def test_min_chars_boundary(self):
         items = [("char", c) for c in "abc"]
         assert len(items) == _WIN_PASTE_MIN_CHARS
@@ -161,6 +171,38 @@ class TestShiftEnter:
         assert _win_shift_is_down() in (True, False)
 
 
+class TestCtrlEnter:
+    def test_ctrl_enter_becomes_csi_u_submit_now_seq(self):
+        assert (
+            _windows_char_to_seq(
+                "\n",
+                shift_is_down=lambda: False,
+                ctrl_enter_is_down=lambda: True,
+            )
+            == _CTRL_ENTER_SEQ
+        )
+
+    def test_ctrl_j_stays_a_regular_newline(self):
+        assert (
+            _windows_char_to_seq(
+                "\n",
+                shift_is_down=lambda: False,
+                ctrl_enter_is_down=lambda: False,
+            )
+            is None
+        )
+
+    def test_seq_maps_to_editor_submit_now_action(self):
+        from code_puppy.messaging.editor_keys import classify_csi
+
+        assert classify_csi(_CTRL_ENTER_SEQ[2:]) == "submit_now"
+
+    def test_default_ctrl_enter_checker_never_raises(self):
+        from code_puppy.agents._key_listeners import _win_ctrl_enter_is_down
+
+        assert _win_ctrl_enter_is_down() in (True, False)
+
+
 def _chars(wire: str) -> list:
     return [("char", c) for c in wire]
 
@@ -216,6 +258,21 @@ class TestRouteBurst:
         _route(_chars("line one\rline two"))
         assert editor._buffer == "line one\nline two"
 
+    def test_large_paste_continuations_are_fed_once_per_batch(
+        self, editor, monkeypatch
+    ):
+        from unittest.mock import Mock
+
+        payload = "long line\r\n" * 20_000
+        wire = _PASTE_OPEN + payload + _PASTE_CLOSE
+        feed = Mock(wraps=editor.feed)
+        monkeypatch.setattr(editor, "feed", feed)
+        for start in range(0, len(wire), 4096):
+            _route(_chars(wire[start : start + 4096]))
+        assert editor._buffer == payload.replace("\r\n", "\n")
+        assert feed.call_count == (len(wire) + 4095) // 4096
+        assert not editor.paste_active
+
     def test_split_bracketed_paste_across_poll_ticks(self, editor):
         _route(_chars(_PASTE_OPEN + "first "))
         assert editor.paste_active
@@ -226,6 +283,12 @@ class TestRouteBurst:
     def test_small_typing_burst_dispatches_per_key(self, editor):
         _route(_chars("a"))
         assert editor._buffer == "a"
+
+    @pytest.mark.parametrize("backspace", ["\x08", "\x7f"])
+    def test_backspace_repeat_burst_deletes_every_character(self, editor, backspace):
+        _route(_chars("puppies"))
+        _route(_chars(backspace * 7))
+        assert editor._buffer == ""
 
     def test_vt_arrow_burst_moves_cursor_instead_of_pasting(self, editor):
         # VT-input arrows arrive as a char burst; they must reach the
