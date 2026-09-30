@@ -3,6 +3,7 @@
 import ast
 import importlib
 import importlib.metadata
+import json
 import warnings
 from importlib.metadata import requires
 from unittest.mock import Mock, patch
@@ -26,6 +27,7 @@ from code_puppy.agents._code_mode import (
     _sandbox_tool,
     bind_declared_speculation,
     build_speculative_code_mode,
+    sandbox_mount_path,
 )
 from code_puppy.agents._code_mode_guidance import CODE_MODE_GUIDANCE, CodeModeGuidance
 from code_puppy.agents._wire_tool_names import StreamedToolNameNormalizer
@@ -99,10 +101,35 @@ class TestBuildSpeculativeCodeMode:
         code_mode, *_ = build_speculative_code_mode(["read_file"])
 
         assert code_mode.mount is not None
-        assert code_mode.mount.host_path == os.getcwd()
-        assert code_mode.mount.virtual_path == os.getcwd()
+        # Monty canonicalizes (``\\?\C:\...`` on Windows): compare identity.
+        assert os.path.samefile(code_mode.mount.host_path, os.getcwd())
+        assert code_mode.mount.virtual_path == sandbox_mount_path(os.getcwd())
         assert code_mode.mount.mode == "read-write"
         assert code_mode.os_access is not None
+
+    def test_guidance_names_the_mount_actually_used(self, flag):
+        import os
+
+        code_mode, *_, guidance = build_speculative_code_mode(["read_file"])
+
+        assert guidance.host_path == os.getcwd()
+        assert guidance.mount_path == code_mode.mount.virtual_path
+        assert f"`{code_mode.mount.virtual_path}`" in guidance.get_instructions()
+
+
+class TestSandboxMountPath:
+    @pytest.mark.parametrize(
+        ("host", "mount"),
+        [
+            ("/home/mike/proj", "/home/mike/proj"),
+            (r"C:\Users\mike\proj", "/c/Users/mike/proj"),
+            ("D:/work/proj", "/d/work/proj"),
+            ("C:\\", "/c"),
+            (r"\\server\share\proj", "/server/share/proj"),
+        ],
+    )
+    def test_translates_to_an_absolute_posix_path(self, host, mount):
+        assert sandbox_mount_path(host) == mount
 
     def test_undeclared_tools_are_never_speculated(self, flag):
         """A tool that does not declare ``speculatable`` is never launched early."""
@@ -127,13 +154,30 @@ async def test_run_code_executes_trivial_snippet_with_compatible_monty(flag):
     assert not monty_requirement.specifier.contains("1.0.0")
     assert "max_duration_secs" in ResourceLimits.__annotations__
 
+    assert "2" in await _run_snippet("1 + 1")
+
+
+@pytest.mark.asyncio
+async def test_sandbox_pathlib_reaches_the_real_workspace(flag):
+    """The mount works end to end on this OS (Windows used to crash the build)."""
+    import os
+
+    mount = sandbox_mount_path(os.getcwd())
+    code = f"import pathlib\npathlib.Path({mount!r} + '/pyproject.toml').exists()"
+
+    assert "True" in await _run_snippet(code)
+
+
+async def _run_snippet(code: str) -> str:
+    """Drive one ``run_code`` call through a real sandbox; return its output."""
     requests = 0
 
     async def respond(messages, info):
         nonlocal requests
         requests += 1
         if requests == 1:
-            yield {0: DeltaToolCall(name="run_code", json_args='{"code":"1 + 1"}')}
+            args = json.dumps({"code": code})
+            yield {0: DeltaToolCall(name="run_code", json_args=args)}
         else:
             yield "done"
 
@@ -141,7 +185,7 @@ async def test_run_code_executes_trivial_snippet_with_compatible_monty(flag):
         FunctionModel(stream_function=respond),
         capabilities=build_speculative_code_mode([]),
     )
-    result = await agent.run("Calculate 1 + 1")
+    result = await agent.run("go")
     assert result.output == "done"
     returns = [
         part
@@ -150,12 +194,24 @@ async def test_run_code_executes_trivial_snippet_with_compatible_monty(flag):
         if isinstance(part, ToolReturnPart) and part.tool_name == "run_code"
     ]
     assert len(returns) == 1
-    assert "2" in str(returns[0].content)
+    return str(returns[0].content)
 
 
 class TestCodeModeGuidance:
     def test_guidance_rides_as_capability_instructions(self):
-        assert CodeModeGuidance().get_instructions() is CODE_MODE_GUIDANCE
+        text = CodeModeGuidance("/home/p", "/home/p").get_instructions()
+        assert text.startswith(CODE_MODE_GUIDANCE)
+        assert "`/home/p` (same as the host path)" in text
+
+    def test_translated_mount_explains_both_spellings(self):
+        text = CodeModeGuidance(r"C:\p", "/c/p").get_instructions()
+        assert "`/c/p` is the host directory `C:\\p`" in text
+        assert "take host paths" in text
+        assert "takes mount paths" in text
+
+    def test_guidance_does_not_claim_the_real_path_is_mounted(self):
+        """False on Windows, where the mount is a POSIX spelling."""
+        assert "real absolute path" not in CODE_MODE_GUIDANCE
 
     def test_guidance_teaches_the_native_write_contract(self):
         assert "run_code" in CODE_MODE_GUIDANCE
@@ -164,6 +220,26 @@ class TestCodeModeGuidance:
             assert f"`{name}`" in CODE_MODE_GUIDANCE
         assert "as native tools, outside `run_code`" in CODE_MODE_GUIDANCE
         assert "Speculative Puppy" not in CODE_MODE_GUIDANCE
+
+
+def test_missing_return_schema_warning_is_silenced_but_collisions_are_not():
+    """Schema-less MCP tools are routine; a hidden tool is a real problem."""
+    with warnings.catch_warnings(record=True) as captured:
+        warnings.simplefilter("always")
+        importlib.reload(_code_mode)
+
+        warnings.warn(
+            "CodeMode: tool 'blender_get_screenshot_of_window_as_image' has no "
+            "return schema; its signature will show `-> Any`",
+            UserWarning,
+        )
+        assert not captured
+
+        warnings.warn(
+            "CodeMode: tool 'a-b' (sanitized to 'a_b') collides with 'a_b'",
+            UserWarning,
+        )
+        assert len(captured) == 1
 
 
 def test_only_generated_invalid_escape_warnings_are_suppressed():

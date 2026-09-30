@@ -7,6 +7,7 @@ system prompt changes model behavior.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 from pydantic_ai.capabilities import AbstractCapability
@@ -20,8 +21,10 @@ use them; do not attempt to call those functions as native tools.
 
 The sandbox also has direct capabilities, no function call needed:
 
-- The workspace is mounted read-write at its real absolute path: use
-  `pathlib.Path` to read, write, glob, and stat project files directly.
+- The workspace is mounted read-write (mount path at the end of these
+  instructions): use `pathlib.Path` with absolute paths under the mount to
+  read, write, glob, and stat project files directly. Relative paths do
+  not resolve inside the sandbox.
 - Environment variables (isolated), in-memory scratch files, and the real
   clock (`time` module) work.
 - There is NO network in the sandbox: anything remote goes through a
@@ -78,8 +81,23 @@ determines how fast it runs:
 """
 
 
+def mount_note(host_path: str, mount_path: str) -> str:
+    """Where the workspace lives in the sandbox, spelled out for the model."""
+    if mount_path == host_path:
+        return f"\nWorkspace mount: `{mount_path}` (same as the host path).\n"
+    return (
+        f"\nWorkspace mount: `{mount_path}` is the host directory `{host_path}`.\n"
+        "Tool functions (`read_file`, `grep`, shell, ...) take host paths;\n"
+        "`pathlib` inside the sandbox takes mount paths.\n"
+    )
+
+
+@dataclass
 class CodeModeGuidance(AbstractCapability[Any]):
     """Teach the model the fast-path snippet shape when the mode is on."""
 
+    host_path: str
+    mount_path: str
+
     def get_instructions(self) -> str:
-        return CODE_MODE_GUIDANCE
+        return CODE_MODE_GUIDANCE + mount_note(self.host_path, self.mount_path)

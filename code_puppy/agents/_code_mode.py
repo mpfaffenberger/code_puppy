@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import os
 import warnings
+from pathlib import PureWindowsPath
 from typing import Any, List, Sequence
 
 import pydantic_ai
@@ -55,6 +56,16 @@ for _invalid_escape_category in (SyntaxWarning, DeprecationWarning):
         category=_invalid_escape_category,
         module=r"^<unknown>$",
     )
+
+# MCP servers routinely ship tools without an output schema (Blender's
+# screenshot tools, for one); the sandbox signature just degrades to
+# ``-> Any``. Nothing the user can act on, so keep it off the terminal. The
+# harness's name-collision warning is actionable and stays visible.
+warnings.filterwarnings(
+    "ignore",
+    message=r"CodeMode: tool .* has no return schema",
+    category=UserWarning,
+)
 
 # The read-only trio: pure with respect to the workspace, safe to re-run or discard.
 # Speculated even before an agent is bound (see DeclaredSpeculation).
@@ -163,6 +174,23 @@ class SilenceToolOutput(AbstractCapability[Any]):
             bus.pop_tool_output_quiet()
 
 
+def sandbox_mount_path(host_path: str) -> str:
+    """Where ``host_path`` appears inside the sandbox.
+
+    Monty's virtual filesystem is POSIX-only and rejects ``C:\\...`` outright,
+    so Windows paths get the Git Bash spelling every model already knows:
+    ``C:\\Users\\x`` -> ``/c/Users/x``, ``\\\\srv\\share\\x`` -> ``/srv/share/x``.
+    POSIX paths pass through untouched.
+    """
+    if host_path.startswith("/"):
+        return host_path
+    posix = PureWindowsPath(host_path).as_posix()
+    drive, colon, rest = posix.partition(":/")
+    if colon:
+        return f"/{drive.lower()}/{rest}".rstrip("/")
+    return "/" + posix.lstrip("/")
+
+
 def build_speculative_code_mode(agent_tools: Sequence[str]) -> List[Any]:
     """Build the speculative CodeMode capabilities when the flag is on, else ``[]``.
 
@@ -178,6 +206,7 @@ def build_speculative_code_mode(agent_tools: Sequence[str]) -> List[Any]:
         [name for name in SANDBOXED_READ_ONLY_TOOLS if name in agent_tools]
     )
     workspace = os.getcwd()
+    mount_path = sandbox_mount_path(workspace)
     return [
         CodeMode(
             tools=_sandbox_tool,
@@ -187,10 +216,11 @@ def build_speculative_code_mode(agent_tools: Sequence[str]) -> List[Any]:
             # launches the read-only calls beyond the execution frontier and the eager
             # feeds claim them.
             eager=True,
-            # The workspace under its real path, so absolute paths in
-            # prompts and snippets need no translation.
+            # The workspace under its real path on POSIX, so absolute paths
+            # need no translation; Windows needs a POSIX spelling, which
+            # CodeModeGuidance spells out for the model.
             mount=MountDir(
-                virtual_path=workspace, host_path=workspace, mode="read-write"
+                virtual_path=mount_path, host_path=workspace, mode="read-write"
             ),
             # Isolated env + in-memory scratch files + host clock.
             os_access=OSAccess(),
@@ -198,5 +228,5 @@ def build_speculative_code_mode(agent_tools: Sequence[str]) -> List[Any]:
         SilenceToolOutput(),
         EagerTiming(),
         StreamedToolNameNormalizer(),
-        CodeModeGuidance(),
+        CodeModeGuidance(host_path=workspace, mount_path=mount_path),
     ]
