@@ -1144,7 +1144,9 @@ async def _get_user_approval_async_impl(
             with suspended_key_listener():
                 user_feedback = (
                     await read_feedback(
-                        lambda: Prompt.ask("[bold green]\u27a4[/bold green]", default="")
+                        lambda: Prompt.ask(
+                            "[bold green]\u27a4[/bold green]", default=""
+                        )
                     )
                 ).strip()
 
