@@ -24,18 +24,16 @@ class ProxyConfig:
 
     verify: Union[bool, str, None]
     trust_env: bool
-    proxy_url: str | None
     disable_retry: bool
     http2_enabled: bool
 
 
 def resolve_proxy_config(verify: Union[bool, str, None] = None) -> ProxyConfig:
-    """Resolve proxy, SSL, and retry settings from environment.
+    """Resolve client TLS, retry, and environment-proxy settings.
 
-    This centralizes the logic for detecting proxies, determining SSL verification,
-    and checking if retry transport should be disabled.
-
-    Shared by the legacy ``httpx`` and ``httpx2`` client factories so proxy handling
+    Proxy selection is left to httpx so scheme-specific proxies and ``NO_PROXY``
+    are honored per destination. This centralizes TLS and retry settings shared by
+    the legacy ``httpx`` and ``httpx2`` client factories so proxy handling
     cannot drift between the two.
     """
     if verify is None:
@@ -65,20 +63,9 @@ def resolve_proxy_config(verify: Union[bool, str, None] = None) -> ProxyConfig:
     else:
         trust_env = False
 
-    # Extract proxy URL
-    proxy_url = None
-    if has_proxy:
-        proxy_url = (
-            os.environ.get("HTTPS_PROXY")
-            or os.environ.get("https_proxy")
-            or os.environ.get("HTTP_PROXY")
-            or os.environ.get("http_proxy")
-        )
-
     return ProxyConfig(
         verify=verify,
         trust_env=trust_env,
-        proxy_url=proxy_url,
         disable_retry=disable_retry,
         http2_enabled=http2_enabled,
     )
@@ -157,7 +144,6 @@ def create_async_client(
         return RetryingAsyncClient(
             retry_status_codes=retry_status_codes,
             model_name=model_name,
-            proxy=config.proxy_url,
             verify=config.verify,
             headers=headers or {},
             timeout=timeout,
@@ -166,7 +152,6 @@ def create_async_client(
         )
     else:
         return httpx.AsyncClient(
-            proxy=config.proxy_url,
             verify=config.verify,
             headers=headers or {},
             timeout=timeout,
@@ -227,7 +212,6 @@ def create_reopenable_async_client(
     config = resolve_proxy_config(verify)
 
     base_kwargs = {
-        "proxy": config.proxy_url,
         "verify": config.verify,
         "headers": headers or {},
         "timeout": timeout,
