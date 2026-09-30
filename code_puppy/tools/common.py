@@ -1139,13 +1139,12 @@ async def _get_user_approval_async_impl(
             # Reading feedback must not block the agent's event loop.
             # Keep stdin ownership suspended until the worker finishes.
             from code_puppy.agents._key_listeners import suspended_key_listener
+            from code_puppy.tools.approval_feedback import read_feedback
 
             with suspended_key_listener():
                 user_feedback = (
-                    await asyncio.to_thread(
-                        Prompt.ask,
-                        "[bold green]\u27a4[/bold green]",
-                        default="",
+                    await read_feedback(
+                        lambda: Prompt.ask("[bold green]\u27a4[/bold green]", default="")
                     )
                 ).strip()
 
