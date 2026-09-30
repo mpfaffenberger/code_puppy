@@ -465,7 +465,7 @@ async def _invoke_agent_impl(
             )
             from code_puppy.events.bridge import CapabilityEventBridge
             from code_puppy.agents._model_message_transform import (
-                build_model_message_transform,
+                PluginMessageTransform,
             )
 
             # Build the pydantic-ai agent. MCP servers always included; plugins
@@ -488,7 +488,7 @@ async def _invoke_agent_impl(
                 # pydantic-ai v2).
                 capabilities=[
                     HistoryCompaction(agent_config),
-                    build_model_message_transform(agent_name),
+                    PluginMessageTransform(agent_name),
                     # Recursion guards ride the wrap_tool_execute seam so a
                     # sub-agent's own invoke_agent calls are denied before
                     # the tool body runs. Sole wrap_tool_execute implementer,

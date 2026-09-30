@@ -19,7 +19,7 @@ from pydantic_ai.models.function import FunctionModel
 from pydantic_ai.models.test import TestModel
 
 from code_puppy import callbacks
-from code_puppy.agents._model_message_transform import build_model_message_transform
+from code_puppy.agents._model_message_transform import PluginMessageTransform
 
 
 @pytest.fixture(autouse=True)
@@ -84,6 +84,55 @@ async def test_disabled_plugin_callback_is_filtered(monkeypatch):
     assert messages == []
 
 
+async def test_wrap_model_request_copies_context_and_isolates_mutations():
+    """Contract: plugins mutate a fresh copy; the caller's context stays pristine."""
+
+    def transform(_agent_name, messages):
+        messages.append(_message("injected"))
+
+    callbacks.register_callback("transform_model_messages", transform)
+    capability = PluginMessageTransform("code-puppy")
+    original_messages: list[ModelMessage] = [_message("original")]
+    request_context = SimpleNamespace(messages=original_messages)
+    sentinel = ModelResponse(parts=[TextPart(content="done")])
+    seen: list[list[ModelMessage]] = []
+
+    async def handler(ctx):
+        seen.append(ctx.messages)
+        return sentinel
+
+    response = await capability.wrap_model_request(
+        None, request_context=request_context, handler=handler
+    )
+
+    assert response is sentinel
+    assert _contents(seen[0]) == ["original", "injected"]
+    # The caller's context and list object are untouched.
+    assert request_context.messages is original_messages
+    assert _contents(original_messages) == ["original"]
+    assert seen[0] is not original_messages
+
+
+async def test_wrap_model_request_without_callbacks_is_a_passthrough():
+    capability = PluginMessageTransform(None)
+    original_messages = [_message("only")]
+    request_context = SimpleNamespace(messages=original_messages)
+    sentinel = ModelResponse(parts=[TextPart(content="done")])
+
+    async def handler(ctx):
+        assert _contents(ctx.messages) == ["only"]
+        # Copy semantics hold even with zero callbacks registered.
+        assert ctx is not request_context
+        assert ctx.messages is not original_messages
+        return sentinel
+
+    response = await capability.wrap_model_request(
+        None, request_context=request_context, handler=handler
+    )
+
+    assert response is sentinel
+
+
 async def test_transform_is_after_history_processing_and_request_only():
     model_requests: list[list[str]] = []
     transformed_agents: list[str | None] = []
@@ -111,7 +160,7 @@ async def test_transform_is_after_history_processing_and_request_only():
         FunctionModel(model),
         capabilities=[
             ProcessHistory(process_history),
-            build_model_message_transform("code-puppy"),
+            PluginMessageTransform("code-puppy"),
         ],
     )
 
@@ -140,7 +189,7 @@ async def test_streaming_uses_the_same_request_only_transform():
     callbacks.register_callback("transform_model_messages", transform)
     agent = Agent(
         TestModel(custom_output_text="done"),
-        capabilities=[build_model_message_transform("code-puppy")],
+        capabilities=[PluginMessageTransform("code-puppy")],
     )
 
     result = await agent.run("start", event_stream_handler=handle_events)

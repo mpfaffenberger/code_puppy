@@ -23,7 +23,7 @@ from code_puppy.agents._code_mode import (
     build_speculative_code_mode,
 )
 from code_puppy.agents._compaction import HistoryCompaction
-from code_puppy.agents._model_message_transform import build_model_message_transform
+from code_puppy.agents._model_message_transform import PluginMessageTransform
 from code_puppy.agents._subagent_recursion import build_subagent_recursion_guard
 from code_puppy.agents._output_limits import (
     build_response_clamp,
@@ -690,7 +690,7 @@ def build_pydantic_agent(
                 history_compaction,
                 ProcessHistory(steer_processor),
                 build_response_clamp(),
-                build_model_message_transform(logical_agent_name),
+                PluginMessageTransform(logical_agent_name),
                 # Sub-agent recursion guards on the wrap_tool_execute seam
                 # (denies invoke_agent calls past the depth caps before the
                 # tool body runs). Sole wrap_tool_execute implementer, so
