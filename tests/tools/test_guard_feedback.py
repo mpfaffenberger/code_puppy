@@ -7,6 +7,9 @@ import pexpect
 import pytest
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="pexpect.spawn requires a PTY (Unix only)"
+)
 @pytest.mark.parametrize(
     "guard,command",
     [
