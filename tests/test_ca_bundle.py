@@ -179,6 +179,17 @@ def _tls_socket(context: ssl.SSLContext, url: str):
         raise
 
 
+def _assert_tls_accepted(context: ssl.SSLContext, url: str) -> None:
+    with _tls_socket(context, url) as connected:
+        connected.sendall(
+            b"GET / HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n"
+        )
+        response = b""
+        while chunk := connected.recv(4096):
+            response += chunk
+    assert b"200 OK" in response
+
+
 def _assert_tls_rejected(context: ssl.SSLContext, url: str) -> None:
     with pytest.raises(ssl.SSLError):
         _tls_socket(context, url)
@@ -213,8 +224,7 @@ def test_ca_environment_cannot_inject_roots_into_contexts(
     with https_server(injected) as injected_url:
         # Positive control: prove this Python/OpenSSL runtime recognizes the
         # environment value before proving our explicit contexts ignore it.
-        with _tls_socket(ssl.create_default_context(), injected_url):
-            pass
+        _assert_tls_accepted(ssl.create_default_context(), injected_url)
         _assert_tls_rejected(system, injected_url)
         _assert_tls_rejected(combined, injected_url)
 
