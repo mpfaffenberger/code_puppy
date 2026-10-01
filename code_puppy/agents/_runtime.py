@@ -507,17 +507,8 @@ def streaming_retry(
 
 
 def _sanitize_prompt(prompt: str) -> str:
-    """Strip lone UTF-16 surrogates (common on Windows copy-paste)."""
-    if not prompt:
-        return prompt
-    try:
-        return prompt.encode("utf-8", errors="surrogatepass").decode(
-            "utf-8", errors="replace"
-        )
-    except (UnicodeEncodeError, UnicodeDecodeError):
-        return "".join(
-            ch if ord(ch) < 0xD800 or ord(ch) > 0xDFFF else "\ufffd" for ch in prompt
-        )
+    from code_puppy.tools.common import _sanitize_string
+    return _sanitize_string(prompt)
 
 
 def _build_prompt_payload(

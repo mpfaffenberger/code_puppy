@@ -1301,13 +1301,8 @@ def normalize_command_history():
         ) as f:
             content = f.read()
 
-        # Sanitize any surrogate characters that might have slipped in
-        try:
-            content = content.encode("utf-8", errors="surrogatepass").decode(
-                "utf-8", errors="replace"
-            )
-        except (UnicodeEncodeError, UnicodeDecodeError):
-            pass  # Keep original if sanitization fails
+        from code_puppy.tools.common import _sanitize_string
+        content = _sanitize_string(content)
 
         # Skip empty files
         if not content.strip():
@@ -1744,18 +1739,8 @@ def save_command_to_history(command: str):
     try:
         timestamp = datetime.datetime.now().isoformat(timespec="seconds")
 
-        # Sanitize command to remove any invalid surrogate characters
-        # that could cause encoding errors on Windows
-        try:
-            command = command.encode("utf-8", errors="surrogatepass").decode(
-                "utf-8", errors="replace"
-            )
-        except (UnicodeEncodeError, UnicodeDecodeError):
-            # If that fails, do a more aggressive cleanup
-            command = "".join(
-                char if ord(char) < 0xD800 or ord(char) > 0xDFFF else "\ufffd"
-                for char in command
-            )
+        from code_puppy.tools.common import _sanitize_string
+        command = _sanitize_string(command)
 
         with open(
             COMMAND_HISTORY_FILE, "a", encoding="utf-8", errors="surrogateescape"
