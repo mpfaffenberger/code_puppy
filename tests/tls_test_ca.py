@@ -20,15 +20,10 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
-import pytest
-
-try:
-    from cryptography import x509
-    from cryptography.hazmat.primitives import hashes, serialization
-    from cryptography.hazmat.primitives.asymmetric import ec
-    from cryptography.x509.oid import NameOID
-except ImportError:
-    pytest.skip("cryptography is required for TLS fixtures", allow_module_level=True)
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.x509.oid import NameOID
 
 
 @dataclass(frozen=True)

@@ -4,7 +4,9 @@ In-memory contexts combine environment-independent system trust, certifi, and
 an optional corporate bundle. Exported PEM files contain only the enumerable
 certifi and corporate roots. System ``capath`` entries are intentionally not
 promised in exported files because OpenSSL loads them lazily and cannot
-reliably enumerate them before a handshake.
+reliably enumerate them before a handshake. On macOS, OpenSSL contexts also do
+not automatically inherit roots installed only in the system Keychain; callers
+must supply those roots explicitly as ``corporate_bundle``.
 
 The module deliberately depends only on the standard library and certifi so it
 is safe to import in early-startup and lightweight client code.
@@ -51,6 +53,8 @@ def _load_windows_server_auth_roots(context: ssl.SSLContext) -> None:
 def _secure_client_context() -> ssl.SSLContext:
     """Create a client context matching supported Python runtime policy."""
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    # CPython 3.13 added these to create_default_context(). Mirror them here
+    # because calling it without a cafile would read SSL_CERT_* overrides.
     if sys.version_info >= (3, 13):
         context.verify_flags |= ssl.VERIFY_X509_PARTIAL_CHAIN
         context.verify_flags |= ssl.VERIFY_X509_STRICT
@@ -126,7 +130,7 @@ def _read_regular_file(path: Path, expected_size: int) -> bytes | None:
 
 def _atomic_write(path: Path, content: bytes) -> None:
     """Atomically install ``content`` without resolving a destination symlink."""
-    path.parent.mkdir(parents=True, exist_ok=True)
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     descriptor, temporary_name = tempfile.mkstemp(
         dir=path.parent,
         prefix=f".{path.name}-",

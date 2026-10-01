@@ -15,7 +15,7 @@ from urllib.parse import urlparse
 import certifi
 import pytest
 
-from code_puppy import ca_bundle
+from code_puppy import ca_bundle, http_utils
 from tests.tls_test_ca import (
     https_server,
     make_test_ca,
@@ -101,6 +101,8 @@ def test_written_bundle_holds_public_and_corporate_roots(cas, tmp_path):
     assert written_path.name.startswith("combined-")
     assert written_path.suffix == ".pem"
     assert len(written_path.stem.removeprefix("combined-")) == 64
+    if os.name == "posix":
+        assert written_path.parent.stat().st_mode & 0o777 == 0o700
     assert _ders(public.ca_pem) | _ders(corporate.ca_pem) <= _ders(written_path)
     assert ca_bundle.trusts_public_roots(written)
 
@@ -229,11 +231,15 @@ def test_ca_environment_cannot_inject_roots_into_contexts(
         _assert_tls_rejected(combined, injected_url)
 
 
-def test_exported_bundle_verifies_public_and_corporate_in_child(cas, tmp_path):
+def test_http_utils_bundle_verifies_public_and_corporate_in_child(
+    cas, tmp_path, monkeypatch
+):
     public, corporate = cas
-    written = ca_bundle.write_public_and_corporate_bundle(
-        str(corporate.ca_pem), str(tmp_path / "combined.pem")
-    )
+    monkeypatch.setenv("SSL_CERT_FILE", str(corporate.ca_pem))
+    monkeypatch.setattr(http_utils, "DATA_DIR", str(tmp_path))
+
+    written = http_utils.get_cert_bundle_path()
+    assert written is not None
     with https_server(public) as public_url, https_server(corporate) as corporate_url:
         combined_result = verify_in_child(
             [public_url, corporate_url],

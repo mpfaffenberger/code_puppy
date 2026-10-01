@@ -450,6 +450,7 @@ durable = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "cryptography" },
     { name = "pexpect" },
     { name = "pyte" },
     { name = "pytest" },
@@ -498,6 +499,7 @@ provides-extras = ["bedrock", "durable", "computer-use"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "cryptography", specifier = ">=44.0.0" },
     { name = "pexpect", specifier = ">=4.9.0" },
     { name = "pyte", specifier = ">=0.8.2" },
     { name = "pytest", specifier = ">=8.3.4" },
