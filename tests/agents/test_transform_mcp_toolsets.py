@@ -66,7 +66,10 @@ def _patched_build(agent, mcp_servers):
         ),
         patch.object(_builder.ModelFactory, "load_config", staticmethod(dict)),
         patch.object(_builder, "load_mcp_servers", lambda **k: mcp_servers),
-        patch.object(_builder, "make_model_settings", lambda *a, **k: None),
+        patch(
+            "code_puppy.agents._model_settings.make_model_settings",
+            lambda *a, **k: {},
+        ),
         patch("code_puppy.tools.register_tools_for_agent", lambda *a, **k: None),
     ):
         yield

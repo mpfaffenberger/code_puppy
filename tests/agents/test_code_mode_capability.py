@@ -330,8 +330,9 @@ class TestBuilderIntegration:
             ),
             patch.object(_builder.ModelFactory, "load_config", staticmethod(dict)),
             patch.object(_builder, "load_mcp_servers", lambda **_kwargs: []),
-            patch.object(
-                _builder, "make_model_settings", lambda *_args, **_kwargs: None
+            patch(
+                "code_puppy.agents._model_settings.make_model_settings",
+                lambda *_args, **_kwargs: {},
             ),
             patch("code_puppy.tools.register_tools_for_agent", register),
         ):
