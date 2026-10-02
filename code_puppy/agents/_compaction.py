@@ -18,6 +18,8 @@ What remains here is the Code Puppy-specific glue:
   * ``build_compaction_strategy`` — config → ``FallbackCompaction`` wiring
     (summarize first, slide the window when summarization fails);
   * ``CodePuppyCompactionStore`` — the store adapter over an agent;
+  * ``_ReportingStrategy`` — in-run progress reporting (protected tail /
+    summarized count, or truncation notice) wrapped around the strategy;
   * ``build_history_compaction`` — dependency injection for the pure
     capability (config getters bound late so monkeypatching works);
   * the legacy ``compact()`` / ``HistoryCompaction(agent)`` shims.
@@ -40,6 +42,7 @@ from pydantic_ai.messages import ModelMessage
 from pydantic_ai.models import Model
 from pydantic_ai.tools import RunContext
 from pydantic_ai_harness.compaction import (
+    CompactionStrategy,
     FallbackCompaction,
     SlidingWindowCompaction,
     SummarizingCompaction,
@@ -64,7 +67,8 @@ from code_puppy.config import (
     get_protected_token_count,
     get_summarization_model_name,
 )
-from code_puppy.messaging import emit_warning
+from code_puppy.i18n import t
+from code_puppy.messaging import emit_info, emit_warning
 
 # Kept importable at module level for the context-indicator plugin, which
 # monkeypatches ``_compaction.update_spinner_context`` — the event bridge
@@ -219,6 +223,63 @@ class CodePuppyCompactionStore:
         )
 
 
+def _report_compaction_start(
+    messages: List[ModelMessage], model_name: Optional[str]
+) -> None:
+    """Report what an in-run compaction is about to do.
+
+    Reporting only: the harness strategies stay the sole owners of safe
+    cutoff selection, tool-pair preservation, and fallback execution.
+    The protected tail is an estimate mirroring ``protected_token_count``.
+    """
+    if get_compaction_strategy() == "truncation":
+        emit_info(t("compaction.truncating"))
+        return
+
+    protected_tokens = get_protected_token_count()
+    running_tokens = (
+        estimate_tokens_for_message(messages[0], model_name) if messages else 0
+    )
+    protected_count = 1 if messages else 0
+    for message in reversed(messages[1:]):
+        message_tokens = estimate_tokens_for_message(message, model_name)
+        if running_tokens + message_tokens > protected_tokens:
+            break
+        running_tokens += message_tokens
+        protected_count += 1
+
+    emit_info(
+        t(
+            "compaction.protecting",
+            count=protected_count,
+            tokens=running_tokens,
+            limit=protected_tokens,
+        )
+    )
+    emit_info(
+        t("compaction.summarizing", count=max(0, len(messages) - protected_count))
+    )
+
+
+@dataclasses.dataclass
+class _ReportingStrategy:
+    """``CompactionStrategy`` decorator that reports before delegating.
+
+    Lives in the glue layer so the pure capability never learns about
+    Code Puppy messaging. It only runs once compaction has actually been
+    decided (threshold crossed or forced, and not cancelled by a hook).
+    """
+
+    inner: CompactionStrategy[Any]
+    model_name: Optional[str]
+
+    async def compact(
+        self, messages: List[ModelMessage], ctx: RunContext[Any]
+    ) -> List[ModelMessage]:
+        _report_compaction_start(messages, self.model_name)
+        return await self.inner.compact(messages, ctx)
+
+
 def _take_forced_compaction_request() -> bool:
     from code_puppy.messaging.pause_controller import get_pause_controller
 
@@ -237,9 +298,12 @@ def build_history_compaction(agent: Any) -> PureHistoryCompaction:
     tests and plugins that monkeypatch ``_compaction.get_compaction_*``
     keep working.
     """
+    store = CodePuppyCompactionStore(agent)
     return PureHistoryCompaction(
-        store=CodePuppyCompactionStore(agent),
-        strategy_factory=lambda: build_compaction_strategy(),
+        store=store,
+        strategy_factory=lambda: _ReportingStrategy(
+            build_compaction_strategy(), store.model_name()
+        ),
         strategy_name=lambda: get_compaction_strategy(),
         compaction_threshold=lambda: get_compaction_threshold(),
         token_estimator=estimate_tokens_for_message,
