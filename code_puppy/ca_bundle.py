@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import ssl
 import stat
 import sys
@@ -130,6 +131,8 @@ def _read_regular_file(path: Path, expected_size: int) -> bytes | None:
 
 def _atomic_write(path: Path, content: bytes) -> None:
     """Atomically install ``content`` without resolving a destination symlink."""
+    # atomic_io resolves realpath(), which would follow destination symlinks.
+    # Keep this path-preserving writer and private directory creation here.
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     descriptor, temporary_name = tempfile.mkstemp(
         dir=path.parent,
@@ -163,11 +166,34 @@ def write_public_and_corporate_bundle(corporate_bundle: str, destination: str) -
     """
     # Export only enumerable, explicit sources. OpenSSL capath roots are loaded
     # lazily, so claiming they are faithfully serializable would be fiction.
-    context = explicit_ca_context(certifi.where())
-    context.load_verify_locations(cafile=corporate_bundle)
-    pem = "".join(
-        ssl.DER_cert_to_PEM_cert(der) for der in context.get_ca_certs(binary_form=True)
-    ).encode("ascii")
+    # Preserve certificate PEMs rather than enumerating get_ca_certs(), which
+    # silently filters pinned CA:FALSE leaves. Export certificates only: a
+    # configured file may also contain private keys that must not be copied.
+    certificate_blocks = []
+    for source in (certifi.where(), corporate_bundle):
+        # Validate the original file, not just extracted blocks: malformed PEM
+        # trailers must fail rather than being silently sanitized.
+        explicit_ca_context(source)
+        content = Path(source).read_bytes()
+        if b"-----BEGIN TRUSTED CERTIFICATE-----" in content:
+            # X509_AUX trust/reject metadata must not be lost in a PEM rewrite.
+            # Let the resolver fall back to this original OpenSSL trust file.
+            raise ssl.SSLError(
+                "OpenSSL trusted-certificate metadata requires the original CA file"
+            )
+        blocks = re.findall(
+            rb"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----",
+            content,
+            flags=re.DOTALL,
+        )
+        source_pem = b"\n".join(blocks) + b"\n"
+        context = _secure_client_context()
+        try:
+            context.load_verify_locations(cadata=source_pem.decode("ascii"))
+        except (ValueError, UnicodeError) as exc:
+            raise ssl.SSLError("CA source contains no valid certificate PEMs") from exc
+        certificate_blocks.append(source_pem)
+    pem = b"\n".join(certificate_blocks)
     output_path = _content_addressed_path(destination, pem)
     # Do not reap older digests here: callers may have persisted one of those
     # immutable paths in their environment. The files are intentionally small.

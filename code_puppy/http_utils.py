@@ -106,10 +106,26 @@ def get_cert_bundle_path() -> str | None:
     that file through unchanged makes public HTTPS fail in clients and child
     processes that treat it as their complete file-based trust source. Combine
     it with certifi roots in an immutable per-user file before propagation.
+    Sources are checked in SSL_CERT_FILE, REQUESTS_CA_BUNDLE, CURL_CA_BUNDLE
+    order. Set CODE_PUPPY_COMBINE_CA_BUNDLE=false to retain restricted file trust.
     """
-    ssl_cert_file = os.environ.get("SSL_CERT_FILE")
-    if not ssl_cert_file or not os.path.exists(ssl_cert_file):
+    ssl_cert_file = next(
+        (
+            value
+            for name in ("SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE")
+            if (value := os.environ.get(name)) and os.path.isfile(value)
+        ),
+        None,
+    )
+    if not ssl_cert_file:
         return None
+    # Preserve deliberately restricted/pinned file trust when requested.
+    if os.environ.get("CODE_PUPPY_COMBINE_CA_BUNDLE", "true").lower() in (
+        "0",
+        "false",
+        "no",
+    ):
+        return ssl_cert_file
 
     destination = os.path.join(
         DATA_DIR,

@@ -18,6 +18,7 @@ import pytest
 from code_puppy import ca_bundle, http_utils
 from tests.tls_test_ca import (
     https_server,
+    make_pinned_leaf,
     make_test_ca,
     minimal_child_env,
     verify_in_child,
@@ -231,11 +232,17 @@ def test_ca_environment_cannot_inject_roots_into_contexts(
         _assert_tls_rejected(combined, injected_url)
 
 
+@pytest.mark.parametrize(
+    "source_variable", ["SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE"]
+)
 def test_http_utils_bundle_verifies_public_and_corporate_in_child(
-    cas, tmp_path, monkeypatch
+    cas, tmp_path, monkeypatch, source_variable
 ):
     public, corporate = cas
-    monkeypatch.setenv("SSL_CERT_FILE", str(corporate.ca_pem))
+    for name in ("SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.delenv("CODE_PUPPY_COMBINE_CA_BUNDLE", raising=False)
+    monkeypatch.setenv(source_variable, str(corporate.ca_pem))
     monkeypatch.setattr(http_utils, "DATA_DIR", str(tmp_path))
 
     written = http_utils.get_cert_bundle_path()
@@ -254,6 +261,73 @@ def test_http_utils_bundle_verifies_public_and_corporate_in_child(
         combined_result.stdout + combined_result.stderr
     )
     assert corporate_only_result.returncode != 0
+
+
+def test_export_preserves_pinned_non_ca_anchor(cas, tmp_path):
+    pinned = make_pinned_leaf(tmp_path)
+    written = ca_bundle.write_public_and_corporate_bundle(
+        str(pinned.ca_pem), str(tmp_path / "pinned-combined.pem")
+    )
+    with https_server(pinned) as url:
+        _assert_tls_accepted(ca_bundle.explicit_ca_context(str(pinned.ca_pem)), url)
+        _assert_tls_accepted(ca_bundle.explicit_ca_context(written), url)
+
+
+def test_restricted_trust_opt_out_keeps_original_file(cas, monkeypatch):
+    _, corporate = cas
+    monkeypatch.setenv("SSL_CERT_FILE", str(corporate.ca_pem))
+    monkeypatch.setenv("CODE_PUPPY_COMBINE_CA_BUNDLE", "false")
+    with mock.patch.object(http_utils, "write_public_and_corporate_bundle") as writer:
+        assert http_utils.get_cert_bundle_path() == str(corporate.ca_pem)
+    writer.assert_not_called()
+
+
+def test_export_does_not_copy_private_keys(cas, tmp_path):
+    _, corporate = cas
+    source = tmp_path / "cert-and-key.pem"
+    source.write_bytes(
+        corporate.ca_pem.read_bytes() + corporate.server_key_pem.read_bytes()
+    )
+    written = ca_bundle.write_public_and_corporate_bundle(
+        str(source), str(tmp_path / "safe.pem")
+    )
+    assert b"PRIVATE KEY" not in Path(written).read_bytes()
+
+
+def test_malformed_source_is_not_sanitized(cas, tmp_path):
+    _, corporate = cas
+    source = tmp_path / "truncated.pem"
+    source.write_bytes(
+        corporate.ca_pem.read_bytes() + b"\n-----BEGIN CERTIFICATE-----\n"
+    )
+    with pytest.raises(ssl.SSLError):
+        ca_bundle.write_public_and_corporate_bundle(
+            str(source), str(tmp_path / "out.pem")
+        )
+
+
+def test_trusted_certificate_metadata_preserves_original_file(
+    cas, tmp_path, monkeypatch
+):
+    public, corporate = cas
+    openssl = shutil.which("openssl")
+    if not openssl:
+        pytest.skip("openssl is required for trusted-certificate fixture")
+    trusted = subprocess.run(
+        [openssl, "x509", "-in", str(corporate.ca_pem), "-trustout"],
+        check=True,
+        capture_output=True,
+    ).stdout
+    source = tmp_path / "trusted.pem"
+    source.write_bytes(public.ca_pem.read_bytes() + trusted)
+    monkeypatch.setenv("SSL_CERT_FILE", str(source))
+    monkeypatch.delenv("CODE_PUPPY_COMBINE_CA_BUNDLE", raising=False)
+    monkeypatch.setattr(http_utils, "DATA_DIR", str(tmp_path))
+    with mock.patch.object(http_utils, "emit_warning") as warning:
+        assert http_utils.get_cert_bundle_path() == str(source)
+    warning.assert_called_once()
+    with https_server(corporate) as url:
+        _assert_tls_accepted(ca_bundle.explicit_ca_context(str(source)), url)
 
 
 def test_internal_only_bundle_does_not_trust_public_roots(cas):

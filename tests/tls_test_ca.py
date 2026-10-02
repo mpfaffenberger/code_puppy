@@ -44,6 +44,42 @@ def _write_pem(path: Path, data: bytes) -> Path:
     return path
 
 
+def make_pinned_leaf(directory: Path) -> ThrowawayCA:
+    """Create a self-signed, non-CA server certificate usable as an anchor."""
+    key = ec.generate_private_key(ec.SECP256R1())
+    name = _name("Pinned leaf")
+    now = datetime.datetime.now(datetime.UTC)
+    certificate = (
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - datetime.timedelta(days=1))
+        .not_valid_after(now + datetime.timedelta(days=1))
+        .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
+        .add_extension(
+            x509.SubjectAlternativeName(
+                [x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]
+            ),
+            critical=False,
+        )
+        .sign(key, hashes.SHA256())
+    )
+    cert_path = _write_pem(
+        directory / "pinned.pem", certificate.public_bytes(serialization.Encoding.PEM)
+    )
+    key_path = _write_pem(
+        directory / "pinned.key",
+        key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        ),
+    )
+    return ThrowawayCA(cert_path, cert_path, key_path)
+
+
 def make_test_ca(directory: Path, label: str) -> ThrowawayCA:
     """Create a root CA named ``label`` and a server cert for 127.0.0.1."""
     now = datetime.datetime.now(datetime.UTC)
