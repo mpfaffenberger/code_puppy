@@ -288,16 +288,46 @@ class TestGetCertBundlePath:
 
             assert get_cert_bundle_path() is None
 
-    def test_returns_path_when_env_exists(self, tmp_path):
+    def test_returns_combined_path_when_env_exists(self, tmp_path):
         cert_file = tmp_path / "cert.pem"
         cert_file.write_text("cert")
-        with patch.dict(os.environ, {"SSL_CERT_FILE": str(cert_file)}):
+        combined = tmp_path / "combined.pem"
+        with (
+            patch.dict(os.environ, {"SSL_CERT_FILE": str(cert_file)}, clear=True),
+            patch(
+                "code_puppy.http_utils.write_public_and_corporate_bundle",
+                return_value=str(combined),
+            ) as write_bundle,
+            patch("code_puppy.http_utils.DATA_DIR", str(tmp_path)),
+        ):
+            from code_puppy.http_utils import get_cert_bundle_path
+
+            assert get_cert_bundle_path() == str(combined)
+        write_bundle.assert_called_once_with(
+            str(cert_file),
+            str(tmp_path / "certs" / "public-and-corporate-ca-bundle.pem"),
+        )
+
+    def test_falls_back_to_configured_path_when_combining_fails(self, tmp_path):
+        cert_file = tmp_path / "cert.pem"
+        cert_file.write_text("cert")
+        with (
+            patch.dict(os.environ, {"SSL_CERT_FILE": str(cert_file)}, clear=True),
+            patch(
+                "code_puppy.http_utils.write_public_and_corporate_bundle",
+                side_effect=OSError("read only"),
+            ),
+            patch("code_puppy.http_utils.emit_warning") as warning,
+        ):
             from code_puppy.http_utils import get_cert_bundle_path
 
             assert get_cert_bundle_path() == str(cert_file)
+        warning.assert_called_once()
 
     def test_returns_none_when_env_path_missing(self):
-        with patch.dict(os.environ, {"SSL_CERT_FILE": "/nonexistent/cert.pem"}):
+        with patch.dict(
+            os.environ, {"SSL_CERT_FILE": "/nonexistent/cert.pem"}, clear=True
+        ):
             from code_puppy.http_utils import get_cert_bundle_path
 
             assert get_cert_bundle_path() is None

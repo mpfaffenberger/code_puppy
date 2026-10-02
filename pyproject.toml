@@ -41,6 +41,7 @@ dependencies = [
     "agent-client-protocol>=0.11.0,<0.12",
 ]
 dev-dependencies = [
+    "cryptography>=44.0.0",
     "pytest>=8.3.4",
     "pytest-cov>=6.1.1",
     "pytest-asyncio>=0.23.1",
@@ -113,6 +114,7 @@ python-preference = "only-managed"
 
 [dependency-groups]
 dev = [
+    "cryptography>=44.0.0",
     "pytest>=8.3.4",
     "pytest-cov>=6.1.1",
     "pytest-asyncio>=0.23.1",

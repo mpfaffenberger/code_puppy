@@ -13,7 +13,8 @@ import httpx
 
 if TYPE_CHECKING:
     import requests
-from code_puppy.config import get_http2
+from code_puppy.ca_bundle import write_public_and_corporate_bundle
+from code_puppy.config import DATA_DIR, get_http2
 
 from .http_retry import RetryingSendMixin
 
@@ -99,9 +100,45 @@ class RetryingAsyncClient(RetryingSendMixin, httpx.AsyncClient):
 
 
 def get_cert_bundle_path() -> str | None:
-    # First check if SSL_CERT_FILE environment variable is set
-    ssl_cert_file = os.environ.get("SSL_CERT_FILE")
-    if ssl_cert_file and os.path.exists(ssl_cert_file):
+    """Return public + configured corporate trust as an exportable CA file.
+
+    ``SSL_CERT_FILE`` may contain only a corporate interception root. Passing
+    that file through unchanged makes public HTTPS fail in clients and child
+    processes that treat it as their complete file-based trust source. Combine
+    it with certifi roots in an immutable per-user file before propagation.
+    Sources are checked in SSL_CERT_FILE, REQUESTS_CA_BUNDLE, CURL_CA_BUNDLE
+    order. Set CODE_PUPPY_COMBINE_CA_BUNDLE=false to retain restricted file trust.
+    """
+    ssl_cert_file = next(
+        (
+            value
+            for name in ("SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE")
+            if (value := os.environ.get(name)) and os.path.isfile(value)
+        ),
+        None,
+    )
+    if not ssl_cert_file:
+        return None
+    # Preserve deliberately restricted/pinned file trust when requested.
+    if os.environ.get("CODE_PUPPY_COMBINE_CA_BUNDLE", "true").lower() in (
+        "0",
+        "false",
+        "no",
+    ):
+        return ssl_cert_file
+
+    destination = os.path.join(
+        DATA_DIR,
+        "certs",
+        "public-and-corporate-ca-bundle.pem",
+    )
+    try:
+        return write_public_and_corporate_bundle(ssl_cert_file, destination)
+    except OSError as exc:
+        emit_warning(
+            f"Could not combine public roots with {ssl_cert_file}; "
+            f"using the configured CA file unchanged: {exc}"
+        )
         return ssl_cert_file
 
 
