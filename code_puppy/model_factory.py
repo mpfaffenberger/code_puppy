@@ -186,19 +186,34 @@ def _thinking_tags_profile(
     ``</think>`` tags, so callers can pass this straight through as
     ``profile=`` without an extra None-check.
     """
-    from code_puppy.model_utils import get_thinking_tags
+    from code_puppy.model_utils import (
+        get_thinking_tags,
+        supports_gpt_responses_controls,
+    )
 
     tags = get_thinking_tags(model_name, model_config)
     profile_kwargs: dict[str, Any] = {}
     if tags is not None:
         profile_kwargs["thinking_tags"] = tags
 
-    underlying_name = str(model_config.get("name", model_name)).lower()
-    if "gpt-5.6" in underlying_name:
+    # GPT-5.6+ gets the Responses reasoning controls (same >= 5.6 threshold as
+    # the /model_settings visibility check in config.py). pydantic-ai infers
+    # these flags from the model-name prefix and does not know newer families,
+    # so without them a gpt-6 setting that looks applied is silently dropped
+    # from the request. ``openai_supports_reasoning`` also gates non-``all_turns``
+    # reasoning_context values and the sampling-param stripping; the two
+    # companions mirror what pydantic-ai infers for gpt-5.5/5.6.
+    # Underlying name wins; the config key is only a fallback when ``name`` is
+    # absent (an alias must not flag another backend).
+    underlying_name = str(model_config.get("name", model_name))
+    if supports_gpt_responses_controls(underlying_name):
         profile_kwargs.update(
             openai_responses_supports_reasoning_mode=True,
             openai_responses_supports_reasoning_context=True,
             openai_supports_encrypted_reasoning_content=True,
+            openai_supports_reasoning=True,
+            openai_reasoning_enabled_by_default=True,
+            openai_supports_reasoning_effort_none=True,
         )
 
     return OpenAIModelProfile(**profile_kwargs) if profile_kwargs else None
@@ -1110,7 +1125,9 @@ class ModelFactory:
 
             if _custom_openai_uses_responses_api(model_name, model_config):
                 return OpenAIResponsesModel(
-                    model_name=model_config["name"], provider=provider
+                    model_name=model_config["name"],
+                    provider=provider,
+                    profile=_thinking_tags_profile(model_name, model_config),
                 )
             return OpenAIChatModel(
                 model_name=model_config["name"],
