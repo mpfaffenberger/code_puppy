@@ -795,6 +795,10 @@ class RichConsoleRenderer:
                 f"{msg.total_matches} matches[/dim]"
             )
 
+        if msg.truncated:
+            warning = escape_rich_markup(t("grep.results_truncated"))
+            self._console.print(f"[bold yellow]  {warning}[/bold yellow]")
+
         if not msg.matches:
             self._console.print(
                 f"[dim]{t('renderer.no_matches', search_term=msg.search_term, directory=msg.directory)}[/dim]"
@@ -864,10 +868,9 @@ class RichConsoleRenderer:
             files=file_count,
         )
         self._console.print(f"[dim]{found_matches}[/dim]")
-        if msg.truncated:
-            self._console.print(
-                f"[yellow]{t('renderer.truncated', matches=msg.total_matches)}[/yellow]"
-            )
+        # Truncation is already flagged right after the header (above, with the
+        # more actionable next_offset-paging message) -- a second warning here
+        # would just repeat the same fact in a less useful way.
 
         # Trailing newline for spinner separation
         self._console.print()
