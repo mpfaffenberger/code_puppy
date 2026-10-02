@@ -327,7 +327,8 @@ class MCPManager(ManagerLifecycleMixin):
                 used by status / listing code paths).
 
         Returns:
-            List of pydantic-ai toolsets ready for ``Agent(toolsets=...)``
+            List of pydantic-ai toolsets, delivered to agents via the
+            ``McpToolsets`` capability (``get_toolset()`` seam).
         """
         bound_names: Optional[set] = None
         if agent_name is not None:
