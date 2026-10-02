@@ -21,6 +21,45 @@ def test_not_an_active_reference(text):
     assert active_reference(text) is None
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "don't change @target",
+        "it's in @target",
+        "can't @",
+        "they're @a.py",
+        "isn't @~/Documents",
+    ],
+)
+def test_contraction_prose_does_not_hide_active_reference(text):
+    # Issue #915: an apostrophe in preceding prose must not open quote state;
+    # the later @token still completes.
+    token = text[text.rfind("@") :]
+    decoded, raw_len = active_reference(text)
+    assert decoded == token[1:]
+    assert raw_len == len(token) - 1
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ('he said "hi" @target', "target"),
+        ('read @"my file.txt" done', None),
+        ("@'unfinished", "unfinished"),
+        ('@"my file.txt', "my file.txt"),
+    ],
+)
+def test_quotes_still_group_attachment_tokens(text, expected):
+    # Word-boundary quotes keep grouping spaces (filenames with spaces), and
+    # a closed quote still ends completion so later prose is not replaced.
+    result = active_reference(text)
+    if expected is None:
+        assert result is None
+    else:
+        assert result is not None
+        assert result[0] == expected
+
+
 @pytest.mark.parametrize("raw", ['@"space fi', "@'space fi", r"@space\ fi"])
 def test_quoted_completion_replaces_entire_raw_path(raw, monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
