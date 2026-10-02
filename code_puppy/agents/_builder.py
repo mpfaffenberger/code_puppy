@@ -16,7 +16,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple
 
 from pydantic_ai import Agent as PydanticAgent
-from pydantic_ai.capabilities import ProcessHistory
 
 from code_puppy.agents._code_mode import (
     bind_declared_speculation,
@@ -29,7 +28,7 @@ from code_puppy.agents._output_limits import (
     build_response_clamp,
     build_tool_output_limits,
 )
-from code_puppy.agents._steer_processor import make_steer_history_processor
+from code_puppy.agents._steering import build_steer_injection
 from code_puppy.agents.event_stream_handler import event_stream_handler
 from code_puppy.events.bridge import CapabilityEventBridge
 from code_puppy.callbacks import (
@@ -655,7 +654,7 @@ def build_pydantic_agent(
         overrides=agent.get_model_settings_overrides(),
     )
     history_compaction = HistoryCompaction(agent)
-    steer_processor = make_steer_history_processor(agent)
+    steer_injection = build_steer_injection(agent)
     logical_agent_name = getattr(agent, "name", None) or agent.__class__.__name__
     # Read before ``_new_pydantic_agent`` runs: the closure's capability list
     # conditions the recursion guard on the agent's declared tool surface.
@@ -677,8 +676,8 @@ def build_pydantic_agent(
             toolsets=toolsets,
             # Order matters: compaction first (may trim history to fit
             # context), THEN steer injection (a fresh steer must not be
-            # compacted away). Both hit before_model_request — the exact
-            # seam ProcessHistory uses — and capabilities apply in
+            # compacted away). Both hit before_model_request and
+            # capabilities apply in
             # registration order (replaces the deprecated
             # `history_processors=` kwarg, removed in pydantic-ai v2).
             # ToolOutputLimits reduces oversized tool returns on a different
@@ -688,7 +687,7 @@ def build_pydantic_agent(
             capabilities=[
                 *build_tool_output_limits(),
                 history_compaction,
-                ProcessHistory(steer_processor),
+                steer_injection,
                 build_response_clamp(),
                 build_model_message_transform(logical_agent_name),
                 # Sub-agent recursion guards on the wrap_tool_execute seam

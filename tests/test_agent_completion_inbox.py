@@ -64,7 +64,9 @@ async def test_cancel_does_not_leave_queue_consumer():
 
 
 def test_mid_run_injection_preserves_instructions(monkeypatch):
-    from code_puppy.agents import _steer_processor as processor
+    from types import SimpleNamespace
+
+    from code_puppy.agents import _steering as processor
 
     owner = Owner()
     monkeypatch.setattr(
@@ -74,7 +76,11 @@ def test_mid_run_injection_preserves_instructions(monkeypatch):
     )
     deliver_completion(owner, "literal @secret /clear")
     original = ModelRequest(parts=[UserPromptPart("task")], instructions="system")
-    messages = processor.make_steer_history_processor(owner)([original])
+    capability = processor.build_steer_injection(owner)
+    request_context = SimpleNamespace(messages=[original])
+    messages = asyncio.run(
+        capability.before_model_request(None, request_context)
+    ).messages
     assert messages[-1].instructions == "system"
     assert messages[-1].parts[0].content == "literal @secret /clear"
     assert pop_completion(owner) is None

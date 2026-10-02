@@ -273,8 +273,9 @@ def _isolated_runtime(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(_runtime, "should_render_fallback", lambda *_, **__: False)
 
 
-# NOTE: old _do_run steering tests deleted — steering now fires via
-# make_steer_history_processor before EVERY model call; unit-tested in test_steer_history_processor.py.
+# NOTE: old _do_run steering tests deleted — steering now fires via the
+# SteerInjection capability before EVERY model call; unit-tested in
+# test_steering_capability.py.
 
 
 @pytest.mark.asyncio
