@@ -9,7 +9,10 @@ not automatically inherit roots installed only in the system Keychain; callers
 must supply those roots explicitly as ``corporate_bundle``.
 
 The module deliberately depends only on the standard library and certifi so it
-is safe to import in early-startup and lightweight client code.
+is safe to import in early-startup and lightweight client code. The public
+context builders and root-subset check are shared APIs for setup/diagnostic
+plugins: they inspect effective trust without mutating process environment.
+The exporter is the file-based counterpart used by HTTP/MCP runtime clients.
 """
 
 from __future__ import annotations
@@ -24,6 +27,8 @@ import tempfile
 from pathlib import Path
 
 import certifi
+
+from code_puppy.atomic_io import ContentTooLarge, read_bounded_bytes
 
 
 def _load_windows_server_auth_roots(context: ssl.SSLContext) -> None:
@@ -170,11 +175,15 @@ def write_public_and_corporate_bundle(corporate_bundle: str, destination: str) -
     # silently filters pinned CA:FALSE leaves. Export certificates only: a
     # configured file may also contain private keys that must not be copied.
     certificate_blocks = []
+    seen_certificates: set[bytes] = set()
     for source in (certifi.where(), corporate_bundle):
         # Validate the original file, not just extracted blocks: malformed PEM
         # trailers must fail rather than being silently sanitized.
+        try:
+            content = read_bounded_bytes(source)
+        except ContentTooLarge as exc:
+            raise OSError("CA source exceeds the bounded-read limit") from exc
         explicit_ca_context(source)
-        content = Path(source).read_bytes()
         if b"-----BEGIN TRUSTED CERTIFICATE-----" in content:
             # X509_AUX trust/reject metadata must not be lost in a PEM rewrite.
             # Let the resolver fall back to this original OpenSSL trust file.
@@ -192,7 +201,13 @@ def write_public_and_corporate_bundle(corporate_bundle: str, destination: str) -
             context.load_verify_locations(cadata=source_pem.decode("ascii"))
         except (ValueError, UnicodeError) as exc:
             raise ssl.SSLError("CA source contains no valid certificate PEMs") from exc
-        certificate_blocks.append(source_pem)
+        for block in blocks:
+            # Deduplicate DER payloads despite PEM wrapping differences, while
+            # retaining the first block verbatim (including CA:FALSE anchors).
+            payload = ssl.PEM_cert_to_DER_cert(block.decode("ascii"))
+            if payload not in seen_certificates:
+                seen_certificates.add(payload)
+                certificate_blocks.append(block + b"\n")
     pem = b"\n".join(certificate_blocks)
     output_path = _content_addressed_path(destination, pem)
     # Do not reap older digests here: callers may have persisted one of those

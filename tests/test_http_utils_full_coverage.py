@@ -293,7 +293,7 @@ class TestGetCertBundlePath:
         cert_file.write_text("cert")
         combined = tmp_path / "combined.pem"
         with (
-            patch.dict(os.environ, {"SSL_CERT_FILE": str(cert_file)}),
+            patch.dict(os.environ, {"SSL_CERT_FILE": str(cert_file)}, clear=True),
             patch(
                 "code_puppy.http_utils.write_public_and_corporate_bundle",
                 return_value=str(combined),
@@ -312,7 +312,7 @@ class TestGetCertBundlePath:
         cert_file = tmp_path / "cert.pem"
         cert_file.write_text("cert")
         with (
-            patch.dict(os.environ, {"SSL_CERT_FILE": str(cert_file)}),
+            patch.dict(os.environ, {"SSL_CERT_FILE": str(cert_file)}, clear=True),
             patch(
                 "code_puppy.http_utils.write_public_and_corporate_bundle",
                 side_effect=OSError("read only"),
@@ -325,7 +325,9 @@ class TestGetCertBundlePath:
         warning.assert_called_once()
 
     def test_returns_none_when_env_path_missing(self):
-        with patch.dict(os.environ, {"SSL_CERT_FILE": "/nonexistent/cert.pem"}):
+        with patch.dict(
+            os.environ, {"SSL_CERT_FILE": "/nonexistent/cert.pem"}, clear=True
+        ):
             from code_puppy.http_utils import get_cert_bundle_path
 
             assert get_cert_bundle_path() is None

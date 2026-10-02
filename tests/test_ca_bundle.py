@@ -294,6 +294,47 @@ def test_export_does_not_copy_private_keys(cas, tmp_path):
     assert b"PRIVATE KEY" not in Path(written).read_bytes()
 
 
+def test_duplicate_certificates_are_emitted_once(cas, tmp_path):
+    public, corporate = cas
+    pinned = make_pinned_leaf(tmp_path)
+    source = tmp_path / "full-bundle.pem"
+    source.write_bytes(
+        public.ca_pem.read_bytes()
+        + corporate.ca_pem.read_bytes()
+        + pinned.ca_pem.read_bytes() * 2
+    )
+    written = ca_bundle.write_public_and_corporate_bundle(
+        str(source), str(tmp_path / "dedup.pem")
+    )
+    content = Path(written).read_bytes()
+    assert content.count(b"-----BEGIN CERTIFICATE-----") == 3
+    assert pinned.ca_pem.read_bytes() in content
+    with https_server(pinned) as url:
+        _assert_tls_accepted(ca_bundle.explicit_ca_context(written), url)
+
+
+def test_oversized_source_falls_back_without_loading_it(cas, tmp_path, monkeypatch):
+    from code_puppy.atomic_io import DEFAULT_MAX_BYTES
+
+    source = tmp_path / "oversized.pem"
+    with source.open("wb") as oversized:
+        oversized.truncate(DEFAULT_MAX_BYTES + 1)
+    monkeypatch.setenv("SSL_CERT_FILE", str(source))
+    monkeypatch.delenv("CODE_PUPPY_COMBINE_CA_BUNDLE", raising=False)
+    monkeypatch.setattr(http_utils, "DATA_DIR", str(tmp_path))
+    original_loader = ca_bundle.explicit_ca_context
+    with (
+        mock.patch.object(
+            ca_bundle, "explicit_ca_context", wraps=original_loader
+        ) as loader,
+        mock.patch.object(http_utils, "emit_warning") as warning,
+    ):
+        assert http_utils.get_cert_bundle_path() == str(source)
+    assert str(source) not in [call.args[0] for call in loader.call_args_list]
+    warning.assert_called_once()
+    assert not (tmp_path / "certs").exists()
+
+
 def test_malformed_source_is_not_sanitized(cas, tmp_path):
     _, corporate = cas
     source = tmp_path / "truncated.pem"
