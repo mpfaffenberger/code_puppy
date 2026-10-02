@@ -657,7 +657,10 @@ class TestInteractiveMode:
             _interactive_patches(),
             AsyncMock(return_value="/exit"),
             extra_patches={
-                "code_puppy.messaging.emit_system_message": emit_system_message,
+                # startup_banner binds emit_system_message at import time via
+                # ``from code_puppy.messaging import emit_system_message``, so
+                # patch the name where it is actually looked up.
+                "code_puppy.startup_banner.emit_system_message": emit_system_message,
             },
         )
 

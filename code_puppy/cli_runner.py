@@ -44,7 +44,6 @@ from code_puppy.keymap import (
     validate_cancel_agent_key,
 )
 from code_puppy.messaging import emit_info
-from code_puppy.platform_utils import startup_banner_text
 from code_puppy.terminal_utils import (
     print_truecolor_warning,
     reset_unix_terminal,
@@ -230,6 +229,21 @@ async def main():
         ),
     )
     parser.add_argument(
+        "--tui",
+        "-t",
+        action="store_true",
+        help="Run in the Textual TUI instead of the classic interactive console",
+    )
+    parser.add_argument(
+        "--serve",
+        action="store_true",
+        help="Serve the Textual UI to a web browser (see also --host/--port)",
+    )
+    parser.add_argument("--host", default="localhost", help=argparse.SUPPRESS)
+    parser.add_argument("--port", type=int, default=8000, help=argparse.SUPPRESS)
+    parser.add_argument("--public-url", default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--serve-debug", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument(
         "--port-base",
         type=str,
         default=None,
@@ -268,54 +282,62 @@ async def main():
         get_message_bus,
     )
 
+    # Resolve which UI to drive. The Textual TUI only takes over interactive
+    # sessions (not -p single-prompt runs), and only when explicitly enabled
+    # via the ui_mode setting / CODE_PUPPY_UI env / /ui command. Defaults off.
+    from code_puppy.config import set_tui_mode
+
+    # --tui / -t = Textual TUI. Everything else (including bare `code-puppy`
+    # or explicit -i/--interactive) is the classic console. No config knob
+    # needed — use a shell alias if you want -t to be the default.
+    use_textual = args.tui and not args.prompt
+
+    # Lock in the mode once so every subsystem (wiggum, ask_user_question,
+    # _runtime key-listener, etc.) reads is_tui_mode() consistently.
+    set_tui_mode(use_textual)
+
     # Create a shared console for both renderers
     display_console = Console()
 
     # Legacy renderer for backward compatibility (emits via get_global_queue)
     message_queue = get_global_queue()
     message_renderer = SynchronousInteractiveRenderer(message_queue, display_console)
-    message_renderer.start()
 
     # New MessageBus renderer for structured messages (tools emit here)
     message_bus = get_message_bus()
     bus_renderer = RichConsoleRenderer(message_bus, display_console)
-    bus_renderer.start()
+
+    # In Textual mode the CooperApp owns the bus via its own renderer, so we
+    # must NOT start the classic renderers (they'd steal messages off the
+    # queue and print behind Textual's back). Classic path is unchanged.
+    if not use_textual:
+        message_renderer.start()
+        bus_renderer.start()
 
     initialize_command_history_file()
     from code_puppy.messaging import emit_error, emit_system_message
 
     # Show the logo on entering interactive mode (no -p flag; covers
-    # both `code-puppy` and `code-puppy -i`).
-    if not args.prompt:
-        try:
-            import pyfiglet
+    # both `code-puppy` and `code-puppy -i`). In Textual mode we DON'T print
+    # it here: stdout gets cleared the instant the app takes over the screen,
+    # so the TUI renders the logo itself (see CooperApp.on_mount). Both paths
+    # share startup_banner.build_logo_renderable.
+    if not args.prompt and not use_textual:
+        from code_puppy.startup_banner import (
+            build_logo_renderable,
+            emit_logo_fallback,
+        )
 
-            # Width-aware banner: full CODE PUPPY when it fits, PUP when
-            # the terminal is too narrow (phones, tight splits).
-            banner_columns = display_console.width
-            intro_lines = pyfiglet.figlet_format(
-                startup_banner_text(banner_columns), font="ansi_shadow"
-            ).split("\n")
-
-            # Simple blue to green gradient (top to bottom)
-            gradient_colors = ["bright_blue", "bright_cyan", "bright_green"]
+        # Width-aware banner: full CODE PUPPY when it fits, PUP when the
+        # terminal is too narrow (phones, tight splits). Left-justified on
+        # purpose -- the full-screen splash handles the centered spectacle.
+        logo = build_logo_renderable(display_console.width)
+        if logo is not None:
+            # Print directly to console to avoid the 'dim' style of system messages.
             display_console.print("\n")
-
-            # Left-justified on purpose -- the full-screen splash handles
-            # the centered spectacle; this banner tops the scrollback.
-            lines = []
-            for line_num, line in enumerate(intro_lines):
-                if line.strip():
-                    # Top=blue, middle=cyan, bottom=green by line position
-                    color_idx = min(line_num // 2, len(gradient_colors) - 1)
-                    color = gradient_colors[color_idx]
-                    lines.append(f"[{color}]{line}[/{color}]")
-                else:
-                    lines.append("")
-            # Print directly to console to avoid the 'dim' style from emit_system_message
-            display_console.print("\n".join(lines))
-        except ImportError:
-            emit_system_message(t("cli.loading"))
+            display_console.print(logo)
+        else:
+            emit_logo_fallback()
 
         # Truecolor warning moved to interactive_mode() so it prints last — max visibility.
 
@@ -587,6 +609,11 @@ async def main():
                 session_name=resolved_resume_session,
                 usage_file=args.usage_file,
             )
+        elif use_textual:
+            # New Textual TUI (Phase 0 scaffold). Owns its own bus renderer.
+            from code_puppy.tui import run_textual_ui
+
+            await run_textual_ui(initial_command=initial_command)
         else:
             # Default to interactive mode (no args = same as -i)
             await interactive_mode(message_renderer, initial_command=initial_command)
@@ -771,27 +798,12 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     from code_puppy.command_line.command_handler import handle_command
 
     display_console = message_renderer.console
-    from rich.text import Text
 
     from code_puppy.messaging import emit_info, emit_system_message
 
-    # Pass a Text object (not a plain str): the SYSTEM renderer escapes Rich
-    # markup in plain strings before printing (see renderers.py), so inline
-    # "[bold]...[/bold]" in the i18n string would show up as literal
-    # brackets. A Text object bypasses that string branch entirely and
-    # renders as one line, actually bold.
-    emit_system_message(Text(t("cli.help.press_tab"), style="bold"))
-    # Tell the user how relentless the puppy is configured to be.
-    from code_puppy.config import get_agency_level, get_speculative_code_mode_enabled
+    from code_puppy.startup_banner import emit_interactive_help
 
-    emit_info(t("cli.agency.status", level=get_agency_level().upper()))
-    # Advertise the chord: the feature is invisible until someone presses it.
-    speculation_key = (
-        "cli.speculation.on"
-        if get_speculative_code_mode_enabled()
-        else "cli.speculation.off"
-    )
-    emit_info(t(speculation_key))
+    emit_interactive_help(textual=False)
     # Print truecolor warning LAST so it's the most visible thing on startup
     # Big ugly red box should be impossible to miss!
     print_truecolor_warning(display_console)
@@ -1582,6 +1594,12 @@ def _initialize_locale():
 def main_entry():
     """Entry point for the installed CLI tool."""
     _force_utf8_stdio()
+    # Web serve mode runs a blocking aiohttp loop; it must NOT be nested inside
+    # asyncio.run(main()). Intercept it here and run the server synchronously.
+    if "--serve" in sys.argv:
+        from code_puppy.tui.serve import run_web_server_from_args
+
+        return run_web_server_from_args(sys.argv[1:])
     try:
         # Capture main()'s return so plugins / normal paths set the exit status
         # (None → 0 or an int exit code).

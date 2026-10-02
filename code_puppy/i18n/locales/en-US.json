@@ -605,6 +605,7 @@
   "tools.common.approval.tell": "Tell {puppy_name} what to change:",
   "tools.common.approval.telling_feedback": "Telling {puppy_name}: \"{feedback}\"",
   "tools.streaming_progress": "{tool} ~{count} tokens",
+  "tui.help.keys": "Press Esc to cancel the running task, Ctrl+T to pause and steer, Ctrl+P for the command palette. Type /exit or /quit (or Ctrl+Q) to quit.",
   "version.core_plugins": "Core plugins version: {version}",
   "version.core_plugins_unknown": "Core plugins version: unknown",
   "version.current": "Current version: {version}",

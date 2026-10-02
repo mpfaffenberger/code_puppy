@@ -115,8 +115,11 @@ async def test_startup_tab_hint_is_a_bold_text_object(monkeypatch, renderer):
     with (
         patch("code_puppy.messaging.emit_info", lambda msg, **k: None),
         patch("code_puppy.messaging.emit_success", lambda msg, **k: None),
+        # The help lines live in startup_banner (shared with the Textual UI),
+        # which binds the emitters at import time.
+        patch("code_puppy.startup_banner.emit_info", lambda msg, **k: None),
         patch(
-            "code_puppy.messaging.emit_system_message",
+            "code_puppy.startup_banner.emit_system_message",
             lambda msg, **k: system_messages.append(msg),
         ),
     ):

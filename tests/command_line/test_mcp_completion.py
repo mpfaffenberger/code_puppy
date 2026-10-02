@@ -119,6 +119,8 @@ SERVER_ARG_SUBCOMMANDS = {
     "logs",
     "edit",
     "remove",
+    "bind",
+    "unbind",
 }
 
 
