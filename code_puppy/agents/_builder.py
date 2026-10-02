@@ -30,7 +30,7 @@ from code_puppy.agents._output_limits import (
     build_tool_output_limits,
 )
 from code_puppy.agents._steer_processor import make_steer_history_processor
-from code_puppy.agents.event_stream_handler import event_stream_handler
+from code_puppy.agents._stream_rendering import StreamRendering
 from code_puppy.events.bridge import CapabilityEventBridge
 from code_puppy.callbacks import (
     on_pre_mcp_autostart,
@@ -685,12 +685,17 @@ def build_pydantic_agent(
             # hook (after_tool_execute), so its position is inert; the
             # response clamp runs before_model_request after compaction and
             # steering. The plugin transform wraps the final model request.
+            # StreamRendering delivers the streaming render pipeline on the
+            # wrap_run_event_stream seam (its own hook, position inert); it
+            # only activates for runs that install a StreamObservation, so
+            # the streaming gate keeps working (see _stream_rendering.py).
             capabilities=[
                 *build_tool_output_limits(),
                 history_compaction,
                 ProcessHistory(steer_processor),
                 build_response_clamp(),
                 build_model_message_transform(logical_agent_name),
+                StreamRendering(),
                 # Sub-agent recursion guards on the wrap_tool_execute seam
                 # (denies invoke_agent calls past the depth caps before the
                 # tool body runs). Sole wrap_tool_execute implementer, so
@@ -770,10 +775,15 @@ def build_pydantic_agent(
     agent._last_model_name = resolved_model_name
     agent._mcp_servers = final_mcp_servers
 
+    # ``event_stream_handler=None``: streaming render now rides the
+    # StreamRendering capability on the agent itself, so wrappers (e.g. the
+    # DBOS plugin's DBOSAgent) no longer need a constructor-level fallback
+    # handler — the capability fires for their runs too. Mirrors the
+    # sub-agent invocation site, which has always passed ``None``.
     wrapped = on_wrap_pydantic_agent(
         agent,
         final_pydantic,
-        event_stream_handler=event_stream_handler,
+        event_stream_handler=None,
         message_group=message_group,
         kind="main",
     )
