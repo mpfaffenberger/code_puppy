@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple
 from pydantic_ai import Agent as PydanticAgent
 from pydantic_ai.capabilities import ProcessHistory
 
+from code_puppy.agents._cancellation_trace import CancellationTraceCapture
 from code_puppy.agents._code_mode import (
     bind_declared_speculation,
     build_speculative_code_mode,
@@ -691,6 +692,14 @@ def build_pydantic_agent(
                 ProcessHistory(steer_processor),
                 build_response_clamp(),
                 build_model_message_transform(logical_agent_name),
+                # Pass-through wrap_run_event_stream observer: it captures the
+                # live trace context per streamed request and never inspects
+                # or rewrites events, so its order relative to the other
+                # stream wrapper (CodeMode's StreamedToolNameNormalizer) is
+                # inert. Resolves per run from the observation _runtime's
+                # _do_run installs; without one it stays seam-less and the
+                # run is not forced into streaming mode.
+                CancellationTraceCapture(),
                 # Sub-agent recursion guards on the wrap_tool_execute seam
                 # (denies invoke_agent calls past the depth caps before the
                 # tool body runs). Sole wrap_tool_execute implementer, so
