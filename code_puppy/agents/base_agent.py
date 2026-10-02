@@ -25,6 +25,7 @@ from code_puppy.agents._builder import (
     build_tool_probe_for_agent,
     reload_mcp_servers,
 )
+from code_puppy.agents._native_tools import iter_function_toolsets
 from code_puppy.agents._history import (
     estimate_context_overhead,
     estimate_tokens_for_message,
@@ -46,17 +47,36 @@ __all__ = ["BaseAgent", "should_retry_streaming_exception"]
 def _extract_pydantic_agent_tools(pyd_agent: Any) -> Optional[Dict[str, Any]]:
     """Return the registered tool dict for a pydantic-ai agent, or None.
 
-    Handles the modern shape (``agent._function_toolset.tools``) and falls
-    back to the legacy ``agent._tools`` attribute so older pydantic-ai
-    versions still work. Returns ``None`` when neither is populated.
+    Walks the agent's public ``toolsets`` property, which covers both the
+    internal function toolset (legacy ``@agent.tool`` registration) and the
+    ``NativeTools`` capability toolset (``get_toolset()`` delivery). Falls
+    back to the direct ``agent._function_toolset`` read, then the legacy
+    ``agent._tools`` attribute, so older pydantic-ai versions (and mocked
+    agents in tests) still work. Returns ``None`` when nothing is populated.
+
+    Deliberately broad: any ``FunctionToolset``-shaped constructor toolset
+    is included too, which could in principle double-count with the
+    separate ``mcp_servers=`` estimator input -- acceptable slack for a
+    best-effort context-overhead estimate (real MCP servers are not
+    ``FunctionToolset``s).
     """
     if pyd_agent is None:
         return None
+    tools: Dict[str, Any] = {}
+    try:
+        for node in getattr(pyd_agent, "toolsets", None) or []:
+            for fts in iter_function_toolsets(node):
+                tools.update(getattr(fts, "tools", None) or {})
+    except Exception:
+        # Best-effort estimator input -- fall through to the direct reads.
+        tools = {}
+    if tools:
+        return tools
     fts = getattr(pyd_agent, "_function_toolset", None)
     if fts is not None:
-        tools = getattr(fts, "tools", None)
-        if tools:
-            return tools
+        direct = getattr(fts, "tools", None)
+        if direct:
+            return direct
     legacy = getattr(pyd_agent, "_tools", None)
     return legacy or None
 
