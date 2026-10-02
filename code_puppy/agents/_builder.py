@@ -23,6 +23,7 @@ from code_puppy.agents._code_mode import (
     build_speculative_code_mode,
 )
 from code_puppy.agents._compaction import HistoryCompaction
+from code_puppy.agents._instructions import AssembledInstructions
 from code_puppy.agents._model_message_transform import build_model_message_transform
 from code_puppy.agents._subagent_recursion import build_subagent_recursion_guard
 from code_puppy.agents._output_limits import (
@@ -649,6 +650,11 @@ def build_pydantic_agent(
         agent_name=getattr(agent, "name", None),
     )
     prepared = _assemble_instructions(agent, resolved_model_name)
+    # One shared capability across both construction passes, mirroring the
+    # single _assemble_instructions call: assembly happens once per build,
+    # and the capability's default for_agent/for_run return self, so sharing
+    # the instance between probe and final agents is side-effect-free.
+    assembled_instructions = AssembledInstructions(prepared.instructions)
     mcp_servers = load_mcp_servers(agent_name=getattr(agent, "name", None))
     model_settings = make_model_settings(
         resolved_model_name,
@@ -670,8 +676,8 @@ def build_pydantic_agent(
             name=logical_agent_name,
             # A standing system_prompt (if any) becomes its own SystemPromptPart
             # in the first request, rendered ahead of the instructions block.
+            # The instructions themselves ride AssembledInstructions below.
             system_prompt=prepared.system_prompt_parts,
-            instructions=prepared.instructions,
             output_type=output_type,
             retries=3,
             toolsets=toolsets,
@@ -685,7 +691,11 @@ def build_pydantic_agent(
             # hook (after_tool_execute), so its position is inert; the
             # response clamp runs before_model_request after compaction and
             # steering. The plugin transform wraps the final model request.
+            # AssembledInstructions replaces the `instructions=` constructor
+            # kwarg (same wire bytes -- see _instructions.py); its position
+            # is inert because no other capability contributes instructions.
             capabilities=[
+                assembled_instructions,
                 *build_tool_output_limits(),
                 history_compaction,
                 ProcessHistory(steer_processor),

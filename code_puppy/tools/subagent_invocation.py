@@ -460,6 +460,7 @@ async def _invoke_agent_impl(
                 build_speculative_code_mode,
             )
             from code_puppy.agents._compaction import HistoryCompaction
+            from code_puppy.agents._instructions import AssembledInstructions
             from code_puppy.agents._subagent_recursion import (
                 build_subagent_recursion_guard,
             )
@@ -479,14 +480,16 @@ async def _invoke_agent_impl(
                 # agent name (e.g. "invoke_agent web-retriever").
                 name=agent_name,
                 system_prompt=prepared.system_prompt_parts,
-                instructions=instructions,
                 output_type=str,
                 retries=3,
                 toolsets=mcp_servers,
                 # HistoryCompaction hits before_model_request (the seam the
                 # deprecated `history_processors=` kwarg fed, removed in
-                # pydantic-ai v2).
+                # pydantic-ai v2). AssembledInstructions replaces the
+                # `instructions=` kwarg (same wire bytes -- see
+                # agents/_instructions.py).
                 capabilities=[
+                    AssembledInstructions(instructions),
                     HistoryCompaction(agent_config),
                     build_model_message_transform(agent_name),
                     # Recursion guards ride the wrap_tool_execute seam so a
