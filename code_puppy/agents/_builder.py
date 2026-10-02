@@ -23,6 +23,7 @@ from code_puppy.agents._code_mode import (
     build_speculative_code_mode,
 )
 from code_puppy.agents._compaction import HistoryCompaction
+from code_puppy.agents._json_repair import build_tool_call_json_repair
 from code_puppy.agents._model_message_transform import build_model_message_transform
 from code_puppy.agents._subagent_recursion import build_subagent_recursion_guard
 from code_puppy.agents._output_limits import (
@@ -685,8 +686,12 @@ def build_pydantic_agent(
             # hook (after_tool_execute), so its position is inert; the
             # response clamp runs before_model_request after compaction and
             # steering. The plugin transform wraps the final model request.
+            # ToolCallJsonRepair rides the before_tool_validate seam, which
+            # never interacts with the history hooks, so its position is
+            # inert too.
             capabilities=[
                 *build_tool_output_limits(),
+                *build_tool_call_json_repair(),
                 history_compaction,
                 ProcessHistory(steer_processor),
                 build_response_clamp(),

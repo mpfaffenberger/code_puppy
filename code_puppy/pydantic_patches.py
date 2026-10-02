@@ -247,6 +247,35 @@ def patch_message_history_cleaning() -> bool:
         )
 
 
+def _run_owns_json_repair(tool_manager: Any) -> bool:
+    """True when the run's capability tree contains ``ToolCallJsonRepair``.
+
+    Walks the run's ``ToolManager.root_capability`` with the public
+    ``AbstractCapability.apply`` visitor (the same traversal the run layer
+    uses for its own explicit-capability checks). Any failure reads as
+    ``False``; the patch then repairs eagerly, which is the old behavior
+    and idempotent alongside the capability (repairing already-repaired
+    JSON is a no-op).
+    """
+    try:
+        root = getattr(tool_manager, "root_capability", None)
+        if root is None:
+            return False
+        from code_puppy.agents._json_repair import ToolCallJsonRepair
+
+        found = False
+
+        def _visit(leaf: Any) -> None:
+            nonlocal found
+            if isinstance(leaf, ToolCallJsonRepair):
+                found = True
+
+        root.apply(_visit)
+        return found
+    except Exception:
+        return False
+
+
 def patch_openai_chat_video_url() -> bool:
     """Let OpenAI-compatible Chat Completions endpoints receive video parts.
 
@@ -330,6 +359,16 @@ def patch_tool_call_json_repair() -> bool:
     json_repair on the raw arguments before validation, preventing
     unnecessary retries. Repairs are attempted only after strict parsing fails,
     and are accepted only when they preserve the required object shape.
+
+    **Fallback tier only.** Agents built by code_puppy's own construction
+    sites carry an explicit ``ToolCallJsonRepair`` capability (see
+    ``code_puppy.agents._json_repair``), which repairs on the
+    ``before_tool_validate`` seam; when it is present in the run's
+    capability tree this patch steps aside. The eager repair below remains
+    for *guest* agents: raw pydantic-ai agents built by plugins (e.g.
+    wiggum's tool-wielding judge) that never pass through our builders.
+    Same explicit-when-ours, fallback-for-guests split as Logfire
+    instrumentation.
     """
     try:
         import json_repair  # noqa: F401  (optional-dependency gate)
@@ -345,8 +384,13 @@ def patch_tool_call_json_repair() -> bool:
 
         async def _patched_validate_tool_call(self, call, **kwargs):
             """Repair malformed JSON args before pydantic-ai validates them."""
-            # Only attempt repair if args is a string (JSON)
-            if isinstance(call.args, str) and call.args:
+            # Only attempt repair if args is a string (JSON), and only when
+            # no ToolCallJsonRepair capability owns the job for this run.
+            if (
+                isinstance(call.args, str)
+                and call.args
+                and not _run_owns_json_repair(self)
+            ):
                 call.args = _repair_tool_call_json(call.args)
 
             # Drop a stray {"arguments": ...} envelope (valid JSON, so the

@@ -460,6 +460,7 @@ async def _invoke_agent_impl(
                 build_speculative_code_mode,
             )
             from code_puppy.agents._compaction import HistoryCompaction
+            from code_puppy.agents._json_repair import build_tool_call_json_repair
             from code_puppy.agents._subagent_recursion import (
                 build_subagent_recursion_guard,
             )
@@ -485,8 +486,11 @@ async def _invoke_agent_impl(
                 toolsets=mcp_servers,
                 # HistoryCompaction hits before_model_request (the seam the
                 # deprecated `history_processors=` kwarg fed, removed in
-                # pydantic-ai v2).
+                # pydantic-ai v2). ToolCallJsonRepair rides the
+                # before_tool_validate seam (position inert relative to the
+                # history hooks).
                 capabilities=[
+                    *build_tool_call_json_repair(),
                     HistoryCompaction(agent_config),
                     build_model_message_transform(agent_name),
                     # Recursion guards ride the wrap_tool_execute seam so a
