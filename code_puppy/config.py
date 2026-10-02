@@ -145,6 +145,27 @@ def get_pack_agents_enabled() -> bool:
     return get_truthy_bool_value("enable_pack_agents", False)
 
 
+def get_selection_friendly_transcript() -> bool:
+    """Return True if transcript markdown should skip the theme fg override.
+
+    Default True. When True, ``_render_agent_response`` prints Markdown
+    WITHOUT forcing the theme's soft body foreground on every cell, so the
+    terminal's own text-selection highlight (typically a pale color) retains
+    contrast against the default terminal foreground.
+
+    When False, restores the pre-fix behavior of applying the theme fg to
+    all rendered markdown. This works around terminals that ignore OSC 10
+    (default-fg overrides), at the cost of low-contrast selection on any
+    terminal whose selection color is close in luminance to the theme fg.
+
+    Toggle via the ``selection_friendly_transcript`` config key.
+    """
+    cfg_val = get_value("selection_friendly_transcript")
+    if cfg_val is None:
+        return True  # Prefer selection contrast by default.
+    return str(cfg_val).strip().lower() in {"1", "true", "yes", "on"}
+
+
 def get_universal_constructor_enabled() -> bool:
     """Return True if the Universal Constructor is enabled (default True).
 
