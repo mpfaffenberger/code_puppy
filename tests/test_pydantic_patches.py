@@ -28,6 +28,7 @@ def _reset_placeholder_warned_keys():
     pydantic_patches._PLACEHOLDER_WARNED_KEYS.clear()
     yield
 
+
 SHATTERING_MALFORMED_JSON = (
     '{"file_path": "demo.py", "content": "print(f\\"wrote {n_rows:,} rows\\")\n'
     'print(f"  {name:<30}{count:>10,}")\n'
@@ -377,10 +378,14 @@ def test_placeholder_strip_logs_once_per_quirk(caplog):
             pydantic_patches._sanitize_tool_call_args(_stub_manager({}), call)
 
     warnings = [
-        r for r in caplog.records if r.levelname == "WARNING" and "placeholder" in r.message
+        r
+        for r in caplog.records
+        if r.levelname == "WARNING" and "placeholder" in r.message
     ]
     debugs = [
-        r for r in caplog.records if r.levelname == "DEBUG" and "placeholder" in r.message
+        r
+        for r in caplog.records
+        if r.levelname == "DEBUG" and "placeholder" in r.message
     ]
     assert len(warnings) == 2  # city-quirk, then dummy-quirk
     assert len(debugs) == 1  # the repeated city-quirk
@@ -418,7 +423,9 @@ def test_unresolvable_schema_keeps_envelope():
 
 def test_placeholder_strip_survives_mixed_type_keys():
     """Exotic args must not crash the validation hot path."""
-    call = SimpleNamespace(tool_name="list_agents", args={1: "int key", "city": "ignore"})
+    call = SimpleNamespace(
+        tool_name="list_agents", args={1: "int key", "city": "ignore"}
+    )
 
     pydantic_patches._sanitize_tool_call_args(_stub_manager({}), call)
 
@@ -444,9 +451,7 @@ def test_placeholder_strip_survives_repr_hostile_key(caplog):
     """The deepest logging guard: neither serializer works, the strip still
     completes and the log names the situation instead of raising."""
     with caplog.at_level("DEBUG", logger=LOGGER_NAME):
-        call = SimpleNamespace(
-            tool_name="list_agents", args={_ReprHostileKey(): "x"}
-        )
+        call = SimpleNamespace(tool_name="list_agents", args={_ReprHostileKey(): "x"})
         pydantic_patches._sanitize_tool_call_args(_stub_manager({}), call)
 
     assert call.args == {}
@@ -477,10 +482,14 @@ def test_dedup_signature_uses_log_line_bound(caplog):
             pydantic_patches._sanitize_tool_call_args(_stub_manager({}), call)
 
     warnings = [
-        r for r in caplog.records if r.levelname == "WARNING" and "placeholder" in r.message
+        r
+        for r in caplog.records
+        if r.levelname == "WARNING" and "placeholder" in r.message
     ]
     debugs = [
-        r for r in caplog.records if r.levelname == "DEBUG" and "placeholder" in r.message
+        r
+        for r in caplog.records
+        if r.levelname == "DEBUG" and "placeholder" in r.message
     ]
     assert len(warnings) == 1
     assert len(debugs) == 1
@@ -498,10 +507,14 @@ def test_dedup_set_at_cap_always_warns_and_stops_growing(monkeypatch, caplog):
             pydantic_patches._sanitize_tool_call_args(_stub_manager({}), call)
 
     warnings = [
-        r for r in caplog.records if r.levelname == "WARNING" and "placeholder" in r.message
+        r
+        for r in caplog.records
+        if r.levelname == "WARNING" and "placeholder" in r.message
     ]
     debugs = [
-        r for r in caplog.records if r.levelname == "DEBUG" and "placeholder" in r.message
+        r
+        for r in caplog.records
+        if r.levelname == "DEBUG" and "placeholder" in r.message
     ]
     assert len(warnings) == 2  # both quirks surface: set is full, no dedup
     assert len(debugs) == 0
@@ -571,9 +584,7 @@ async def test_zero_arg_tool_call_with_placeholder_key_validates(monkeypatch):
     assert pydantic_patches.patch_tool_call_json_repair() is True
 
     manager = _stub_manager({})
-    call = SimpleNamespace(
-        tool_name="list_agents", args='{"command": "list_agents"}'
-    )
+    call = SimpleNamespace(tool_name="list_agents", args='{"command": "list_agents"}')
 
     result = await ToolManager.validate_tool_call(manager, call)
 
