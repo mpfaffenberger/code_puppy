@@ -33,7 +33,7 @@ from __future__ import annotations
 import json
 import math
 from dataclasses import dataclass, field
-from typing import Any, List, Optional
+from typing import Any, List, Optional, cast
 
 __all__ = [
     "ContextUsage",
@@ -102,8 +102,7 @@ class ContextUsage:
 
     @property
     def total_tokens(self) -> int:
-        assert self._total_tokens is not None  # always set in __post_init__
-        return self._total_tokens
+        return cast(int, self._total_tokens)  # always set in __post_init__
 
     @property
     def proportion(self) -> float:
