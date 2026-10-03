@@ -1,0 +1,1430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Code Smells Report — code_puppy Core</title>
+<style>
+  @page { size: landscape; margin: 12mm; }
+
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --panel-alt: #1d212b;
+    --border: #2a2f3a;
+    --text: #e6e8ee;
+    --text-dim: #a4acc0;
+    --accent: #6ea8fe;
+    --accent-soft: #223250;
+    --h-color: #ff6b6b;
+    --h-bg: #3a1c1c;
+    --m-color: #ffd166;
+    --m-bg: #3a2f14;
+    --l-color: #7ee0a8;
+    --l-bg: #163a26;
+    --code-bg: #232733;
+    --max-width: 100%;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-size: 15px;
+    line-height: 1.55;
+    width: 100%;
+    min-width: 100vw;
+  }
+
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    width: 100%;
+    background: linear-gradient(135deg, #1a1f2e 0%, #131620 100%);
+    border-bottom: 1px solid var(--border);
+    padding: 14px clamp(16px, 3vw, 48px);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    flex-wrap: wrap;
+  }
+
+  .topbar .brand {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+  }
+
+  .topbar .brand h1 {
+    margin: 0;
+    font-size: 1.15rem;
+    font-weight: 700;
+    letter-spacing: 0.2px;
+  }
+
+  .topbar .brand .tag {
+    color: var(--text-dim);
+    font-size: 0.8rem;
+  }
+
+  .topbar .stats {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .stat-chip {
+    background: var(--panel-alt);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 5px 12px;
+    font-size: 0.78rem;
+    color: var(--text-dim);
+    white-space: nowrap;
+  }
+
+  .stat-chip b { color: var(--text); }
+
+  main.wrap {
+    width: 100%;
+    max-width: none;
+    margin: 0;
+    padding: 28px clamp(16px, 3vw, 48px) 80px;
+  }
+
+  h1, h2, h3, h4 { color: var(--text); scroll-margin-top: 90px; }
+
+  h1 { font-size: 1.9rem; border-bottom: 2px solid var(--accent-soft); padding-bottom: 10px; }
+
+  h2 {
+    font-size: 1.4rem;
+    margin-top: 2.6em;
+    padding: 10px 14px;
+    background: var(--panel);
+    border-left: 4px solid var(--accent);
+    border-radius: 4px;
+  }
+
+  h3 {
+    font-size: 1.12rem;
+    margin-top: 1.8em;
+    color: var(--accent);
+  }
+
+  p { color: var(--text); max-width: 1400px; }
+
+  em { color: var(--text-dim); }
+
+  code {
+    background: var(--code-bg);
+    color: #c8e1ff;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.88em;
+    word-break: break-word;
+  }
+
+  strong { color: #fff; }
+
+  a { color: var(--accent); }
+
+  /* Full-viewport-width, horizontally scrollable tables */
+  .table-scroll {
+    width: 100%;
+    overflow-x: auto;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin: 1.2em 0 2em;
+    box-shadow: 0 4px 18px rgba(0,0,0,0.35);
+  }
+
+  table {
+    width: 100%;
+    min-width: 1100px;
+    border-collapse: collapse;
+    background: var(--panel);
+    font-size: 0.87rem;
+  }
+
+  thead th {
+    position: sticky;
+    top: 0;
+    background: #202636;
+    color: var(--text);
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 2px solid var(--border);
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    white-space: nowrap;
+    z-index: 2;
+  }
+
+  tbody td {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+
+  tbody tr:nth-child(odd) { background: var(--panel-alt); }
+  tbody tr:hover { background: #232a3a; }
+
+  /* Column sizing hints */
+  table td:nth-child(1) { min-width: 220px; }
+  table td:nth-child(2) { min-width: 140px; white-space: nowrap; }
+  table td:nth-child(3) { min-width: 170px; }
+  table td:nth-child(4) { min-width: 60px; text-align: center; }
+  table td:nth-child(5) { min-width: 340px; }
+  table td:nth-child(6) { min-width: 340px; }
+
+  .sev-cell { text-align: center; }
+
+  .badge {
+    display: inline-block;
+    min-width: 26px;
+    padding: 3px 9px;
+    border-radius: 999px;
+    font-weight: 700;
+    font-size: 0.78rem;
+    text-align: center;
+  }
+
+  .badge.sev-h { background: var(--h-bg); color: var(--h-color); border: 1px solid #5c2a2a; }
+  .badge.sev-m { background: var(--m-bg); color: var(--m-color); border: 1px solid #5c4a1f; }
+  .badge.sev-l { background: var(--l-bg); color: var(--l-color); border: 1px solid #235c3a; }
+
+  /* Appendix line-count table is 2-column and narrower — no forced min-width */
+  #appendix-line-count-table-all-audited-files-largest-smallest + .table-scroll table,
+  h2#appendix-line-count-table-all-audited-files-largest-smallest ~ .table-scroll table {
+    min-width: 480px;
+  }
+
+  ::-webkit-scrollbar { height: 10px; width: 10px; }
+  ::-webkit-scrollbar-track { background: var(--panel); }
+  ::-webkit-scrollbar-thumb { background: #3a4152; border-radius: 6px; }
+  ::-webkit-scrollbar-thumb:hover { background: #4a5268; }
+
+  .back-to-top {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    background: var(--accent);
+    color: #0f1115;
+    border: none;
+    border-radius: 999px;
+    padding: 10px 16px;
+    font-weight: 700;
+    font-size: 0.82rem;
+    cursor: pointer;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+    z-index: 30;
+    opacity: 0.9;
+  }
+  .back-to-top:hover { opacity: 1; }
+
+  @media print {
+    body { background: #fff; color: #111; font-size: 11px; }
+    .topbar { position: static; background: #fff; border-bottom: 2px solid #333; }
+    .back-to-top { display: none; }
+    h2 { background: #f0f0f0; border-left-color: #333; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    table { min-width: 0 !important; font-size: 9.5px; }
+    .table-scroll { overflow-x: visible; box-shadow: none; }
+    thead th { background: #eee !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    tbody tr:nth-child(odd) { background: #f7f7f7 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .badge.sev-h { background: #fde2e2 !important; color: #900 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .badge.sev-m { background: #fff2d6 !important; color: #8a5a00 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .badge.sev-l { background: #e1f7ea !important; color: #0a6b3a !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="brand">
+    <h1> Code Smells Report</h1>
+    <span class="tag">code_puppy core — research-only audit</span>
+  </div>
+  <div class="stats">
+    <span class="stat-chip">Scope: <b>core, agents, tools, mcp_, command_line, messaging</b></span>
+    <span class="stat-chip">Excludes: <b>plugins/, tui/, tests/</b></span>
+    <span class="stat-chip">Findings: <b>3-part audit</b></span>
+    <span class="stat-chip">Source changes: <b>0</b></span>
+  </div>
+</div>
+<main class="wrap" id="top">
+<h1 id="code-smells-report-code_puppy-core">Code Smells Report —
+<code>code_puppy</code> Core</h1>
+<p><em>Generated by a 3-part audit (SMELL_1, SMELL_2, SMELL_3).
+Research-only — no source files were modified to produce this
+report.</em></p>
+<h2 id="executive-summary">Executive Summary</h2>
+<p>The codebase is functionally solid but shows a consistent, repo-wide
+pattern: <strong>breadth over depth</strong> — instead of a few
+catastrophically broken functions, nearly every module in scope is a God
+Module/God Class that grew past its original single responsibility, and
+several near-identical patterns are hand-copied instead of abstracted.
+The five most severe findings, in order of impact: (1)
+<strong><code>code_puppy/command_line/</code> hosts 10
+<code>*_menu.py</code> files (~8,000+ lines) that bypass the project’s
+own <code>register_screen</code> plugin hook</strong> — a direct,
+citable violation of AGENTS.md’s plugin-vs-core golden rule, especially
+glaring since 7+ newer features (skills, hooks, spinner, steer-queue,
+theme, plugin-list, prune) already use that exact hook correctly; (2)
+<code>code_puppy/config.py</code> is a 2944-line God Module with ~153
+unrelated free functions covering everything from XDG paths to a
+self-contained quick-resume subsystem; (3)
+<code>code_puppy/tools/common.py</code>’s
+<code>_get_user_approval_impl</code>/<code>_get_user_approval_async_impl</code>
+are ~160-180 line near-duplicate twins with a correctness risk baked in
+— a TUI-mode fix was added to only one of the two copies; (4)
+<code>code_puppy/model_factory.py</code>’s
+<code>ModelFactory.get_model()</code> is a ~472-line if/elif
+type-dispatch chain that violates Open/Closed — every new provider
+requires editing this one method; and (5)
+<code>code_puppy/messaging/rich_renderer.py</code>’s
+<code>RichConsoleRenderer</code> is a god-class with ~35
+<code>_render_*</code> methods, the largest a self-admittedly-complex
+141-line method. Across all three audit passes, <strong>every single
+file explicitly named in scope violates AGENTS.md’s own 600-line hard
+cap</strong> (Rule #3), confirming this isn’t isolated to one directory
+but a systemic tech-debt pattern. On the positive side: exception
+handling, while broad (<code>except Exception:</code>), is almost always
+deliberate and commented; no bare <code>except:</code>, no dead imports,
+and no test-sniffing hacks were found anywhere in scope except one
+isolated <code>sys.modules</code> check in <code>config.py</code>.</p>
+<h2 id="methodology">Methodology</h2>
+<p><strong>Scope:</strong> core modules only — <code>code_puppy/</code>
+root files, <code>code_puppy/agents/</code>,
+<code>code_puppy/tools/</code>, <code>code_puppy/mcp_/</code>,
+<code>code_puppy/command_line/</code>, and
+<code>code_puppy/messaging/</code>. Explicitly <strong>excludes</strong>
+<code>code_puppy/plugins/</code>, <code>code_puppy/tui/</code>, and
+<code>tests/</code>.</p>
+<p><strong>Approach:</strong> a three-part audit run sequentially
+(SMELL_1: core root + <code>agents/</code>; SMELL_2: <code>tools/</code>
++ <code>mcp_/</code>; SMELL_3: <code>command_line/</code> +
+<code>messaging/</code>, plus final consolidation). Each part used: (a)
+a line-count scan (<code>wc -l</code>) to identify files over the
+600-line cap, prioritizing the largest; (b) targeted full/partial reads
+of the largest files to map class/function structure and identify
+long-method, god-class, and duplication smells; (c) grep-based pattern
+search for <code>except Exception:</code>/bare <code>except:</code>,
+magic numbers, <code>TODO</code>/<code>FIXME</code>, and cross-directory
+imports to check layering; (d)
+<code>ruff check --select F401,F841</code> to confirm no dead
+imports/unused variables; (e) for SMELL_3 specifically, a direct read of
+<code>AGENTS.md</code>’s golden rule and
+<code>code_puppy/callbacks.py</code>’s hook inventory to check which
+<code>command_line/</code> features should have been plugins.</p>
+<h2 id="findings">Findings</h2>
+<h3 id="core-root-agents">Core Root &amp; <code>agents/</code></h3>
+<div class="table-scroll"><table>
+<colgroup>
+<col style="width: 9%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 15%" />
+<col style="width: 21%" />
+<col style="width: 20%" />
+</colgroup>
+<thead>
+<tr>
+<th>File</th>
+<th>Line Range</th>
+<th>Smell Type</th>
+<th>Severity</th>
+<th>Description</th>
+<th>Remediation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>code_puppy/config.py</code></td>
+<td>1–2944</td>
+<td>God Module / SRP violation</td>
+<td class="sev-cell"><span class="badge sev-h">H</span></td>
+<td>2944 lines, ~153 top-level free functions, zero classes; unrelated
+concerns (XDG paths, subagent limits, retry profiles, config get/set,
+MCP config parsing, model validation, model-setting get/set, diff/banner
+colors, command-history normalization, quick-resume subsystem ~26
+functions, session autosave, API-key env loading, i18n locale) all
+living in one file.</td>
+<td>Split into <code>code_puppy/config/</code> package
+(<code>xdg.py</code>, <code>model_settings.py</code>,
+<code>quick_resume.py</code>, <code>session_autosave.py</code>,
+<code>theme_colors.py</code>, <code>command_history.py</code>), keeping
+<code>config/__init__.py</code> as a re-export surface so existing
+import sites don’t break.</td>
+</tr>
+<tr>
+<td><code>code_puppy/config.py</code></td>
+<td>2293–2666</td>
+<td>Cohesive sub-feature buried in a God Module</td>
+<td class="sev-cell"><span class="badge sev-m">M</span></td>
+<td>Self-contained ~26-function “quick resume” subsystem living in
+<code>config.py</code> purely because that’s where config-ish things
+go.</td>
+<td>Extract verbatim to <code>code_puppy/config/quick_resume.py</code>;
+minimal coupling to the rest of <code>config.py</code> beyond
+<code>CONFIG_DIR</code>-style constants.</td>
+</tr>
+<tr>
+<td><code>code_puppy/config.py</code></td>
+<td>1265</td>
+<td>Test-detection-in-production-code smell</td>
+<td class="sev-cell"><span class="badge sev-m">M</span></td>
+<td><code>normalize_command_history()</code> does
+<code>if "pytest" in sys.modules: return</code> — production logic
+branches on whether the test runner is importable.</td>
+<td>Prefer dependency injection or an explicit
+<code>CODE_PUPPY_SKIP_HISTORY_NORMALIZE</code> flag instead of sniffing
+<code>sys.modules</code>.</td>
+</tr>
+<tr>
+<td><code>code_puppy/cli_runner.py</code></td>
+<td>703–1299</td>
+<td>Long Function / SRP violation</td>
+<td class="sev-cell"><span class="badge sev-h">H</span></td>
+<td><code>interactive_mode()</code> is 597 lines, mixing initial-command
+handling, prompt_toolkit fallback, SIGINT wiring, the main REPL loop,
+and quit/EOF handling.</td>
+<td>Split into <code>_bootstrap_interactive_session()</code>,
+<code>_run_initial_command()</code>, <code>_repl_get_next_task()</code>,
+<code>_repl_handle_task()</code>; <code>interactive_mode()</code>
+becomes orchestration only.</td>
+</tr>
+<tr>
+<td><code>code_puppy/cli_runner.py</code></td>
+<td>145–564</td>
+<td>Long Function / SRP violation</td>
+<td class="sev-cell"><span class="badge sev-h">H</span></td>
+<td><code>main()</code> is 420 lines: argparse setup, plugin CLI-arg
+hooks, UI-mode resolution, renderer wiring, banner printing, port
+allocation, model validation, Ctrl+C handling, API-key loading.</td>
+<td>Extract <code>_build_arg_parser()</code>,
+<code>_bootstrap_renderers(use_textual)</code>,
+<code>_bootstrap_environment(args)</code>; <code>main()</code> becomes a
+call sequence.</td>
+</tr>
+<tr>
+<td><code>code_puppy/model_factory.py</code></td>
+<td>669–1140</td>
+<td>Long Function / Open-Closed violation (type-code smell)</td>
+<td class="sev-cell"><span class="badge sev-h">H</span></td>
+<td><code>ModelFactory.get_model()</code> is a ~472-line if/elif chain
+dispatching on <code>model_type</code> string across 12+ provider
+branches plus a plugin-handler fallback loop reaching 9 indentation
+levels. Every new built-in provider requires editing this one
+method.</td>
+<td>Replace with a provider-type registry
+(<code>Dict[str, Callable]</code>) mirroring the existing
+<code>_CUSTOM_MODEL_PROVIDERS</code>/<code>on_register_model_types()</code>
+plugin mechanism — collapses to a dict lookup + dispatch.</td>
+</tr>
+<tr>
+<td><code>code_puppy/model_factory.py</code></td>
+<td>1117–1140</td>
+<td>Deep nesting</td>
+<td class="sev-cell"><span class="badge sev-m">M</span></td>
+<td>Plugin-handler fallback loop reaches 9 indentation levels.</td>
+<td>Resolved for free by the registry-based dispatch remediation above,
+or extract into <code>_dispatch_plugin_model_type(...)</code>.</td>
+</tr>
+<tr>
+<td><code>code_puppy/callbacks.py</code></td>
+<td>1–1395</td>
+<td>Large-but-repetitive module (not classic duplication)</td>
+<td class="sev-cell"><span class="badge sev-m">M</span></td>
+<td>~55 top-level <code>on_*</code> phase functions, mostly 1–5 lines,
+funneling into 3 shared dispatchers. Repetitive by breadth (1 wrapper
+per hook), not copy-paste logic duplication.</td>
+<td>Low priority; consider splitting into
+<code>callbacks/registry.py</code> + <code>callbacks/hooks.py</code> if
+the file keeps growing.</td>
+</tr>
+<tr>
+<td><code>code_puppy/callbacks.py</code></td>
+<td>174–177</td>
+<td>Layering: core reaching into plugins</td>
+<td class="sev-cell"><span class="badge sev-m">M</span></td>
+<td><code>_get_disabled_plugins()</code> lazily imports
+<code>code_puppy.plugins.config.get_disabled_plugins</code> from core
+<code>callbacks.py</code>.</td>
+<td>Acceptable as a circular-import dodge, but a real core→plugins
+layering reach. Consider moving
+<code>get_disabled_plugins</code>/<code>is_plugin_disabled</code> to a
+shared low-level module both sides can import.</td>
+</tr>
+<tr>
+<td><code>code_puppy/config.py</code></td>
+<td>2517</td>
+<td>Layering: core reaching into plugins</td>
+<td class="sev-cell"><span class="badge sev-l">L</span></td>
+<td><code>get_quick_resume_location()</code> imports
+<code>detect_git_branch</code> from
+<code>code_puppy.plugins.statusline.payload</code>.</td>
+<td><code>detect_git_branch</code> looks like a generic git helper
+accidentally under <code>plugins/statusline/</code>; relocate to a
+neutral <code>code_puppy/git_utils.py</code>.</td>
+</tr>
+<tr>
+<td><code>code_puppy/model_factory.py</code></td>
+<td>591, 1047–1050</td>
+<td>Layering: core reaching into plugins</td>
+<td class="sev-cell"><span class="badge sev-l">L</span></td>
+<td><code>get_custom_config()</code>/<code>get_model()</code> import
+from <code>code_puppy.plugins.claude_code_oauth.utils</code> and
+<code>plugins.gemini_oauth.*</code> for OAuth credentials.</td>
+<td>Consider an <code>on_resolve_oauth_credential(model_type)</code>
+callback hook so plugins register resolvers instead of core importing
+plugin internals by path.</td>
+</tr>
+<tr>
+<td><code>code_puppy/agents/_runtime.py</code></td>
+<td>648–1152</td>
+<td>Long Function / SRP violation</td>
+<td class="sev-cell"><span class="badge sev-h">H</span></td>
+<td><code>_run_with_mcp_impl()</code> is ~504 lines with 4 nested
+function definitions, mixing pause-state reset, prompt sanitization,
+pydantic-agent building, streaming execution, retry-on-plugin-request,
+and SIGINT/MCP lifecycle handling.</td>
+<td>Extract nested closures to module-level/private-class helpers
+(<code>_build_run_context</code>, <code>_execute_agent_run</code>,
+<code>_install_run_signal_handlers</code>); reduce
+<code>_run_with_mcp_impl</code> to orchestration.</td>
+</tr>
+<tr>
+<td><code>code_puppy/agents/_key_listeners.py</code></td>
+<td>842–992</td>
+<td>Large parameter list + long function</td>
+<td class="sev-cell"><span class="badge sev-m">M</span></td>
+<td><code>_posix_read_session(...)</code> takes 9 positional params and
+is ~150 lines mixing cbreak-mode closures, the select-loop, EIO retry
+bookkeeping, and per-char dispatch.</td>
+<td>Bundle terminal-session params into a <code>TerminalSession</code>
+dataclass; group the 3 callables into a separate <code>Callbacks</code>
+bundle.</td>
+</tr>
+<tr>
+<td><code>code_puppy/agents/agent_manager.py</code></td>
+<td>248–390</td>
+<td>Long function, high cyclomatic complexity</td>
+<td class="sev-cell"><span class="badge sev-m">M</span></td>
+<td><code>_discover_agents_locked()</code> is ~142 lines with 3
+near-identical nested try/except-around-import-and-register blocks.</td>
+<td>Extract shared
+<code>_register_agent_classes_from_module(module, message_group_id)</code>
+helper, collapsing ~35 duplicated lines.</td>
+</tr>
+<tr>
+<td><code>code_puppy/secret_store.py</code></td>
+<td>whole file</td>
+<td>Clean</td>
+<td>—</td>
+<td>No smells found; three-tier keyring/chunk/file-fallback logic is
+well-documented with named constants and narrow, intentional exception
+guards.</td>
+<td>No action needed.</td>
+</tr>
+<tr>
+<td><code>code_puppy/config.py</code>, <code>secret_store.py</code>,
+<code>_runtime.py</code>, <code>_key_listeners.py</code>,
+<code>agent_manager.py</code>, <code>model_factory.py</code>,
+<code>callbacks.py</code></td>
+<td>~70 sites</td>
+<td>Broad <code>except Exception:</code> (no bare <code>except:</code>
+found)</td>
+<td class="sev-cell"><span class="badge sev-l">L</span></td>
+<td>Nearly all deliberate, documented fallback patterns
+(keyring/provider optionality, plugin isolation); a genuine bug could
+still silently degrade to a fallback path.</td>
+<td>Where guarding purely internal logic (not third-party/plugin code),
+narrow to specific expected exception types.</td>
+</tr>
+<tr>
+<td><code>code_puppy/agents/run_stats.py</code>,
+<code>code_puppy/agents/_builder.py</code>,
+<code>code_puppy/gemini_model.py</code>,
+<code>code_puppy/claude_cache_client.py</code></td>
+<td>whole files</td>
+<td>Over 600-line cap, otherwise clean</td>
+<td class="sev-cell"><span class="badge sev-l">L</span></td>
+<td>690/638/840/883 lines respectively but well-decomposed functions; no
+acute single-function or duplication smell.</td>
+<td>Low priority; split only if they grow further.</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="tools-mcp_"><code>tools/</code> &amp; <code>mcp_/</code></h3>
+<div class="table-scroll"><table>
+<colgroup>
+<col style="width: 9%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 15%" />
+<col style="width: 21%" />
+<col style="width: 20%" />
+</colgroup>
+<thead>
+<tr>
+<th>File</th>
+<th>Line Range</th>
+<th>Smell Type</th>
+<th>Severity</th>
+<th>Description</th>
+<th>Remediation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>code_puppy/tools/command_runner.py</code></td>
+<td>699–1093</td>
+<td>Long function / SRP violation</td>
+<td class="sev-cell"><span class="badge sev-h">H</span></td>
+<td><code>run_shell_command_streaming</code> is ~394 lines with 5 nested
+closures (<code>_sink</code>, <code>read_stdout</code>,
+<code>read_stderr</code>, <code>cleanup_process_and_threads</code>,
+<code>detach_to_background</code>) — spawns the process, manages reader
+threads, wires key chords, handles backgrounding, and does cleanup all
+in one function. Worst single SRP offender in the whole audit.</td>
+<td>Extract reader-thread logic into a <code>_StreamReader</code> class;
+move backgrounding + chord-registration into a
+<code>ShellStreamSession</code> context manager.</td>
+</tr>
+<tr>
+<td><code>code_puppy/tools/common.py</code></td>
+<td>1234–1615 (<code>_get_user_approval_impl</code> /
+<code>_get_user_approval_async_impl</code>)</td>
+<td>Duplication (sync/async twin)</td>
+<td class="sev-cell"><span class="badge sev-h">H</span></td>
+<td>Two ~160–180 line functions duplicated almost line-for-line (same
+Panel, diff formatting, lifecycle, 3-choice prompt, <code>finally</code>
+cleanup) except for <code>await</code>/async calls — and a TUI-mode
+early-return fix was added to only the async version. Largest
+duplication in the whole audit by line count, and a live correctness
+risk.</td>
+<td>Extract shared <code>_build_approval_panel</code> + terminal-reset
+<code>finally</code> logic; consider making the sync path a thin
+<code>asyncio.run()</code> wrapper over the async impl so a fix in one
+twin can’t diverge from the other.</td>
+</tr>
+<tr>
+<td><code>code_puppy/tools/common.py</code></td>
+<td>1027–1197 (<code>arrow_select_async</code> /
+<code>arrow_select</code>)</td>
+<td>Duplication (sync/async twin)</td>
+<td class="sev-cell"><span class="badge sev-m">M</span></td>
+<td>Near-identical ~85-line functions differing only in
+<code>await app.run_async()</code> vs <code>app.run()</code>.</td>
+<td>Factor shared
+<code>Application</code>/<code>KeyBindings</code>/<code>Layout</code>
+construction into <code>_build_selector_app(...)</code>; keep only the
+run-strategy in the two public wrappers.</td>
+</tr>
+<tr>
+<td><code>code_puppy/tools/file_modifications.py</code></td>
+<td>584–746 (<code>_edit_file</code>/<code>_edit_file_async</code>,
+<code>_delete_file</code>/<code>_delete_file_async</code>)</td>
+<td>Duplication (sync/async twin)</td>
+<td class="sev-cell"><span class="badge sev-m">M</span></td>
+<td>Same 4-way payload dispatch and error handling, differing only by
+<code>await</code>.</td>
+<td>Extract the payload-dispatch decision into a shared pure function;
+thin sync/async wrappers invoke the corresponding sub-op.</td>
+</tr>
+<tr>
+<td><code>code_puppy/mcp_/manager.py</code></td>
+<td>514–809</td>
+<td>Duplication (sync/async twin) + primitive obsession</td>
+<td class="sev-cell"><span class="badge sev-m">M</span></td>
+<td><code>start_server_sync</code>/<code>stop_server_sync</code>
+re-implement bookkeeping that also happens in the async versions;
+<code>_pending_start_tasks</code> is an ad-hoc dict-of-tasks
+registry.</td>
+<td>Pull the “mark starting” triplet into one helper reused by both
+entry points; consider a typed <code>PendingTaskRegistry</code>
+wrapper.</td>
+</tr>
+<tr>
+<td><code>code_puppy/mcp_/manager.py</code></td>
+<td>108–960</td>
+<td>God class / SRP violation</td>
+<td class="sev-cell"><span class="badge sev-m">M</span></td>
+<td><code>MCPManager</code> spans ~850 of 970 lines (88%), owning
+registry sync, full server lifecycle (sync+async), status querying, and
+background-task bookkeeping.</td>
+<td>Split lifecycle ops into an
+<code>MCPServerLifecycleController</code> collaborator; keep
+<code>MCPManager</code> as a thinner facade.</td>
+</tr>
+<tr>
+<td><code>code_puppy/mcp_/server_registry_catalog.py</code></td>
+<td>135–1021</td>
+<td>Data-as-code / magic literal blob</td>
+<td class="sev-cell"><span class="badge sev-m">M</span></td>
+<td><code>MCP_SERVER_REGISTRY</code> is an ~886-line hardcoded Python
+literal; every new pre-configured MCP server requires a source edit +
+redeploy.</td>
+<td>Externalize to bundled JSON/YAML, validated into
+<code>MCPServerTemplate</code> instances on load.</td>
+</tr>
+<tr>
+<td><code>code_puppy/tools/command_runner.py</code></td>
+<td>931–1530 (7+ sites)</td>
+<td>Magic number (repeated literal)</td>
+<td class="sev-cell"><span class="badge sev-l">L</span></td>
+<td>The line-truncation cutoff <code>256</code> is a bare literal
+repeated 7+ times.</td>
+<td>Add <code>MAX_RETAINED_OUTPUT_LINES = 256</code> as a module
+constant, reference at all sites.</td>
+</tr>
+<tr>
+<td><code>code_puppy/tools/universal_constructor.py</code></td>
+<td>137–192, handler fns</td>
+<td>Primitive obsession (mild)</td>
+<td class="sev-cell"><span class="badge sev-l">L</span></td>
+<td>4 action handlers take a loose positional
+<code>(context, tool_name, python_code, description)</code> subset,
+inviting mismatch as actions grow.</td>
+<td>If a 6th action is added, switch to a per-action request
+dataclass.</td>
+</tr>
+<tr>
+<td><code>code_puppy/tools/file_modifications.py</code></td>
+<td>1014–1039</td>
+<td>Defensive-coercion smell (mild)</td>
+<td class="sev-cell"><span class="badge sev-l">L</span></td>
+<td><code>_try_json_repair</code> swallows all exceptions to tolerate
+LLM clients that stringify JSON arrays; malformed-but-truthy strings
+pass through unchanged.</td>
+<td>Acceptable targeted shim; promote to shared
+<code>code_puppy/tools/coercion.py</code> if it grows more call
+sites.</td>
+</tr>
+<tr>
+<td><code>code_puppy/tools/__init__.py</code></td>
+<td>102–190</td>
+<td>Large centralized mapping (borderline)</td>
+<td class="sev-cell"><span class="badge sev-l">L</span></td>
+<td><code>TOOL_REGISTRY</code> is a single ~90-entry dict coupling every
+tool submodule together.</td>
+<td>No action now (well under 600 lines); natural first split point if
+it grows.</td>
+</tr>
+<tr>
+<td><code>code_puppy/mcp_/health_monitor.py</code></td>
+<td>63</td>
+<td>Magic number (documented default)</td>
+<td class="sev-cell"><span class="badge sev-l">L</span></td>
+<td><code>check_interval: int = 30</code> as a bare default param, not a
+named module constant.</td>
+<td>Low priority; could promote to
+<code>DEFAULT_HEALTH_CHECK_INTERVAL_SECONDS</code>.</td>
+</tr>
+<tr>
+<td><code>code_puppy/tools/agent_tools.py</code>,
+<code>file_operations.py</code>, <code>universal_constructor.py</code>,
+<code>mcp_/blocking_startup.py</code>,
+<code>mcp_/agent_bindings.py</code></td>
+<td>~35 sites</td>
+<td>Broad exception handling (mostly documented)</td>
+<td class="sev-cell"><span class="badge sev-l">L</span></td>
+<td>Large majority carry justification comments (e.g. “pragma: no cover
+- defensive”); a few sites (<code>common.py:1584,1593</code>,
+<code>universal_constructor.py:320</code>) swallow silently with no
+comment/logging.</td>
+<td>Add a justification comment or
+<code>logger.debug</code>/<code>logger.warning</code> at the uncommented
+silent sites; leave well-documented sites alone.</td>
+</tr>
+<tr>
+<td><code>code_puppy/tools/browser/browser_manager.py</code></td>
+<td>8 sites</td>
+<td>Broad exception handling (density flag)</td>
+<td class="sev-cell"><span class="badge sev-l">L</span></td>
+<td>Highest density of <code>except Exception:</code> of any file in
+scope (8 in ~550 lines); plausible given inherent browser-automation
+flakiness, but outside primary SCOPE.</td>
+<td>Flag for a future targeted pass on <code>tools/browser/</code>; no
+remediation prescribed here.</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="command_line-messaging"><code>command_line/</code> &amp;
+<code>messaging/</code></h3>
+<div class="table-scroll"><table>
+<colgroup>
+<col style="width: 9%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 15%" />
+<col style="width: 21%" />
+<col style="width: 20%" />
+</colgroup>
+<thead>
+<tr>
+<th>File</th>
+<th>Line Range</th>
+<th>Smell Type</th>
+<th>Severity</th>
+<th>Description</th>
+<th>Remediation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>command_line/*_menu.py</code> (10 files:
+<code>add_model_menu.py</code>, <code>model_settings_menu.py</code>,
+<code>autosave_menu.py</code>, <code>uc_menu.py</code>,
+<code>diff_menu.py</code>, <code>judges_menu.py</code>,
+<code>mcp_binding_menu.py</code>, <code>colors_menu.py</code>,
+<code>agent_menu.py</code>, <code>set_menu.py</code>)</td>
+<td>whole files (~8,000+ lines)</td>
+<td><strong>Architecture-rule violation</strong> (plugin-vs-core)</td>
+<td class="sev-cell"><span class="badge sev-h">H</span></td>
+<td>See dedicated subsection below.</td>
+<td>See dedicated subsection below.</td>
+</tr>
+<tr>
+<td><code>add_model_menu.py</code> (L1167–1405) vs
+<code>model_settings_menu.py</code> (L1110–1317)</td>
+<td><code>run()</code> methods</td>
+<td>Duplication — missing shared abstraction</td>
+<td class="sev-cell"><span class="badge sev-h">H</span></td>
+<td>Both 200+ line <code>run()</code> methods independently build a
+prompt_toolkit <code>Application</code> + near-identical keybinding wall
++ render loop. Confirmed: <code>@kb.add(</code> count is
+13/14/16/24/14/11/10/8/6/13 across the 10-file menu family (~130
+registrations total, zero shared base). 8 files also independently
+define their own <code>update_display()</code>.</td>
+<td>Extract a shared <code>PromptToolkitPickerBase</code> (common
+keybindings, <code>Application</code> construction, abstract
+<code>update_display()</code>/<code>_render_*</code> hook) —
+highest-value DRY fix in <code>command_line/</code>.</td>
+</tr>
+<tr>
+<td><code>messaging/rich_renderer.py</code></td>
+<td>130–1364</td>
+<td>God Class / SRP violation</td>
+<td class="sev-cell"><span class="badge sev-h">H</span></td>
+<td><code>RichConsoleRenderer</code> owns ~35 <code>_render_*</code>
+methods dispatched from a 108-line if/elif chain. Largest methods:
+<code>_render_universal_constructor</code> (L1070–1211, ~141 lines),
+<code>_render_file_listing</code> (L592–723, ~131 lines),
+<code>_do_render_uncoordinated</code> (L448–556, ~108 lines).
+<code>_build_peek_text</code> is self-flagged <code># noqa: C901</code>
+by its own authors.</td>
+<td>Split into per-message-family renderer modules mixed into
+<code>RichConsoleRenderer</code> via a <code>_RENDER_DISPATCH</code>
+dict built from each module’s exports.</td>
+</tr>
+<tr>
+<td><code>command_line/add_model_menu.py</code></td>
+<td>502–753</td>
+<td>Long Method</td>
+<td class="sev-cell"><span class="badge sev-h">H</span></td>
+<td><code>_render_model_details</code> is ~251 lines — the single
+largest method found across the whole
+<code>command_line/</code>+<code>messaging/</code> scope.</td>
+<td>Split into <code>_format_model_summary_fields</code>,
+<code>_format_model_provider_fields</code>, and a thin composing
+<code>_render_model_details</code>.</td>
+</tr>
+<tr>
+<td><code>messaging/editor_completion.py</code> (+ 5 sibling files)</td>
+<td>whole files</td>
+<td><strong>Separation-of-concerns violation</strong> — messaging
+depends on command_line</td>
+<td class="sev-cell"><span class="badge sev-m">M</span></td>
+<td><code>editor_completion.py</code> locally imports from 6 different
+<code>command_line/*_completion</code> modules; 5 other
+<code>messaging/</code> files (<code>editor_paste.py</code>,
+<code>editor_display.py</code>, <code>message_queue.py</code>,
+<code>run_ui.py</code>, <code>editor_history.py</code>) also reach into
+<code>command_line/</code> — inverting the expected
+substrate-vs-consumer layering.</td>
+<td>Introduce a <code>messaging/completion_registry.py</code> that
+<code>command_line/*_completion.py</code> modules register into, so
+<code>messaging/</code> depends on an abstract interface, not 6 concrete
+modules by name.</td>
+</tr>
+<tr>
+<td><code>command_line/command_handler.py</code></td>
+<td>1–5</td>
+<td><strong>Architecture-rule violation</strong> (eager side-effect
+import, no hook)</td>
+<td class="sev-cell"><span class="badge sev-m">M</span></td>
+<td><code>import code_puppy.command_line.uc_menu # noqa: F401</code>
+triggers <code>@register_command</code> side effects at import time
+rather than through any callback hook; <code>uc_menu.py</code> (911
+lines, full end-user feature) is bolted into core rather than routed
+through <code>register_screen</code>/<code>custom_command</code>.</td>
+<td>Once <code>uc_menu.py</code> is migrated to a plugin, drop this
+import entirely — plugin discovery replaces the explicit side-effect
+import.</td>
+</tr>
+<tr>
+<td><code>command_line/</code> (39 files) &amp; <code>messaging/</code>
+(28 files)</td>
+<td>whole directories</td>
+<td>600-line cap violation (Rule #3)</td>
+<td class="sev-cell"><span class="badge sev-m">M</span></td>
+<td>All 10 explicitly-named SCOPE files (733–1413 lines) blow past
+AGENTS.md’s own hard cap; confirms the cap violation is systemic, not
+isolated to this scope (also seen in
+<code>config.py</code>/<code>cli_runner.py</code>/<code>model_factory.py</code>).</td>
+<td>Track as standing tech-debt; prioritize splitting files that also
+carry an independent SRP/god-class smell first.</td>
+</tr>
+<tr>
+<td><code>command_line/prompt_toolkit_completion.py</code></td>
+<td>12 sites</td>
+<td>Broad exception handling (density flag)</td>
+<td class="sev-cell"><span class="badge sev-l">L</span></td>
+<td>Highest density of <code>except Exception:</code> in a single SCOPE
+file (12 in ~1000 lines); one explicitly commented as intentional
+(L651).</td>
+<td>Spot-check uncommented sites (L345, L385, L429) for a justification
+comment or debug log.</td>
+</tr>
+<tr>
+<td><code>messaging/renderers.py</code></td>
+<td>class <code>InteractiveRenderer</code></td>
+<td>Small dead-code nugget (not the file-level false alarm it first
+appeared to be)</td>
+<td class="sev-cell"><span class="badge sev-l">L</span></td>
+<td>Verified both <code>renderers.py</code>
+(<code>SynchronousInteractiveRenderer</code>, classic path) and
+<code>rich_renderer.py</code> (<code>RichConsoleRenderer</code>,
+message-bus/TUI path) are live and correctly separated — no
+naming-collision issue. But <code>InteractiveRenderer</code>’s own
+docstring says “this async-based renderer is not currently used.”</td>
+<td>Confirm zero external references, then remove
+<code>InteractiveRenderer</code>.</td>
+</tr>
+<tr>
+<td><code>messaging/bottom_bar.py</code></td>
+<td>whole file (750 lines)</td>
+<td>Spot-check: no acute additional smell beyond cap violation</td>
+<td class="sev-cell"><span class="badge sev-l">L</span></td>
+<td>Cohesive single-responsibility module; no god-method/duplication
+pattern found beyond the general size violation.</td>
+<td>No action beyond the general 600-line remediation.</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="architecture-rule-violations">Architecture Rule Violations</h2>
+<p>AGENTS.md’s golden rule: <em>“nearly all new functionality should be
+a <strong>plugin</strong> under <code>code_puppy/plugins/</code> that
+hooks into core via <code>code_puppy/callbacks.py</code>. Don’t edit
+<code>code_puppy/command_line/</code>.”</em> Two distinct,
+independently-citable violations were found:</p>
+<ol type="1">
+<li><p><strong>Plugin-vs-core golden rule — the <code>*_menu.py</code>
+family.</strong> <code>code_puppy/callbacks.py</code> ships a
+<code>register_screen</code> hook (<code>() -&gt; list[dict]</code> with
+<code>{"command": str, "open": callable(app)}</code>) built
+<em>specifically</em> so new full-screen menus can be contributed as
+opt-in plugin screens. It is actively and correctly used by 7+ newer
+features: <code>plugins/agent_skills/skills_tui.py</code>,
+<code>plugins/hook_manager/hooks_tui.py</code>,
+<code>plugins/puppy_spinner/spinner_tui.py</code>,
+<code>plugins/steer_queue/queue_tui.py</code>,
+<code>plugins/plugin_list/plugins_tui.py</code>,
+<code>plugins/theme/register_callbacks.py</code>,
+<code>plugins/prune/prune_tui.py</code>. Yet 10 older
+<code>*_menu.py</code> files (<code>add_model_menu.py</code>,
+<code>model_settings_menu.py</code>, <code>autosave_menu.py</code>,
+<code>uc_menu.py</code>, <code>diff_menu.py</code>,
+<code>judges_menu.py</code>, <code>mcp_binding_menu.py</code>,
+<code>colors_menu.py</code>, <code>agent_menu.py</code>,
+<code>set_menu.py</code> — ~8,000+ combined lines) live directly in
+<code>code_puppy/command_line/</code> and are imported eagerly for side
+effects (e.g. <code>command_handler.py</code>:
+<code>import code_puppy.command_line.uc_menu # noqa: F401</code>) rather
+than through the hook system. This is the single strongest, most
+concrete violation across the entire 3-part audit — the exact extension
+point exists, is proven in production by other features, and is simply
+not being used here. <strong>Remediation:</strong> migrate each menu to
+a <code>code_puppy/plugins/&lt;menu_name&gt;/</code> package registering
+via <code>register_screen</code>, one at a time, starting with the
+smallest/newest (<code>colors_menu.py</code>,
+<code>mcp_binding_menu.py</code>) before attempting the largest
+(<code>add_model_menu.py</code>,
+<code>model_settings_menu.py</code>).</p></li>
+<li><p><strong>600-line hard cap (Rule #3).</strong> AGENTS.md’s Rules
+section states a “600-line hard cap — split into submodules” as an
+explicit, numbered rule — not a style preference. Every file explicitly
+named across all three SMELL sub-audits’ SCOPE sections violates it:
+<code>config.py</code> (2944), <code>tools/common.py</code> (1760),
+<code>tools/command_runner.py</code> (1603), <code>cli_runner.py</code>
+(1538), <code>callbacks.py</code> (1395),
+<code>messaging/rich_renderer.py</code> (1364),
+<code>command_line/add_model_menu.py</code> (1413),
+<code>command_line/model_settings_menu.py</code> (1361),
+<code>mcp_/server_registry_catalog.py</code> (1126),
+<code>agents/_runtime.py</code> (1152), <code>model_factory.py</code>
+(1140), and more. This is a second, independently-citable
+architecture-rule violation, distinct from (but compounding) the
+plugin/core golden-rule violation above — it confirms the tech debt is
+systemic across the whole audited surface, not confined to
+<code>command_line/</code>.</p></li>
+<li><p><strong>Minor core→plugins layering reaches</strong> (lower
+severity, noted for completeness): <code>code_puppy/callbacks.py</code>
+(core) imports
+<code>code_puppy.plugins.config.get_disabled_plugins</code>;
+<code>code_puppy/config.py</code> imports
+<code>code_puppy.plugins.statusline.payload.detect_git_branch</code>;
+<code>code_puppy/model_factory.py</code> imports OAuth utilities from
+<code>plugins.claude_code_oauth</code>/<code>plugins.gemini_oauth</code>.
+These go the <em>opposite</em> direction of the golden rule’s main
+concern (core depending on specific plugins rather than plugins
+depending on core) and would break silently if those plugins were ever
+renamed/removed. A <code>on_resolve_oauth_credential</code> callback
+hook, or relocating the shared utilities
+(<code>detect_git_branch</code>, <code>get_disabled_plugins</code>) to a
+neutral core-adjacent module, would close this gap.</p></li>
+<li><p><strong>Separation-of-concerns within <code>messaging/</code> vs
+<code>command_line/</code>.</strong> While not a golden-rule violation
+in the plugin sense, <code>messaging/editor_completion.py</code> and 5
+sibling files reaching into <code>command_line/*_completion</code>
+modules inverts the expected “messaging is the lower-level UI substrate,
+command_line is a consumer” layering — a related, smaller-scope
+architectural smell worth fixing alongside the
+<code>register_screen</code> migration.</p></li>
+</ol>
+<h2
+id="appendix-line-count-table-all-audited-files-largest-smallest">Appendix:
+Line-Count Table (all audited files, largest → smallest)</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>File</th>
+<th style="text-align: right;">Lines</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>code_puppy/config.py</code></td>
+<td style="text-align: right;">2944</td>
+</tr>
+<tr>
+<td><code>code_puppy/tools/common.py</code></td>
+<td style="text-align: right;">1760</td>
+</tr>
+<tr>
+<td><code>code_puppy/tools/command_runner.py</code></td>
+<td style="text-align: right;">1603</td>
+</tr>
+<tr>
+<td><code>code_puppy/cli_runner.py</code></td>
+<td style="text-align: right;">1538</td>
+</tr>
+<tr>
+<td><code>code_puppy/callbacks.py</code></td>
+<td style="text-align: right;">1395</td>
+</tr>
+<tr>
+<td><code>code_puppy/messaging/rich_renderer.py</code></td>
+<td style="text-align: right;">1364</td>
+</tr>
+<tr>
+<td><code>code_puppy/command_line/add_model_menu.py</code></td>
+<td style="text-align: right;">1413</td>
+</tr>
+<tr>
+<td><code>code_puppy/command_line/model_settings_menu.py</code></td>
+<td style="text-align: right;">1361</td>
+</tr>
+<tr>
+<td><code>code_puppy/tools/file_operations.py</code></td>
+<td style="text-align: right;">1275</td>
+</tr>
+<tr>
+<td><code>code_puppy/tools/file_modifications.py</code></td>
+<td style="text-align: right;">1154</td>
+</tr>
+<tr>
+<td><code>code_puppy/agents/_runtime.py</code></td>
+<td style="text-align: right;">1152</td>
+</tr>
+<tr>
+<td><code>code_puppy/mcp_/server_registry_catalog.py</code></td>
+<td style="text-align: right;">1126</td>
+</tr>
+<tr>
+<td><code>code_puppy/model_factory.py</code></td>
+<td style="text-align: right;">1140</td>
+</tr>
+<tr>
+<td><code>code_puppy/agents/_key_listeners.py</code></td>
+<td style="text-align: right;">1068</td>
+</tr>
+<tr>
+<td><code>code_puppy/command_line/prompt_toolkit_completion.py</code></td>
+<td style="text-align: right;">1038</td>
+</tr>
+<tr>
+<td><code>code_puppy/mcp_/manager.py</code></td>
+<td style="text-align: right;">970</td>
+</tr>
+<tr>
+<td><code>code_puppy/command_line/autosave_menu.py</code></td>
+<td style="text-align: right;">925</td>
+</tr>
+<tr>
+<td><code>code_puppy/command_line/uc_menu.py</code></td>
+<td style="text-align: right;">911</td>
+</tr>
+<tr>
+<td><code>code_puppy/tools/universal_constructor.py</code></td>
+<td style="text-align: right;">893</td>
+</tr>
+<tr>
+<td><code>code_puppy/claude_cache_client.py</code></td>
+<td style="text-align: right;">883</td>
+</tr>
+<tr>
+<td><code>code_puppy/command_line/diff_menu.py</code></td>
+<td style="text-align: right;">852</td>
+</tr>
+<tr>
+<td><code>code_puppy/gemini_model.py</code></td>
+<td style="text-align: right;">840</td>
+</tr>
+<tr>
+<td><code>code_puppy/command_line/judges_menu.py</code></td>
+<td style="text-align: right;">815</td>
+</tr>
+<tr>
+<td><code>code_puppy/secret_store.py</code></td>
+<td style="text-align: right;">814</td>
+</tr>
+<tr>
+<td><code>code_puppy/agents/agent_manager.py</code></td>
+<td style="text-align: right;">812</td>
+</tr>
+<tr>
+<td><code>code_puppy/command_line/core_commands.py</code></td>
+<td style="text-align: right;">733</td>
+</tr>
+<tr>
+<td><code>code_puppy/messaging/bottom_bar.py</code></td>
+<td style="text-align: right;">750</td>
+</tr>
+<tr>
+<td><code>code_puppy/command_line/agent_menu.py</code></td>
+<td style="text-align: right;">716</td>
+</tr>
+<tr>
+<td><code>code_puppy/messaging/bus.py</code></td>
+<td style="text-align: right;">712</td>
+</tr>
+<tr>
+<td><code>code_puppy/messaging/run_ui.py</code></td>
+<td style="text-align: right;">708</td>
+</tr>
+<tr>
+<td><code>code_puppy/agents/run_stats.py</code></td>
+<td style="text-align: right;">690</td>
+</tr>
+<tr>
+<td><code>code_puppy/messaging/line_editor.py</code></td>
+<td style="text-align: right;">693</td>
+</tr>
+<tr>
+<td><code>code_puppy/tools/subagent_invocation.py</code></td>
+<td style="text-align: right;">678</td>
+</tr>
+<tr>
+<td><code>code_puppy/command_line/config_commands.py</code></td>
+<td style="text-align: right;">658</td>
+</tr>
+<tr>
+<td><code>code_puppy/agents/agent_creator_agent.py</code></td>
+<td style="text-align: right;">645</td>
+</tr>
+<tr>
+<td><code>code_puppy/agents/_builder.py</code></td>
+<td style="text-align: right;">638</td>
+</tr>
+<tr>
+<td><code>code_puppy/command_line/set_menu_catalog.py</code></td>
+<td style="text-align: right;">649</td>
+</tr>
+<tr>
+<td><code>code_puppy/command_line/model_picker_completion.py</code></td>
+<td style="text-align: right;">629</td>
+</tr>
+<tr>
+<td><code>code_puppy/messaging/messages.py</code></td>
+<td style="text-align: right;">611</td>
+</tr>
+<tr>
+<td><code>code_puppy/mcp_/health_monitor.py</code></td>
+<td style="text-align: right;">589</td>
+</tr>
+<tr>
+<td><code>code_puppy/messaging/renderers.py</code></td>
+<td style="text-align: right;">558</td>
+</tr>
+<tr>
+<td><code>code_puppy/command_line/set_menu.py</code></td>
+<td style="text-align: right;">541</td>
+</tr>
+<tr>
+<td><code>code_puppy/command_line/colors_menu.py</code></td>
+<td style="text-align: right;">538</td>
+</tr>
+<tr>
+<td><code>code_puppy/mcp_/managed_server.py</code></td>
+<td style="text-align: right;">518</td>
+</tr>
+<tr>
+<td><code>code_puppy/tools/__init__.py</code></td>
+<td style="text-align: right;">515</td>
+</tr>
+<tr>
+<td><code>code_puppy/command_line/attachments.py</code></td>
+<td style="text-align: right;">513</td>
+</tr>
+<tr>
+<td><code>code_puppy/tools/browser/browser_manager.py</code></td>
+<td style="text-align: right;">524</td>
+</tr>
+<tr>
+<td><code>code_puppy/mcp_/blocking_startup.py</code></td>
+<td style="text-align: right;">479</td>
+</tr>
+<tr>
+<td><code>code_puppy/command_line/session_commands.py</code></td>
+<td style="text-align: right;">489</td>
+</tr>
+<tr>
+<td><code>code_puppy/messaging/pause_controller.py</code></td>
+<td style="text-align: right;">500</td>
+</tr>
+<tr>
+<td><code>code_puppy/command_line/clipboard.py</code></td>
+<td style="text-align: right;">472</td>
+</tr>
+<tr>
+<td><code>code_puppy/messaging/subagent_console.py</code></td>
+<td style="text-align: right;">468</td>
+</tr>
+<tr>
+<td><code>code_puppy/messaging/transcript_guard.py</code></td>
+<td style="text-align: right;">466</td>
+</tr>
+<tr>
+<td><code>code_puppy/command_line/mcp_binding_menu.py</code></td>
+<td style="text-align: right;">400</td>
+</tr>
+<tr>
+<td><code>code_puppy/messaging/message_queue.py</code></td>
+<td style="text-align: right;">416</td>
+</tr>
+<tr>
+<td><code>code_puppy/messaging/inline_bar.py</code></td>
+<td style="text-align: right;">401</td>
+</tr>
+<tr>
+<td><code>code_puppy/command_line/onboarding_wizard.py</code></td>
+<td style="text-align: right;">363</td>
+</tr>
+<tr>
+<td><code>code_puppy/messaging/bar_painters.py</code></td>
+<td style="text-align: right;">366</td>
+</tr>
+<tr>
+<td><code>code_puppy/mcp_/retry_manager.py</code></td>
+<td style="text-align: right;">337</td>
+</tr>
+<tr>
+<td><code>code_puppy/command_line/command_handler.py</code></td>
+<td style="text-align: right;">323</td>
+</tr>
+<tr>
+<td><code>code_puppy/messaging/editor_completion.py</code></td>
+<td style="text-align: right;">331</td>
+</tr>
+<tr>
+<td><code>code_puppy/command_line/pin_command_completion.py</code></td>
+<td style="text-align: right;">329</td>
+</tr>
+<tr>
+<td><code>code_puppy/messaging/bar_rendering.py</code></td>
+<td style="text-align: right;">323</td>
+</tr>
+<tr>
+<td><code>code_puppy/tools/agent_tools.py</code></td>
+<td style="text-align: right;">324</td>
+</tr>
+<tr>
+<td><code>code_puppy/mcp_/agent_bindings.py</code></td>
+<td style="text-align: right;">293</td>
+</tr>
+<tr>
+<td><code>code_puppy/mcp_/circuit_breaker.py</code></td>
+<td style="text-align: right;">290</td>
+</tr>
+<tr>
+<td><code>code_puppy/command_line/file_path_completion.py</code></td>
+<td style="text-align: right;">225</td>
+</tr>
+<tr>
+<td><code>code_puppy/tools/fs_access.py</code></td>
+<td style="text-align: right;">229</td>
+</tr>
+<tr>
+<td><code>code_puppy/messaging/__init__.py</code></td>
+<td style="text-align: right;">305</td>
+</tr>
+<tr>
+<td><code>code_puppy/messaging/editor_history.py</code></td>
+<td style="text-align: right;">297</td>
+</tr>
+<tr>
+<td><code>code_puppy/messaging/queue_console.py</code></td>
+<td style="text-align: right;">271</td>
+</tr>
+<tr>
+<td><code>code_puppy/messaging/commands.py</code></td>
+<td style="text-align: right;">243</td>
+</tr>
+<tr>
+<td><code>code_puppy/command_line/image_utils.py</code></td>
+<td style="text-align: right;">198</td>
+</tr>
+<tr>
+<td><code>code_puppy/command_line/set_menu_render.py</code></td>
+<td style="text-align: right;">194</td>
+</tr>
+<tr>
+<td><code>code_puppy/command_line/onboarding_slides.py</code></td>
+<td style="text-align: right;">188</td>
+</tr>
+<tr>
+<td><code>code_puppy/messaging/editor_keys.py</code></td>
+<td style="text-align: right;">181</td>
+</tr>
+<tr>
+<td><code>code_puppy/command_line/command_registry.py</code></td>
+<td style="text-align: right;">186</td>
+</tr>
+<tr>
+<td><code>code_puppy/tools/io_backends.py</code></td>
+<td style="text-align: right;">186</td>
+</tr>
+<tr>
+<td><code>code_puppy/command_line/autosave_search.py</code></td>
+<td style="text-align: right;">184</td>
+</tr>
+<tr>
+<td><code>code_puppy/command_line/mcp_completion.py</code></td>
+<td style="text-align: right;">176</td>
+</tr>
+<tr>
+<td><code>code_puppy/messaging/editor_paste.py</code></td>
+<td style="text-align: right;">168</td>
+</tr>
+<tr>
+<td><code>code_puppy/command_line/file_index.py</code></td>
+<td style="text-align: right;">169</td>
+</tr>
+<tr>
+<td><code>code_puppy/command_line/skills_completion.py</code></td>
+<td style="text-align: right;">160</td>
+</tr>
+<tr>
+<td><code>code_puppy/messaging/chords.py</code></td>
+<td style="text-align: right;">151</td>
+</tr>
+<tr>
+<td><code>code_puppy/command_line/config_apply.py</code></td>
+<td style="text-align: right;">152</td>
+</tr>
+<tr>
+<td><code>code_puppy/command_line/shell_passthrough.py</code></td>
+<td style="text-align: right;">150</td>
+</tr>
+<tr>
+<td><code>code_puppy/messaging/external_editor.py</code></td>
+<td style="text-align: right;">137</td>
+</tr>
+<tr>
+<td><code>code_puppy/messaging/editor_display.py</code></td>
+<td style="text-align: right;">132</td>
+</tr>
+<tr>
+<td><code>code_puppy/command_line/set_menu_values.py</code></td>
+<td style="text-align: right;">126</td>
+</tr>
+<tr>
+<td><code>code_puppy/command_line/utils.py</code></td>
+<td style="text-align: right;">105</td>
+</tr>
+<tr>
+<td><code>code_puppy/messaging/prompt_prefix_style.py</code></td>
+<td style="text-align: right;">103</td>
+</tr>
+<tr>
+<td><code>code_puppy/command_line/load_context_completion.py</code></td>
+<td style="text-align: right;">52</td>
+</tr>
+<tr>
+<td><code>code_puppy/command_line/set_menu_shims.py</code></td>
+<td style="text-align: right;">49</td>
+</tr>
+<tr>
+<td><code>code_puppy/command_line/wiggum_state.py</code></td>
+<td style="text-align: right;">45</td>
+</tr>
+<tr>
+<td><code>code_puppy/command_line/pagination.py</code></td>
+<td style="text-align: right;">43</td>
+</tr>
+<tr>
+<td><code>code_puppy/messaging/editor_actions.py</code></td>
+<td style="text-align: right;">100</td>
+</tr>
+<tr>
+<td><code>code_puppy/messaging/markdown_patches.py</code></td>
+<td style="text-align: right;">89</td>
+</tr>
+<tr>
+<td><code>code_puppy/messaging/run_ui_wiring.py</code></td>
+<td style="text-align: right;">86</td>
+</tr>
+<tr>
+<td><code>code_puppy/command_line/set_menu_schema.py</code></td>
+<td style="text-align: right;">33</td>
+</tr>
+<tr>
+<td><code>code_puppy/command_line/set_menu_settings.py</code></td>
+<td style="text-align: right;">26</td>
+</tr>
+<tr>
+<td><code>code_puppy/command_line/__init__.py</code></td>
+<td style="text-align: right;">1</td>
+</tr>
+</tbody>
+</table></div>
+<p><em>Note: <code>command_line/</code> totals 39 files / 17,130 lines;
+<code>messaging/</code> totals 28 files / 10,930 lines (per SMELL_3
+research). Some smaller/less-relevant files in both directories were
+spot-checked but not individually re-verified with <code>wc -l</code>
+for this appendix — see SMELL_3’s Research Notes section 2 for the
+complete raw inventory if a fully exhaustive re-count is
+needed.</em></p>
+</main>
+<button class="back-to-top" onclick="window.scrollTo({top:0,behavior:'smooth'})">Back to top</button>
+</body>
+</html>

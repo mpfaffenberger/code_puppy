@@ -21,7 +21,7 @@ NO Rich markup or formatting should be embedded in any string fields.
 """
 
 from datetime import datetime, timezone
-from typing import Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
@@ -169,10 +169,35 @@ class SelectionResponse(BaseCommand):
         description="ID of the prompt this responds to (must match request)"
     )
     selected_index: int = Field(
-        ge=0,
-        description="Zero-based index of the selected option",
+        ge=-1,
+        description="Zero-based index of the selected option; -1 means cancelled",
     )
     selected_value: str = Field(description="The value of the selected option")
+
+
+class QuestionResponse(BaseCommand):
+    """Response to a QuestionRequest from the agent.
+
+    Carries the answers as serialized ``QuestionAnswer`` dicts plus the two
+    non-success outcomes (cancelled / timed out) so the handler can map the
+    result straight back onto ``AskUserQuestionOutput``.
+    """
+
+    prompt_id: str = Field(
+        description="ID of the prompt this responds to (must match request)"
+    )
+    answers: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Serialized QuestionAnswer objects, one per question",
+    )
+    cancelled: bool = Field(
+        default=False,
+        description="True if the user cancelled (Esc) without answering",
+    )
+    timed_out: bool = Field(
+        default=False,
+        description="True if the interaction timed out waiting for input",
+    )
 
 
 # =============================================================================
@@ -190,6 +215,7 @@ AnyCommand = Union[
     UserInputResponse,
     ConfirmationResponse,
     SelectionResponse,
+    QuestionResponse,
 ]
 """Union of all command types for type checking."""
 
@@ -211,6 +237,7 @@ __all__ = [
     "UserInputResponse",
     "ConfirmationResponse",
     "SelectionResponse",
+    "QuestionResponse",
     # Union type
     "AnyCommand",
 ]

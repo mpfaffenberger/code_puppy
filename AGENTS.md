@@ -94,6 +94,7 @@ approval. With `fail_closed=True` its exception is reported as a block instead. 
 | `register_settings` | `/set` keys (autocomplete + `/set` menu) | `() -> SettingsCategory \| list[SettingsCategory]` from `code_puppy.command_line.set_menu_schema` — same-named categories merge; core keys win; `sensitive=True` masks the value. Guard with `try/except ValueError` for older cores |
 | `register_cli_args` | Before CLI `parse_args()` | `(parser) -> list` — plugins call `parser.add_argument(...)`; namespace flags (e.g. `--myplugin-foo`) to avoid argparse collisions |
 | `handle_cli_args` | After CLI `parse_args()` | `(args) -> dict \| None` — return `{"handled": True, "exit_code": int}` to terminate the CLI cleanly; return `None` to let startup proceed |
+| `register_screen` | Textual TUI menu/screen | `() -> list[dict]` with `{"command": str, "open": callable(app)}` (opt. `"aliases": list[str]`). Bare `/command` opens the screen in the Textual UI; no-op in classic. |
 | `load_model_config` | Patch model config | `(*args, **kwargs) -> Any` |
 | `load_models_config` | Inject models | `() -> dict` |
 | `load_model_descriptions` | Inject description overlays | `() -> dict[str, str]` |

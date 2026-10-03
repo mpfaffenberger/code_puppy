@@ -90,6 +90,7 @@ from code_puppy.callbacks import (
     on_agent_run_result,
     on_agent_run_start,
     on_should_skip_fallback_render,
+    on_stream_event,
     on_user_prompt_submit,
 )
 from code_puppy.config import (
@@ -594,6 +595,18 @@ def _extract_response_text(result: Any) -> str:
     return str(result)
 
 
+def _steer_echo_text(content: str | list[object]) -> str:
+    """Plain-text preview of a queued steer for the TUI prompt echo.
+
+    ``resolve_steer_content`` yields either the raw text or a multimodal
+    ``[text, *attachments]`` list; the text always leads.
+    """
+    if isinstance(content, str):
+        return content
+    head = content[0] if content else ""
+    return head if isinstance(head, str) else ""
+
+
 def _should_prepend_system_prompt(agent: Any, prompt: str) -> str:
     """Prepend system prompt to user prompt on the first turn (claude-code etc)."""
     from code_puppy.agents._builder import load_puppy_rules
@@ -879,10 +892,18 @@ async def _run_with_mcp_impl(
         while True:
             # 1) Drain queue-mode steers FIRST (user-priority over hook retries).
             if may_drain_queued_steers and queued_steers_used < max_queued_steers:
-                steer_text = prepare_queued_steer_injection(agent, result)
-                if steer_text is not None:
+                steer_content = prepare_queued_steer_injection(agent, result)
+                if steer_content is not None:
+                    # Fire prompt_echo synchronously on the event loop so the
+                    # TUI can show a PROMPT banner BEFORE this turn's stream
+                    # deltas arrive (bus polling has ~10 ms latency; stream
+                    # events fire inline and are ordered correctly). Classic
+                    # ignores the event, so delivery there stays silent.
+                    await on_stream_event(
+                        "prompt_echo", {"text": _steer_echo_text(steer_content)}
+                    )
                     queued_steers_used += 1
-                    result = await _follow_up_run(steer_text)
+                    result = await _follow_up_run(steer_content)
                     continue
 
             # 2) Plugin-requested hook retry (cap matches original loop).
@@ -1131,20 +1152,28 @@ async def _run_with_mcp_impl(
             # listener if one owns stdin (persistent prompt), else spawn a
             # per-run one. ``acquire_listener`` decides atomically (no
             # double-reader race).
-            key_listener_stop_event = threading.Event()
-            handle, spawned = _key_listeners.acquire_listener(
-                key_listener_stop_event,
-                # Ctrl+X is the chord prefix when an editor is installed
-                # (messaging.chords); this fallback only fires with no editor,
-                # where chord targets don't exist — no-op is right.
-                on_escape=lambda: None,
-                on_cancel_agent=cancel_cb,
-            )
-            if spawned:
-                key_listener_handle = handle
-            else:
-                using_persistent_listener = True
-                _key_listeners.set_cancel_handler(cancel_cb)
+            #
+            # But NOT in the Textual TUI: Textual owns the terminal and a
+            # second cbreak reader races it for keystrokes (swallowing ~half).
+            # The TUI binds Esc=cancel, Ctrl+T=steer, Ctrl+X=kill-shell
+            # natively, and pause routes through the message bus instead.
+            from code_puppy.config import is_tui_mode
+
+            if not is_tui_mode():
+                key_listener_stop_event = threading.Event()
+                handle, spawned = _key_listeners.acquire_listener(
+                    key_listener_stop_event,
+                    # Ctrl+X is the chord prefix when an editor is installed
+                    # (messaging.chords); this fallback only fires with no
+                    # editor, where chord targets don't exist; no-op is right.
+                    on_escape=lambda: None,
+                    on_cancel_agent=cancel_cb,
+                )
+                if spawned:
+                    key_listener_handle = handle
+                else:
+                    using_persistent_listener = True
+                    _key_listeners.set_cancel_handler(cancel_cb)
 
         result = await agent_task
         run_success = True
