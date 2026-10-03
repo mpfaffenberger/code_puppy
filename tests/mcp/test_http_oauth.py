@@ -46,6 +46,31 @@ def test_oauth_provider_is_deferred(url):
     assert provider._callback_host == "127.0.0.1"
 
 
+def test_token_request_uses_a_single_auth_method():
+    """Regression: mcp.cloudflare.com 400s on Basic header + body client_id.
+
+    Register as a public client, then check the token request the SDK actually
+    builds: client_id in the body only, no Authorization header, no secret.
+    """
+    from mcp.shared.auth import OAuthClientInformationFull
+
+    provider = http_auth({"auth": "oauth"}, "https://example.com/mcp", None)
+    provider._bind("https://example.com/mcp")
+    metadata = provider.context.client_metadata
+    assert metadata.token_endpoint_auth_method == "none"
+
+    # What a compliant server echoes back for a public-client registration.
+    provider.context.client_info = OAuthClientInformationFull(
+        client_id="cid", **metadata.model_dump(exclude_none=True)
+    )
+    data, headers = provider.context.prepare_token_auth(
+        {"grant_type": "authorization_code", "client_id": "cid"}, {}
+    )
+    assert "Authorization" not in headers
+    assert "client_secret" not in data
+    assert data["client_id"] == "cid"
+
+
 def test_binding_oauth_to_transport_is_silent():
     provider = http_auth({"auth": "oauth"}, "https://example.com/mcp", None)
     # pytest collects modules inside its own catch_warnings, which discards
