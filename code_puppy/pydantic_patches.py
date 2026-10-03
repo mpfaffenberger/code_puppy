@@ -67,20 +67,29 @@ def _repair_tool_call_json(raw: str) -> str:
         return raw
 
 
-def _resolve_tool_properties(manager: Any, call: Any) -> dict | None:
-    """Best-effort lookup of a tool's declared JSON-Schema properties.
+def _resolve_tool_schema(manager: Any, call: Any) -> dict | None:
+    """Best-effort lookup of a tool's full parameters JSON-Schema.
 
-    Returns the ``properties`` mapping, or ``None`` when the tool (or its
-    schema) cannot be resolved — callers must treat ``None`` as "unknown".
-    Never raises: this runs on the validation hot path.
+    Returns the schema dict, or ``None`` when the tool (or its schema)
+    cannot be resolved — callers must treat ``None`` as "unknown" and
+    keep their hands off. Never raises: this runs on the validation hot
+    path. A schema that resolves but omits ``properties`` still counts
+    as resolved: it describes a tool that declares no parameters.
     """
     try:
         tool_def = manager.get_tool_def(getattr(call, "tool_name", None))
         schema = getattr(tool_def, "parameters_json_schema", None)
-        properties = schema.get("properties") if isinstance(schema, dict) else None
-        return properties if isinstance(properties, dict) else None
+        return schema if isinstance(schema, dict) else None
     except Exception:
         return None
+
+
+def _schema_properties(schema: dict | None) -> dict | None:
+    """Declared ``properties`` of a schema, or ``None`` when absent."""
+    if not isinstance(schema, dict):
+        return None
+    properties = schema.get("properties")
+    return properties if isinstance(properties, dict) else None
 
 
 def _unwrap_arguments_envelope(tool_args: Any, properties: dict | None) -> Any:
@@ -109,10 +118,32 @@ def _unwrap_arguments_envelope(tool_args: Any, properties: dict | None) -> Any:
             inner = json.loads(inner)
         except Exception:
             return tool_args
+    if isinstance(inner, dict):
+        logger.debug("unwrapped spurious {arguments: ...} tool-call envelope")
     return inner if isinstance(inner, dict) else tool_args
 
 
-def _strip_placeholder_args(tool_args: Any, properties: dict | None) -> Any:
+def _is_strict_zero_param_schema(schema: Any) -> bool:
+    """True when ``schema`` provably accepts no arguments at all.
+
+    Requires a resolved object schema that declares no properties and
+    *forbids* additional ones. ``additionalProperties`` must be literally
+    ``false``: absent means "allow extras" (the JSON-Schema default) and a
+    dict value means "allow, constrained" — either way the tool may
+    legitimately receive free-form args, and stripping would destroy them.
+    Non-object schemas are never stripped (pydantic-ai always emits
+    ``type: object`` for function tools, so this loses nothing in practice).
+    """
+    if not isinstance(schema, dict) or schema.get("type") != "object":
+        return False
+    if _schema_properties(schema):
+        return False
+    return schema.get("additionalProperties") is False
+
+
+def _strip_placeholder_args(
+    tool_args: Any, schema: dict | None, tool_name: str | None
+) -> Any:
     """Drop invented keys from a call to a zero-parameter tool.
 
     Some providers cannot serialize an empty function-call arguments object
@@ -122,21 +153,53 @@ def _strip_placeholder_args(tool_args: Any, properties: dict | None) -> Any:
     insists it sent ``{}``, so the agent burns retries on an error it cannot
     see to fix.
 
-    When a tool's schema resolves and declares NO properties, any non-empty
-    argument object is definitionally junk: replace it with ``{}``. Tools with
-    declared properties, or unresolvable schemas (``properties is None``),
-    are returned untouched — partial stripping there could silently mask a
-    genuinely confused call.
+    Fires only when :func:`_is_strict_zero_param_schema` says the schema
+    resolved and forbids every argument — under that contract any non-empty
+    argument object is junk (including non-dict ``arguments``-envelope
+    payloads, which validation would reject anyway) and is replaced with
+    ``{}``. Everything else — unresolvable schemas, permissive schemas,
+    tools with declared properties — is returned untouched, so a legitimate
+    or merely confused call is never masked.
     """
     if not isinstance(tool_args, dict) or not tool_args:
         return tool_args
-    if properties is None or properties:
+    if not _is_strict_zero_param_schema(schema):
         return tool_args
-    logger.warning(
-        "dropping placeholder args %s for zero-parameter tool call",
-        sorted(tool_args),
-    )
+    _log_placeholder_strip(tool_args, tool_name)
     return {}
+
+
+# Tools already warned about at WARNING level; the providers that inject
+# placeholder args do it on *every* zero-param call, so repeats drop to DEBUG
+# instead of drowning the log.
+_PLACEHOLDER_WARNED_TOOLS: set[str] = set()
+
+
+def _log_placeholder_strip(tool_args: dict, tool_name: str | None) -> None:
+    """One WARNING per tool, then DEBUG — with the payload that identifies
+    the provider quirk, bounded so a junk dict cannot flood the log."""
+    try:
+        payload = json.dumps(tool_args, sort_keys=True, default=str)
+    except Exception:  # mixed-type keys defeat sort_keys; repr always works
+        payload = repr(tool_args)
+    key = tool_name or "<unknown>"
+    log = logger.debug if key in _PLACEHOLDER_WARNED_TOOLS else logger.warning
+    _PLACEHOLDER_WARNED_TOOLS.add(key)
+    log(
+        "dropping placeholder args %.200s for zero-parameter tool %r "
+        "(provider cannot serialize an empty arguments object)",
+        payload,
+        key,
+    )
+
+
+def _sanitize_args(tool_args: Any, schema: dict | None, tool_name: str | None) -> Any:
+    """Envelope-unwrap then placeholder-strip; identity when untouched."""
+    return _strip_placeholder_args(
+        _unwrap_arguments_envelope(tool_args, _schema_properties(schema)),
+        schema,
+        tool_name,
+    )
 
 
 def _sanitize_tool_call_args(manager: Any, call: Any) -> None:
@@ -149,12 +212,11 @@ def _sanitize_tool_call_args(manager: Any, call: Any) -> None:
     :func:`_repair_tool_call_json`.
     """
     args = getattr(call, "args", None)
-    properties = _resolve_tool_properties(manager, call)
+    schema = _resolve_tool_schema(manager, call)
+    tool_name = getattr(call, "tool_name", None)
 
     if isinstance(args, dict):
-        sanitized = _strip_placeholder_args(
-            _unwrap_arguments_envelope(args, properties), properties
-        )
+        sanitized = _sanitize_args(args, schema, tool_name)
         if sanitized is not args:
             call.args = sanitized
     elif isinstance(args, str) and args:
@@ -164,9 +226,7 @@ def _sanitize_tool_call_args(manager: Any, call: Any) -> None:
             return
         if not isinstance(parsed, dict):
             return
-        sanitized = _strip_placeholder_args(
-            _unwrap_arguments_envelope(parsed, properties), properties
-        )
+        sanitized = _sanitize_args(parsed, schema, tool_name)
         if sanitized is not parsed:
             call.args = json.dumps(sanitized)
 
