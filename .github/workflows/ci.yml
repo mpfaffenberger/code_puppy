@@ -31,9 +31,6 @@ jobs:
       - name: Install dependencies
         run: uv pip install -e .
 
-      - name: Install pexpect for integration tests
-        run: uv pip install pexpect>=4.9.0
-
       - name: Provision CI model (lilac GLM-5.2 + Kimi K2.6)
         # models.json ships empty. CI gets its model from extra_models.json,
         # exactly like a real user would after running /add_model.
@@ -103,9 +100,9 @@ jobs:
           SYN_API_KEY: ${{ secrets.SYN_API_KEY || 'fake-key-for-ci-testing' }}
           LILAC_API_KEY: ${{ secrets.LILAC_API_KEY || 'fake-key-for-ci-testing' }}
         run: |
-          echo "Running unit tests (skipping integration tests) on ${{ runner.os }} with Python ${{ matrix.python-version }}..."
+          echo "Running tests on ${{ runner.os }} with Python ${{ matrix.python-version }}..."
           echo "Required environment variables are set (using CI fallbacks if secrets not available)"
-          uv run pytest tests/ --ignore tests/integration -v --cov=code_puppy --cov-report=term-missing
+          uv run pytest tests/ -v --cov=code_puppy --cov-report=term-missing
 
   # The exec-runner UTF-8 pipe contract is a Windows-only failure mode: child
   # Pythons attached to a pipe default their stdio to the legacy codepage
