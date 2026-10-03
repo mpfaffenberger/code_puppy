@@ -171,7 +171,10 @@ def test_non_dict_envelope_payloads_are_left_untouched(raw):
 def test_sanitize_unwraps_dict_args_in_place():
     call = SimpleNamespace(args={"arguments": {"file_path": "puppy.py"}})
 
-    pydantic_patches._sanitize_tool_call_args(_stub_manager({}), call)
+    # The tool really takes ``file_path``; only the envelope is spurious.
+    pydantic_patches._sanitize_tool_call_args(
+        _stub_manager({"file_path": {"type": "string"}}), call
+    )
 
     assert call.args == {"file_path": "puppy.py"}
 
@@ -191,6 +194,60 @@ def test_sanitize_leaves_invalid_json_string_for_the_repairer():
     pydantic_patches._sanitize_tool_call_args(_stub_manager({}), call)
 
     assert call.args == "{not json at all"
+
+
+@pytest.mark.parametrize(
+    "junk_args",
+    [
+        {"command": "list_agents"},
+        {"extra": "ignore"},
+        {"dummy": "x"},
+        {"city": "ignore"},
+    ],
+)
+def test_zero_param_tool_placeholder_args_are_stripped(junk_args):
+    """Observed in the wild: a provider that cannot emit an empty arguments
+    object injects one placeholder key, and the call dies with
+    ``extra_forbidden`` while the model insists it sent ``{}``."""
+    call = SimpleNamespace(tool_name="list_agents", args=junk_args)
+
+    pydantic_patches._sanitize_tool_call_args(_stub_manager({}), call)
+
+    assert call.args == {}
+
+
+def test_zero_param_tool_placeholder_args_string_shape_preserved():
+    call = SimpleNamespace(tool_name="list_agents", args='{"city": "ignore"}')
+
+    pydantic_patches._sanitize_tool_call_args(_stub_manager({}), call)
+
+    assert call.args == "{}"
+    assert isinstance(call.args, str)
+
+
+def test_parameterized_tool_junk_args_are_not_stripped():
+    """Only zero-parameter tools get the nuclear option; stripping unknown
+    keys from a tool with real parameters could mask a confused call."""
+    args = {"command": "echo hi"}
+    call = SimpleNamespace(tool_name="shell", args=args)
+
+    pydantic_patches._sanitize_tool_call_args(
+        _stub_manager({"command": {"type": "string"}}), call
+    )
+
+    assert call.args is args
+
+
+def test_unknown_schema_junk_args_are_not_stripped():
+    """No resolvable schema means we cannot know the tool is zero-param."""
+    args = {"command": "list_agents"}
+    call = SimpleNamespace(tool_name="mystery", args=args)
+
+    pydantic_patches._sanitize_tool_call_args(
+        SimpleNamespace(get_tool_def=lambda _name: None), call
+    )
+
+    assert call.args is args
 
 
 def _stub_manager(properties):
@@ -219,6 +276,28 @@ async def test_zero_arg_tool_call_with_arguments_envelope_validates(monkeypatch)
 
     assert result == {}
     assert call.args == {}
+
+
+@pytest.mark.asyncio
+async def test_zero_arg_tool_call_with_placeholder_key_validates(monkeypatch):
+    """Same contract, wilder malformation: ``{"command": "list_agents"}``."""
+    from pydantic_ai.tool_manager import ToolManager
+
+    async def validate_tool_call(_manager, call, **_kwargs):
+        return call.args
+
+    monkeypatch.setattr(ToolManager, "validate_tool_call", validate_tool_call)
+    assert pydantic_patches.patch_tool_call_json_repair() is True
+
+    manager = _stub_manager({})
+    call = SimpleNamespace(
+        tool_name="list_agents", args='{"command": "list_agents"}'
+    )
+
+    result = await ToolManager.validate_tool_call(manager, call)
+
+    assert result == "{}"
+    assert call.args == "{}"
 
 
 @pytest.mark.parametrize("tool_name", ["replace_in_file", "create_file"])

@@ -112,20 +112,51 @@ def _unwrap_arguments_envelope(tool_args: Any, properties: dict | None) -> Any:
     return inner if isinstance(inner, dict) else tool_args
 
 
-def _sanitize_tool_call_args(manager: Any, call: Any) -> None:
-    """Rewrite ``call.args`` in place if it carries the ``arguments`` envelope.
+def _strip_placeholder_args(tool_args: Any, properties: dict | None) -> Any:
+    """Drop invented keys from a call to a zero-parameter tool.
 
-    ``ToolCallPart.args`` may be a dict or a JSON string, so both shapes are
-    handled (and a string is re-serialized to preserve the original shape).
-    Invalid JSON strings are left for :func:`_repair_tool_call_json`.
+    Some providers cannot serialize an empty function-call arguments object
+    and inject a placeholder key instead — observed in the wild:
+    ``{"command": "list_agents"}``, ``{"city": "ignore"}``, ``{"dummy": "x"}``.
+    Each one hard-fails validation with ``extra_forbidden`` while the model
+    insists it sent ``{}``, so the agent burns retries on an error it cannot
+    see to fix.
+
+    When a tool's schema resolves and declares NO properties, any non-empty
+    argument object is definitionally junk: replace it with ``{}``. Tools with
+    declared properties, or unresolvable schemas (``properties is None``),
+    are returned untouched — partial stripping there could silently mask a
+    genuinely confused call.
+    """
+    if not isinstance(tool_args, dict) or not tool_args:
+        return tool_args
+    if properties is None or properties:
+        return tool_args
+    logger.warning(
+        "dropping placeholder args %s for zero-parameter tool call",
+        sorted(tool_args),
+    )
+    return {}
+
+
+def _sanitize_tool_call_args(manager: Any, call: Any) -> None:
+    """Rewrite ``call.args`` in place to survive strict validation.
+
+    Two malformations are handled, for dict and JSON-string shapes alike
+    (a string is re-serialized to preserve the original shape): the spurious
+    ``{"arguments": ...}`` envelope, and placeholder keys invented for a
+    zero-parameter tool. Invalid JSON strings are left for
+    :func:`_repair_tool_call_json`.
     """
     args = getattr(call, "args", None)
     properties = _resolve_tool_properties(manager, call)
 
     if isinstance(args, dict):
-        unwrapped = _unwrap_arguments_envelope(args, properties)
-        if unwrapped is not args:
-            call.args = unwrapped
+        sanitized = _strip_placeholder_args(
+            _unwrap_arguments_envelope(args, properties), properties
+        )
+        if sanitized is not args:
+            call.args = sanitized
     elif isinstance(args, str) and args:
         try:
             parsed = json.loads(args)
@@ -133,9 +164,11 @@ def _sanitize_tool_call_args(manager: Any, call: Any) -> None:
             return
         if not isinstance(parsed, dict):
             return
-        unwrapped = _unwrap_arguments_envelope(parsed, properties)
-        if unwrapped is not parsed:
-            call.args = json.dumps(unwrapped)
+        sanitized = _strip_placeholder_args(
+            _unwrap_arguments_envelope(parsed, properties), properties
+        )
+        if sanitized is not parsed:
+            call.args = json.dumps(sanitized)
 
 
 # Loud failures recorded during the current apply_all_patches() run, so the
