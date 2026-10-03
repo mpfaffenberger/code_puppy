@@ -19,6 +19,15 @@ import pytest
 from code_puppy import pydantic_patches
 
 LOGGER_NAME = "code_puppy.pydantic_patches"
+
+
+@pytest.fixture(autouse=True)
+def _reset_placeholder_warned_keys():
+    """Isolate the module-level dedup set: any test may seed it, and a
+    later WARNING assertion must not silently see DEBUG instead."""
+    pydantic_patches._PLACEHOLDER_WARNED_KEYS.clear()
+    yield
+
 SHATTERING_MALFORMED_JSON = (
     '{"file_path": "demo.py", "content": "print(f\\"wrote {n_rows:,} rows\\")\n'
     'print(f"  {name:<30}{count:>10,}")\n'
@@ -305,6 +314,27 @@ def test_non_object_schema_args_are_not_stripped():
 
 
 @pytest.mark.parametrize(
+    "schema",
+    [
+        # legal JSON-Schema variants that still admit object args:
+        {"type": ["object", "null"], "properties": {}, "additionalProperties": False},
+        # type-less schema constraining objects only via keywords:
+        {"additionalProperties": False},
+    ],
+)
+def test_object_admitting_type_variants_still_strip(schema):
+    """Nullable/typeless strict-zero-param tools keep the production fix."""
+    manager = SimpleNamespace(
+        get_tool_def=lambda _name: SimpleNamespace(parameters_json_schema=schema)
+    )
+    call = SimpleNamespace(tool_name="list_agents", args={"command": "list_agents"})
+
+    pydantic_patches._sanitize_tool_call_args(manager, call)
+
+    assert call.args == {}
+
+
+@pytest.mark.parametrize(
     "raw",
     [
         {"arguments": {"command": "x"}},  # the two-malformation composition
@@ -337,15 +367,13 @@ def test_parameterized_tool_envelope_payload_stays_untouched():
     assert call.args is args
 
 
-def test_placeholder_strip_logs_once_per_tool(caplog):
-    """WARNING once, then DEBUG — the provider repeats the quirk on every
-    call, so the log must not repeat with it."""
-    pydantic_patches._PLACEHOLDER_WARNED_TOOLS.clear()
+def test_placeholder_strip_logs_once_per_quirk(caplog):
+    """WARNING once per (tool, quirk) then DEBUG for identical repeats —
+    but a NEW quirk on the same tool still surfaces at WARNING."""
+    quirks = [{"city": "ignore"}, {"city": "ignore"}, {"dummy": "x"}]
     with caplog.at_level("DEBUG", logger=LOGGER_NAME):
-        for _ in range(2):
-            call = SimpleNamespace(
-                tool_name="list_agents", args={"city": "ignore"}
-            )
+        for junk in quirks:
+            call = SimpleNamespace(tool_name="list_agents", args=junk)
             pydantic_patches._sanitize_tool_call_args(_stub_manager({}), call)
 
     warnings = [
@@ -354,10 +382,38 @@ def test_placeholder_strip_logs_once_per_tool(caplog):
     debugs = [
         r for r in caplog.records if r.levelname == "DEBUG" and "placeholder" in r.message
     ]
-    assert len(warnings) == 1
-    assert len(debugs) == 1
+    assert len(warnings) == 2  # city-quirk, then dummy-quirk
+    assert len(debugs) == 1  # the repeated city-quirk
     assert "list_agents" in warnings[0].getMessage()
     assert "city" in warnings[0].getMessage()  # values identify the provider quirk
+
+
+def test_permissive_schema_keeps_legit_arguments_arg():
+    """A schema that omits properties may accept free-form args; a real
+    ``arguments`` arg must survive the envelope unwrap untouched."""
+    manager = SimpleNamespace(
+        get_tool_def=lambda _name: SimpleNamespace(
+            parameters_json_schema={"type": "object"}
+        )
+    )
+    args = {"arguments": {"legit": 1}}
+    call = SimpleNamespace(tool_name="freeform", args=args)
+
+    pydantic_patches._sanitize_tool_call_args(manager, call)
+
+    assert call.args is args
+
+
+def test_unresolvable_schema_keeps_envelope():
+    """No schema, no proof the envelope is spurious — hands off."""
+    args = {"arguments": {"x": 1}}
+    call = SimpleNamespace(tool_name="mystery", args=args)
+
+    pydantic_patches._sanitize_tool_call_args(
+        SimpleNamespace(get_tool_def=lambda _name: None), call
+    )
+
+    assert call.args is args
 
 
 def test_placeholder_strip_survives_mixed_type_keys():

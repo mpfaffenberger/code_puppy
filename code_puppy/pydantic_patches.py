@@ -85,7 +85,13 @@ def _resolve_tool_schema(manager: Any, call: Any) -> dict | None:
 
 
 def _schema_properties(schema: dict | None) -> dict | None:
-    """Declared ``properties`` of a schema, or ``None`` when absent."""
+    """Declared ``properties`` of a schema, or ``None`` when the schema is
+    unresolvable or omits/malforms the key.
+
+    The ``None``-vs-empty distinction matters: an omitted ``properties`` key
+    means the tool's parameter surface is *unknown* (it may accept free-form
+    args), which the envelope unwrap's provability gate must not guess past.
+    """
     if not isinstance(schema, dict):
         return None
     properties = schema.get("properties")
@@ -103,14 +109,16 @@ def _unwrap_arguments_envelope(tool_args: Any, properties: dict | None) -> Any:
     are hit hardest: the model has no real parameter to name, so it emits the
     envelope and every call is rejected with ``extra_forbidden``.
 
-    Unwraps ONLY when ``arguments`` is the sole key *and* the tool does not
-    declare a real ``arguments`` property, so a legitimate parameter of that
-    name is never clobbered. Anything ambiguous is returned untouched.
+    Unwraps ONLY when the tool's schema resolved and provably declares no
+    ``arguments`` property — an unresolvable schema, or one that omits
+    ``properties`` entirely (free-form args may be legitimate, including an
+    ``arguments`` one), is returned untouched. A declared parameter of that
+    name is likewise never clobbered.
     """
     if not isinstance(tool_args, dict) or list(tool_args) != ["arguments"]:
         return tool_args
-    if isinstance(properties, dict) and "arguments" in properties:
-        return tool_args  # a real parameter -- hands off
+    if not isinstance(properties, dict) or "arguments" in properties:
+        return tool_args  # unproven, or a real parameter -- hands off
 
     inner = tool_args["arguments"]
     if isinstance(inner, str):
@@ -126,15 +134,20 @@ def _unwrap_arguments_envelope(tool_args: Any, properties: dict | None) -> Any:
 def _is_strict_zero_param_schema(schema: Any) -> bool:
     """True when ``schema`` provably accepts no arguments at all.
 
-    Requires a resolved object schema that declares no properties and
-    *forbids* additional ones. ``additionalProperties`` must be literally
-    ``false``: absent means "allow extras" (the JSON-Schema default) and a
-    dict value means "allow, constrained" — either way the tool may
-    legitimately receive free-form args, and stripping would destroy them.
-    Non-object schemas are never stripped (pydantic-ai always emits
-    ``type: object`` for function tools, so this loses nothing in practice).
+    Requires a resolved schema whose ``type`` admits objects (``"object"``
+    or a type list containing it; an absent ``type`` constrains nothing, and
+    tool-call arguments are objects by construction) and which declares no
+    properties while *forbidding* additional ones. ``additionalProperties``
+    must be literally ``false``: absent means "allow extras" (the JSON-Schema
+    default) and a dict value means "allow, constrained" — either way the
+    tool may legitimately receive free-form args, and stripping would
+    destroy them.
     """
-    if not isinstance(schema, dict) or schema.get("type") != "object":
+    if not isinstance(schema, dict):
+        return False
+    declared_type = schema.get("type", "object")
+    types = declared_type if isinstance(declared_type, list) else [declared_type]
+    if "object" not in types:
         return False
     if _schema_properties(schema):
         return False
@@ -169,27 +182,32 @@ def _strip_placeholder_args(
     return {}
 
 
-# Tools already warned about at WARNING level; the providers that inject
-# placeholder args do it on *every* zero-param call, so repeats drop to DEBUG
-# instead of drowning the log.
-_PLACEHOLDER_WARNED_TOOLS: set[str] = set()
+# (tool name, junk payload) pairs already warned at WARNING level; the
+# providers that inject placeholder args do it on *every* zero-param call,
+# so an identical repeat drops to DEBUG — while a *new* quirk on the same
+# tool still surfaces at WARNING.
+_PLACEHOLDER_WARNED_KEYS: set[tuple[str, str]] = set()
 
 
 def _log_placeholder_strip(tool_args: dict, tool_name: str | None) -> None:
-    """One WARNING per tool, then DEBUG — with the payload that identifies
-    the provider quirk, bounded so a junk dict cannot flood the log."""
+    """One WARNING per (tool, quirk), then DEBUG — with the payload that
+    identifies the provider quirk, bounded so a junk dict cannot flood the
+    log. Cannot raise, even for repr-hostile values."""
     try:
         payload = json.dumps(tool_args, sort_keys=True, default=str)
-    except Exception:  # mixed-type keys defeat sort_keys; repr always works
-        payload = repr(tool_args)
-    key = tool_name or "<unknown>"
-    log = logger.debug if key in _PLACEHOLDER_WARNED_TOOLS else logger.warning
-    _PLACEHOLDER_WARNED_TOOLS.add(key)
+    except Exception:  # mixed-type keys defeat sort_keys; repr is the fallback
+        try:
+            payload = repr(tool_args)
+        except Exception:  # never let logging break the validation hot path
+            payload = "<unrepr-able args>"
+    key = (tool_name or "<unknown>", payload)
+    log = logger.debug if key in _PLACEHOLDER_WARNED_KEYS else logger.warning
+    _PLACEHOLDER_WARNED_KEYS.add(key)
     log(
         "dropping placeholder args %.200s for zero-parameter tool %r "
         "(provider cannot serialize an empty arguments object)",
         payload,
-        key,
+        key[0],
     )
 
 
