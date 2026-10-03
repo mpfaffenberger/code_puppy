@@ -16,6 +16,29 @@ response through session JSON as a receipt; a receipt is valid only for the
 exact prompt prefix and response that produced it, so any rewrite (manual
 edit, compaction, tool-output clamping, a plugin transform, a model switch)
 falls back to the full estimate rather than risk a stale number.
+
+Known limitation -- continuation-merged usage is cumulative billing, not one
+measured prompt: pydantic-ai 2.51.0 can resolve a single logical model
+request as multiple separately-billed HTTP segments (Anthropic ``pause_turn``,
+OpenAI background mode) and hands capabilities only the final response, with
+``usage`` summed across every segment (see ``pydantic_ai.models._continuation``
+and ``pydantic_ai._agent_graph.model_request``'s continuation loop). That
+summed usage is correct for billing but overstates the single prompt this
+module anchors against. No field on the final ``ModelResponse`` -- ``state``,
+``provider_response_id``, ``finish_reason``, ``usage.requests`` -- survives
+the merge in a way that distinguishes "one segment" from "several summed
+(see ``RequestUsage.requests``, which is hardcoded to always return ``1``).
+An anchor stamped on such a response overstates the context total for
+exactly one turn -- self-correcting once the *next* genuinely single-segment
+response replaces it, since its fingerprint no longer matches -- so this
+cannot compound into permanent drift, but it can trigger one avoidable
+compaction. Deferred rather than patched with a heuristic (any threshold
+comparing reported usage against the char-based estimate would also misfire
+on legitimate multi-modal/large-schema requests, and would fail against this
+module's own tests, which routinely stamp synthetic large usage on short
+fixture text to simulate a big conversation cheaply). Fixing this properly
+needs an upstream pydantic-ai signal (e.g. a per-segment usage list, or a
+merged-segment-count field) that does not exist today.
 """
 
 import hashlib
@@ -54,7 +77,11 @@ def fingerprint(messages) -> str:
 
 
 def record_anchor(messages, response, *, context_overhead=0, prefix=None):
-    """Stamp only a successfully completed response; usage is never fabricated."""
+    """Stamp only a successfully completed response; usage is never fabricated.
+
+    Does not detect continuation-merged usage (see module docstring); a
+    continuation-inflated ``response.usage.input_tokens`` is stamped as-is.
+    """
     if (
         response.usage.input_tokens <= 0
         or not response.model_name

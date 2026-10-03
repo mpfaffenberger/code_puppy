@@ -154,7 +154,12 @@ class TestModelSwitching:
         ``agent.estimate_tokens_for_message`` at all -- see
         ``code_puppy.context_accounting``).
         """
-        from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
+        from pydantic_ai.messages import (
+            ModelRequest,
+            ModelResponse,
+            TextPart,
+            UserPromptPart,
+        )
         from pydantic_ai.models.test import TestModel
         from pydantic_ai.usage import RequestUsage
 

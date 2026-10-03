@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import json
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, List, Optional
 
 __all__ = [
@@ -69,6 +69,18 @@ class ContextUsage:
     ``overhead_tokens`` is the *sum* of the per-bucket breakdown fields. The
     breakdown fields are optional (default 0) so legacy call sites that only
     care about the aggregate keep working without changes.
+
+    ``total_tokens`` is the authoritative aggregate -- the same number
+    compaction used to decide whether to trim. It is intentionally *not*
+    derived from ``used_tokens + overhead_tokens``: the overhead breakdown
+    is an independent, approximate re-estimate (e.g. it re-queries live MCP
+    tool schemas rather than the agent's cached server list), so it can be
+    larger *or* smaller than the shared total. Deriving the displayed total
+    from the breakdown would let an approximate bucket sum silently
+    override the number compaction actually decided against. Pass the real
+    total explicitly via the private ``_total_tokens`` constructor field;
+    when omitted (legacy/test call sites), it falls back to
+    ``used_tokens + overhead_tokens`` so existing behavior is unchanged.
     """
 
     used_tokens: int
@@ -80,10 +92,18 @@ class ContextUsage:
     pydantic_tools_tokens: int = 0
     mcp_tokens: int = 0
     kennel_memory_tokens: int = 0
+    _total_tokens: Optional[int] = field(default=None, repr=False)
+
+    def __post_init__(self) -> None:
+        if self._total_tokens is None:
+            object.__setattr__(
+                self, "_total_tokens", self.used_tokens + self.overhead_tokens
+            )
 
     @property
     def total_tokens(self) -> int:
-        return self.used_tokens + self.overhead_tokens
+        assert self._total_tokens is not None  # always set in __post_init__
+        return self._total_tokens
 
     @property
     def proportion(self) -> float:
@@ -408,4 +428,8 @@ def get_current_usage() -> Optional[ContextUsage]:
         pydantic_tools_tokens=breakdown.pydantic_tools_tokens,
         mcp_tokens=breakdown.mcp_tokens,
         kennel_memory_tokens=breakdown.kennel_memory_tokens,
+        # Authoritative: must equal compaction's decision total exactly,
+        # even when the (approximate, independently-estimated) overhead
+        # breakdown is larger than it -- see ContextUsage's docstring.
+        _total_tokens=int(total),
     )

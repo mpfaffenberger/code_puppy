@@ -8,6 +8,7 @@ from unittest.mock import Mock, patch
 import pytest
 from pydantic_ai import Agent
 from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
+from pydantic_ai.models import Model
 from pydantic_ai.models.function import FunctionModel
 from pydantic_ai.models.test import TestModel
 from pydantic_ai.usage import RequestUsage
@@ -148,6 +149,42 @@ def test_breakdown_preserves_bucket_sum_and_shared_total(monkeypatch):
     assert usage.total_tokens == 160010
 
 
+def test_breakdown_exceeding_shared_total_does_not_override_display(monkeypatch):
+    """Regression: the breakdown is an independent, approximate re-estimate
+    (e.g. a live MCP tool-schema lookup vs. the agent's cached server list
+    the shared total used), so it can come out *larger* than the shared
+    total. The displayed aggregate must stay the authoritative shared total
+    -- never ``max(total, breakdown.total)`` -- or the status bar and
+    compaction's own trigger would disagree about how full the window is.
+    """
+    from code_puppy.agents import agent_manager
+
+    owner = SimpleNamespace(
+        cur_model=TestModel(model_name="model"),
+        get_model_name=lambda: "alias",
+        get_message_history=history,
+        _estimate_context_overhead=lambda: 50,
+        _get_model_context_length=lambda: 200000,
+    )
+    monkeypatch.setattr(agent_manager, "get_current_agent", lambda: owner)
+    # Breakdown sum (10+20+30+500_000 == 500_060) vastly exceeds the shared
+    # total (160010) -- simulating a live MCP lookup ballooning relative to
+    # the cached server list the shared estimator saw.
+    monkeypatch.setattr(
+        token_usage,
+        "compute_overhead_breakdown",
+        lambda agent: token_usage.OverheadBreakdown(10, 20, 30, 500_000),
+    )
+    usage = token_usage.get_current_usage()
+    assert usage.overhead_tokens == 500_060
+    # The authoritative total is unchanged by the oversized breakdown.
+    assert usage.total_tokens == 160010
+    # used_tokens may go negative-clamped-to-0 here -- that's an intentional
+    # signal that the breakdown and the shared total disagree, not a
+    # separate bug to paper over by clamping the *authoritative* total.
+    assert usage.used_tokens == 0
+
+
 async def test_real_round_robin_agent_retains_anchor_between_steps():
     from pydantic_ai.messages import ToolCallPart
 
@@ -218,3 +255,89 @@ async def test_in_place_transform_does_not_get_identity_shortcut():
     )
     messages = (await agent.run("hello")).all_messages()
     assert not (messages[-1].metadata or {}).get("context_anchor")
+
+
+async def test_continuation_merged_usage_is_cumulative_not_anchored_accurately():
+    """Documents a known, deferred limitation -- see ``context_accounting``'s
+    module docstring, review-round-1 finding 1, and
+    ``osscontext_disposition_round1.md``.
+
+    pydantic-ai 2.51.0 can resolve one logical model request as several
+    separately-billed HTTP segments (Anthropic ``pause_turn``, OpenAI
+    background mode), merging them into a single response before any
+    capability sees it, with ``usage`` *summed* across segments -- real
+    billing, but not one measured prompt. No field on the merged response
+    (``state``, ``provider_response_id``, ``finish_reason``, or
+    ``usage.requests``, which ``RequestUsage`` hardcodes to always return
+    ``1``) distinguishes this from an ordinary single-segment response, so
+    this capability has no way to detect it and decline anchoring.
+
+    This test exercises the exact merge path production code goes through
+    (pydantic-ai's own ``_agent_graph.model_request`` continuation loop,
+    not a mock of it) and pins the *current, accepted* behavior: the
+    receipt is stamped with the cumulative (inflated) usage. If this ever
+    starts asserting something *different*, that's a signal pydantic-ai's
+    merge contract changed -- worth re-checking whether a fix is finally
+    possible, not a regression to silently paper over.
+    """
+
+    class ContinuationModel(Model):
+        """First segment suspends, second completes -- the same
+        provider-agnostic merge path real Anthropic pause_turn / OpenAI
+        background-mode continuations go through (keyed only on
+        ``response.state`` in ``pydantic_ai.models._continuation``).
+        """
+
+        def __init__(self):
+            self._n = 0
+
+        @property
+        def model_name(self):
+            return "continuation-test"
+
+        @property
+        def system(self):
+            return "test"
+
+        async def request(self, messages, model_settings, model_request_parameters):
+            self._n += 1
+            if self._n == 1:
+                return ModelResponse(
+                    parts=[TextPart("partial...")],
+                    model_name=self.model_name,
+                    state="suspended",
+                    provider_response_id="seg-1",
+                    usage=RequestUsage(input_tokens=10_000, output_tokens=5),
+                )
+            return ModelResponse(
+                parts=[TextPart("...done")],
+                model_name=self.model_name,
+                state="complete",
+                provider_response_id="seg-2",
+                usage=RequestUsage(input_tokens=11_000, output_tokens=5),
+            )
+
+    owner = _owner()
+    agent = Agent(
+        ContinuationModel(),
+        capabilities=[
+            _compaction.HistoryCompaction(owner),
+            build_model_message_transform("test", owner),
+        ],
+    )
+    result = await agent.run("hello")
+    final = result.all_messages()[-1]
+
+    # Two separately-billed segments (10_000 + 11_000), summed by pydantic-ai
+    # before this capability ever sees the response -- not one prompt's size.
+    assert final.usage.input_tokens == 21_000
+    # Currently stamped anyway: this is the deferred gap, not a crash/silent
+    # drop. Known-wrong, not known-broken.
+    receipt = (final.metadata or {}).get("context_anchor")
+    assert receipt is not None
+    # ``owner._message_history`` only merges in a response at the *next*
+    # request's before_model_request (same lag as the round-robin/overhead
+    # tests above), which never happens in this single-turn test -- so
+    # measure against the run's own message list instead.
+    total = context_tokens(result.all_messages(), "continuation-test", 0)
+    assert total > 20_000  # would be ~11_000-ish for one real segment
