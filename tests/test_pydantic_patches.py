@@ -432,7 +432,15 @@ class _ReprHostileKey:
         raise RuntimeError("no repr for you")
 
 
-def test_placeholder_strip_survives_repr_hostile_values(caplog):
+class _ReprHostileValue:
+    """Value that defeats json.dumps via ``default=str`` -> ``__str__``
+    (object.__str__ delegates to the raising __repr__) and then repr too."""
+
+    def __repr__(self):  # pragma: no cover - exercised via logging fallback
+        raise RuntimeError("no repr for you either")
+
+
+def test_placeholder_strip_survives_repr_hostile_key(caplog):
     """The deepest logging guard: neither serializer works, the strip still
     completes and the log names the situation instead of raising."""
     with caplog.at_level("DEBUG", logger=LOGGER_NAME):
@@ -443,6 +451,61 @@ def test_placeholder_strip_survives_repr_hostile_values(caplog):
 
     assert call.args == {}
     assert any("unrepr-able" in r.message for r in caplog.records)
+
+
+def test_placeholder_strip_survives_repr_hostile_value(caplog):
+    """Same guarantee reached via a hostile *value*: json.dumps fails in
+    ``default=str`` (``__str__`` delegates to the raising ``__repr__``),
+    then the repr fallback fails too."""
+    with caplog.at_level("DEBUG", logger=LOGGER_NAME):
+        call = SimpleNamespace(
+            tool_name="list_agents", args={"city": _ReprHostileValue()}
+        )
+        pydantic_patches._sanitize_tool_call_args(_stub_manager({}), call)
+
+    assert call.args == {}
+    assert any("unrepr-able" in r.message for r in caplog.records)
+
+
+def test_dedup_signature_uses_log_line_bound(caplog):
+    """Two quirks differing only past char 200 dedup as one: the signature
+    reuses the log line's 200-char bound."""
+    quirks = [{"junk": "a" * 300}, {"junk": "a" * 300 + "b"}]
+    with caplog.at_level("DEBUG", logger=LOGGER_NAME):
+        for junk in quirks:
+            call = SimpleNamespace(tool_name="list_agents", args=junk)
+            pydantic_patches._sanitize_tool_call_args(_stub_manager({}), call)
+
+    warnings = [
+        r for r in caplog.records if r.levelname == "WARNING" and "placeholder" in r.message
+    ]
+    debugs = [
+        r for r in caplog.records if r.levelname == "DEBUG" and "placeholder" in r.message
+    ]
+    assert len(warnings) == 1
+    assert len(debugs) == 1
+
+
+def test_dedup_set_at_cap_always_warns_and_stops_growing(monkeypatch, caplog):
+    """With the set full, a new quirk still logs WARNING and the set does
+    not grow — no silent dedup, no unbounded memory."""
+    monkeypatch.setattr(pydantic_patches, "_PLACEHOLDER_WARNED_KEYS_MAX", 1)
+    pydantic_patches._PLACEHOLDER_WARNED_KEYS.add(("other-tool", "seed"))
+
+    with caplog.at_level("DEBUG", logger=LOGGER_NAME):
+        for junk in ({"city": "ignore"}, {"dummy": "x"}):
+            call = SimpleNamespace(tool_name="list_agents", args=junk)
+            pydantic_patches._sanitize_tool_call_args(_stub_manager({}), call)
+
+    warnings = [
+        r for r in caplog.records if r.levelname == "WARNING" and "placeholder" in r.message
+    ]
+    debugs = [
+        r for r in caplog.records if r.levelname == "DEBUG" and "placeholder" in r.message
+    ]
+    assert len(warnings) == 2  # both quirks surface: set is full, no dedup
+    assert len(debugs) == 0
+    assert pydantic_patches._PLACEHOLDER_WARNED_KEYS == {("other-tool", "seed")}
 
 
 def test_omitted_properties_strict_schema_collapses_envelope_via_strip():
