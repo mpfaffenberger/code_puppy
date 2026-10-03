@@ -131,49 +131,66 @@ def test_get_current_usage_returns_none_when_capacity_zero(stub_agent_manager):
 
 
 def test_get_current_usage_computes_totals(stub_agent_manager):
-    """Aggregate overhead is sourced from the per-bucket breakdown.
+    """Aggregate total shares compaction's API anchor, not a local estimator.
 
-    Message token counts go through the *local* raw estimator instead of
-    ``agent.estimate_tokens_for_message`` (which is patched by the
-    token_ratio_learner plugin and would bias the badge). We construct
-    fake messages with a single text part of known length so the raw
-    char/2.5 heuristic produces predictable counts.
+    Message token counts used to go through a *local* raw estimator kept
+    deliberately separate from compaction's calibrated one. Both now share
+    ``context_accounting.context_tokens`` (see the module docstring), so we
+    build a real anchored history -- the same construction the compaction
+    and model-switching tests use -- rather than length-counting MagicMocks.
     """
+    from pydantic_ai.messages import (
+        ModelRequest,
+        ModelResponse,
+        TextPart,
+        UserPromptPart,
+    )
+    from pydantic_ai.models.test import TestModel
+    from pydantic_ai.usage import RequestUsage
+
+    from code_puppy.context_accounting import record_anchor
+
     mod = _usage_module()
 
-    # 2500 chars / 2.5 chars-per-token == 1000 raw tokens per message.
-    fake_messages = [MagicMock(parts=[MagicMock()]) for _ in range(3)]
-    with patch(
-        "code_puppy.agents._history.stringify_part",
-        return_value="x" * 2500,
-    ):
-        fake_agent = MagicMock()
-        fake_agent.get_message_history.return_value = fake_messages
-        fake_agent._get_model_context_length.return_value = 10000
-        stub_agent_manager.get_current_agent.side_effect = None
-        stub_agent_manager.get_current_agent.return_value = fake_agent
+    prefix = [ModelRequest(parts=[UserPromptPart("hello")])]
+    response = ModelResponse(
+        parts=[TextPart("reply")],
+        model_name="model",
+        usage=RequestUsage(input_tokens=3000, output_tokens=5),
+    )
+    record_anchor(prefix, response, context_overhead=0)
+    fake_messages = [*prefix, response]
 
-        fake_breakdown = mod.OverheadBreakdown(
-            system_prompt_tokens=300,
-            agents_md_tokens=150,
-            pydantic_tools_tokens=50,
-            mcp_tokens=0,
-        )
-        with patch.object(
-            mod, "compute_overhead_breakdown", return_value=fake_breakdown
-        ):
-            usage = mod.get_current_usage()
+    fake_agent = MagicMock()
+    fake_agent.cur_model = TestModel(model_name="model")
+    fake_agent.get_message_history.return_value = fake_messages
+    fake_agent._get_model_context_length.return_value = 10000
+    fake_agent._estimate_context_overhead.return_value = 0
+    stub_agent_manager.get_current_agent.side_effect = None
+    stub_agent_manager.get_current_agent.return_value = fake_agent
+
+    fake_breakdown = mod.OverheadBreakdown(
+        system_prompt_tokens=300,
+        agents_md_tokens=150,
+        pydantic_tools_tokens=50,
+        mcp_tokens=0,
+    )
+    with patch.object(mod, "compute_overhead_breakdown", return_value=fake_breakdown):
+        usage = mod.get_current_usage()
 
     assert usage is not None
-    assert usage.used_tokens == 3000
+    # Anchored total: input_tokens (3000) + replayed output usage (5, the
+    # response is plain text so output_tokens is used directly) + overhead
+    # delta (0 - 0) + nothing after the anchor == 3005.
+    assert usage.total_tokens == 3005
+    assert usage.used_tokens == 3005 - 500
     assert usage.overhead_tokens == 500
     assert usage.system_prompt_tokens == 300
     assert usage.agents_md_tokens == 150
     assert usage.pydantic_tools_tokens == 50
     assert usage.mcp_tokens == 0
     assert usage.capacity == 10000
-    assert usage.total_tokens == 3500
-    assert usage.indicator == mod.YELLOW_CIRCLE  # 35%
+    assert usage.indicator == mod.YELLOW_CIRCLE  # (3005 + 500) / 10000 = 35%
 
 
 # ---------------------------------------------------------------------------

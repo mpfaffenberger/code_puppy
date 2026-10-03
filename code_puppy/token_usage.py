@@ -3,28 +3,29 @@
 Kept separate from ``register_callbacks.py`` so this stays unit-testable in
 isolation and so callbacks file remains thin.
 
-Design note — *why* we re-implement the token counting locally:
+Design note — why the aggregate total is anchored, not independently estimated:
 
-``/context`` is supposed to be a *consistent*, model-agnostic view of how
-full the context window is. The core runtime has two layers that make
-token counts vary between models:
+``/context`` used to compute its own ``max(1, floor(len(text) / 2.5))``
+estimate over the whole history, deliberately kept separate from
+compaction's calibrated estimator so the two heuristics couldn't disagree
+in confusing ways. But two heuristics measuring the same conversation can
+still drift from each other *and* from what the provider actually billed
+-- especially once caching is involved (Anthropic cache read/write, OpenAI
+cached tokens) -- and neither was the ground truth.
 
-1. The ``token_ratio_learner`` plugin monkeypatches
-   ``_history.estimate_tokens`` to use *learned* chars-per-token ratios
-   per model. Great for compaction decisions — terrible for a
-   user-facing dashboard, because the same conversation reports
-   different token counts on different models.
+``code_puppy.context_accounting.context_tokens`` anchors the total to the
+latest completed response's own API-reported prompt-token count and only
+estimates the delta since then, falling back to a plain per-message
+estimate when there's no valid anchor (first request, a rewritten prefix,
+a model switch, or a failed/cancelled request). Compaction, the status bar,
+and this module's aggregate total now share that one function, so they
+can't disagree with each other -- and the number agrees with the account
+you're actually billed on.
 
-2. ``_history._apply_multiplier`` bumps some models (e.g. Opus 4.7 by
-   1.35×) to compensate for tokenizers that over-tokenize relative to
-   our heuristic. Again: useful for safety margins, lousy for
-   "consistency between models".
-
-To keep ``/context`` honest and stable across model switches, this
-module uses its OWN raw ``max(1, floor(len(text) / 2.5))`` estimator
-and applies NO multiplier. Other parts of the system (compaction,
-summarization triggers) still use the calibrated values — that's
-intentional.
+The per-bucket overhead breakdown below (system prompt, AGENTS.md, tool
+schemas, MCP, kennel memory) stays a separate, deliberately raw heuristic:
+it has no corresponding per-bucket figure in the API response to anchor
+to, so it remains an estimate, not a billed-token partition.
 """
 
 from __future__ import annotations
@@ -121,19 +122,6 @@ def _raw_estimate_tokens(text: str) -> int:
     if not text:
         return 0
     return max(1, math.floor(len(text) / _CHARS_PER_TOKEN))
-
-
-def _raw_tokens_for_message(message: Any) -> int:
-    """Sum raw tokens across a message's parts via the canonical stringifier."""
-    # ``stringify_part`` is a pure formatter — safe to import directly.
-    from code_puppy.agents._history import stringify_part
-
-    total = 0
-    for part in getattr(message, "parts", []) or []:
-        part_str = stringify_part(part)
-        if part_str:
-            total += _raw_estimate_tokens(part_str)
-    return total
 
 
 def _raw_tokens_for_pydantic_tools(tools: Optional[dict]) -> int:
@@ -370,11 +358,12 @@ def get_current_usage() -> Optional[ContextUsage]:
     Returns ``None`` whenever any required piece of data is unavailable —
     missing agent, missing model config, or *any* exception while estimating
     history/overhead/capacity. We deliberately do **not** fall back to
-    zero on partial failures: a misleading 🟢 indicator is worse than no
+    zero on partial failures: a misleading  indicator is worse than no
     indicator at all (the prompt simply hides the badge).
 
-    All token counts are computed with the raw model-agnostic heuristic
-    so the badge stays stable when the user switches models mid-session.
+    Aggregate counting shares compaction's API anchor and fallback estimator
+    (see the module docstring). Detailed overhead buckets below are
+    estimates, not a billed-token partition.
     """
     try:
         from code_puppy.agents.agent_manager import get_current_agent
@@ -390,7 +379,6 @@ def get_current_usage() -> Optional[ContextUsage]:
 
     try:
         history = agent.get_message_history() or []
-        used = sum(_raw_tokens_for_message(m) for m in history)
         capacity = agent._get_model_context_length()
     except Exception:
         return None
@@ -403,8 +391,16 @@ def get_current_usage() -> Optional[ContextUsage]:
     except Exception:
         return None
 
+    try:
+        from code_puppy.context_accounting import active_model_name, context_tokens
+
+        overhead = agent._estimate_context_overhead()
+        total = context_tokens(history, active_model_name(agent), overhead)
+    except Exception:
+        return None
+
     return ContextUsage(
-        used_tokens=int(used),
+        used_tokens=max(0, int(total) - breakdown.total),
         overhead_tokens=breakdown.total,
         capacity=int(capacity),
         system_prompt_tokens=breakdown.system_prompt_tokens,

@@ -148,12 +148,32 @@ class TestModelSwitching:
         assert _get_effective_agent_model(agent) is None
 
     def test_refresh_context_status_uses_effective_model_capacity(self):
+        """Shares ``context_accounting.context_tokens`` with compaction now,
+        so this builds a real anchored history instead of mocking the
+        per-message estimator (``_refresh_context_status`` no longer calls
+        ``agent.estimate_tokens_for_message`` at all -- see
+        ``code_puppy.context_accounting``).
+        """
+        from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
+        from pydantic_ai.models.test import TestModel
+        from pydantic_ai.usage import RequestUsage
+
+        from code_puppy.context_accounting import record_anchor
         from code_puppy.model_switching import _refresh_context_status
 
+        prefix = [ModelRequest(parts=[UserPromptPart("hello")])]
+        response = ModelResponse(
+            parts=[TextPart("reply")],
+            model_name="gpt-4",
+            usage=RequestUsage(input_tokens=30000, output_tokens=5),
+        )
+        record_anchor(prefix, response, context_overhead=2_000)
+        history = [*prefix, response]
+
         agent = MagicMock()
+        agent.cur_model = TestModel(model_name="gpt-4")
         agent._get_model_context_length.return_value = 1_050_000
-        agent.get_message_history.return_value = ["first", "second"]
-        agent.estimate_tokens_for_message.side_effect = [20_000, 10_000]
+        agent.get_message_history.return_value = history
         agent._estimate_context_overhead.return_value = 2_000
 
         with patch(
@@ -161,7 +181,8 @@ class TestModelSwitching:
         ) as update_status:
             _refresh_context_status(agent)
 
-        update_status.assert_called_once_with("32k/1.1M tokens (3%)")
+        # Anchored total: 30000 input + 5 replayed output == 30005.
+        update_status.assert_called_once_with("30k/1.1M tokens (3%)")
 
     def test_refresh_context_status_clears_stale_value_on_failure(self):
         from code_puppy.model_switching import _refresh_context_status

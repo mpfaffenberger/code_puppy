@@ -690,7 +690,7 @@ def build_pydantic_agent(
                 history_compaction,
                 ProcessHistory(steer_processor),
                 build_response_clamp(),
-                build_model_message_transform(logical_agent_name),
+                build_model_message_transform(logical_agent_name, agent),
                 # Sub-agent recursion guards on the wrap_tool_execute seam
                 # (denies invoke_agent calls past the depth caps before the
                 # tool body runs). Sole wrap_tool_execute implementer, so
