@@ -73,8 +73,9 @@ def _resolve_tool_schema(manager: Any, call: Any) -> dict | None:
     Returns the schema dict, or ``None`` when the tool (or its schema)
     cannot be resolved — callers must treat ``None`` as "unknown" and
     keep their hands off. Never raises: this runs on the validation hot
-    path. A schema that resolves but omits ``properties`` still counts
-    as resolved: it describes a tool that declares no parameters.
+    path. Interpreting the keywords is the callers' job; in particular
+    an omitted ``properties`` key means the parameter surface is
+    *unknown* (free-form args may be legitimate), not "no parameters".
     """
     try:
         tool_def = manager.get_tool_def(getattr(call, "tool_name", None))
@@ -182,17 +183,20 @@ def _strip_placeholder_args(
     return {}
 
 
-# (tool name, junk payload) pairs already warned at WARNING level; the
+# (tool name, junk signature) pairs already warned at WARNING level; the
 # providers that inject placeholder args do it on *every* zero-param call,
 # so an identical repeat drops to DEBUG — while a *new* quirk on the same
-# tool still surfaces at WARNING.
+# tool still surfaces at WARNING. Bounded: signatures use the same 200-char
+# bound as the log line (visually identical repeats dedup identically) and
+# the set stops growing at the cap rather than leaking per-call memory.
 _PLACEHOLDER_WARNED_KEYS: set[tuple[str, str]] = set()
+_PLACEHOLDER_WARNED_KEYS_MAX = 512
 
 
 def _log_placeholder_strip(tool_args: dict, tool_name: str | None) -> None:
-    """One WARNING per (tool, quirk), then DEBUG — with the payload that
-    identifies the provider quirk, bounded so a junk dict cannot flood the
-    log. Cannot raise, even for repr-hostile values."""
+    """One WARNING per (tool, quirk), then DEBUG for identical repeats —
+    with the payload that identifies the provider quirk, bounded so a junk
+    dict cannot flood the log. Cannot raise, even for repr-hostile values."""
     try:
         payload = json.dumps(tool_args, sort_keys=True, default=str)
     except Exception:  # mixed-type keys defeat sort_keys; repr is the fallback
@@ -200,14 +204,18 @@ def _log_placeholder_strip(tool_args: dict, tool_name: str | None) -> None:
             payload = repr(tool_args)
         except Exception:  # never let logging break the validation hot path
             payload = "<unrepr-able args>"
-    key = (tool_name or "<unknown>", payload)
-    log = logger.debug if key in _PLACEHOLDER_WARNED_KEYS else logger.warning
-    _PLACEHOLDER_WARNED_KEYS.add(key)
+    tool_key = tool_name or "<unknown>"
+    if len(_PLACEHOLDER_WARNED_KEYS) >= _PLACEHOLDER_WARNED_KEYS_MAX:
+        log = logger.warning  # set full: never silently dedup a new quirk
+    else:
+        key = (tool_key, payload[:200])
+        log = logger.debug if key in _PLACEHOLDER_WARNED_KEYS else logger.warning
+        _PLACEHOLDER_WARNED_KEYS.add(key)
     log(
         "dropping placeholder args %.200s for zero-parameter tool %r "
         "(provider cannot serialize an empty arguments object)",
         payload,
-        key[0],
+        tool_key,
     )
 
 

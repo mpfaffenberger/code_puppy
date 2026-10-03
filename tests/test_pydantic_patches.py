@@ -425,6 +425,42 @@ def test_placeholder_strip_survives_mixed_type_keys():
     assert call.args == {}
 
 
+class _ReprHostileKey:
+    """Hashable key whose repr raises — defeats json.dumps *and* repr."""
+
+    def __repr__(self):  # pragma: no cover - exercised via logging fallback
+        raise RuntimeError("no repr for you")
+
+
+def test_placeholder_strip_survives_repr_hostile_values(caplog):
+    """The deepest logging guard: neither serializer works, the strip still
+    completes and the log names the situation instead of raising."""
+    with caplog.at_level("DEBUG", logger=LOGGER_NAME):
+        call = SimpleNamespace(
+            tool_name="list_agents", args={_ReprHostileKey(): "x"}
+        )
+        pydantic_patches._sanitize_tool_call_args(_stub_manager({}), call)
+
+    assert call.args == {}
+    assert any("unrepr-able" in r.message for r in caplog.records)
+
+
+def test_omitted_properties_strict_schema_collapses_envelope_via_strip():
+    """Composition: a strict zero-param schema that omits ``properties``
+    keeps the envelope from the unwrap (unproven), but the strip still
+    collapses the whole junk envelope to ``{}``."""
+    manager = SimpleNamespace(
+        get_tool_def=lambda _name: SimpleNamespace(
+            parameters_json_schema={"type": "object", "additionalProperties": False}
+        )
+    )
+    call = SimpleNamespace(tool_name="list_agents", args={"arguments": {"junk": 1}})
+
+    pydantic_patches._sanitize_tool_call_args(manager, call)
+
+    assert call.args == {}
+
+
 def _stub_manager(properties, additional_properties=False):
     """A ToolManager stand-in whose tool's schema is built to order.
 
