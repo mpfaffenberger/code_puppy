@@ -77,6 +77,36 @@ def _httpx_client_factory(
     return factory
 
 
+def _with_inherited_windows_system_paths(
+    env: Optional[Dict[str, str]],
+) -> Optional[Dict[str, str]]:
+    """Propagate Windows system paths required by some stdio launchers.
+
+    The MCP SDK gives stdio children a deliberately restricted environment.
+    Its Windows allowlist omits ``PROGRAMW6432`` and ``ProgramData``. Docker's
+    CLI needs the former to discover CLI plugins, while Docker MCP Gateway
+    needs the latter to locate Docker Desktop state. Missing either can cause
+    misleading argument errors or a startup panic.
+
+    Preserve the SDK's restricted-environment behavior on other platforms and
+    let explicit server configuration override inherited values.
+    """
+    if os.name != "nt":
+        return env
+
+    inherited = {
+        key: value
+        for key in ("PROGRAMW6432", "ProgramData")
+        if (value := os.environ.get(key))
+    }
+    if not inherited:
+        return env
+
+    out: Dict[str, str] = inherited
+    out.update(env or {})
+    return out
+
+
 def _with_inherited_ca_bundle(
     env: Optional[Dict[str, str]],
 ) -> Optional[Dict[str, str]]:
@@ -336,6 +366,7 @@ class ManagedMCPServer:
                 args = _expand_env_vars(args)
 
             env = _expand_env_vars(config["env"]) if "env" in config else None
+            env = _with_inherited_windows_system_paths(env)
             # Always run (even with no configured env) so the child trusts
             # our CA bundle; see _with_inherited_ca_bundle for why.
             env = _with_inherited_ca_bundle(env)
