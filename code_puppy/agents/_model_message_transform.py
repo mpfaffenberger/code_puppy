@@ -7,6 +7,7 @@ from pydantic_ai import RunContext
 from pydantic_ai.capabilities import Hooks, WrapModelRequestHandler
 from pydantic_ai.messages import ModelResponse
 from pydantic_ai.models import ModelRequestContext
+from pydantic_ai.models.wrapper import WrapperModel
 
 from code_puppy.agents._foreign_thinking import strip_foreign_thinking
 from code_puppy.callbacks import on_transform_model_messages
@@ -17,6 +18,33 @@ from code_puppy.callbacks import on_transform_model_messages
 # outbound messages diverged from the durable history it was built from, so
 # don't stamp an anchor" -- see ``build_model_message_transform``.
 _PREFIX_ATTR = "_context_accounting_prefix"
+
+
+class _ContinuationObserver(WrapperModel):
+    """Observe a suspended->continued chain *before* pydantic-ai merges it.
+
+    pydantic-ai 2.51.0 can resolve one logical model request as several
+    separately-billed segments (Anthropic ``pause_turn``, OpenAI background
+    mode), merging them into a single response before any capability sees
+    it, with ``usage`` summed across segments. The merged response carries no
+    field distinguishing that from an ordinary single-segment response (see
+    ``context_accounting``'s module docstring for the full survey), but
+    ``continuation_delay`` is called on *every* intermediate suspended
+    response, for every provider, before the next segment is requested --
+    this is the one point where a continuation is observable pre-merge. This
+    is the same ``request_context.model``-swap seam pydantic-ai's own
+    durable-execution capabilities (Temporal/DBOS/Prefect) use to dispatch
+    each segment through its own activity/step/task (see the module-level
+    comments in ``pydantic_ai._agent_graph`` describing that pattern).
+    """
+
+    def __init__(self, wrapped):
+        super().__init__(wrapped)
+        self.continued = False
+
+    def continuation_delay(self, response: ModelResponse) -> float | None:
+        self.continued = True
+        return super().continuation_delay(response)
 
 
 def build_model_message_transform(agent_name: str | None, owner: Any = None) -> Hooks:
@@ -65,13 +93,27 @@ def build_model_message_transform(agent_name: str | None, owner: Any = None) -> 
         prefix = original_fingerprint
         if fingerprint(transformed_context.messages) != prefix:
             prefix = None
-        setattr(request_context, _PREFIX_ATTR, prefix)
+
+        # Wrap *after* the fingerprint check above (which needs the real
+        # model for foreign-thinking detection) and *before* the handler
+        # call, so the continuation loop inside `handler` actually drives
+        # this wrapper's `continuation_delay` -- see `_ContinuationObserver`.
+        observer = _ContinuationObserver(transformed_context.model)
+        transformed_context.model = observer
 
         try:
-            return await handler(transformed_context)
+            response = await handler(transformed_context)
         except BaseException:
             invalidate_anchors(durable_messages)
             raise
+
+        if observer.continued:
+            # Usage on `response` is a cumulative sum across segments, not
+            # one measured prompt -- decline to anchor it. Billing/usage
+            # itself is untouched; only our own receipt is suppressed.
+            prefix = None
+        setattr(request_context, _PREFIX_ATTR, prefix)
+        return response
 
     async def stamp(
         _ctx: RunContext[Any],

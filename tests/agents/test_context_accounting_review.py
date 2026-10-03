@@ -2,13 +2,15 @@
 
 import subprocess
 import sys
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import pytest
 from pydantic_ai import Agent
 from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
-from pydantic_ai.models import Model
+from pydantic_ai.models import Model, StreamedResponse
 from pydantic_ai.models.function import FunctionModel
 from pydantic_ai.models.test import TestModel
 from pydantic_ai.usage import RequestUsage
@@ -257,69 +259,144 @@ async def test_in_place_transform_does_not_get_identity_shortcut():
     assert not (messages[-1].metadata or {}).get("context_anchor")
 
 
-async def test_continuation_merged_usage_is_cumulative_not_anchored_accurately():
-    """Documents a known, deferred limitation -- see ``context_accounting``'s
-    module docstring, review-round-1 finding 1, and
-    ``osscontext_disposition_round1.md``.
-
-    pydantic-ai 2.51.0 can resolve one logical model request as several
-    separately-billed HTTP segments (Anthropic ``pause_turn``, OpenAI
-    background mode), merging them into a single response before any
-    capability sees it, with ``usage`` *summed* across segments -- real
-    billing, but not one measured prompt. No field on the merged response
-    (``state``, ``provider_response_id``, ``finish_reason``, or
-    ``usage.requests``, which ``RequestUsage`` hardcodes to always return
-    ``1``) distinguishes this from an ordinary single-segment response, so
-    this capability has no way to detect it and decline anchoring.
-
-    This test exercises the exact merge path production code goes through
-    (pydantic-ai's own ``_agent_graph.model_request`` continuation loop,
-    not a mock of it) and pins the *current, accepted* behavior: the
-    receipt is stamped with the cumulative (inflated) usage. If this ever
-    starts asserting something *different*, that's a signal pydantic-ai's
-    merge contract changed -- worth re-checking whether a fix is finally
-    possible, not a regression to silently paper over.
+class _TwoSegmentModel(Model):
+    """First segment suspends, second completes -- the same provider-agnostic
+    merge path real Anthropic ``pause_turn`` / OpenAI background-mode
+    continuations go through (keyed only on ``response.state`` in
+    ``pydantic_ai.models._continuation``). ``segments`` controls how many
+    suspended hand-offs happen before the final complete response: one
+    element is a single-segment control (no continuation at all).
     """
 
-    class ContinuationModel(Model):
-        """First segment suspends, second completes -- the same
-        provider-agnostic merge path real Anthropic pause_turn / OpenAI
-        background-mode continuations go through (keyed only on
-        ``response.state`` in ``pydantic_ai.models._continuation``).
-        """
+    def __init__(self, segments):
+        self._segments = list(segments)
+        self._n = 0
 
-        def __init__(self):
-            self._n = 0
+    @property
+    def model_name(self):
+        return "continuation-test"
 
-        @property
-        def model_name(self):
-            return "continuation-test"
+    @property
+    def system(self):
+        return "test"
 
-        @property
-        def system(self):
-            return "test"
+    async def request(self, messages, model_settings, model_request_parameters):
+        state, input_tokens, text = self._segments[self._n]
+        self._n += 1
+        return ModelResponse(
+            parts=[TextPart(text)],
+            model_name=self.model_name,
+            state=state,
+            provider_response_id=f"seg-{self._n}",
+            usage=RequestUsage(input_tokens=input_tokens, output_tokens=5),
+        )
 
-        async def request(self, messages, model_settings, model_request_parameters):
-            self._n += 1
-            if self._n == 1:
-                return ModelResponse(
-                    parts=[TextPart("partial...")],
-                    model_name=self.model_name,
-                    state="suspended",
-                    provider_response_id="seg-1",
-                    usage=RequestUsage(input_tokens=10_000, output_tokens=5),
+
+@dataclass
+class _FakeStreamSegment(StreamedResponse):
+    """Minimal controllable ``StreamedResponse`` for exercising the
+    streaming continuation loop (``models/_continuation.py``'s composite
+    also calls ``model.continuation_delay`` per intermediate segment, same
+    as the non-streaming loop in ``_agent_graph.model_request``).
+    """
+
+    _model_name: str = ""
+    _text: str = ""
+    _input_tokens: int = 0
+    _output_tokens: int = 0
+
+    def __post_init__(self):
+        self._usage = RequestUsage(
+            input_tokens=self._input_tokens, output_tokens=self._output_tokens
+        )
+
+    async def _get_event_iterator(self):
+        for event in self._parts_manager.handle_text_delta(
+            vendor_part_id="content", content=self._text
+        ):
+            yield event
+
+    async def close_stream(self):
+        pass
+
+    @property
+    def model_name(self):
+        return self._model_name
+
+    @property
+    def provider_name(self):
+        return "test"
+
+    @property
+    def provider_url(self):
+        return None
+
+    @property
+    def timestamp(self):
+        return datetime.now(timezone.utc)
+
+
+class _TwoSegmentStreamingModel(Model):
+    """Streaming counterpart of ``_TwoSegmentModel``."""
+
+    def __init__(self, segments):
+        self._segments = list(segments)
+        self._n = 0
+
+    @property
+    def model_name(self):
+        return "continuation-stream-test"
+
+    @property
+    def system(self):
+        return "test"
+
+    async def request(self, messages, model_settings, model_request_parameters):
+        raise NotImplementedError
+
+    def request_stream(
+        self, messages, model_settings, model_request_parameters, run_context=None
+    ):
+        state, input_tokens, text = self._segments[self._n]
+        self._n += 1
+        model_name = self.model_name
+
+        class _Ctx:
+            async def __aenter__(ctx_self):
+                seg = _FakeStreamSegment(
+                    model_request_parameters=model_request_parameters,
+                    _model_name=model_name,
+                    _text=text,
+                    _input_tokens=input_tokens,
+                    _output_tokens=5,
                 )
-            return ModelResponse(
-                parts=[TextPart("...done")],
-                model_name=self.model_name,
-                state="complete",
-                provider_response_id="seg-2",
-                usage=RequestUsage(input_tokens=11_000, output_tokens=5),
-            )
+                seg.state = state
+                return seg
 
+            async def __aexit__(ctx_self, *exc):
+                return False
+
+        return _Ctx()
+
+
+async def _noop_event_stream_handler(_ctx, events):
+    async for _event in events:
+        pass
+
+
+async def test_continuation_suppresses_receipt_non_streaming():
+    """Round-2 review fix: a request-local model wrapper observes the
+    suspended->continued chain via ``continuation_delay`` *before*
+    pydantic-ai merges the segments, so the capability can decline to
+    anchor a cumulative-usage response instead of stamping it as if it
+    were one measured prompt. See ``_ContinuationObserver`` in
+    ``_model_message_transform.py``.
+    """
     owner = _owner()
     agent = Agent(
-        ContinuationModel(),
+        _TwoSegmentModel(
+            [("suspended", 10_000, "partial..."), ("complete", 11_000, "...done")]
+        ),
         capabilities=[
             _compaction.HistoryCompaction(owner),
             build_model_message_transform("test", owner),
@@ -328,16 +405,56 @@ async def test_continuation_merged_usage_is_cumulative_not_anchored_accurately()
     result = await agent.run("hello")
     final = result.all_messages()[-1]
 
-    # Two separately-billed segments (10_000 + 11_000), summed by pydantic-ai
-    # before this capability ever sees the response -- not one prompt's size.
+    # Billing/usage itself is untouched -- still the real cumulative sum.
     assert final.usage.input_tokens == 21_000
-    # Currently stamped anyway: this is the deferred gap, not a crash/silent
-    # drop. Known-wrong, not known-broken.
+    # But no receipt is stamped against it: this total isn't one prompt.
+    assert (final.metadata or {}).get("context_anchor") is None
+
+
+async def test_continuation_suppresses_receipt_streaming():
+    """Streaming counterpart: the composite stream's continuation loop
+    (``models/_continuation.py``) also calls ``continuation_delay`` per
+    segment, so the same observer/suppression applies.
+    """
+    owner = _owner()
+    agent = Agent(
+        _TwoSegmentStreamingModel(
+            [("suspended", 10_000, "partial..."), ("complete", 11_000, "...done")]
+        ),
+        capabilities=[
+            _compaction.HistoryCompaction(owner),
+            build_model_message_transform("test", owner),
+        ],
+    )
+    result = await agent.run("hello", event_stream_handler=_noop_event_stream_handler)
+    final = result.all_messages()[-1]
+
+    assert final.usage.input_tokens == 21_000
+    assert (final.metadata or {}).get("context_anchor") is None
+
+
+async def test_single_segment_control_still_anchors():
+    """Control: an ordinary, non-continued response through the *same*
+    wrapped-model code path still gets anchored normally -- the observer
+    only suppresses when a continuation is actually observed, it doesn't
+    blanket-disable anchoring just because the machinery is present.
+    """
+    owner = _owner()
+    agent = Agent(
+        _TwoSegmentModel([("complete", 10_000, "done")]),
+        capabilities=[
+            _compaction.HistoryCompaction(owner),
+            build_model_message_transform("test", owner),
+        ],
+    )
+    result = await agent.run("hello")
+    final = result.all_messages()[-1]
+
+    assert final.usage.input_tokens == 10_000
     receipt = (final.metadata or {}).get("context_anchor")
     assert receipt is not None
-    # ``owner._message_history`` only merges in a response at the *next*
-    # request's before_model_request (same lag as the round-robin/overhead
-    # tests above), which never happens in this single-turn test -- so
-    # measure against the run's own message list instead.
     total = context_tokens(result.all_messages(), "continuation-test", 0)
-    assert total > 20_000  # would be ~11_000-ish for one real segment
+    # 10_000 input + 5 output replay == 10_005, plus the "hello" prompt's
+    # own few estimated tokens -- in the same ballpark the reviewer's own
+    # single-segment control reported (10,010).
+    assert 10_000 < total < 10_100

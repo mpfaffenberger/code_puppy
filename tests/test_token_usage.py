@@ -190,7 +190,7 @@ def test_get_current_usage_computes_totals(stub_agent_manager):
     assert usage.pydantic_tools_tokens == 50
     assert usage.mcp_tokens == 0
     assert usage.capacity == 10000
-    assert usage.indicator == mod.YELLOW_CIRCLE  # (3005 + 500) / 10000 = 35%
+    assert usage.indicator == mod.YELLOW_CIRCLE  # 3005 / 10000 = 30.05%
 
 
 # ---------------------------------------------------------------------------
