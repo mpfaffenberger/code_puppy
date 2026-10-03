@@ -5,7 +5,16 @@ read/write tokens already normalized by pydantic-ai. Context counting starts
 from that observation, then adds the replayed response and new messages.
 Plain-text output usage approximates the replay increment; reasoning and tool
 responses use the existing message estimator because generated/hidden thinking
-is not an exact count of its next-request replay representation.
+is not an exact count of its next-request replay representation. Text-only
+responses can still include hidden reasoning in output usage when the provider
+exposes no thinking part, conservatively overestimating replay.
+
+Fallback and delta estimates use the request model ID, not arbitrary user
+configuration aliases. A custom alias containing a calibration substring
+(e.g. `opus-4-7`) no longer applies that multiplier to an unrelated provider
+model. This keeps display and compaction aligned. Prefix checks serialize and
+hash the full message payload, including binary data; very large attachment
+histories can therefore add CPU and allocation overhead.
 
 One `context_tokens` function drives compaction, the status bar and context
 metadata. Detailed `/context` overhead buckets are still estimates, not an
@@ -19,12 +28,17 @@ anchor.
 
 The outbound request transform stamps successful, complete responses with a
 SHA-256 fingerprint of their measured message prefix and response, plus the
-overhead estimate used for that same request. Fingerprints include arguments,
+overhead estimate and request model identity used for that same request.
+Provider-returned model IDs may be dated aliases; they need not match the
+configured request ID. Receipts instead require the same request identity,
+including the complete candidate set for routing models. Legacy receipts
+without that identity fall back until a new request establishes an anchor.
+Fingerprints include arguments,
 signatures and binary data but omit framework bookkeeping and anchor
 metadata. The receipt survives session JSON serialization (it rides in
 `ModelResponse.metadata`). Only the latest response can anchor. Routing
-models (e.g. `RoundRobinModel`) accept responses from any of their concrete
-candidate identities.
+models (e.g. `RoundRobinModel`) retain anchoring while routing among their
+unchanged candidates; changing the router or candidate set invalidates it.
 
 A model-name mismatch, rewritten prefix/response, missing/zero usage,
 interrupted response or missing receipt falls back to the existing

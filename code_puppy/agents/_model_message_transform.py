@@ -121,7 +121,7 @@ def build_model_message_transform(agent_name: str | None, owner: Any = None) -> 
         request_context: ModelRequestContext,
         response: ModelResponse,
     ) -> ModelResponse:
-        from code_puppy.context_accounting import record_anchor
+        from code_puppy.context_accounting import model_names, record_anchor
 
         prefix = getattr(request_context, _PREFIX_ATTR, None)
         if prefix is not None:
@@ -130,6 +130,7 @@ def build_model_message_transform(agent_name: str | None, owner: Any = None) -> 
                 response,
                 context_overhead=getattr(owner, "_context_overhead", 0),
                 prefix=prefix,
+                request_model=model_names(request_context.model),
             )
         return response
 

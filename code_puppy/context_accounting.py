@@ -84,7 +84,9 @@ def fingerprint(messages) -> str:
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
 
-def record_anchor(messages, response, *, context_overhead=0, prefix=None):
+def record_anchor(
+    messages, response, *, context_overhead=0, prefix=None, request_model=None
+):
     """Stamp only a successfully completed response; usage is never fabricated.
 
     Trusts ``prefix`` and ``response.usage`` as given -- it has no way to
@@ -104,6 +106,11 @@ def record_anchor(messages, response, *, context_overhead=0, prefix=None):
         "prefix": prefix if prefix is not None else fingerprint(messages),
         "response": fingerprint([response]),
         "overhead": context_overhead,
+        "request_models": sorted(
+            request_model
+            if isinstance(request_model, frozenset)
+            else {request_model if request_model is not None else response.model_name}
+        ),
     }
 
 
@@ -118,7 +125,9 @@ def context_tokens(messages, model_name, context_overhead=0) -> int:
     """One total for compaction, the status bar, and context metadata.
 
     API input includes system/tool/cache tokens. Plain text output usage is
-    an incremental approximation; reasoning/tool replay is estimated instead.
+    an incremental approximation; it may include hidden reasoning when no
+    ThinkingPart is exposed, conservatively overestimating replay. Visible
+    reasoning/tool replay is estimated instead.
     Only the latest response may anchor: partial/zero usage must not cause a
     silent rewind to an older observation.
     """
@@ -133,7 +142,7 @@ def context_tokens(messages, model_name, context_overhead=0) -> int:
             isinstance(receipt, dict)
             and response.usage.input_tokens > 0
             and response.state == "complete"
-            and response.model_name in names
+            and receipt.get("request_models") == sorted(names)
             and receipt.get("prefix") == fingerprint(messages[:index])
             and receipt.get("response") == fingerprint([response])
             and isinstance(receipt.get("overhead"), (int, float))
@@ -162,7 +171,7 @@ def context_tokens(messages, model_name, context_overhead=0) -> int:
 
 
 def active_model_name(agent):
-    """Use the actual provider identity, not a config alias, when available."""
+    """Use the request model identity, not an arbitrary config alias."""
     model = getattr(agent, "cur_model", None)
     if model is None:
         model = getattr(getattr(agent, "pydantic_agent", None), "model", None)
@@ -170,7 +179,7 @@ def active_model_name(agent):
 
 
 def model_names(model):
-    """A routing model's responses use concrete candidate identities."""
+    """Identify a request model together with its routing candidates."""
     candidates = getattr(model, "models", ())
     if candidates:
         return frozenset({model.model_name, *(m.model_name for m in candidates)})

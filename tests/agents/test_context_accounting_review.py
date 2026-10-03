@@ -104,8 +104,12 @@ async def test_round_robin_response_is_valid_for_current_model():
     )
     rotating = RoundRobinModel(model, TestModel(model_name="other"))
     owner = SimpleNamespace(cur_model=rotating, get_model_name=lambda: "config-alias")
-    messages = history()
-    assert context_tokens(messages, active_model_name(owner), 50) == 160010
+    messages = (
+        await Agent(
+            rotating, capabilities=[build_model_message_transform("routing-test")]
+        ).run("hello")
+    ).all_messages()
+    assert context_tokens(messages, active_model_name(owner), 0) == 150010
 
 
 def test_model_switch_status_uses_shared_counter():

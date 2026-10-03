@@ -378,7 +378,7 @@ def get_current_usage() -> Optional[ContextUsage]:
     Returns ``None`` whenever any required piece of data is unavailable —
     missing agent, missing model config, or *any* exception while estimating
     history/overhead/capacity. We deliberately do **not** fall back to
-    zero on partial failures: a misleading  indicator is worse than no
+    zero on partial failures: a misleading green indicator is worse than no
     indicator at all (the prompt simply hides the badge).
 
     Aggregate counting shares compaction's API anchor and fallback estimator
