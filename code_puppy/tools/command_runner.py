@@ -1,5 +1,4 @@
 import asyncio
-import ctypes
 import os
 import select
 import signal
@@ -37,6 +36,13 @@ from code_puppy.tools.shell_backgrounding import (
     request_background_all,
 )
 from code_puppy.tools.subagent_context import is_subagent
+from code_puppy.tools.win_shell_io import (
+    IS_WINDOWS,
+    NonBlockingPipeReader,
+    attach_job,
+    release_job,
+    terminate_job,
+)
 
 # Maximum line length for shell command output to prevent massive token usage
 # This helps avoid exceeding model context limits when commands produce very long lines
@@ -50,52 +56,23 @@ def _truncate_line(line: str) -> str:
     return line
 
 
-# Windows-specific: Check if pipe has data available without blocking
-# This is needed because select() doesn't work on pipes on Windows
-if sys.platform.startswith("win"):
-    import msvcrt
+def _close_pipes(process: subprocess.Popen, readers=()) -> bool:
+    """Close the child's pipes, unless a reader thread is still alive.
 
-    # Load kernel32 for PeekNamedPipe
-    _kernel32 = ctypes.windll.kernel32
-
-    def _win32_pipe_has_data(pipe) -> bool:
-        """Check if a Windows pipe has data available without blocking.
-
-        Uses PeekNamedPipe from kernel32.dll to check if there's data
-        in the pipe buffer without actually reading it.
-
-        Args:
-            pipe: A file object with a fileno() method (e.g., process.stdout)
-
-        Returns:
-            True if data is available, False otherwise (including on error)
-        """
-        try:
-            # Get the Windows handle from the file descriptor
-            handle = msvcrt.get_osfhandle(pipe.fileno())
-
-            # PeekNamedPipe: NULL buffer/0 size = peek only; grab lpTotalBytesAvail.
-            bytes_available = ctypes.c_ulong(0)
-
-            result = _kernel32.PeekNamedPipe(
-                handle,
-                None,  # Don't read data
-                0,  # Buffer size 0
-                None,  # Don't care about bytes read
-                ctypes.byref(bytes_available),  # Get bytes available
-                None,  # Don't care about bytes left in message
-            )
-
-            if result:
-                return bytes_available.value > 0
-            return False
-        except (ValueError, OSError, ctypes.ArgumentError):
-            # Handle closed, invalid, or other errors
-            return False
-else:
-    # POSIX stub - not used, but keeps the code clean
-    def _win32_pipe_has_data(pipe) -> bool:
+    Closing under a live reader can deadlock: on Windows ``close()`` waits
+    for the CRT fd lock a blocked read holds, and buffered streams wait on
+    their own lock everywhere. A leaked fd beats a bricked puppy, so if a
+    reader is alive we skip the close and leave cleanup to GC.
+    """
+    if any(t is not None and t.is_alive() for t in readers):
         return False
+    for pipe in (process.stdout, process.stderr, process.stdin):
+        try:
+            if pipe and not pipe.closed:
+                pipe.close()
+        except (OSError, ValueError):
+            pass
+    return True
 
 
 _AWAITING_USER_INPUT = threading.Event()
@@ -153,11 +130,13 @@ def _unregister_process(proc: subprocess.Popen) -> None:
 def _kill_process_group(proc: subprocess.Popen) -> None:
     """Attempt to aggressively terminate a process and its group.
 
-    Cross-platform best-effort. On POSIX, uses process groups. On Windows, tries taskkill with /T flag for tree kill.
+    Cross-platform best-effort. On POSIX, uses process groups. On Windows,
+    terminates the shell's Job Object (this reaches orphans whose parent
+    already exited), then runs taskkill /T for anything outside the job.
     """
     try:
-        if sys.platform.startswith("win"):
-            # On Windows, use taskkill to kill the process tree
+        if IS_WINDOWS:
+            terminate_job(proc)
             # /F = force, /T = kill tree (children), /PID = process ID
             try:
                 import subprocess as sp
@@ -238,17 +217,11 @@ def kill_all_running_shell_processes() -> int:
     count = 0
     for p in procs:
         try:
-            # Close pipes first to unblock readline()
-            try:
-                if p.stdout and not p.stdout.closed:
-                    p.stdout.close()
-                if p.stderr and not p.stderr.closed:
-                    p.stderr.close()
-                if p.stdin and not p.stdin.closed:
-                    p.stdin.close()
-            except (OSError, ValueError):
-                pass
-
+            # Deliberately NO pipe closing here: a reader may be mid-read,
+            # and close() then blocks this (Ctrl+C) thread forever, which is
+            # exactly how a stray `start` used to brick cancellation. The
+            # stop events above end the readers, and the streaming pump
+            # closes the pipes once they're gone.
             if p.poll() is None:
                 _kill_process_group(p)
                 count += 1
@@ -707,134 +680,51 @@ def run_shell_command_streaming(
         if not silent:
             emit_shell_line(line, stream=stream)
 
-    def read_stdout():
-        try:
-            fd = process.stdout.fileno()
-        except (ValueError, OSError):
-            return
+    def _emit(line, lines_list, stream):
+        # Strip CR/LF: a stray \r would retrigger the renderer's redraw bypass.
+        _sink(_truncate_line(line.rstrip("\r\n")), lines_list, stream)
+        last_output_time[0] = time.time()
 
-        try:
-            while True:
-                # Check stop event first
-                if stop_event.is_set():
+    def _pump_windows(pipe, lines_list, stream):
+        # Never blocks (see win_shell_io), so stop_event is always honoured
+        # and nobody ends up holding the CRT fd lock that close() needs.
+        reader = NonBlockingPipeReader(pipe)
+        while not stop_event.is_set():
+            # Check exit BEFORE reading, so the read that follows sees
+            # everything the shell wrote before it died.
+            exited = process.poll() is not None
+            for line in reader.read_available():
+                _emit(line, lines_list, stream)
+            # Once the shell is gone and the pipe is empty we're done. Don't
+            # wait for EOF: a `start`ed orphan may hold the write-end forever.
+            if reader.eof or (exited and reader.drained):
+                break
+            if reader.drained:
+                time.sleep(0.1)
+        for line in reader.finish():
+            _emit(line, lines_list, stream)
+
+    def _pump_posix(pipe, lines_list, stream):
+        fd = pipe.fileno()
+        while not stop_event.is_set():
+            try:
+                ready, _, _ = select.select([fd], [], [], 0.1)
+            except (ValueError, OSError, select.error):
+                break
+            if ready:
+                line = pipe.readline()
+                if not line:  # EOF
                     break
+                _emit(line, lines_list, stream)
 
-                # Use select to check if data is available (with timeout)
-                if sys.platform.startswith("win"):
-                    # Windows: no select on pipes — PeekNamedPipe to check availability
-                    try:
-                        if _win32_pipe_has_data(process.stdout):
-                            line = process.stdout.readline()
-                            if not line:  # EOF
-                                break
-                            line = line.rstrip("\r\n")
-                            line = _truncate_line(line)
-                            _sink(line, stdout_lines, "stdout")
-                            last_output_time[0] = time.time()
-                        else:
-                            # No data available, check if process has exited
-                            if process.poll() is not None:
-                                # Process exited, do one final drain
-                                try:
-                                    remaining = process.stdout.read()
-                                    if remaining:
-                                        for line in remaining.split("\n"):
-                                            # Strip CR/LF like the readline path —
-                                            # Windows CRLF's stray \r would retrigger
-                                            # the renderer's redraw bypass.
-                                            line = line.rstrip("\r\n")
-                                            line = _truncate_line(line)
-                                            _sink(line, stdout_lines, "stdout")
-                                except (ValueError, OSError):
-                                    pass
-                                break
-                            # Sleep briefly to avoid busy-waiting (100ms like POSIX)
-                            time.sleep(0.1)
-                    except (ValueError, OSError):
-                        break
-                else:
-                    # POSIX: use select with timeout
-                    try:
-                        ready, _, _ = select.select([fd], [], [], 0.1)  # 100ms timeout
-                    except (ValueError, OSError, select.error):
-                        break
-
-                    if ready:
-                        line = process.stdout.readline()
-                        if not line:  # EOF
-                            break
-                        line = line.rstrip("\r\n")
-                        line = _truncate_line(line)
-                        _sink(line, stdout_lines, "stdout")
-                        last_output_time[0] = time.time()
-                    # If not ready, loop continues and checks stop event again
-        except (ValueError, OSError):
-            pass
-        except Exception:
-            pass
-
-    def read_stderr():
+    def pump(pipe, lines_list, stream):
         try:
-            fd = process.stderr.fileno()
-        except (ValueError, OSError):
-            return
-
-        try:
-            while True:
-                # Check stop event first
-                if stop_event.is_set():
-                    break
-
-                if sys.platform.startswith("win"):
-                    # Windows: no select on pipes — PeekNamedPipe to check availability
-                    try:
-                        if _win32_pipe_has_data(process.stderr):
-                            line = process.stderr.readline()
-                            if not line:  # EOF
-                                break
-                            line = line.rstrip("\r\n")
-                            line = _truncate_line(line)
-                            _sink(line, stderr_lines, "stderr")
-                            last_output_time[0] = time.time()
-                        else:
-                            # No data available, check if process has exited
-                            if process.poll() is not None:
-                                # Process exited, do one final drain
-                                try:
-                                    remaining = process.stderr.read()
-                                    if remaining:
-                                        for line in remaining.split("\n"):
-                                            # Strip CR/LF like the readline path —
-                                            # Windows CRLF's stray \r would retrigger
-                                            # the renderer's redraw bypass.
-                                            line = line.rstrip("\r\n")
-                                            line = _truncate_line(line)
-                                            _sink(line, stderr_lines, "stderr")
-                                except (ValueError, OSError):
-                                    pass
-                                break
-                            # Sleep briefly to avoid busy-waiting (100ms like POSIX)
-                            time.sleep(0.1)
-                    except (ValueError, OSError):
-                        break
-                else:
-                    try:
-                        ready, _, _ = select.select([fd], [], [], 0.1)
-                    except (ValueError, OSError, select.error):
-                        break
-
-                    if ready:
-                        line = process.stderr.readline()
-                        if not line:  # EOF
-                            break
-                        line = line.rstrip("\r\n")
-                        line = _truncate_line(line)
-                        _sink(line, stderr_lines, "stderr")
-                        last_output_time[0] = time.time()
-        except (ValueError, OSError):
-            pass
+            if IS_WINDOWS:
+                _pump_windows(pipe, lines_list, stream)
+            else:
+                _pump_posix(pipe, lines_list, stream)
         except Exception:
-            pass
+            pass  # closed/invalid pipe: nothing left to read
 
     def cleanup_process_and_threads(timeout_type: str = "unknown"):
         nonlocal stdout_thread, stderr_thread
@@ -849,17 +739,6 @@ def run_shell_command_streaming(
             if process.poll() is None:
                 nuclear_kill(process)
 
-            try:
-                if process.stdout and not process.stdout.closed:
-                    process.stdout.close()
-                if process.stderr and not process.stderr.closed:
-                    process.stderr.close()
-                if process.stdin and not process.stdin.closed:
-                    process.stdin.close()
-            except (OSError, ValueError):
-                pass
-
-            # Unregister once we're done cleaning up
             _unregister_process(process)
 
             if stdout_thread and stdout_thread.is_alive():
@@ -877,6 +756,9 @@ def run_shell_command_streaming(
                         f"stderr reader thread failed to terminate after {timeout_type} timeout",
                         message_group=group_id,
                     )
+
+            # Only after the joins: closing under a live reader can deadlock.
+            _close_pipes(process, (stdout_thread, stderr_thread))
 
         except Exception as e:
             if not silent:
@@ -945,8 +827,12 @@ def run_shell_command_streaming(
         )
 
     try:
-        stdout_thread = threading.Thread(target=read_stdout, daemon=True)
-        stderr_thread = threading.Thread(target=read_stderr, daemon=True)
+        stdout_thread = threading.Thread(
+            target=pump, args=(process.stdout, stdout_lines, "stdout"), daemon=True
+        )
+        stderr_thread = threading.Thread(
+            target=pump, args=(process.stderr, stderr_lines, "stderr"), daemon=True
+        )
 
         stdout_thread.start()
         stderr_thread.start()
@@ -978,17 +864,8 @@ def run_shell_command_streaming(
         exit_code = process.returncode
         execution_time = time.time() - start_time
 
-        try:
-            if process.stdout and not process.stdout.closed:
-                process.stdout.close()
-            if process.stderr and not process.stderr.closed:
-                process.stderr.close()
-            if process.stdin and not process.stdin.closed:
-                process.stdin.close()
-        except (OSError, ValueError):
-            pass
-
         _unregister_process(process)
+        _close_pipes(process, (stdout_thread, stderr_thread))
 
         # Apply line length limits to stdout/stderr before returning
         truncated_stdout = stdout_lines[-256:]
@@ -1431,7 +1308,7 @@ def _run_command_sync(
     """
     creationflags = 0
     preexec_fn = None
-    if sys.platform.startswith("win"):
+    if IS_WINDOWS:
         try:
             creationflags = (
                 subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
@@ -1456,6 +1333,8 @@ def _run_command_sync(
         preexec_fn=preexec_fn,
         creationflags=creationflags,
     )
+    # Windows: job-wrap the shell so a kill reaches orphaned grandchildren.
+    attach_job(process)
 
     # Wrap pipes with TextIOWrapper that preserves \r (newline='' disables translation)
     process.stdout = io.TextIOWrapper(
@@ -1472,6 +1351,7 @@ def _run_command_sync(
     finally:
         # Ensure unregistration in case streaming returned early or raised
         _unregister_process(process)
+        release_job(process)  # no KILL_ON_JOB_CLOSE: survivors keep running
 
 
 async def _run_command_inner(

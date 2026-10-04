@@ -131,8 +131,8 @@ jobs:
       - name: Install dependencies
         run: uv pip install -e .
 
-      - name: Run Windows encoding regression tests
-        run: uv run pytest tests/test_windows_encoding.py -v --no-cov
+      - name: Run Windows regression tests (encoding + shell pipe/job I/O)
+        run: uv run pytest tests/test_windows_encoding.py tests/tools/test_win_shell_io.py -v --no-cov
 
   quality:
     runs-on: ubuntu-latest
