@@ -2023,39 +2023,14 @@ def get_command_timeout_seconds() -> int:
 
 
 def save_command_to_history(command: str):
-    """Save a command to the history file with an ISO format timestamp.
+    """Persist newly captured input using the editor's canonical FileHistory format.
 
-    Args:
-        command: The command to save
+    Call at capture/creation, not again when an already-recorded task is dispatched.
+    HistoryStore handles blank input and I/O failures without interrupting the UI.
     """
-    import datetime
+    from code_puppy.messaging.editor_history import HistoryStore
 
-    try:
-        timestamp = datetime.datetime.now().isoformat(timespec="seconds")
-
-        # Sanitize command to remove any invalid surrogate characters
-        # that could cause encoding errors on Windows
-        try:
-            command = command.encode("utf-8", errors="surrogatepass").decode(
-                "utf-8", errors="replace"
-            )
-        except (UnicodeEncodeError, UnicodeDecodeError):
-            # If that fails, do a more aggressive cleanup
-            command = "".join(
-                char if ord(char) < 0xD800 or ord(char) > 0xDFFF else "\ufffd"
-                for char in command
-            )
-
-        with open(
-            COMMAND_HISTORY_FILE, "a", encoding="utf-8", errors="surrogateescape"
-        ) as f:
-            f.write(f"\n# {timestamp}\n{command}\n")
-    except Exception as e:
-        from code_puppy.messaging import emit_error
-
-        emit_error(
-            f"An unexpected error occurred while saving command history: {str(e)}"
-        )
+    HistoryStore(COMMAND_HISTORY_FILE).append(command)
 
 
 def get_agent_pinned_model(agent_name: str) -> str:

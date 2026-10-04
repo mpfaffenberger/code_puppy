@@ -37,6 +37,7 @@ def resolve_esc_timeout(editor) -> None:
 def submit_buffer(editor, mode: str) -> Optional[str]:
     """Route the current buffer and return a transcript feedback line, if any."""
     text = editor._buffer
+    editing_queue = editor._queued_messages.active
     queue_route = editor._queued_messages.prepare_submit(text, mode)
     editor._buffer = ""
     editor._cursor = 0
@@ -47,10 +48,11 @@ def submit_buffer(editor, mode: str) -> Optional[str]:
     if not stripped:
         return None
 
-    try:
-        editor._history.record_submit(text)
-    except Exception:
-        logger.debug("history record failed", exc_info=True)
+    if not editing_queue:
+        try:
+            editor._history.record_submit(text)
+        except Exception:
+            logger.debug("history record failed", exc_info=True)
 
     # Plain Enter while editing a queued item updates it in place. There is no
     # second submission to route (which would duplicate the queued turn).
@@ -95,14 +97,18 @@ def route_default(editor, text: str, mode: str) -> Optional[str]:
             if not steer_text:
                 return "Usage: /steer <message>"
             try:
-                editor._resolve_controller().request_steer(steer_text, mode="now")
+                editor._resolve_controller().request_steer(
+                    steer_text, mode="now", history_recorded=True
+                )
             except Exception:
                 logger.debug("steer fast path failed", exc_info=True)
             return None
         editor._command_queue.put(stripped)
         return None
     try:
-        editor._resolve_controller().request_steer(text, mode=mode)
+        editor._resolve_controller().request_steer(
+            text, mode=mode, history_recorded=True
+        )
     except Exception:
         logger.debug("request_steer failed", exc_info=True)
         return None

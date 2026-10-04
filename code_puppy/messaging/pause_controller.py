@@ -225,7 +225,9 @@ class PauseController:
     # Steering queue
     # =========================================================================
 
-    def request_steer(self, text: str, mode: SteerMode = "now") -> None:
+    def request_steer(
+        self, text: str, mode: SteerMode = "now", *, history_recorded: bool = False
+    ) -> None:
         """Queue a steering message for delivery to the agent.
 
         The ``mode`` controls *when* the model sees it:
@@ -237,6 +239,8 @@ class PauseController:
             then drained by ``_runtime._do_run``'s loop and submitted as
             a fresh user turn. Won't interrupt in-progress work.
 
+        Newly created prompts are persisted at insertion, not drain. Set
+        ``history_recorded`` for editor-owned input or requeued leftovers.
         Empty / whitespace-only strings are silently ignored regardless
         of mode.
         """
@@ -245,6 +249,10 @@ class PauseController:
         stripped = text.strip()
         if not stripped:
             return
+        if not history_recorded:
+            from code_puppy.config import save_command_to_history
+
+            save_command_to_history(text)
         with self._lock:
             if mode == "queue":
                 self._steer_queue_queued.append(text)
