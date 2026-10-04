@@ -52,7 +52,19 @@ class QueuedMessageNavigator:
             return True, item, []
 
         working = self._working
-        suppressions = list(self._originals)
+        # ``_record_edits`` appends each changed draft as a *new* disk entry
+        # without removing its pre-edit original, so the on-disk tail for an
+        # edited item is [..., original, draft] -- both entries, newest
+        # (draft) last. Suppress the draft before the original for each
+        # changed item (newest-disk-first, matching the pop-matching loop in
+        # ``HistoryNavigator.up``); unedited items keep their single
+        # pre-existing original as before.
+        changed_drafts = [
+            draft
+            for original, draft in zip(self._originals, self._drafts)
+            if draft != original
+        ]
+        suppressions = changed_drafts + self._originals
         self._record_edits()
         self._restore(self._drafts)
         return False, working, suppressions
@@ -100,10 +112,14 @@ class QueuedMessageNavigator:
         return False
 
     def _record_edits(self) -> None:
-        """Persist changed drafts when committed, not on unchanged recall."""
+        """Persist changed drafts when committed, not on unchanged recall.
+
+        Written oldest-queued-item-first so the newest-queued item's edit
+        lands newest on disk, preserving chronological append order.
+        """
         from code_puppy.config import save_command_to_history
 
-        for original, draft in zip(self._originals, self._drafts):
+        for original, draft in zip(reversed(self._originals), reversed(self._drafts)):
             if draft != original:
                 save_command_to_history(draft)
 

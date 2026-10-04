@@ -115,6 +115,16 @@ class HistoryNavigator:
         """Move to the previous (older) entry; None if nothing to show."""
         if self._entries is None:
             self._entries = self._store.load()
+            # Strict positional, contiguous-tail match: pop only while the
+            # newest remaining disk entry equals the next expected
+            # suppression target, in order. This is a deliberate tripwire,
+            # not generic filtering -- unrelated history interleaved
+            # between queue-related entries, or an older, independent
+            # submission that happens to share text with a queued item,
+            # must stop the walk and stay visible rather than being
+            # silently swallowed. The caller (``QueuedMessageNavigator``)
+            # is responsible for handing in the *exact* predicted tail
+            # (changed drafts, newest-queued-first, then originals).
             for queued_entry in self._suppress_recent:
                 if not self._entries or self._entries[-1] != queued_entry:
                     break
