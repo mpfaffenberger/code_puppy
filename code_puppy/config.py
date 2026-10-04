@@ -2022,7 +2022,7 @@ def get_command_timeout_seconds() -> int:
         return 270
 
 
-def save_command_to_history(command: str):
+def save_command_to_history(command: str) -> bool:
     """Persist newly captured input using the editor's canonical FileHistory format.
 
     Call at capture/creation, not again when an already-recorded task is dispatched.
@@ -2030,7 +2030,7 @@ def save_command_to_history(command: str):
     """
     from code_puppy.messaging.editor_history import HistoryStore
 
-    HistoryStore(COMMAND_HISTORY_FILE).append(command)
+    return HistoryStore(COMMAND_HISTORY_FILE).append(command)
 
 
 def get_agent_pinned_model(agent_name: str) -> str:

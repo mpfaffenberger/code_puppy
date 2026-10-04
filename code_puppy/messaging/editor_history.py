@@ -45,10 +45,10 @@ class HistoryStore:
                 logger.debug("history load failed", exc_info=True)
                 return []
 
-    def append(self, text: str) -> None:
-        """Append one submission (never raises)."""
+    def append(self, text: str) -> bool:
+        """Append one submission; return success without raising."""
         if not text.strip():
-            return
+            return False
         with self._lock:
             try:
                 # Preserve the old config writer's Windows surrogate cleanup,
@@ -57,8 +57,10 @@ class HistoryStore:
                     "utf-8", errors="replace"
                 )
                 self._append_fallback(text)
+                return True
             except Exception:
                 logger.debug("history append failed", exc_info=True)
+                return False
 
     # ------------------------------------------------------------------
     # Backends
@@ -123,8 +125,8 @@ class HistoryNavigator:
             # submission that happens to share text with a queued item,
             # must stop the walk and stay visible rather than being
             # silently swallowed. The caller (``QueuedMessageNavigator``)
-            # is responsible for handing in the *exact* predicted tail
-            # (changed drafts, newest-queued-first, then originals).
+            # is responsible for handing in the successfully written tail
+            # (recorded edits, newest-first, then originals).
             for queued_entry in self._suppress_recent:
                 if not self._entries or self._entries[-1] != queued_entry:
                     break

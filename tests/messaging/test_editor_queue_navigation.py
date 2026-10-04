@@ -1,6 +1,6 @@
 """Regression coverage for QueuedMessageNavigator x HistoryNavigator interplay.
 
-``up()`` predicts the suppression tail before recording edited drafts via
+``up()`` builds the suppression tail from successfully recorded edits via
 ``_record_edits()``. The caller feeds that tail to
 ``HistoryNavigator.suppress_recent``. The suppression list
 must mirror exactly what ``_record_edits()`` actually wrote (or left
@@ -86,7 +86,7 @@ def fallback_to_history(queue_nav, history_nav, current: str) -> str | None:
 
 
 # =========================================================================
-# One edited item: the reported PUP-987-dependent hypothesis
+# One edited item: exhausted-queue hand-off
 # =========================================================================
 
 
@@ -312,3 +312,59 @@ def test_down_restores_working_draft_and_persists_edit(store, navigator_pair):
     assert (handled, text) == (True, "working draft")
     assert store.load() == ["a", "a2"]
     assert controller.restored_oldest_first[-1] == ["a2"]
+
+
+@pytest.mark.parametrize("draft", ["", "   ", "\t\n"])
+def test_blank_edit_does_not_suppress_an_unwritten_entry(store, navigator_pair, draft):
+    store.append("older")
+    store.append("a")
+    controller = FakeController(["a"])
+    queue_nav, history_nav = navigator_pair(controller)
+    queue_nav.up("working")
+
+    assert fallback_to_history(queue_nav, history_nav, draft) == "older"
+    assert store.load() == ["older", "a"]
+    assert controller.pending == [draft]
+
+
+@pytest.mark.parametrize("failed", [set(), {"a2"}, {"b2"}, {"a2", "b2"}])
+def test_suppression_accounts_for_successful_edit_writes_only(
+    store, navigator_pair, monkeypatch, failed
+):
+    for text in ("older", "a", "b"):
+        store.append(text)
+    controller = FakeController(["a", "b"])
+    queue_nav, history_nav = navigator_pair(controller)
+    queue_nav.up("working")
+    queue_nav.up("b2")
+    append = HistoryStore._append_fallback
+
+    def failing_append(self, text):
+        if text in failed:
+            raise OSError("injected history write failure")
+        append(self, text)
+
+    monkeypatch.setattr(HistoryStore, "_append_fallback", failing_append)
+    assert fallback_to_history(queue_nav, history_nav, "a2") == "older"
+    assert store.load() == ["older", "a", "b"] + [
+        edit for edit in ("a2", "b2") if edit not in failed
+    ]
+    assert controller.pending == ["a2", "b2"]
+
+
+@pytest.mark.parametrize("drafts", [("", "b2"), ("a2", "   ")])
+def test_mixed_blank_and_nonblank_edits_preserve_history_handoff(
+    store, navigator_pair, drafts
+):
+    for text in ("older", "a", "b"):
+        store.append(text)
+    controller = FakeController(["a", "b"])
+    queue_nav, history_nav = navigator_pair(controller)
+    queue_nav.up("working")
+    queue_nav.up(drafts[1])
+
+    assert fallback_to_history(queue_nav, history_nav, drafts[0]) == "older"
+    assert store.load() == ["older", "a", "b"] + [
+        draft for draft in drafts if draft.strip()
+    ]
+    assert controller.pending == list(drafts)
