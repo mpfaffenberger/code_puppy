@@ -1,8 +1,8 @@
 """Regression coverage for QueuedMessageNavigator x HistoryNavigator interplay.
 
-PUP-987 dependent fix: ``up()`` records edited drafts to disk history via
-``_record_edits()`` *before* computing the ``history_suppressions`` the
-caller feeds to ``HistoryNavigator.suppress_recent``. The suppression list
+``up()`` predicts the suppression tail before recording edited drafts via
+``_record_edits()``. The caller feeds that tail to
+``HistoryNavigator.suppress_recent``. The suppression list
 must mirror exactly what ``_record_edits()`` actually wrote (or left
 untouched) on disk, in the same newest-first order the pop-matching loop in
 ``HistoryNavigator.up`` expects -- otherwise the very first mismatch breaks
