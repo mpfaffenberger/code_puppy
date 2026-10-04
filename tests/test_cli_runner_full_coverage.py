@@ -107,7 +107,6 @@ def _interactive_patches():
         "code_puppy.cli_runner.finalize_autosave_session": MagicMock(
             return_value="session-1"
         ),
-        "code_puppy.cli_runner.COMMAND_HISTORY_FILE": "/tmp/test_history",
         "code_puppy.command_line.onboarding_wizard.should_show_onboarding": MagicMock(
             return_value=False
         ),
