@@ -2,17 +2,19 @@
 
 import json
 import re
+
+import pytest
 from pathlib import Path
 
 _PLACEHOLDER = re.compile(r"\{[^{}]+\}")
-_LOCALES = ("es", "fr-CA")
+_CATALOG_DIR = Path(__file__).parents[2] / "code_puppy" / "i18n" / "locales"
+_LOCALES = tuple(
+    path.stem for path in _CATALOG_DIR.glob("*.json") if path.stem != "en-US"
+)
 
 
 def _catalog(locale: str) -> dict:
-    root = Path(__file__).parents[2]
-    return json.loads(
-        (root / "code_puppy" / "i18n" / "locales" / f"{locale}.json").read_text()
-    )
+    return json.loads((_CATALOG_DIR / f"{locale}.json").read_text(encoding="utf-8"))
 
 
 def test_locales_have_exactly_the_source_keys():
@@ -21,13 +23,25 @@ def test_locales_have_exactly_the_source_keys():
         assert set(_catalog(locale)) == set(source)
 
 
-def test_locales_preserve_source_placeholders():
+def _placeholders(value: str) -> set[str]:
+    # Translators may reorder or repeat fields; names, not order, are the contract.
+    return set(_PLACEHOLDER.findall(value))
+
+
+@pytest.mark.parametrize("locale", _LOCALES)
+def test_locales_preserve_source_placeholders(locale):
     source = _catalog("en-US")
-    for locale in _LOCALES:
-        translated = _catalog(locale)
-        for key, value in source.items():
-            if not isinstance(value, str) or not isinstance(translated[key], str):
-                continue
-            assert _PLACEHOLDER.findall(translated[key]) == _PLACEHOLDER.findall(
-                value
-            ), key
+    translated = _catalog(locale)
+    for key, value in source.items():
+        target = translated[key]
+        assert isinstance(target, type(value)), (locale, key)
+        if isinstance(value, str):
+            assert _placeholders(target) == _placeholders(value), (locale, key)
+        else:
+            assert "other" in target, (locale, key)
+            for form in target.values():
+                assert isinstance(form, str), (locale, key)
+                assert _placeholders(form) == _placeholders(value["other"]), (
+                    locale,
+                    key,
+                )
