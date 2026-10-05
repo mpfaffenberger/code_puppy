@@ -80,7 +80,7 @@ class EditCommand(MCPCommandBase):
 
         except Exception as e:
             logger.error(f"Error editing server: {e}")
-            emit_error(t("mcp.edit.config_error", error=e), message_group=group_id)
+            emit_error(t("mcp.edit.error", error=e), message_group=group_id)
 
     def _load_server_config(
         self, server_name: str, group_id: str
