@@ -23,6 +23,7 @@ SAVE_CURSOR = "\x1b7"  # DECSC
 RESTORE_CURSOR = "\x1b8"  # DECRC
 RESET_REGION = "\x1b[r"  # DECSTBM with no args = full screen
 CLEAR_LINE = "\x1b[2K"
+ERASE_BELOW = "\x1b[J"  # ED 0: cursor to end of screen
 REVERSE_ON = "\x1b[7m"
 REVERSE_OFF = "\x1b[27m"
 WRAP_OFF = "\x1b[?7l"  # DECAWM off: belt-and-braces against row bleed
@@ -82,6 +83,48 @@ def clip_cells(text: str, width: int) -> str:
         return text
     chopped = chop_cells(text, width)
     return chopped[0] if chopped else ""
+
+
+def clear_ghost_band(
+    old_rows: int, old_reserved: int, rows: int, keep_cursor: bool = True
+) -> str:
+    """Erase the bar band painted at a previous terminal height.
+
+    The scroll region must be reset first so the erases can reach rows
+    outside the incoming one -- but DECSTBM, reset form included, homes
+    the cursor. The cursor is the transcript writer's position, which
+    the terminal already carried through the resize, so it is saved
+    before the reset and restored afterwards. Without that, the caller's
+    re-establish adopted wherever the erasing left the cursor -- row 1
+    after a shrink of at least the band height -- and the next
+    transcript lines overwrote the screen top-down: stale rows showing
+    through blank lines, old line tails glued onto shorter new lines.
+
+    Where the old band sits now is terminal-specific (a shrink drops
+    rows off the top; a grow may pull scrollback down or add blank rows
+    below), but it is always BELOW the writer: the band was under the
+    region, and terminals move the cursor along with its content. So
+    erase everything below the writer's line -- whatever moved, no
+    transcript row is touched. The LF (not CUD) cannot erase the
+    writer's own line even if it sits on the bottom row.
+
+    ``keep_cursor=False`` keeps the original old-rows-only erase for the
+    Windows guard path, which re-parks the cursor itself and whose
+    scrollback simulator depends on the exact scroll count.
+    """
+    if keep_cursor:
+        return (
+            SAVE_CURSOR
+            + RESET_REGION
+            + RESTORE_CURSOR
+            + SAVE_CURSOR
+            + "\n\r"
+            + ERASE_BELOW
+            + RESTORE_CURSOR
+        )
+    first, last = max(1, old_rows - old_reserved + 1), min(old_rows, rows)
+    clears = "".join(f"\x1b[{row};1H{CLEAR_LINE}" for row in range(first, last + 1))
+    return RESET_REGION + clears
 
 
 #: Gap marker for :func:`elide_middle`. U+2026 renders as one cell in every

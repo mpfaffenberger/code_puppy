@@ -55,6 +55,7 @@ import threading
 from contextlib import contextmanager
 from typing import Callable, Iterator, Optional, TextIO, Tuple
 
+from .bar_painters import PROMPT_MAX_ROWS, BarPainterMixin  # noqa: E402
 from .bar_rendering import (
     CLEAR_LINE as _CLEAR_LINE,
 )
@@ -86,13 +87,14 @@ from .bar_rendering import (
     SAVE_CURSOR as _SAVE_CURSOR,
 )
 from .bar_rendering import (
+    clear_ghost_band as _clear_ghost_band,
+)
+from .bar_rendering import (
     default_get_size as _default_get_size,
 )
 from .bar_rendering import (
     sanitize as _sanitize,
 )
-
-from .bar_painters import PROMPT_MAX_ROWS, BarPainterMixin  # noqa: E402
 from .speculation_line import SpeculationLineMixin  # noqa: E402
 from .transcript_guard import TranscriptGuardMixin  # noqa: E402
 
@@ -505,7 +507,8 @@ class BottomBar(TranscriptGuardMixin, SpeculationLineMixin, BarPainterMixin):
             # in effect, put the terminal back to normal and go dormant
             # (hardware cursor comes back too — no region, no pseudo-cursor).
             if self._region_up:
-                parts = [_RESET_REGION]
+                # DECSTBM homes the cursor: keep the writer's position.
+                parts = [_SAVE_CURSOR, _RESET_REGION, _RESTORE_CURSOR]
                 if self._cursor_hidden:
                     parts.append(_CURSOR_SHOW)
                     self._cursor_hidden = False
@@ -522,14 +525,10 @@ class BottomBar(TranscriptGuardMixin, SpeculationLineMixin, BarPainterMixin):
         top = rows - reserved
         parts = []
         if old_reserved and old_rows > 0:
-            # Re-establish after a resize: old rows were painted at the previous
-            # geometry and linger as ghosts. Reset the region so erases can reach
-            # outside the incoming one, then blank the old band (clamped to height).
-            parts.append(_RESET_REGION)
-            for row in range(
-                max(1, old_rows - old_reserved + 1), min(old_rows, rows) + 1
-            ):
-                parts.append(f"\x1b[{row};1H{_CLEAR_LINE}")
+            # Re-establish after a resize: erase the old band's ghosts
+            # WITHOUT moving the writer cursor (see clear_ghost_band).
+            keep = not self._guard_scroll_fix  # Windows parks at (top, 1)
+            parts.append(_clear_ghost_band(old_rows, old_reserved, rows, keep))
         if self._guard_scroll_fix:
             # Windows: the transcript-guard simulator must know the exact
             # cursor row, so keep the deterministic park at (top, 1) that
