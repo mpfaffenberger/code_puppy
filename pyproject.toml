@@ -9,7 +9,7 @@ description = "Code generation agent"
 readme = "README.md"
 requires-python = ">=3.11,<3.15"
 dependencies = [
-    "code-puppy-core-plugins>=0.0.76",
+    "code-puppy-core-plugins>=0.0.77",
     "logfire>=4.0",
     "pydantic-ai-slim[openai,anthropic,mcp]==2.51.0",
     "pydantic-ai-harness[code-mode]==0.35.0",
@@ -66,9 +66,7 @@ classifiers = [
 bedrock = ["boto3>=1.35.0"]
 durable = ["dbos>=2.11.0"]
 computer-use = [
-    "pyobjc-framework-ApplicationServices>=10.3; sys_platform == 'darwin'",
-    "pyobjc-framework-Cocoa>=10.3; sys_platform == 'darwin'",
-    "pyobjc-framework-Quartz>=10.3; sys_platform == 'darwin'",
+    "code-puppy-core-plugins[computer-use]>=0.0.77",
 ]
 
 [project.urls]
