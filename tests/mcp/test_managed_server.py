@@ -3,6 +3,7 @@ Tests for ManagedMCPServer.
 """
 
 import os
+from contextlib import nullcontext
 from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
@@ -13,6 +14,7 @@ from code_puppy.mcp_.managed_server import (
     ServerConfig,
     ServerState,
     _expand_env_vars,
+    _with_inherited_windows_system_paths,
     process_tool_call,
 )
 
@@ -70,6 +72,67 @@ def _stdio(inner=None, spec=True):
 
 
 # --- env-var expansion + tool prefixes ---
+
+
+def test_windows_system_paths_are_inherited_for_stdio_children():
+    with (
+        patch("code_puppy.mcp_.managed_server.os.name", "nt"),
+        patch.dict(
+            os.environ,
+            {
+                "PROGRAMW6432": r"C:\Program Files",
+                "ProgramData": r"C:\ProgramData",
+            },
+            clear=True,
+        ),
+    ):
+        env = _with_inherited_windows_system_paths({"CUSTOM": "value"})
+
+    assert env == {
+        "PROGRAMW6432": r"C:\Program Files",
+        "ProgramData": r"C:\ProgramData",
+        "CUSTOM": "value",
+    }
+
+
+def test_explicit_windows_system_paths_override_inherited_values():
+    configured = {
+        "PROGRAMW6432": r"D:\Programs",
+        "ProgramData": r"D:\ProgramData",
+    }
+    with (
+        patch("code_puppy.mcp_.managed_server.os.name", "nt"),
+        patch.dict(
+            os.environ,
+            {
+                "PROGRAMW6432": r"C:\Program Files",
+                "ProgramData": r"C:\ProgramData",
+            },
+            clear=True,
+        ),
+    ):
+        env = _with_inherited_windows_system_paths(configured)
+
+    assert env == configured
+    assert env is not configured
+
+
+def test_windows_system_paths_are_not_added_on_other_platforms():
+    configured = {"CUSTOM": "value"}
+    with (
+        patch("code_puppy.mcp_.managed_server.os.name", "posix"),
+        patch.dict(
+            os.environ,
+            {
+                "PROGRAMW6432": r"C:\Program Files",
+                "ProgramData": r"C:\ProgramData",
+            },
+            clear=True,
+        ),
+    ):
+        env = _with_inherited_windows_system_paths(configured)
+
+    assert env is configured
 
 
 @pytest.mark.asyncio
@@ -225,7 +288,7 @@ class TestManagedMCPServerEnableFromConfig:
         assert server.is_enabled() is False
 
 
-# --- process_tool_call (also touches get_banner_color + coerce guards) ---
+# --- process_tool_call (compact tool line + coerce guards) ---
 
 
 class TestProcessToolCall:
@@ -235,9 +298,10 @@ class TestProcessToolCall:
         mock_ctx.deps = {"some": "deps"}
         mock_call_tool = AsyncMock(return_value="tool_result")
 
-        with patch("rich.console.Console") as mock_console_cls:
-            mock_console = Mock()
-            mock_console_cls.return_value = mock_console
+        with patch(
+            "code_puppy.messaging.tool_output.compact_tool_output",
+            side_effect=lambda *_: nullcontext(),
+        ) as mock_compact:
             result = await process_tool_call(
                 ctx=mock_ctx,
                 call_tool=mock_call_tool,
@@ -245,8 +309,8 @@ class TestProcessToolCall:
                 tool_args={"arg1": "value1"},
             )
 
-        mock_console.print.assert_called_once()
-        assert "test_tool" in mock_console.print.call_args[0][0]
+        # Same compact bullet line as builtin tools -- no legacy banner.
+        mock_compact.assert_called_once_with("test_tool", {"arg1": "value1"})
         mock_call_tool.assert_called_once_with(
             "test_tool", {"arg1": "value1"}, metadata={"deps": mock_ctx.deps}
         )
@@ -258,10 +322,9 @@ class TestProcessToolCall:
         mock_ctx.deps = None
         mock_call_tool = AsyncMock(return_value="result")
 
-        with patch("rich.console.Console"):
-            result = await process_tool_call(
-                ctx=mock_ctx, call_tool=mock_call_tool, name="t", tool_args={}
-            )
+        result = await process_tool_call(
+            ctx=mock_ctx, call_tool=mock_call_tool, name="t", tool_args={}
+        )
 
         mock_call_tool.assert_called_once_with("t", {}, metadata={"deps": None})
         assert result == "result"
@@ -291,10 +354,9 @@ class TestProcessToolCall:
         toolset = FakeToolset()
         call_tool = functools.partial(toolset.direct_call_tool)
 
-        with patch("rich.console.Console"):
-            result = await process_tool_call(
-                ctx=mock_ctx, call_tool=call_tool, name="t", tool_args={"flag": "true"}
-            )
+        result = await process_tool_call(
+            ctx=mock_ctx, call_tool=call_tool, name="t", tool_args={"flag": "true"}
+        )
 
         # Stringified bool got coerced using the schema found via the partial
         assert result == {"flag": True}
@@ -324,10 +386,9 @@ class TestProcessToolCall:
         toolset = FakeToolset()
         call_tool = functools.partial(toolset.direct_call_tool)
 
-        with patch("rich.console.Console"):
-            result = await process_tool_call(
-                ctx=mock_ctx, call_tool=call_tool, name="t", tool_args={"flag": "true"}
-            )
+        result = await process_tool_call(
+            ctx=mock_ctx, call_tool=call_tool, name="t", tool_args={"flag": "true"}
+        )
 
         assert result == {"flag": True}
 
@@ -497,12 +558,41 @@ class TestCreateServerStdio:
         ],
     )
     def test_options_passed_through(self, inner, key, expected):
-        # Env assertions ignore the CA-bundle injection (covered below).
-        with patch(
-            "code_puppy.mcp_.managed_server.get_cert_bundle_path", return_value=None
+        # Env assertions ignore platform and CA-bundle injection, which have
+        # dedicated coverage below.
+        with (
+            patch("code_puppy.mcp_.managed_server.os.name", "posix"),
+            patch(
+                "code_puppy.mcp_.managed_server.get_cert_bundle_path",
+                return_value=None,
+            ),
         ):
             _, _, mock_cls = _stdio(inner)
         assert mock_cls.call_args.kwargs[key] == expected
+
+    def test_windows_system_paths_passed_to_stdio_toolset(self):
+        with (
+            patch("code_puppy.mcp_.managed_server.os.name", "nt"),
+            patch.dict(
+                os.environ,
+                {
+                    "PROGRAMW6432": r"C:\Program Files",
+                    "ProgramData": r"C:\ProgramData",
+                },
+                clear=True,
+            ),
+            patch(
+                "code_puppy.mcp_.managed_server.get_cert_bundle_path",
+                return_value=None,
+            ),
+        ):
+            _, _, mock_cls = _stdio({"command": "python", "env": {"CUSTOM": "value"}})
+
+        assert mock_cls.call_args.kwargs["env"] == {
+            "PROGRAMW6432": r"C:\Program Files",
+            "ProgramData": r"C:\ProgramData",
+            "CUSTOM": "value",
+        }
 
     def test_process_tool_call_wired(self):
         _, _, mock_cls = _stdio()
@@ -545,7 +635,9 @@ class TestCreateServerStdio:
         assert env["SSL_CERT_FILE"] == "/pinned.pem"
 
     def test_no_bundle_leaves_env_untouched(self):
-        assert self._stdio_env(None, {"command": "uvx", "args": ["x"]}) is None
+        with patch("code_puppy.mcp_.managed_server.os.name", "posix"):
+            env = self._stdio_env(None, {"command": "uvx", "args": ["x"]})
+        assert env is None
 
 
 class TestCreateServerHTTP:

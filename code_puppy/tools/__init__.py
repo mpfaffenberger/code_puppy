@@ -72,6 +72,15 @@ TOOL_REGISTRY = {
     "delete_file": register_delete_file,
     # Command Runner
     "shell": register_shell,
+    "agent_run_shell_command": lambda agent: register_shell(
+        agent, tool_name="agent_run_shell_command"
+    ),
+    "run_shell_command": lambda agent: register_shell(
+        agent, tool_name="run_shell_command"
+    ),
+    "run_shell_commmand": lambda agent: register_shell(
+        agent, tool_name="run_shell_commmand"
+    ),
     "agent_share_your_reasoning": register_agent_share_your_reasoning,
     # User Interaction
     "ask_user_question": register_ask_user_question,

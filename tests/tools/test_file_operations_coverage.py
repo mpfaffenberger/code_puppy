@@ -593,7 +593,9 @@ class TestRegisterFunctions:
         mock_agent = MagicMock()
         registered_tools = {}
 
-        def capture_tool(func):
+        def capture_tool(func=None, *, metadata=None):
+            if func is None:
+                return capture_tool
             registered_tools[func.__name__] = func
             return func
 
@@ -611,7 +613,9 @@ class TestRegisterFunctions:
         mock_agent = MagicMock()
         registered_tools = {}
 
-        def capture_tool(func):
+        def capture_tool(func=None, *, metadata=None):
+            if func is None:
+                return capture_tool
             registered_tools[func.__name__] = func
             return func
 
@@ -628,7 +632,9 @@ class TestRegisterFunctions:
         mock_agent = MagicMock()
         registered_tools = {}
 
-        def capture_tool(func):
+        def capture_tool(func=None, *, metadata=None):
+            if func is None:
+                return capture_tool
             registered_tools[func.__name__] = func
             return func
 
@@ -645,7 +651,9 @@ class TestRegisterFunctions:
         mock_agent = MagicMock()
         registered_tools = {}
 
-        def capture_tool(func):
+        def capture_tool(func=None, *, metadata=None):
+            if func is None:
+                return capture_tool
             registered_tools[func.__name__] = func
             return func
 

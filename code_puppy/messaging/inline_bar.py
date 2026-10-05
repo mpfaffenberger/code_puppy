@@ -205,10 +205,12 @@ class InlineBottomBar(BottomBar):
         )
         lines.extend(prompt_rows)
 
-        for index, line in enumerate(self._popup_lines):
+        for index, line in enumerate(self._visible_popup_lines()):
             marker = "› " if index == self._popup_selected else "  "
             lines.append(clip_cells(f"{marker}{line}", max_cells))
 
+        if self._speculation_visible():
+            lines.append(self._render_speculation_line(max_cells))
         if self._identity_row_count():
             lines.append(self._render_identity_line(max_cells))
         if self._status_visible():

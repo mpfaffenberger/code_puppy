@@ -23,6 +23,7 @@ Usage:
 import importlib.metadata
 import json
 import logging
+import re
 import warnings
 from typing import Any
 
@@ -243,6 +244,79 @@ def patch_message_history_cleaning() -> bool:
             "patch_message_history_cleaning",
             exc,
             "strict history cleaning is ACTIVE and may drop valid messages.",
+        )
+
+
+def patch_openai_chat_video_url() -> bool:
+    """Let OpenAI-compatible Chat Completions endpoints receive video parts.
+
+    pydantic-ai's ``OpenAIChatModel`` raises ``NotImplementedError`` for
+    ``VideoUrl`` parts and for ``BinaryContent`` with a ``video/*`` media
+    type, because api.openai.com has no video content part in Chat
+    Completions.  But several of the OpenAI-compatible endpoints code-puppy
+    also talks to (OpenRouter, synthetic.new, self-hosted gateways) DO accept
+    the OpenRouter-style ``video_url`` part -- pydantic-ai already emits it
+    from ``OpenRouterModel``, so this is a model-class limitation rather than
+    a protocol one.  See ``code_puppy._pydantic_video_patch`` for the full
+    reasoning.
+
+    This teaches plain ``OpenAIChatModel`` (and subclasses such as code-puppy's
+    ``ZaiChatModel``) to emit the same part, gated on
+    :func:`_pydantic_video_patch.chat_completions_accepts_video` so that
+    first-party OpenAI/Azure keep the original -- and more informative --
+    error.  ``OpenRouterModel`` overrides both mappers itself and is therefore
+    untouched.
+    """
+    try:
+        from pydantic_ai.models import download_item
+        from pydantic_ai.models.openai import OpenAIChatModel
+
+        from code_puppy._pydantic_video_patch import (
+            chat_completions_accepts_video,
+            inline_video_url,
+            video_content_part,
+        )
+
+        # Resolved at APPLY time so a changed pydantic-ai surface is detected
+        # immediately, not on first video.
+        for attr in ("_map_binary_content_item", "_map_video_url_item"):
+            if not hasattr(OpenAIChatModel, attr):
+                raise AttributeError(f"OpenAIChatModel.{attr} not found")
+
+        _original_map_binary_content_item = OpenAIChatModel._map_binary_content_item
+        _original_map_video_url_item = OpenAIChatModel._map_video_url_item
+
+        async def _patched_map_binary_content_item(self, item):
+            """Inline a local video as a ``video_url`` part."""
+            if item.is_video and chat_completions_accepts_video(self):
+                return video_content_part(inline_video_url(item))
+            return await _original_map_binary_content_item(self, item)
+
+        async def _patched_map_video_url_item(self, item):
+            """Pass a remote video URL through as a ``video_url`` part."""
+            if not chat_completions_accepts_video(self):
+                return await _original_map_video_url_item(self, item)
+            url = item.url
+            if item.force_download:
+                downloaded = await download_item(
+                    item, data_format="base64_uri", type_format="extension"
+                )
+                url = downloaded["data"]
+            return video_content_part(url)
+
+        OpenAIChatModel._map_binary_content_item = _patched_map_binary_content_item
+        OpenAIChatModel._map_video_url_item = _patched_map_video_url_item
+        assert (
+            OpenAIChatModel._map_binary_content_item is _patched_map_binary_content_item
+        )
+        assert OpenAIChatModel._map_video_url_item is _patched_map_video_url_item
+        return True
+    except Exception as exc:
+        return _patch_failed(
+            "patch_openai_chat_video_url",
+            exc,
+            "attaching a video to a non-first-party chat-completions model raises "
+            "NotImplementedError; switch to an OpenRouter model for video.",
         )
 
 
@@ -503,21 +577,35 @@ def patch_termflow_clipboard() -> bool:
 
     PR #335 added explicit ``RenderFeatures(clipboard=False)`` at the two
     known instantiation sites, but that's whack-a-mole: any future code path
-    (or a new termflow version with changed defaults) reintroduces the bug.
+    (or a termflow helper like ``render.document``) reintroduces the bug.
 
-    This patch kills the behaviour at the source by replacing
-    ``Renderer._copy_to_clipboard`` with a no-op, so it does not matter
-    whether any caller remembers to disable the feature flag.
+    This patch forces ``features.clipboard`` off for every ``Renderer`` right
+    after construction. It targets the public flag every termflow version
+    checks, not a private helper: 0.10.0 inlined and removed
+    ``_copy_to_clipboard``, which silently disarmed the previous no-op patch.
+    The caller's ``RenderFeatures`` is copied, never mutated.
     """
     try:
+        from dataclasses import replace
+
         from termflow.render.renderer import Renderer
     except ImportError as exc:
         return _optional_lib_missing("patch_termflow_clipboard", exc)
 
     try:
-        if not hasattr(Renderer, "_copy_to_clipboard"):
-            raise AttributeError("termflow Renderer._copy_to_clipboard not found")
-        Renderer._copy_to_clipboard = lambda self, text: None  # type: ignore[method-assign]
+        original_init = Renderer.__init__
+        if getattr(original_init, "_code_puppy_no_clipboard", False):
+            return True  # already applied
+
+        def _init_without_clipboard(self, *args, **kwargs):
+            original_init(self, *args, **kwargs)
+            self.features = replace(self.features, clipboard=False)
+
+        _init_without_clipboard._code_puppy_no_clipboard = True  # type: ignore[attr-defined]
+        Renderer.__init__ = _init_without_clipboard  # type: ignore[method-assign]
+        # Fail loudly now if termflow ever stops storing a features dataclass.
+        if Renderer().features.clipboard:
+            raise AttributeError("termflow Renderer.features.clipboard not honored")
         return True
     except Exception as exc:
         return _patch_failed(
@@ -563,6 +651,100 @@ def patch_termflow_code_padding() -> bool:
             "patch_termflow_code_padding",
             exc,
             "code lines keep invisible trailing-space padding (copy/paste corruption).",
+            target="termflow",
+        )
+
+
+_BLOCKQUOTE_MARKER_RE = re.compile(r"^(?:\s*>\s?)+")
+
+
+def _strip_blockquote_markers(line: str) -> str:
+    """Drop any leading ``>`` blockquote markers (any nesting depth)."""
+    return _BLOCKQUOTE_MARKER_RE.sub("", line)
+
+
+def _dequote_blockquotes_parse_line(original_parse_line):
+    """Wrap ``Parser.parse_line``: flatten blockquote markup first.
+
+    Outside a code block, always strip leading ``>`` markers -- that's what
+    lets a fenced code block (or heading, or list) nested in a quote reach
+    termflow's normal top-level parsing instead of being flattened to one
+    inline-formatted line by ``_try_parse_block_quote``.
+
+    Once inside a fence, only keep stripping if *that fence itself* was
+    opened from inside a quote (tracked via ``_copyable_quoted_fence`` on
+    the parser instance) -- otherwise a real top-level fence containing a
+    line that legitimately starts with ``>`` (e.g. a shell redirect) would
+    get corrupted.
+    """
+
+    def patched(self, line: str):
+        in_code_before = self.state.is_in_code()
+        quoted_fence = getattr(self, "_copyable_quoted_fence", False)
+        opened_via_quote = False
+
+        if not in_code_before:
+            de_quoted = _strip_blockquote_markers(line)
+            opened_via_quote = de_quoted != line
+            line = de_quoted
+        elif quoted_fence:
+            line = _strip_blockquote_markers(line)
+
+        events = original_parse_line(self, line)
+
+        now_in_code = self.state.is_in_code()
+        if not in_code_before and now_in_code:
+            self._copyable_quoted_fence = opened_via_quote
+        elif in_code_before and not now_in_code:
+            self._copyable_quoted_fence = False
+
+        return events
+
+    patched._code_puppy_dequote_blockquotes = True  # type: ignore[attr-defined]
+    return patched
+
+
+def patch_termflow_blockquote_gutter() -> bool:
+    """Flatten markdown blockquotes before termflow's parser sees them.
+
+    termflow's blockquote handling (``Parser._try_parse_block_quote``) strips
+    leading ``>`` markers and emits the remainder as one flat
+    ``BlockquoteLineEvent`` -- it never re-runs fence/heading/list detection
+    on quoted content. That causes two copy/paste bugs whenever an agent
+    replies with a blockquote containing a fenced code block (a common
+    "text to paste" shape, e.g. a Slack reply with a code snippet):
+
+    1. Every quoted line renders with a literal ``\u2502`` gutter glyph
+       (``Renderer._margin()``) that survives copy/paste.
+    2. The nested fence is never recognized as code, so its lines fall
+       through to *inline* formatting instead -- markdown emphasis eats
+       real characters (``"*$p*"`` loses its asterisks) and the fence
+       markers themselves get misread as stray inline backticks.
+
+    termflow ships no style knob for gutter-free quotes, and its line-by-line
+    parser can't nest a real fence inside a quote. The smallest fix that
+    addresses the actual cause: strip blockquote markers from each line
+    before the parser sees it, so quoted content -- including any code
+    fence -- runs through termflow's normal (correct, gutter-free) top-level
+    parsing paths. Markdown outside blockquotes is untouched.
+    """
+    try:
+        from termflow.parser import Parser
+    except ImportError as exc:
+        return _optional_lib_missing("patch_termflow_blockquote_gutter", exc)
+
+    try:
+        if getattr(Parser.parse_line, "_code_puppy_dequote_blockquotes", False):
+            return True  # already applied
+        Parser.parse_line = _dequote_blockquotes_parse_line(Parser.parse_line)
+        return True
+    except Exception as exc:
+        return _patch_failed(
+            "patch_termflow_blockquote_gutter",
+            exc,
+            "blockquotes keep the '\u2502' gutter and nested fenced code "
+            "blocks lose characters to markdown emphasis (copy/paste "
+            "corruption).",
             target="termflow",
         )
 
@@ -688,14 +870,52 @@ def patch_silence_anthropic_sampling_warnings() -> bool:
     return True
 
 
+def patch_silence_pydantic_serializer_warnings() -> bool:
+    """Silence pydantic's "Pydantic serializer warnings" UserWarning.
+
+    pydantic-ai re-validates provider responses by round-tripping them
+    through pydantic, e.g. in ``OpenAIChatModel._validate_completion``:
+
+        return _ChatCompletion.model_validate(response.model_dump())
+
+    Some OpenAI-compatible gateways (vLLM-style routers, weight-routing
+    proxies) stuff non-string values into the ``ChatCompletion.metadata``
+    object -- the OpenAI schema declares it string-valued -- so every model
+    request dumps a multi-line warning to the console about data code-puppy
+    neither controls nor reads:
+
+        Pydantic serializer warnings:
+          PydanticSerializationUnexpectedValue(Expected `str` - serialized
+            value may not be as expected [field_name='metadata',
+            input_value=[{'version': 'default', 'start': 0, 'end': 57}],
+            input_type=list])
+
+    The mismatch is harmless (the odd value is dropped from the draft) and
+    the message is pure console noise in the TUI. The filter is scoped to
+    pydantic's exact message prefix -- NOT a blanket UserWarning ignore, and
+    NOT all pydantic warnings -- so genuine serializer mismatches raised by
+    other code still surface. Delete this patch when providers stop emitting
+    off-schema metadata.
+    """
+    warnings.filterwarnings(
+        "ignore",
+        message=r"Pydantic serializer warnings:",
+        category=UserWarning,
+    )
+    return True
+
+
 _ALL_PATCHES = (
     patch_silence_anthropic_sampling_warnings,
+    patch_silence_pydantic_serializer_warnings,
     patch_user_agent,
     patch_message_history_cleaning,
+    patch_openai_chat_video_url,
     patch_tool_call_json_repair,
     patch_tool_call_callbacks,
     patch_termflow_clipboard,
     patch_termflow_code_padding,
+    patch_termflow_blockquote_gutter,
     patch_termflow_table_row_separators,
 )
 

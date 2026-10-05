@@ -13,7 +13,7 @@ and TextInput helper via lazy imports to avoid an import cycle.
 
 from __future__ import annotations
 
-from typing import Callable, List, Optional
+from typing import Callable, Dict, List, Optional
 
 import httpx
 
@@ -34,6 +34,12 @@ VLLM_API_KEY_ENV = "VLLM_API_KEY"
 # refuses to build a client without *some* value; this is the documented
 # placeholder vLLM itself prints in its curl examples.
 VLLM_PLACEHOLDER_API_KEY = "EMPTY"
+
+# Context size stamped on persisted vLLM model configs when the server's
+# /v1/models JSON advertises none. vLLM reports ``max_model_len`` per entry
+# when it can; anything without one gets this floor so token accounting and
+# compaction use a realistic window instead of the 128k global fallback.
+VLLM_DEFAULT_CONTEXT_LENGTH = 262_144
 
 _FETCH_TIMEOUT_S = 10.0
 _MODEL_SUFFIXES = ("/v1/models", "/models", "/v1")
@@ -89,18 +95,18 @@ def resolve_api_key_ref(api_key_ref: str) -> Optional[str]:
     return api_key_ref
 
 
-def fetch_vllm_model_ids(
+def _fetch_vllm_entries(
     base_url: str,
     *,
     api_key: Optional[str] = None,
     http_get: Optional[Callable] = None,
-) -> List[str]:
-    """Query ``{base}/v1/models`` and return the served model ids.
+) -> List[dict]:
+    """GET ``{base}/v1/models`` and return the entry dicts.
 
     ``api_key`` is sent as a bearer token when given (servers started with
     ``--api-key`` gate the listing too). ``http_get`` is injectable for tests.
     Raises :class:`VllmFetchError` on any transport error, non-2xx status,
-    non-JSON body, or unexpected shape.
+    non-JSON body, or unexpected shape. Non-dict entries are dropped.
     """
     url = models_endpoint(base_url)
     getter = http_get or httpx.get
@@ -117,19 +123,55 @@ def fetch_vllm_model_ids(
     data = payload.get("data") if isinstance(payload, dict) else None
     if not isinstance(data, list):
         raise VllmFetchError("response has no 'data' list")
-    ids: List[str] = []
-    for entry in data:
-        model_id = entry.get("id") if isinstance(entry, dict) else None
+    return [entry for entry in data if isinstance(entry, dict)]
+
+
+def _context_length_from_entry(entry: dict) -> int:
+    """Context size a ``/v1/models`` entry advertises; 0 when it does not.
+
+    vLLM reports ``max_model_len``; some OpenAI-compatible servers use
+    ``context_length``. Anything missing or non-positive means "unknown" so
+    the caller can fall back to :data:`VLLM_DEFAULT_CONTEXT_LENGTH`.
+    """
+    for key in ("max_model_len", "context_length"):
+        value = entry.get(key)
+        if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+            return value
+    return 0
+
+
+def fetch_vllm_model_contexts(
+    base_url: str,
+    *,
+    api_key: Optional[str] = None,
+    http_get: Optional[Callable] = None,
+) -> Dict[str, int]:
+    """Query ``{base}/v1/models`` and map model id -> advertised context.
+
+    Entries without a usable context size map to 0; the persisted config
+    replaces that with :data:`VLLM_DEFAULT_CONTEXT_LENGTH`.
+    """
+    contexts: Dict[str, int] = {}
+    for entry in _fetch_vllm_entries(base_url, api_key=api_key, http_get=http_get):
+        model_id = entry.get("id")
         if isinstance(model_id, str) and model_id.strip():
-            ids.append(model_id.strip())
-    return ids
+            contexts[model_id.strip()] = _context_length_from_entry(entry)
+    return contexts
 
 
-def build_vllm_model_config(model_id: str, base_url: str, api_key_ref: str) -> dict:
+def build_vllm_model_config(
+    model_id: str,
+    base_url: str,
+    api_key_ref: str,
+    context_length: Optional[int] = None,
+) -> dict:
     """A Code Puppy ``custom_openai`` config for one vLLM model.
 
     ``api_key_ref`` is either ``$VLLM_API_KEY`` (a real key was supplied) or
     the literal :data:`VLLM_PLACEHOLDER_API_KEY` for an unauthenticated server.
+    ``context_length`` is what the server's JSON advertised; when it carried
+    none (``None``/non-positive) the config gets
+    :data:`VLLM_DEFAULT_CONTEXT_LENGTH` so token accounting has a real number.
     """
     return {
         "type": "custom_openai",
@@ -139,6 +181,11 @@ def build_vllm_model_config(model_id: str, base_url: str, api_key_ref: str) -> d
             "url": openai_endpoint(base_url),
             "api_key": api_key_ref,
         },
+        "context_length": (
+            context_length
+            if context_length and context_length > 0
+            else VLLM_DEFAULT_CONTEXT_LENGTH
+        ),
         "supported_settings": ["temperature", "seed", "top_p"],
     }
 
@@ -343,14 +390,16 @@ def _auth_failure_hint(error_text: str, *, authenticated: bool) -> Optional[str]
 def run_vllm_flow(
     *,
     url_prompt: Callable = prompt_for_vllm_url,
-    fetch_models: Callable = fetch_vllm_model_ids,
+    fetch_models: Callable = fetch_vllm_model_contexts,
     models_menu_factory: Callable = build_vllm_models_menu,
     api_key_prompt: Callable = choose_vllm_api_key,
 ) -> bool:
     """URL -> key (none/new/saved) -> /v1/models -> pick -> persist.
 
     The key comes *before* the listing because a server started with
-    ``--api-key`` 401s on ``/v1/models`` too. Collaborators are injectable
+    ``--api-key`` 401s on ``/v1/models`` too. ``fetch_models`` maps model
+    id -> advertised context length (0 when the JSON carries none, which the
+    persisted config then defaults to 256k). Collaborators are injectable
     so tests can script every stage.
     """
     base_url = url_prompt()
@@ -373,13 +422,14 @@ def run_vllm_flow(
 
     listing = models_endpoint(base_url)
     try:
-        model_ids = fetch_models(base_url, api_key=api_key)
+        model_contexts = fetch_models(base_url, api_key=api_key)
     except VllmFetchError as exc:
         emit_error(t("model_menu.vllm.fetch_failed", url=listing, error=exc))
         hint = _auth_failure_hint(str(exc), authenticated=bool(api_key))
         if hint:
             emit_warning(hint)
         return False
+    model_ids = list(model_contexts)
     if not model_ids:
         emit_warning(t("model_menu.vllm.no_models", url=listing))
         return False
@@ -394,5 +444,8 @@ def run_vllm_flow(
 
     model_key = extra_model_key(VLLM_PROVIDER_ID, model_id)
     return add_config_to_extra_config(
-        model_key, build_vllm_model_config(model_id, base_url, api_key_ref)
+        model_key,
+        build_vllm_model_config(
+            model_id, base_url, api_key_ref, model_contexts.get(model_id)
+        ),
     )

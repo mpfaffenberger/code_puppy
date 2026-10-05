@@ -1,14 +1,20 @@
 """Persistent bottom prompt bar via a terminal scroll region (DECSTBM).
 
-Reserves the bottom rows of the terminal (3 base rows plus one row for
-every active sub-agent panel entry):
+Reserves the bottom rows of the terminal, bottom-up (optional rows exist
+only while they have content):
 
-    rows H-2-n..H-3  sub-agent panel (n = number of panel rows, via set_panel_lines)
-    row  H-2         status line (token/context info, via set_status)
-    row  H-1         prompt line  (the always-available input line)
-    row  H           blank margin
+    row H          status line (token/context info, via set_status)
+    above it       identity line (agent/model metadata, from the
+                   prompt prefix)
+    above it       optional speculation stats row
+                   (via set_speculation_status)
+    above it       completion popup rows, directly below the prompt
+    prompt rows    the always-available input viewport
+                   (1..PROMPT_MAX_ROWS rows)
+    above it       sub-agent panel (n rows, via set_panel_lines)
+    top of band    blank margin (separator below the transcript)
 
-The scrollable region is rows ``1 .. H-3-n``, so
+The scrollable region is rows ``1 .. H-reserved``, so
 all existing streaming output — termflow markdown, thinking stream, tool
 token-count lines — keeps working unmodified: it simply scrolls *inside*
 the region while the reserved rows stay put.
@@ -49,6 +55,7 @@ import threading
 from contextlib import contextmanager
 from typing import Callable, Iterator, Optional, TextIO, Tuple
 
+from .bar_painters import PROMPT_MAX_ROWS, BarPainterMixin  # noqa: E402
 from .bar_rendering import (
     CLEAR_LINE as _CLEAR_LINE,
 )
@@ -80,13 +87,15 @@ from .bar_rendering import (
     SAVE_CURSOR as _SAVE_CURSOR,
 )
 from .bar_rendering import (
+    clear_ghost_band as _clear_ghost_band,
+)
+from .bar_rendering import (
     default_get_size as _default_get_size,
 )
 from .bar_rendering import (
     sanitize as _sanitize,
 )
-
-from .bar_painters import PROMPT_MAX_ROWS, BarPainterMixin  # noqa: E402
+from .speculation_line import SpeculationLineMixin  # noqa: E402
 from .transcript_guard import TranscriptGuardMixin  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -111,7 +120,7 @@ SizeProvider = Callable[[], Tuple[int, int]]
 # =============================================================================
 
 
-class BottomBar(TranscriptGuardMixin, BarPainterMixin):
+class BottomBar(TranscriptGuardMixin, SpeculationLineMixin, BarPainterMixin):
     """Scroll-region manager for the persistent bottom prompt.
 
     Use the module-level singleton via :func:`get_bottom_bar` in app code;
@@ -135,6 +144,7 @@ class BottomBar(TranscriptGuardMixin, BarPainterMixin):
         self._tool_progress = ""  # transient tool argument streaming counter
         self._status_prefix = ""  # animated spinner slot (puppy_spinner)
         self._status_suffix = ""  # trailing slot (steer_queue's '(N queued)')
+        self._speculation_status = ""  # optional stats row above identity/context
         self._panel_lines: list[str] = []
         self._popup_lines: list[str] = []  # completion popup (over panel)
         self._popup_selected = -1
@@ -497,7 +507,8 @@ class BottomBar(TranscriptGuardMixin, BarPainterMixin):
             # in effect, put the terminal back to normal and go dormant
             # (hardware cursor comes back too — no region, no pseudo-cursor).
             if self._region_up:
-                parts = [_RESET_REGION]
+                # DECSTBM homes the cursor: keep the writer's position.
+                parts = [_SAVE_CURSOR, _RESET_REGION, _RESTORE_CURSOR]
                 if self._cursor_hidden:
                     parts.append(_CURSOR_SHOW)
                     self._cursor_hidden = False
@@ -514,14 +525,10 @@ class BottomBar(TranscriptGuardMixin, BarPainterMixin):
         top = rows - reserved
         parts = []
         if old_reserved and old_rows > 0:
-            # Re-establish after a resize: old rows were painted at the previous
-            # geometry and linger as ghosts. Reset the region so erases can reach
-            # outside the incoming one, then blank the old band (clamped to height).
-            parts.append(_RESET_REGION)
-            for row in range(
-                max(1, old_rows - old_reserved + 1), min(old_rows, rows) + 1
-            ):
-                parts.append(f"\x1b[{row};1H{_CLEAR_LINE}")
+            # Re-establish after a resize: erase the old band's ghosts
+            # WITHOUT moving the writer cursor (see clear_ghost_band).
+            keep = not self._guard_scroll_fix  # Windows parks at (top, 1)
+            parts.append(_clear_ghost_band(old_rows, old_reserved, rows, keep))
         if self._guard_scroll_fix:
             # Windows: the transcript-guard simulator must know the exact
             # cursor row, so keep the deterministic park at (top, 1) that

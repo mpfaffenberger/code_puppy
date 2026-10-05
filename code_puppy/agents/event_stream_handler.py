@@ -176,6 +176,16 @@ async def event_stream_handler(
     progress_bar = None if is_subagent() else get_bottom_bar()
     stream_status = get_stream_status(progress_bar)
 
+    from code_puppy.messaging.speculation_stats import (
+        get_speculation_stats,
+        get_speculation_status,
+    )
+
+    spec_stats = get_speculation_stats()
+    spec_enabled = not is_subagent() and get_speculation_status() is not None
+    if progress_bar is not None:
+        progress_bar.set_speculation_status(get_speculation_status())
+
     # Track which part indices we're currently streaming (for Text/Thinking/Tool parts)
     streaming_parts: set[int] = set()
     thinking_parts: set[int] = set()  # Track which parts are thinking (for dim style)
@@ -357,6 +367,11 @@ async def event_stream_handler(
                 break
 
             stream_status.update(event)
+            # Speculation updates pinned chrome only, never the transcript.
+            if spec_enabled and spec_stats.handle_event(event):
+                if progress_bar is not None:
+                    progress_bar.set_speculation_status(get_speculation_status())
+                continue
 
             # PartStartEvent - register the part but defer banner until content arrives
             if isinstance(event, PartStartEvent):

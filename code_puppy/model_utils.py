@@ -222,6 +222,42 @@ _UPDATES_TAGS: tuple[str, ...] = (
 )
 
 
+def anthropic_forced_tool_choice_unsupported(
+    model_name: str, actual_model_id: str | None = None
+) -> bool:
+    """Return whether an Anthropic model rejects forced ``tool_choice``.
+
+    pydantic-ai 2.51.0 (our pinned version) correctly excludes
+    claude-opus-5-5 from forced tool_choice (``any``/``tool``) support,
+    but claude-sonnet-5-5 has the identical issue and wasn't covered
+    until pydantic-ai 2.52.0. Its profile source confirms both models
+    were tested and are both affected::
+
+        # `claude-opus-5-5` returns a 400 for both shapes where
+        # `claude-opus-5` returns 200, and likewise `claude-sonnet-5-5`
+        # where `claude-sonnet-5` returns 200.
+        supports_forced_tool_choice = not model_name.startswith(
+            ('claude-fable-5-1', 'claude-mythos-5-1', 'claude-opus-5-5',
+             'claude-sonnet-5-5')
+        )
+
+    This is a stopgap until we bump past 2.52.0 -- remove this function
+    (and its call sites) once we do, and let pydantic-ai's own profile
+    table make the call again.
+
+    Args:
+        model_name: The model alias/key from models.json (e.g. ``"sonnet"``).
+        actual_model_id: The real API model ID from config (e.g.
+            ``"claude-sonnet-5-5"``). This is what pydantic-ai profiles at
+            runtime, so it is checked too.
+    """
+    _KNOWN_GAPS = ("claude-sonnet-5-5",)
+    candidates = [model_name.lower()]
+    if actual_model_id:
+        candidates.append(actual_model_id.lower())
+    return any(candidate.startswith(_KNOWN_GAPS) for candidate in candidates)
+
+
 def anthropic_disallows_sampling_settings(
     model_name: str, actual_model_id: str | None = None
 ) -> bool:

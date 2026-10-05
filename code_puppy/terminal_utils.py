@@ -154,9 +154,24 @@ def ensure_windows_vt_processing() -> bool:
 #: ENABLE_VIRTUAL_TERMINAL_INPUT — stdin delivers VT sequences verbatim.
 _ENABLE_VIRTUAL_TERMINAL_INPUT = 0x0200
 
+#: Cooked-mode bits (ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT; ECHO is only
+#: legal alongside LINE, so they travel together). With LINE_INPUT on,
+#: conhost treats Ctrl+S / Pause as "suspend output" — the Windows twin of
+#: POSIX XOFF (see the IXON clamp in ``_key_listeners``) — which froze the
+#: terminal on the Ctrl+X Ctrl+S speculation chord.
+_COOKED_INPUT_BITS = 0x0002 | 0x0004
 
-def enable_windows_vt_input() -> bool:
-    """Enable VT input (``ENABLE_VIRTUAL_TERMINAL_INPUT``) on stdin, verified.
+#: Cooked bits the raw clamp stripped; handed back on release so we only
+#: ever restore what we took (0 = nothing to restore).
+_stripped_cooked_bits: int = 0
+
+
+def enable_windows_raw_input() -> bool:
+    """Put stdin in listener raw mode: cooked bits off, VT input on (verified).
+
+    Cooked bits go first and independently: every host supports clearing
+    them, while ancient hosts reject the VT flag outright — Ctrl+S must
+    stop freezing the console even there.
 
     ConPTY only forwards terminal-side VT input sequences to a client
     whose stdin carries this flag. Bracketed-paste markers
@@ -170,12 +185,16 @@ def enable_windows_vt_input() -> bool:
     empty bracketed paste.
 
     Scope contract: only the Windows key listener enables this, while it
-    owns stdin — and it disables it around suspensions, because
-    ``ReadConsoleInput``-based readers (prompt_toolkit TUIs) expect
-    classic key events. Returns True when the flag is CONFIRMED set via
-    a mode read-back (mirrors :func:`ensure_windows_vt_processing`;
-    ancient hosts silently no-op ``SetConsoleMode``). Never raises.
+    owns stdin (both of its readers use ``ReadConsoleInput``, which
+    ignores line mode) — and it disables it around suspensions, because
+    other readers (prompt_toolkit TUIs, ``input()``) expect classic key
+    events and their own console mode. Returns True when the VT flag is
+    CONFIRMED set via a mode read-back (mirrors
+    :func:`ensure_windows_vt_processing`; ancient hosts silently no-op
+    ``SetConsoleMode``). Never raises.
     """
+    global _stripped_cooked_bits
+
     if platform.system() != "Windows":
         return False
 
@@ -188,11 +207,20 @@ def enable_windows_vt_input() -> bool:
         mode = ctypes.c_ulong()
         if not kernel32.GetConsoleMode(stdin_handle, ctypes.byref(mode)):
             return False
-        if mode.value & _ENABLE_VIRTUAL_TERMINAL_INPUT:
+        current = mode.value
+
+        cooked = current & _COOKED_INPUT_BITS
+        if cooked and kernel32.SetConsoleMode(
+            stdin_handle, current & ~_COOKED_INPUT_BITS
+        ):
+            _stripped_cooked_bits |= cooked
+            current &= ~_COOKED_INPUT_BITS
+
+        if current & _ENABLE_VIRTUAL_TERMINAL_INPUT:
             return True  # already on
 
         if not kernel32.SetConsoleMode(
-            stdin_handle, mode.value | _ENABLE_VIRTUAL_TERMINAL_INPUT
+            stdin_handle, current | _ENABLE_VIRTUAL_TERMINAL_INPUT
         ):
             return False
 
@@ -204,14 +232,17 @@ def enable_windows_vt_input() -> bool:
         return False
 
 
-def disable_windows_vt_input() -> None:
-    """Clear ``ENABLE_VIRTUAL_TERMINAL_INPUT`` from stdin (best-effort).
+def disable_windows_raw_input() -> None:
+    """Undo :func:`enable_windows_raw_input` on stdin (best-effort).
 
-    Called by the Windows key listener before parking for a suspension
-    and on exit, so ``ReadConsoleInput``-based readers (prompt_toolkit
-    TUIs, the parent shell after we quit) get classic key events instead
-    of raw VT sequences. Never raises.
+    Clears VT input and hands back exactly the cooked bits the clamp
+    stripped. Called by the Windows key listener before parking for a
+    suspension and on exit, so other readers (prompt_toolkit TUIs, the
+    parent shell after we quit) get classic key events and line mode
+    instead of raw VT sequences. Never raises.
     """
+    global _stripped_cooked_bits
+
     if platform.system() != "Windows":
         return
 
@@ -224,10 +255,11 @@ def disable_windows_vt_input() -> None:
         mode = ctypes.c_ulong()
         if not kernel32.GetConsoleMode(stdin_handle, ctypes.byref(mode)):
             return
-        if mode.value & _ENABLE_VIRTUAL_TERMINAL_INPUT:
-            kernel32.SetConsoleMode(
-                stdin_handle, mode.value & ~_ENABLE_VIRTUAL_TERMINAL_INPUT
-            )
+        restored = (
+            mode.value & ~_ENABLE_VIRTUAL_TERMINAL_INPUT
+        ) | _stripped_cooked_bits
+        if restored == mode.value or kernel32.SetConsoleMode(stdin_handle, restored):
+            _stripped_cooked_bits = 0
     except Exception:
         pass
 

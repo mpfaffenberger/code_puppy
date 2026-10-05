@@ -8,8 +8,11 @@ Bottom-up reserved-row layout (Claude Code style: status UNDER the
 prompt, and only while it has something to say):
 
     row H                     status row (spinner + tokens) — reserved
-                              ONLY when non-empty; otherwise the prompt
-                              block is the bottom of the screen
+                              ONLY when non-empty; otherwise the row
+                              above is the bottom of the screen
+    identity row              agent/model metadata, reserved only while
+                              the prompt carries standard identity
+    speculation row           optional stats row (set_speculation_status)
     popup rows                completion popup, directly BELOW the prompt
     rows above popup          prompt viewport (1..PROMPT_MAX_ROWS)
     panel rows                sub-agent panel (hidden while popup open)
@@ -21,8 +24,9 @@ grow/shrink machinery provides the motion. On close the prompt does
 NOT slide back down: the vacated rows persist as blank ``_popup_slack``
 until ``notify_transcript_output`` reclaims them, so the prompt falls
 back into place only when new output is scrolling anyway. The same
-machinery materializes/collapses the status row when its text appears
-or empties (``_total_reserved`` changes → region grows/shrinks).
+machinery materializes/collapses the status row (and the speculation
+row) when its text appears or empties (``_total_reserved`` changes →
+region grows/shrinks).
 """
 
 from __future__ import annotations
@@ -53,6 +57,9 @@ from .bar_rendering import (
     count_prompt_rows as _count_prompt_rows,
 )
 from .bar_rendering import (
+    dim as _dim,
+)
+from .bar_rendering import (
     render_prompt_block as _render_prompt_block,
 )
 from .bar_rendering import (
@@ -61,11 +68,6 @@ from .bar_rendering import (
 
 #: Maximum rows for the multiline prompt viewport.
 PROMPT_MAX_ROWS = 5
-
-#: Chrome dimming (SGR 2): faint popup/status/panel chrome — applied AFTER
-#: sanitize + clip (own SGR bytes must never count as cells).
-_DIM_ON = "\x1b[2m"
-_DIM_OFF = "\x1b[22m"
 
 #: Selected popup row: bold ANSI cyan (SGR 1;36) accent, not reverse video.
 #: ANSI cyan because themes remap palette slots via OSC 4 (no runtime accent
@@ -89,11 +91,6 @@ def _prompt_color_sgr() -> str:
     except Exception:
         pass
     return ""
-
-
-def _dim(text: str) -> str:
-    """Wrap ``text`` in faint SGR (no-op for empty strings)."""
-    return f"{_DIM_ON}{text}{_DIM_OFF}" if text else text
 
 
 def _panel_overflow_row(hidden: int) -> str:
@@ -130,8 +127,11 @@ class BarPainterMixin(IdentityLineMixin):
         if not self._popup_lines:
             return []
         rows = self._rows if self._rows > 0 else 24
-        # top margin + (possible) status + one scroll row keep their space.
-        budget = rows - self._prompt_row_count() - 3
+        # top margin + (possible) status + (possible) speculation + one
+        # scroll row keep their space.
+        budget = rows - self._prompt_row_count() - 3 - self._identity_row_count()
+        if self._speculation_visible():
+            budget -= 1
         return self._popup_lines[: max(0, budget)]
 
     def _visible_popup_slack(self) -> int:
@@ -145,24 +145,33 @@ class BarPainterMixin(IdentityLineMixin):
         if slack <= 0:
             return 0
         rows = self._rows if self._rows > 0 else 24
-        budget = rows - self._prompt_row_count() - 3 - len(self._visible_popup_lines())
+        budget = (
+            rows
+            - self._prompt_row_count()
+            - 3
+            - self._identity_row_count()
+            - len(self._visible_popup_lines())
+        )
+        if self._speculation_visible():
+            budget -= 1
         return max(0, min(slack, budget))
 
     def _panel_row_budget(self) -> int:
         """Max panel rows that fit without forcing the bar dormant.
 
         Mirrors :meth:`_visible_popup_lines`' "prompt viewport WINS" rule:
-        the top margin, prompt, popup, and status always keep their rows,
-        plus one scroll row for the transcript region. Whatever height is
-        left is the panel's budget — so a big sub-agent swarm is shown as
-        tall as the terminal allows instead of overflowing past
-        ``rows - 1`` and tripping the ``rows < reserved + 1`` dormancy
-        guard in :meth:`_establish` (which would blank the panel, prompt,
-        AND status all at once).
+        the top margin, prompt, speculation, popup, and status always keep
+        their rows, plus one scroll row for the transcript region.
+        Whatever height is left is the panel's budget, so a big sub-agent
+        swarm is shown as tall as the terminal allows instead of
+        overflowing past ``rows - 1`` and tripping the ``rows < reserved + 1``
+        dormancy guard in :meth:`_establish` (which would blank the panel,
+        prompt, AND status all at once).
         """
         rows = self._rows if self._rows > 0 else 24
         non_panel = (
             1  # top margin (blank separator below the transcript)
+            + (1 if self._speculation_visible() else 0)
             + self._prompt_row_count()
             + len(self._visible_popup_lines())
             + self._visible_popup_slack()
@@ -214,10 +223,12 @@ class BarPainterMixin(IdentityLineMixin):
         return render_status_line(self._status_body(), self._status_suffix, width)
 
     def _total_reserved(self) -> int:
-        """Rows needed: top margin + panel + prompt + popup + status."""
+        """Rows needed: top margin + panel + speculation + prompt + popup
+        + status (+ identity)."""
         return (
             1  # top margin (blank separator below the transcript)
             + len(self._visible_panel_lines())
+            + (1 if self._speculation_visible() else 0)
             + self._prompt_row_count()
             + len(self._visible_popup_lines())
             + self._visible_popup_slack()
@@ -228,12 +239,9 @@ class BarPainterMixin(IdentityLineMixin):
     def _row_anchors(self) -> tuple:
         """(prompt_top, popup_top, status_row, panel_top) row numbers.
 
-        Bottom-up layout: status on row H (when visible); completion
-        popup directly above it (i.e. BELOW the prompt — first candidate
-        on the popup's top row, adjacent to the typed line); prompt
-        block above the popup; panel above the prompt; top margin above
-        the panel. ``status_row`` is always H — ``_status_seq`` checks
-        visibility itself.
+        Status, identity, and speculation sit below the popup and prompt.
+        The panel sits above the prompt, below the top margin.
+        ``status_row`` is always H; ``_status_seq`` checks visibility itself.
         """
         rows = self._rows
         status_rows = 1 if self._status_visible() else 0
@@ -241,6 +249,7 @@ class BarPainterMixin(IdentityLineMixin):
             rows
             - status_rows
             - self._identity_row_count()
+            - int(self._speculation_visible())
             - self._visible_popup_slack()
             - len(self._visible_popup_lines())
             + 1
@@ -250,12 +259,13 @@ class BarPainterMixin(IdentityLineMixin):
         return prompt_top, popup_top, rows, panel_top
 
     def _reserved_rows_seq(self) -> str:
-        """Paint every reserved row: margin + panel + prompt + popup + status."""
+        """Paint all reserved rows, including optional speculation chrome."""
         return (
             self._top_margin_seq()
             + self._panel_seq()
             + self._prompt_seq()
             + self._popup_seq()
+            + self._speculation_seq()
             + self._identity_seq()
             + self._status_seq()
         )
