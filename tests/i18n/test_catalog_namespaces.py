@@ -29,6 +29,7 @@ _NAMESPACES = {
     "cfg": (("cfg.",), 20),
     "mcp.wizard": (("mcp.wizard.",), 39),
     "mcp.install_wizard": (("mcp.install_wizard.",), 31),
+    "mcp.edit": (("mcp.edit.",), 10),
     "oauth": (
         (
             "oauth.server.",
@@ -59,7 +60,6 @@ _NAMESPACES = {
     "tools.common.approval": (("tools.common.approval.",), 12),
     "renderer": (("renderer.",), 26),
     "model_factory": (("model_factory.",), 15),
-    "mcp.edit": (("mcp.edit.",), 10),
 }
 
 _PREFIXES = [prefixes for prefixes, _ in _NAMESPACES.values()]
