@@ -153,8 +153,8 @@ class InstallCommand(MCPCommandBase):
             required_env_vars = selected_server.get_environment_vars()
             if required_env_vars:
                 emit_info(
-                    Text.from_markup(
-                        f"\n[yellow]{t('mcp.install_wizard.env_vars_header')}[/yellow]"
+                    Text(
+                        "\n" + t("mcp.install_wizard.env_vars_header"), style="yellow"
                     ),
                     message_group=group_id,
                 )
@@ -165,8 +165,8 @@ class InstallCommand(MCPCommandBase):
                     current_value = os.environ.get(var, "")
                     if current_value:
                         emit_info(
-                            Text.from_markup(
-                                f"  {var}: [green]{t('mcp.install_wizard.already_set')}[/green]"
+                            Text(f"  {var}: ").append(
+                                t("mcp.install_wizard.already_set"), style="green"
                             ),
                             message_group=group_id,
                         )
@@ -182,8 +182,8 @@ class InstallCommand(MCPCommandBase):
             required_cmd_args = selected_server.get_command_line_args()
             if required_cmd_args:
                 emit_info(
-                    Text.from_markup(
-                        f"\n[yellow]{t('mcp.install_wizard.cmd_args_header')}[/yellow]"
+                    Text(
+                        "\n" + t("mcp.install_wizard.cmd_args_header"), style="yellow"
                     ),
                     message_group=group_id,
                 )
