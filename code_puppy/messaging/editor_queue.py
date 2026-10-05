@@ -52,7 +52,10 @@ class QueuedMessageNavigator:
             return True, item, []
 
         working = self._working
-        suppressions = list(self._originals)
+        # Only successfully appended edits belong in the disk tail. Blank
+        # drafts and failed writes leave the existing originals untouched.
+        recorded = self._record_edits()
+        suppressions = list(reversed(recorded)) + self._originals
         self._restore(self._drafts)
         return False, working, suppressions
 
@@ -66,6 +69,7 @@ class QueuedMessageNavigator:
             return True, self._drafts[self._index]
 
         working = self._working
+        self._record_edits()
         self._restore(self._drafts)
         return True, working
 
@@ -84,6 +88,7 @@ class QueuedMessageNavigator:
             return False
 
         self._drafts[self._index] = text
+        self._record_edits()
         if mode == "now":
             remaining = [
                 draft
@@ -95,6 +100,16 @@ class QueuedMessageNavigator:
 
         self._restore(self._drafts)
         return False
+
+    def _record_edits(self) -> list[str]:
+        """Return successfully persisted edits, oldest-queued-item-first."""
+        from code_puppy.config import save_command_to_history
+
+        recorded = []
+        for original, draft in zip(reversed(self._originals), reversed(self._drafts)):
+            if draft != original and save_command_to_history(draft):
+                recorded.append(draft)
+        return recorded
 
     def cancel(self) -> None:
         """Abandon edits and put every reserved turn back unchanged."""
@@ -125,7 +140,9 @@ class QueuedMessageNavigator:
                     if controller is None:
                         controller = self._controller_provider()
                     for item in oldest_first:
-                        controller.request_steer(item, mode="queue")
+                        controller.request_steer(
+                            item, mode="queue", history_recorded=True
+                        )
                 except Exception:
                     logger.exception("queued messages could not be restored")
         self._originals = []

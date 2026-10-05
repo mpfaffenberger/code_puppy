@@ -149,10 +149,24 @@ def test_editing_exits_history_browsing(store):
     assert editor.buffer == "recalled!"
 
 
-def test_queued_turns_are_editable_before_regular_history(store):
-    for entry in ("older history", "first queued", "second queued"):
-        store.append(entry)
+def test_queued_turns_are_editable_before_regular_history(store, monkeypatch):
+    # ``_record_edits`` persists changed drafts through the real
+    # ``save_command_to_history`` -> ``COMMAND_HISTORY_FILE`` path, which in
+    # production is the exact file ``HistoryNavigator``'s default store
+    # reads from (``safe_navigator()`` -> ``HistoryNavigator()`` ->
+    # ``HistoryStore()`` -> ``COMMAND_HISTORY_FILE``). Point it at this
+    # test's own ``store`` so the edit echo this test triggers is visible
+    # where the rest of the test already reads from, matching real wiring
+    # instead of two files that happen to never talk to each other.
+    import code_puppy.config as cp_config
+
+    monkeypatch.setattr(cp_config, "COMMAND_HISTORY_FILE", store._path)
+
+    store.append("older history")
     controller = PauseController()
+    # ``request_steer(mode="queue")`` persists at insertion by default
+    # (``history_recorded=False``) -- it is the sole capture for these two,
+    # not a duplicate of a prior manual append.
     controller.request_steer("first queued", mode="queue")
     controller.request_steer("second queued", mode="queue")
     editor = make_editor(store, controller)
