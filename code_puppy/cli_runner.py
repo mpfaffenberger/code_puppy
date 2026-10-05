@@ -317,18 +317,6 @@ async def main():
         except ImportError:
             emit_system_message(t("cli.loading"))
 
-        # Powered-by tagline under the big banner (prints even without pyfiglet).
-        display_console.print(
-            f"[dim]{t('cli.banner.powered_by')}[/dim] "
-            "[link=https://github.com/pydantic/pydantic-ai-harness]"
-            "[cyan]https://github.com/pydantic/pydantic-ai-harness[/cyan][/link]"
-        )
-        display_console.print(
-            f"[dim]{t('cli.banner.observability_pitch')}[/dim] "
-            "[link=https://pydantic.dev/logfire]"
-            "[cyan]https://pydantic.dev/logfire[/cyan][/link]\n"
-        )
-
         # Truecolor warning moved to interactive_mode() so it prints last — max visibility.
 
     from code_puppy.config import PORT_PROBE_WIDTH, resolve_port_base

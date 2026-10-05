@@ -99,8 +99,6 @@
   "cli.autosave.loaded": "✅ Guardado automático cargado: {messages} mensajes ({tokens} tokens)",
   "cli.autosave.loaded_path": "📁 Desde: {path}",
   "cli.autosave.tui_required": "La exploración interactiva de sesiones requiere un terminal. Usa -r NAME para reanudar una sesión por su nombre.",
-  "cli.banner.observability_pitch": "¿Necesitas observabilidad? ¿Gobernanza de agentes? ¿Controles? Descubre Logfire / Pydantic Gateway →",
-  "cli.banner.powered_by": "Con tecnología de Pydantic ·",
   "cli.command.error": "Error de comando: {error}",
   "cli.context.cleared": "Contexto borrado. Nueva sesión: {session}",
   "cli.error.model_transient": "🔌 La conexión con el modelo sufrió un error temporal ({error_type}) y no se recuperó tras los reintentos automáticos. Casi siempre se debe a una interrupción de la VPN, del WiFi o del proveedor; vuelve a enviar tus últimas instrucciones. Tu historial de sesión está intacto.",

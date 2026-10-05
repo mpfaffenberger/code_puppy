@@ -1,5 +1,6 @@
 """Caller and plural contracts for catalog entries synchronized from main."""
 
+import ast
 import json
 from pathlib import Path
 
@@ -83,6 +84,20 @@ def test_main_sync_preserves_technical_identifiers(locale, key, tokens):
     rendered = translate.t(key)
     for token in tokens:
         assert token in rendered
+
+
+def test_obsolete_banner_keys_and_callers_are_removed_together():
+    obsolete = {"cli.banner.observability_pitch", "cli.banner.powered_by"}
+    source = Path(__file__).parents[2] / "code_puppy" / "cli_runner.py"
+    literals = {
+        node.value
+        for node in ast.walk(ast.parse(source.read_text(encoding="utf-8")))
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    }
+    assert obsolete.isdisjoint(literals)
+    for locale in _LOCALES:
+        data = json.loads((_CATALOG_DIR / f"{locale}.json").read_text(encoding="utf-8"))
+        assert obsolete.isdisjoint(data)
 
 
 @pytest.mark.parametrize("locale", _LOCALES)

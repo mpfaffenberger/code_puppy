@@ -99,8 +99,6 @@
   "cli.autosave.loaded": "✅ Autosave loaded: {messages} messages ({tokens} tokens)",
   "cli.autosave.loaded_path": "📁 From: {path}",
   "cli.autosave.tui_required": "Interactive session browsing needs a terminal. Use -r NAME to resume a session by name.",
-  "cli.banner.observability_pitch": "Need observability? Agentic governance? Controls? Check out Logfire / Pydantic Gateway →",
-  "cli.banner.powered_by": "Powered by Pydantic ·",
   "cli.command.error": "Command error: {error}",
   "cli.context.cleared": "Context cleared. Session rotated to: {session}",
   "cli.error.model_transient": "🔌 The model connection hit a transient error ({error_type}) and didn't recover after auto-retries. This is almost always a VPN/WiFi/provider blip — just re-run your last prompt. Your session history is intact.",
