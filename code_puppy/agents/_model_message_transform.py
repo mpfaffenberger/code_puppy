@@ -23,19 +23,12 @@ _PREFIX_ATTR = "_context_accounting_prefix"
 class _ContinuationObserver(WrapperModel):
     """Observe a suspended->continued chain *before* pydantic-ai merges it.
 
-    pydantic-ai 2.51.0 can resolve one logical model request as several
-    separately-billed segments (Anthropic ``pause_turn``, OpenAI background
-    mode), merging them into a single response before any capability sees
-    it, with ``usage`` summed across segments. The merged response carries no
-    field distinguishing that from an ordinary single-segment response (see
-    ``context_accounting``'s module docstring for the full survey), but
-    ``continuation_delay`` is called on *every* intermediate suspended
-    response, for every provider, before the next segment is requested --
-    this is the one point where a continuation is observable pre-merge. This
-    is the same ``request_context.model``-swap seam pydantic-ai's own
-    durable-execution capabilities (Temporal/DBOS/Prefect) use to dispatch
-    each segment through its own activity/step/task (see the module-level
-    comments in ``pydantic_ai._agent_graph`` describing that pattern).
+    ``continuation_delay`` runs on intermediate suspended responses before
+    their usage can merge. This request-local wrapper preserves the real
+    model's delay behavior while marking the final response ineligible for
+    a receipt. The framework's durable-execution capabilities use the same
+    request-model swap seam. Provider details and billing limitations live
+    in ``docs/API_CONTEXT_ACCOUNTING.md``.
     """
 
     def __init__(self, wrapped):

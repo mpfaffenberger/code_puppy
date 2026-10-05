@@ -1,52 +1,13 @@
 """Context totals anchored to completed API requests, with a heuristic delta.
 
-Compaction, the status bar, and the context indicator all used to sum a
-char/2.5 estimate over the whole message history. That heuristic drifts from
-what the provider actually billed -- especially once caching is involved
-(Anthropic cache read/write, OpenAI cached tokens) -- and the drift compounds
-every turn.
+A receipt identifies the unchanged measured prefix, response and request
+model; new content and changed overhead remain estimates. Invalid receipts
+fall back rather than reuse stale usage. Continuation-merged responses do
+not anchor because cumulative billing is not a single measured prompt.
 
-Every completed model response already carries the provider's own prompt
-token count (``response.usage.input_tokens``), which is ground truth for
-every message that came before it. This module anchors the running total to
-the latest such response and only estimates the *delta* since then: messages
-added after the anchor, plus any change in accounting overhead (system
-prompt, tool schemas, MCP tool definitions). The anchor travels with the
-response through session JSON as a receipt; a receipt is valid only for the
-exact prompt prefix and response that produced it, so any rewrite (manual
-edit, compaction, tool-output clamping, a plugin transform, a model switch)
-falls back to the full estimate rather than risk a stale number.
-
-Continuation-merged usage is cumulative billing, not one measured prompt:
-pydantic-ai 2.51.0 can resolve a single logical model request as multiple
-separately-billed HTTP segments (Anthropic ``pause_turn``, same-response-id
-OpenAI background polling, or a fresh-generation replacement), merging them
-before any capability sees the final response, with ``usage`` summed across
-accumulated segments (see ``pydantic_ai.models._continuation`` and
-``pydantic_ai._agent_graph.model_request``'s continuation loop; same-id
-polling specifically *replaces* rather than sums -- only accumulate/
-replace-new modes are cumulative). No field on the final ``ModelResponse``
--- ``state``, ``provider_response_id``, ``finish_reason``, ``usage.requests``
-(hardcoded to always return ``1``) -- survives the merge in a way that
-distinguishes "one segment" from "several summed". Anchoring on that summed
-usage as if it were one prompt would overstate the total indefinitely: a
-later message appended *after* the anchored response doesn't invalidate the
-receipt's own prefix (only a *rewritten* prefix does), so the inflated
-number would persist across every subsequent turn until the next genuinely
-fresh (non-continued) response replaces it outright -- which may not happen
-for a long time in an active conversation.
-
-``_model_message_transform.build_model_message_transform`` avoids this by
-wrapping the outbound ``request_context.model`` for the duration of the
-call with a small ``WrapperModel`` (``_ContinuationObserver``) that overrides
-``continuation_delay`` -- the one model method pydantic-ai calls on *every*
-intermediate suspended response, for every provider, before requesting the
-next segment, i.e. before the merge happens. If a continuation is observed,
-the capability declines to stamp a receipt at all (falling back to the full
-estimate for that response), while leaving the real ``usage`` -- and
-therefore billing -- untouched. This is the same ``request_context.model``
-swap seam pydantic-ai's own durable-execution capabilities (Temporal/DBOS/
-Prefect) use to dispatch each segment through its own activity/step/task.
+Design, provider limitations and rollout semantics are documented in
+``docs/API_CONTEXT_ACCOUNTING.md``. The request hook owns continuation
+observation; this module never alters provider usage or billing.
 """
 
 import hashlib
@@ -91,9 +52,9 @@ def record_anchor(
 
     Trusts ``prefix`` and ``response.usage`` as given -- it has no way to
     tell a continuation-merged (cumulative) usage from an ordinary one on
-    its own. The caller is responsible for passing ``prefix=None`` when a
-    continuation was observed (see ``_ContinuationObserver`` in
-    ``agents/_model_message_transform.py`` and this module's docstring).
+    its own. The caller must not call this helper when a continuation was observed
+    (see ``_ContinuationObserver`` in ``agents/_model_message_transform.py``).
+    Here, ``prefix=None`` computes a fingerprint; it does not suppress stamping.
     """
     if (
         response.usage.input_tokens <= 0
@@ -115,7 +76,14 @@ def record_anchor(
 
 
 def invalidate_anchors(messages):
-    """A failed/cancelled request cannot leave a previously trusted anchor."""
+    """Conservatively decline anchors after an unsuccessful request.
+
+    This is a deliberate failed-request policy, not proof the old measurement
+    became invalid. An unchanged prefix could retain its previous receipt,
+    and a retained partial response already forces fallback. We nevertheless
+    choose full estimation until a fresh completion; changing that contract
+    requires reconsidering the failure/cancellation regressions together.
+    """
     for message in messages:
         if isinstance(message, ModelResponse) and message.metadata:
             message.metadata.pop(_ANCHOR, None)

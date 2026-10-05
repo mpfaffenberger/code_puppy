@@ -12,7 +12,11 @@ exposes no thinking part, conservatively overestimating replay.
 Fallback and delta estimates use the request model ID, not arbitrary user
 configuration aliases. A custom alias containing a calibration substring
 (e.g. `opus-4-7`) no longer applies that multiplier to an unrelated provider
-model. This keeps display and compaction aligned. Prefix checks serialize and
+model. For multi-candidate routing there is no single estimator model, so
+fallback and new-message estimates omit model-specific calibration. Where a
+candidate normally has an upward multiplier, this can undercount and delay
+compaction; a valid API anchor still accounts for its measured prefix.
+This keeps display and compaction aligned. Prefix checks serialize and
 hash the full message payload, including binary data; very large attachment
 histories can therefore add CPU and allocation overhead.
 
@@ -42,8 +46,12 @@ unchanged candidates; changing the router or candidate set invalidates it.
 
 A model-name mismatch, rewritten prefix/response, missing/zero usage,
 interrupted response or missing receipt falls back to the existing
-full-history estimator. A failed/cancelled request invalidates the previous
-anchor. Pre-existing sessions without receipts remain valid but initially use
+full-history estimator. A failed/cancelled request deliberately invalidates
+previous receipts until a fresh completion. This is a conservative policy,
+not evidence an unchanged earlier prefix became wrong. It sacrifices accuracy
+on interrupted turns even when no partial response was retained; a retained
+partial response already forces fallback through newest-response selection.
+Pre-existing sessions without receipts remain valid but initially use
 estimates until a completed request establishes a new anchor.
 
 Compaction retains tail messages verbatim, including old usage. Prefix
@@ -56,6 +64,24 @@ built-in foreign-thinking strip similarly invalidate modified prefixes.
 Request-only plugin transforms that differ from persisted history
 deliberately do not establish an anchor. Accounting is an observed prefix
 plus an approximate delta, not an exact prediction of the next wire request.
+
+## Continuations and billing
+
+In pydantic-ai 2.51.0 one logical request can include multiple HTTP segments,
+including Anthropic `pause_turn` and OpenAI background responses. Accumulated
+or fresh-generation replacement segments can produce cumulative usage; same-ID
+polling replaces rather than sums usage. Final response fields do not reliably
+identify every continued chain. A later appended message does not invalidate
+an unchanged receipt prefix, so mistaking cumulative billing for one measured
+prompt could keep overstating context until a fresh response replaces it.
+
+The request hook wraps the model in `_ContinuationObserver`, observing
+`continuation_delay` on suspended responses before the framework merges them.
+It declines to stamp any continued response, including same-ID polling, while
+preserving provider usage and billing. This uses the request-model swap seam
+also used by framework durable-execution capabilities; no usage is fabricated.
+See `_model_message_transform.py` for the local mechanism and continuation
+regression tests for the framework paths.
 
 ## Rollout
 

@@ -57,8 +57,8 @@ GREEN_CIRCLE = "🟢"
 YELLOW_CIRCLE = "🟡"
 RED_CIRCLE = "🔴"
 
-# Classic char/token heuristic, kept private so /context's numbers don't drift
-# if the core estimator is patched at runtime (token_ratio_learner plugin).
+# Model-agnostic heuristic for approximate /context overhead buckets.
+# Aggregate totals use shared accounting rather than these raw estimates.
 _CHARS_PER_TOKEN = 2.5
 
 
@@ -134,9 +134,9 @@ def pick_indicator(proportion: float) -> str:
 def _raw_estimate_tokens(text: str) -> int:
     """Pure char/2.5 heuristic. Identical for every model, every time.
 
-    Mirrors the *original* ``_history.estimate_tokens`` before any plugin
-    patches it. We deliberately don't import it — the whole point of this
-    function is to stay immune to the token_ratio_learner monkeypatch.
+    Keeps detailed overhead buckets model-agnostic and independent of
+    calibrated message estimates. The authoritative aggregate is computed
+    separately through shared context accounting.
     """
     if not text:
         return 0

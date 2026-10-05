@@ -288,14 +288,16 @@ async def test_second_model_step_compaction_sees_completed_usage():
     assert count(owner._message_history, overhead=0) > 12345
 
 
-def test_installed_retired_plugin_cannot_patch_estimators(monkeypatch):
+def test_installed_retired_plugin_cannot_patch_estimators(monkeypatch, caplog):
     from code_puppy import plugins
     from unittest.mock import Mock
 
     entry = SimpleNamespace(name="token_ratio_learner", load=Mock())
     monkeypatch.setattr(plugins, "entry_points", lambda **kwargs: [entry])
-    assert plugins._load_installed_plugins() == []
+    with caplog.at_level("DEBUG", logger="code_puppy.plugins"):
+        assert plugins._load_installed_plugins() == []
     entry.load.assert_not_called()
+    assert "Skipping retired plugin token_ratio_learner" in caplog.text
 
 
 def test_argument_and_signature_changes_in_measured_prefix_invalidate():

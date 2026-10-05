@@ -196,7 +196,8 @@ def _load_installed_plugins() -> list[str]:
             # instead of a learned chars-per-token ratio. Older installed
             # core-plugins bundles may still advertise this entry point for
             # a while; skip it unconditionally rather than let a dead
-            # learner monkeypatch estimators that no longer matter.
+            # learner monkeypatch the shared fallback estimator.
+            logger.debug("Skipping retired plugin %s", plugin_name)
             continue
         try:
             with _plugin_loading_context(plugin_name):
