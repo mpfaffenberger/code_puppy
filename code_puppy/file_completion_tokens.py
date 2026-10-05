@@ -3,19 +3,17 @@
 import shlex
 
 
-def _opens_quote(text: str, i: int, symbol: str) -> bool:
+def _opens_quote(text: str, i: int, symbol: str, token_start: int) -> bool:
     """Decide whether the quote character at ``text[i]`` starts a quoted span.
 
-    Quotes group characters only when they begin a word (start of input or
-    right after whitespace) or immediately follow the attachment symbol —
-    the two positions a user quotes a filename from. A quote embedded in a
-    word (the apostrophe in ``don't``) is ordinary prose and must never open
-    quote state, or it would swallow later whitespace and hide the active
-    ``@token`` boundary.
+    Quotes group characters at word boundaries and anywhere within an
+    attachment token, including partially quoted paths like ``@dir/"my file``.
+    A quote embedded in ordinary prose (the apostrophe in ``don't``) must
+    never open quote state and hide a later attachment boundary.
     """
     if i == 0 or text[i - 1].isspace():
         return True
-    return i >= len(symbol) and text[i - len(symbol) : i] == symbol
+    return text.startswith(symbol, token_start, i)
 
 
 def active_reference(text: str, symbol: str = "@"):
@@ -40,7 +38,7 @@ def active_reference(text: str, symbol: str = "@"):
                 quote = None
                 closed = True
         elif char in "\"'":
-            if _opens_quote(text, i, symbol):
+            if _opens_quote(text, i, symbol, start):
                 quote = char
         elif char.isspace():
             start = i + 1

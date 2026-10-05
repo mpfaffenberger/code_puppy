@@ -60,6 +60,47 @@ def test_quotes_still_group_attachment_tokens(text, expected):
         assert result[0] == expected
 
 
+@pytest.mark.parametrize(
+    "text,symbol",
+    [
+        ('@dir/"my fi', "@"),
+        ("@dir/'my fi", "@"),
+        ("don't change @dir/\"my fi", "@"),
+        ("it's in @dir/'my fi", "@"),
+        ('read @@dir/"my fi', "@@"),
+    ],
+)
+def test_partial_path_quotes_preserve_decoded_path_and_raw_length(text, symbol):
+    raw = text[text.rfind(symbol) + len(symbol) :]
+    assert active_reference(text, symbol) == ("dir/my fi", len(raw))
+
+
+@pytest.mark.parametrize("quote", ['"', "'"])
+def test_closed_partial_path_quotes_end_completion(quote):
+    assert active_reference(f"@dir/{quote}my file.txt{quote}") is None
+    assert active_reference(f"read @dir/{quote}my file.txt{quote} done") is None
+
+
+@pytest.mark.parametrize("quote", ['"', "'"])
+def test_partial_path_completion_preserves_prose_and_replaces_raw_path(
+    quote, monkeypatch, tmp_path
+):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "dir").mkdir()
+    (tmp_path / "dir" / "my file.txt").touch()
+    monkeypatch.setattr(fi, "reindex", lambda *a, **kw: None)
+    raw = f"dir/{quote}my fi"
+    prefix = "don't change @"
+    text = prefix + raw
+    results = list(FilePathCompleter().get_completions(Document(text, len(text)), None))
+    assert len(results) == 1
+    result = results[0]
+    assert result.start_position == -len(raw)
+    assert shlex.split(result.text) == ["dir/my file.txt"]
+    inserted = text[: len(text) + result.start_position] + result.text
+    assert inserted == prefix + shlex.quote("dir/my file.txt")
+
+
 @pytest.mark.parametrize("raw", ['@"space fi', "@'space fi", r"@space\ fi"])
 def test_quoted_completion_replaces_entire_raw_path(raw, monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
