@@ -23,7 +23,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
-from code_puppy.session_storage import SessionMetadata, save_session
+from code_puppy.session_storage import SessionMetadata, compute_scope_key, save_session
 
 if TYPE_CHECKING:
     from code_puppy.agents.base_agent import BaseAgent
@@ -110,6 +110,7 @@ def persist_named_session(
         timestamp=datetime.now().isoformat(),
         token_estimator=agent.estimate_tokens_for_message,
         auto_saved=auto_saved,
+        scope_key=compute_scope_key(Path.cwd()),
     )
     if success_message_key is not None:
         # t() interpolates via hardened {identifier} grammar: a missing
@@ -278,6 +279,7 @@ def create_empty_session(session_name: str, *, base_dir: Path) -> SessionMetadat
         timestamp=datetime.now().isoformat(),
         token_estimator=lambda _msg: 0,
         auto_saved=False,
+        scope_key=compute_scope_key(Path.cwd()),
     )
 
 

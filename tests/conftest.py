@@ -15,6 +15,27 @@ from unittest.mock import MagicMock
 
 import pytest
 
+
+@pytest.fixture(autouse=True)
+def _isolate_shared_provider_credentials(monkeypatch, request):
+    """Provider tests must neither use the OS keyring nor leak across cases."""
+    from code_puppy import shared_credentials
+
+    if request.node.path.name == "test_shared_credentials.py":
+        return
+    values = {}
+    monkeypatch.setattr(shared_credentials, "get", lambda key: values.get(key.upper()))
+
+    def save(key, value):
+        if not value.strip():
+            raise ValueError("Empty test credential")
+        values[key.upper()] = value.strip()
+        monkeypatch.setenv(key.upper(), value.strip())
+
+    monkeypatch.setattr(shared_credentials, "save", save)
+    return values
+
+
 # Config paths resolve at import time, before fixtures run - point every XDG category
 # at one session-scoped temp root so collection/tests never touch the dev's config.
 _XDG_TEMP_DIR = tempfile.TemporaryDirectory(prefix="code_puppy_pytest_xdg_")
@@ -82,25 +103,6 @@ def _ensure_builtin_plugin_callback_registrations() -> None:
     cp_callbacks.register_callback("startup", uc._on_startup)
 
 
-# Integration test fixtures - only import if pexpect.spawn is available (Unix)
-# On Windows, pexpect doesn't have spawn attribute, so skip these imports
-try:
-    from tests.integration.cli_expect.fixtures import live_cli as live_cli  # noqa: F401
-
-    # Re-export integration fixtures so pytest discovers them project-wide
-    # Expose the CLI harness fixtures globally
-    from tests.integration.cli_expect.harness import cli_harness as cli_harness
-    from tests.integration.cli_expect.harness import integration_env as integration_env
-    from tests.integration.cli_expect.harness import log_dump as log_dump
-    from tests.integration.cli_expect.harness import retry_policy as retry_policy
-    from tests.integration.cli_expect.harness import (  # noqa: F401
-        spawned_cli as spawned_cli,
-    )
-except (ImportError, AttributeError):
-    # On Windows or when pexpect.spawn is unavailable, skip integration fixtures
-    pass
-
-
 @pytest.fixture(autouse=True)
 def isolate_global_state_between_tests(tmp_path_factory):
     """Isolate mutable global state between tests.
@@ -124,6 +126,7 @@ def isolate_global_state_between_tests(tmp_path_factory):
     # Save original config path and callback registry.
     original_config_file = cp_config.CONFIG_FILE
     original_config_dir = cp_config.CONFIG_DIR
+    original_data_dir = cp_config.DATA_DIR
     original_history_file = cp_config.COMMAND_HISTORY_FILE
     original_callbacks = deepcopy(cp_callbacks._callbacks)
     # The fail-closed policy set is keyed by (phase, callback) and lives
@@ -142,6 +145,7 @@ def isolate_global_state_between_tests(tmp_path_factory):
     # defaults, not the local developer's personal settings.
     cp_config.CONFIG_FILE = temp_config_file
     cp_config.CONFIG_DIR = temp_config_dir
+    cp_config.DATA_DIR = os.path.join(temp_config_dir, "data")
     # The persistent editor's HistoryStore resolves this at construction:
     # never let tests read/append the developer's REAL command history.
     cp_config.COMMAND_HISTORY_FILE = os.path.join(
@@ -161,6 +165,7 @@ def isolate_global_state_between_tests(tmp_path_factory):
     # Restore original config paths and callback registrations.
     cp_config.CONFIG_FILE = original_config_file
     cp_config.CONFIG_DIR = original_config_dir
+    cp_config.DATA_DIR = original_data_dir
     cp_config.COMMAND_HISTORY_FILE = original_history_file
     cp_callbacks._callbacks.clear()
     cp_callbacks._callbacks.update(original_callbacks)
@@ -178,6 +183,24 @@ def isolate_global_state_between_tests(tmp_path_factory):
         shutil.rmtree(config_temp_dir)
     except Exception:
         pass  # Best effort cleanup
+
+
+@pytest.fixture(autouse=True)
+def isolate_models_dev_lookup(monkeypatch):
+    """Keep the model-resolution models.dev lookup off the network.
+
+    ``config.get_model_max_output_tokens`` consults models.dev before falling
+    back to its heuristic, and building a registry fetches over HTTP. Unit
+    tests must stay hermetic and fast, so the cached registry is pinned to
+    ``None`` -- which the resolver reads as "limits unknown" -- unless a test
+    installs a fake one itself.
+    """
+    from code_puppy import models_dev_parser
+
+    models_dev_parser.reset_registry_cache()
+    monkeypatch.setattr(models_dev_parser, "get_registry", lambda: None)
+    yield
+    models_dev_parser.reset_registry_cache()
 
 
 @pytest.fixture
@@ -240,14 +263,4 @@ def pytest_sessionfinish(session, exitstatus):
                 #     print(f"    (cleanup failed: {e})")
     except subprocess.CalledProcessError:
         # Not a git repo or git not available: ignore silently
-        pass
-
-    # After cleanup, print DBOS consolidated report if available
-    try:
-        from tests.integration.cli_expect.harness import get_dbos_reports
-
-        report = get_dbos_reports()
-        if report.strip():
-            print("\n[DBOS Report]\n" + report)
-    except Exception:
         pass

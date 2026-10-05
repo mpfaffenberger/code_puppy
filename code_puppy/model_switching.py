@@ -2,9 +2,63 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, List, Optional
 
 from code_puppy.config import set_model_name
+
+
+def resolve_run_model_selection(
+    agent: Any,
+    prompt: str,
+    messages: List[Any],
+    session_id: Optional[str] = None,
+) -> Optional[str]:
+    """Apply the ``model_select`` hook for one run and return the chosen model.
+
+    Called once at the start of every run, BEFORE the pydantic agent is built.
+
+    Behaviour / precedence:
+    * The per-run auto override is always cleared first, so a choice never
+      leaks into a later turn.
+    * An explicit runtime override (e.g. ``invoke_agent_with_model``) wins and
+      short-circuits the hook entirely.
+    * Otherwise the hook is asked to pick a model. If it returns a name that
+      differs from the effective model, we install it as the run's auto
+      override and invalidate the cached pydantic agent so the build picks up
+      the new model.
+
+    Returns the chosen model name if the hook changed it, else ``None``.
+    Never raises -- a misbehaving selector must not break a run.
+    """
+    try:
+        # Reset any previous turn's auto choice so it can't leak forward.
+        if agent.get_auto_model_override():
+            agent.set_auto_model_override(None)
+            agent._code_generation_agent = None
+
+        # Explicit runtime override always wins -- don't even ask the hook.
+        if agent.get_runtime_model_name_override():
+            return None
+
+        from code_puppy.callbacks import on_model_select
+
+        current = agent.get_model_name()
+        selected = on_model_select(
+            agent_name=getattr(agent, "name", None),
+            current_model=current,
+            prompt=prompt,
+            messages=messages or [],
+            session_id=session_id,
+        )
+        if selected and selected != current:
+            agent.set_auto_model_override(selected)
+            # Force a rebuild so the new model is actually used this turn.
+            agent._code_generation_agent = None
+            return selected
+    except Exception:
+        # A broken selector must never block the agent run.
+        pass
+    return None
 
 
 def _get_effective_agent_model(agent) -> Optional[str]:

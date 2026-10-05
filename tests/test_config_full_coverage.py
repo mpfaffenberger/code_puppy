@@ -92,6 +92,21 @@ class TestBooleanGetters:
         cp_config.set_config_value("grep_output_verbose", "1")
         assert cp_config.get_grep_output_verbose() is True
 
+    def test_get_grep_max_matches_default(self):
+        assert cp_config.get_grep_max_matches() == cp_config.GREP_MAX_MATCHES_DEFAULT
+
+    def test_get_grep_max_matches_configured(self):
+        cp_config.set_config_value("grep_max_matches", "200")
+        assert cp_config.get_grep_max_matches() == 200
+
+    def test_get_grep_max_matches_floors_at_one(self):
+        cp_config.set_config_value("grep_max_matches", "0")
+        assert cp_config.get_grep_max_matches() == 1
+
+    def test_get_grep_max_matches_garbage_falls_back(self):
+        cp_config.set_config_value("grep_max_matches", "lots")
+        assert cp_config.get_grep_max_matches() == cp_config.GREP_MAX_MATCHES_DEFAULT
+
     def test_get_http2_values(self):
         cp_config.set_http2(True)
         assert cp_config.get_http2() is True
@@ -129,20 +144,45 @@ class TestBooleanGetters:
 
 
 # ---------------------------------------------------------------------------
-# Safety permission level
+# Agency level
 # ---------------------------------------------------------------------------
-class TestSafetyPermissionLevel:
-    def test_default_medium(self):
-        assert cp_config.get_safety_permission_level() == "medium"
+class TestAgencyLevel:
+    @pytest.fixture(autouse=True)
+    def _reset_headless_mode(self, monkeypatch):
+        """Other tests may exercise the -p path, leaking the sticky flag."""
+        monkeypatch.setattr(cp_config, "_headless_mode", False)
+
+    def test_default_high(self):
+        assert cp_config.get_agency_level() == "high"
 
     def test_valid_levels(self):
-        for level in ["none", "low", "medium", "high", "critical"]:
-            cp_config.set_config_value("safety_permission_level", level)
-            assert cp_config.get_safety_permission_level() == level
+        for level in cp_config.AGENCY_LEVELS:
+            cp_config.set_config_value("agency_level", level)
+            assert cp_config.get_agency_level() == level
 
-    def test_invalid_falls_back_to_medium(self):
-        cp_config.set_config_value("safety_permission_level", "invalid")
-        assert cp_config.get_safety_permission_level() == "medium"
+    def test_value_is_normalized(self):
+        cp_config.set_config_value("agency_level", "  MeDiUm ")
+        assert cp_config.get_agency_level() == "medium"
+
+    def test_invalid_falls_back_to_high(self):
+        cp_config.set_config_value("agency_level", "ludicrous")
+        assert cp_config.get_agency_level() == "high"
+
+    def test_headless_forces_extreme(self, monkeypatch):
+        cp_config.set_config_value("agency_level", "low")
+        monkeypatch.setattr(cp_config, "_headless_mode", True)
+        assert cp_config.get_agency_level() == "extreme"
+
+    def test_set_headless_mode_round_trip(self, monkeypatch):
+        monkeypatch.setattr(cp_config, "_headless_mode", False)
+        assert cp_config.get_headless_mode() is False
+        cp_config.set_headless_mode(True)
+        assert cp_config.get_headless_mode() is True
+        cp_config.set_headless_mode(False)
+        assert cp_config.get_headless_mode() is False
+
+    def test_agency_level_in_config_keys(self):
+        assert "agency_level" in cp_config.get_config_keys()
 
 
 # ---------------------------------------------------------------------------
@@ -395,6 +435,63 @@ class TestModelSupportsSetting:
         assert not cp_config.model_supports_setting("glm-4.7", "glm_reasoning_effort")
         assert cp_config.model_supports_setting(
             "zai-glm-5.2-api", "glm_reasoning_effort"
+        )
+
+    def test_openai_reasoning_effort_recognized_without_catalog_entry(self):
+        # Detect OpenAI effort support without catalog metadata.
+        assert cp_config.model_supports_setting(
+            "gpt-5", "reasoning_effort", models_config={"gpt-5": {}}
+        )
+        assert cp_config.model_supports_setting(
+            "o1", "reasoning_effort", models_config={"o1": {}}
+        )
+        assert cp_config.model_supports_setting(
+            "o3-mini", "reasoning_effort", models_config={"o3-mini": {}}
+        )
+
+    def test_openai_reasoning_effort_false_for_fixed_effort_models(self):
+        # Fixed-effort models must not expose an empty settings menu.
+        assert not cp_config.model_supports_setting(
+            "o1-mini", "reasoning_effort", models_config={"o1-mini": {}}
+        )
+        assert not cp_config.model_supports_setting(
+            "gpt-5-pro", "reasoning_effort", models_config={"gpt-5-pro": {}}
+        )
+
+    def test_openai_reasoning_effort_ignored_for_non_openai_models(self):
+        assert not cp_config.model_supports_setting(
+            "claude-opus-4-6", "reasoning_effort", models_config={}
+        )
+
+    @pytest.mark.parametrize(
+        ("model_name", "model_config"),
+        [
+            ("team-o1-eval", {"type": "gemini", "name": "gemini-2.5-pro"}),
+            ("claude-router", {"type": "custom_anthropic", "name": "o3"}),
+        ],
+    )
+    def test_openai_reasoning_effort_ignored_for_non_openai_catalog_entries(
+        self, model_name, model_config
+    ):
+        assert not cp_config.model_supports_setting(
+            model_name,
+            "reasoning_effort",
+            models_config={model_name: model_config},
+        )
+
+    def test_openai_reasoning_effort_falls_back_to_catalog_name_alias(self):
+        # extra_models.json-style entries commonly use a friendly alias for
+        # the catalog key with the real OpenAI model id in "name".
+        models_config = {"acme-reasoner": {"type": "custom_openai", "name": "o3"}}
+        assert cp_config.model_supports_setting(
+            "acme-reasoner", "reasoning_effort", models_config=models_config
+        )
+
+    def test_openai_reasoning_effort_short_token_does_not_false_positive(self):
+        # "o1"/"o3" must be anchored matches, not substring containment --
+        # a custom alias merely containing "o1" is not OpenAI's o1.
+        assert not cp_config.model_supports_setting(
+            "zoo1-claude", "reasoning_effort", models_config={}
         )
 
     def test_with_supported_settings_list(self):
@@ -663,13 +760,7 @@ class TestMCPServerConfigs:
                 assert result == {}
 
     def test_oversized_file_is_rejected_without_full_read(self, tmp_path):
-        """Pins the Andrew Tilson PUP-605-follow-up finding on the merged
-        PR #761: this startup read was the one spot missed when every other
-        MCP/config JSON read got bounded via atomic_io. A file over the
-        bound must be rejected -- caught and reported like any other bad
-        config -- rather than read in full first (the original MemoryError
-        crash shape).
-        """
+        """Reject oversized startup config before buffering it in full."""
         f = tmp_path / "mcp_servers.json"
         f.write_text('{"mcp_servers": {}}')
         with patch.object(cp_config, "MCP_SERVERS_FILE", str(f)):
@@ -681,6 +772,14 @@ class TestMCPServerConfigs:
                     result = cp_config.load_mcp_server_configs()
                     assert result == {}
                     err.assert_called_once()
+
+    def test_bad_json_raise_on_error(self, tmp_path):
+        f = tmp_path / "mcp_servers.json"
+        f.write_text("not json")
+        with patch.object(cp_config, "MCP_SERVERS_FILE", str(f)):
+            with patch("code_puppy.messaging.message_queue.emit_error"):
+                with pytest.raises(json.JSONDecodeError):
+                    cp_config.load_mcp_server_configs(raise_on_error=True)
 
 
 # ---------------------------------------------------------------------------
@@ -696,6 +795,19 @@ class TestConfigKeys:
         assert "enable_streaming" in keys
         assert "cancel_agent_key" in keys
         assert "resume_message_count" in keys
+
+
+def test_auto_continue_model_uses_override(monkeypatch):
+    monkeypatch.setattr(cp_config, "get_value", lambda key: "  tiny-model  ")
+
+    assert cp_config.get_auto_continue_model_name() == "tiny-model"
+
+
+def test_auto_continue_model_falls_back_to_global(monkeypatch):
+    monkeypatch.setattr(cp_config, "get_value", lambda key: "")
+    monkeypatch.setattr(cp_config, "get_global_model_name", lambda: "global-model")
+
+    assert cp_config.get_auto_continue_model_name() == "global-model"
 
 
 # ---------------------------------------------------------------------------
@@ -891,6 +1003,25 @@ class TestAutosaveSession:
         cp_config.set_auto_save_session(False)
         assert cp_config.auto_save_session_if_enabled() is False
 
+    def test_auto_save_session_force_overrides_disabled_setting(self):
+        cp_config.set_auto_save_session(False)
+        mock_agent = MagicMock()
+        mock_agent.get_message_history.return_value = [
+            {"role": "user", "content": "compacted"}
+        ]
+        mock_metadata = MagicMock(message_count=1, total_tokens=10)
+        with (
+            patch(
+                "code_puppy.agents.agent_manager.get_current_agent",
+                return_value=mock_agent,
+            ),
+            patch("code_puppy.config.save_session", return_value=mock_metadata),
+            patch("code_puppy.config.record_quick_resume_sessions"),
+            patch("code_puppy.messaging.emit_info"),
+            patch("code_puppy.session_lifecycle.fire_post_autosave_callback"),
+        ):
+            assert cp_config.auto_save_session_if_enabled(force=True) is True
+
     def test_auto_save_session_if_enabled_no_history(self):
         cp_config.set_auto_save_session(True)
         mock_agent = MagicMock()
@@ -959,6 +1090,22 @@ class TestEnsureConfigExists:
 
         config = cp_config.ensure_config_exists()
         assert config["puppy"]["puppy_name"] == "Buddy"
+
+    def test_seeds_port_base(self, monkeypatch, tmp_path):
+        """Fresh puppy.cfg should include port_base so users discover the knob."""
+        cfg_dir = str(tmp_path / "config")
+        cfg_file = os.path.join(cfg_dir, "puppy.cfg")
+        monkeypatch.setattr(cp_config, "CONFIG_DIR", cfg_dir)
+        monkeypatch.setattr(cp_config, "CONFIG_FILE", cfg_file)
+        monkeypatch.setattr(cp_config, "DATA_DIR", str(tmp_path / "data"))
+        monkeypatch.setattr(cp_config, "CACHE_DIR", str(tmp_path / "cache"))
+        monkeypatch.setattr(cp_config, "STATE_DIR", str(tmp_path / "state"))
+
+        inputs = iter(["TestPup", "TestOwner"])
+        monkeypatch.setattr("builtins.input", lambda _: next(inputs))
+
+        config = cp_config.ensure_config_exists()
+        assert config["puppy"]["port_base"] == str(cp_config.DEFAULT_PORT_BASE)
 
 
 # ---------------------------------------------------------------------------
@@ -1092,3 +1239,110 @@ class TestClearModelCache:
         assert len(cp_config._model_validation_cache) == 0
         assert cp_config._default_model_cache is None
         assert cp_config._default_vision_model_cache is None
+
+
+# ---------------------------------------------------------------------------
+# Port base resolution
+# ---------------------------------------------------------------------------
+class TestGetPortBase:
+    """Precedence for get_port_base: env var > puppy.cfg > default.
+
+    Also covers bounds validation and graceful skipping of invalid sources.
+    """
+
+    @patch("code_puppy.config.get_value")
+    def test_env_var_overrides_cfg(self, mock_get_value, monkeypatch):
+        mock_get_value.return_value = "9500"
+        monkeypatch.setenv("CODE_PUPPY_PORT_BASE", "9700")
+        assert cp_config.get_port_base() == 9700
+
+    @patch("code_puppy.config.get_value")
+    def test_cfg_used_when_no_env(self, mock_get_value, monkeypatch):
+        mock_get_value.return_value = "9500"
+        monkeypatch.delenv("CODE_PUPPY_PORT_BASE", raising=False)
+        assert cp_config.get_port_base() == 9500
+
+    @patch("code_puppy.config.get_value")
+    def test_default_when_nothing_set(self, mock_get_value, monkeypatch):
+        mock_get_value.return_value = None
+        monkeypatch.delenv("CODE_PUPPY_PORT_BASE", raising=False)
+        assert cp_config.get_port_base() == cp_config.DEFAULT_PORT_BASE
+
+    @patch("code_puppy.config.get_value")
+    def test_bad_env_value_skips_to_cfg(self, mock_get_value, monkeypatch):
+        # env is garbage -> should fall through to cfg, not crash
+        mock_get_value.return_value = "9200"
+        monkeypatch.setenv("CODE_PUPPY_PORT_BASE", "not-a-number")
+        assert cp_config.get_port_base() == 9200
+
+    @patch("code_puppy.config.get_value")
+    def test_bad_env_and_bad_cfg_uses_default(self, mock_get_value, monkeypatch):
+        mock_get_value.return_value = "also-not-a-number"
+        monkeypatch.setenv("CODE_PUPPY_PORT_BASE", "not-a-number")
+        assert cp_config.get_port_base() == cp_config.DEFAULT_PORT_BASE
+
+    @patch("code_puppy.config.get_value")
+    def test_whitespace_stripped(self, mock_get_value, monkeypatch):
+        mock_get_value.return_value = None
+        monkeypatch.setenv("CODE_PUPPY_PORT_BASE", "  9300  ")
+        assert cp_config.get_port_base() == 9300
+
+    @patch("code_puppy.config.get_value")
+    def test_empty_string_skipped(self, mock_get_value, monkeypatch):
+        # Empty env string shouldn't shadow puppy.cfg.
+        mock_get_value.return_value = "9400"
+        monkeypatch.setenv("CODE_PUPPY_PORT_BASE", "")
+        assert cp_config.get_port_base() == 9400
+
+    @patch("code_puppy.config.get_value")
+    def test_below_min_port_base_rejected(self, mock_get_value, monkeypatch):
+        # Privileged port (< 1024) -> skip and fall through.
+        mock_get_value.return_value = None
+        monkeypatch.setenv("CODE_PUPPY_PORT_BASE", "80")
+        assert cp_config.get_port_base() == cp_config.DEFAULT_PORT_BASE
+
+    @patch("code_puppy.config.get_value")
+    def test_above_max_port_base_rejected(self, mock_get_value, monkeypatch):
+        # port_base + PORT_PROBE_WIDTH would exceed 65535 -> skip.
+        mock_get_value.return_value = None
+        monkeypatch.setenv("CODE_PUPPY_PORT_BASE", str(cp_config.MAX_PORT_BASE + 1))
+        assert cp_config.get_port_base() == cp_config.DEFAULT_PORT_BASE
+
+    @patch("code_puppy.config.get_value")
+    def test_exact_boundaries_accepted(self, mock_get_value, monkeypatch):
+        mock_get_value.return_value = None
+        monkeypatch.setenv("CODE_PUPPY_PORT_BASE", str(cp_config.MIN_PORT_BASE))
+        assert cp_config.get_port_base() == cp_config.MIN_PORT_BASE
+
+        monkeypatch.setenv("CODE_PUPPY_PORT_BASE", str(cp_config.MAX_PORT_BASE))
+        assert cp_config.get_port_base() == cp_config.MAX_PORT_BASE
+
+    def test_probe_width_keeps_top_port_valid(self):
+        # Regression guard: MAX_PORT_BASE + PORT_PROBE_WIDTH must fit in a
+        # 16-bit port.  If someone bumps PORT_PROBE_WIDTH without adjusting
+        # MAX_PORT_BASE this test will fail loudly.
+        assert cp_config.MAX_PORT_BASE + cp_config.PORT_PROBE_WIDTH <= 65535
+
+
+class TestResolvePortBase:
+    """CLI value takes highest priority, invalid CLI value falls through."""
+
+    @patch("code_puppy.config.get_value")
+    def test_cli_value_wins(self, mock_get_value, monkeypatch):
+        mock_get_value.return_value = "9500"
+        monkeypatch.setenv("CODE_PUPPY_PORT_BASE", "9700")
+        assert cp_config.resolve_port_base(cli_value="9100") == 9100
+        assert cp_config.resolve_port_base(cli_value=9100) == 9100
+
+    @patch("code_puppy.config.get_value")
+    def test_bad_cli_falls_through_to_env(self, mock_get_value, monkeypatch):
+        mock_get_value.return_value = None
+        monkeypatch.setenv("CODE_PUPPY_PORT_BASE", "9700")
+        # Non-integer CLI input must NOT crash -- next source wins.
+        assert cp_config.resolve_port_base(cli_value="garbage") == 9700
+
+    @patch("code_puppy.config.get_value")
+    def test_none_cli_defers_to_lower_layers(self, mock_get_value, monkeypatch):
+        mock_get_value.return_value = "9500"
+        monkeypatch.delenv("CODE_PUPPY_PORT_BASE", raising=False)
+        assert cp_config.resolve_port_base(cli_value=None) == 9500

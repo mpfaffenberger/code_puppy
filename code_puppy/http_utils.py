@@ -4,18 +4,19 @@ HTTP utilities module for code-puppy.
 This module provides functions for creating properly configured HTTP clients.
 """
 
-import asyncio
 import os
 import socket
-import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Dict, Optional, Union
+from typing import TYPE_CHECKING, Dict, Optional, Union
 
 import httpx
 
 if TYPE_CHECKING:
     import requests
-from code_puppy.config import get_http2
+from code_puppy.ca_bundle import write_public_and_corporate_bundle
+from code_puppy.config import DATA_DIR, get_http2
+
+from .http_retry import RetryingSendMixin
 
 
 @dataclass
@@ -24,16 +25,17 @@ class ProxyConfig:
 
     verify: Union[bool, str, None]
     trust_env: bool
-    proxy_url: str | None
     disable_retry: bool
     http2_enabled: bool
 
 
-def _resolve_proxy_config(verify: Union[bool, str, None] = None) -> ProxyConfig:
-    """Resolve proxy, SSL, and retry settings from environment.
+def resolve_proxy_config(verify: Union[bool, str, None] = None) -> ProxyConfig:
+    """Resolve client TLS, retry, and environment-proxy settings.
 
-    This centralizes the logic for detecting proxies, determining SSL verification,
-    and checking if retry transport should be disabled.
+    Proxy selection is left to httpx so scheme-specific proxies and ``NO_PROXY``
+    are honored per destination. This centralizes TLS and retry settings shared by
+    the legacy ``httpx`` and ``httpx2`` client factories so proxy handling
+    cannot drift between the two.
     """
     if verify is None:
         verify = get_cert_bundle_path()
@@ -62,20 +64,9 @@ def _resolve_proxy_config(verify: Union[bool, str, None] = None) -> ProxyConfig:
     else:
         trust_env = False
 
-    # Extract proxy URL
-    proxy_url = None
-    if has_proxy:
-        proxy_url = (
-            os.environ.get("HTTPS_PROXY")
-            or os.environ.get("https_proxy")
-            or os.environ.get("HTTP_PROXY")
-            or os.environ.get("http_proxy")
-        )
-
     return ProxyConfig(
         verify=verify,
         trust_env=trust_env,
-        proxy_url=proxy_url,
         disable_retry=disable_retry,
         http2_enabled=http2_enabled,
     )
@@ -97,112 +88,62 @@ except ImportError:
         pass
 
 
-class RetryingAsyncClient(httpx.AsyncClient):
+class RetryingAsyncClient(RetryingSendMixin, httpx.AsyncClient):
     """AsyncClient with built-in rate limit handling (429) and retries.
 
-    This replaces the Tenacity transport with a more direct subclass implementation,
-    which plays nicer with proxies and custom transports.
-
-    Special handling for Cerebras: Their Retry-After headers are absurdly aggressive
-    (often 60s), so we ignore them and use a 3s base backoff instead.
+    Retry behaviour lives in :class:`~code_puppy.http_retry.RetryingSendMixin` so the
+    ``httpx2`` client in :mod:`code_puppy.httpx2_utils` shares the exact same backoff
+    rules; only the exception hierarchy differs per HTTP family.
     """
 
-    def __init__(
-        self,
-        retry_status_codes: tuple = (429, 502, 503, 504),
-        max_retries: int = 5,
-        model_name: str = "",
-        **kwargs,
-    ):
-        super().__init__(**kwargs)
-        self.retry_status_codes = retry_status_codes
-        self.max_retries = max_retries
-        self.model_name = model_name.lower() if model_name else ""
-        # Cerebras sends crazy aggressive Retry-After headers (60s), ignore them
-        self._ignore_retry_headers = "cerebras" in self.model_name
-
-    async def send(self, request: httpx.Request, **kwargs: Any) -> httpx.Response:
-        """Send request with automatic retries for rate limits and server errors."""
-        last_response = None
-        last_exception = None
-
-        for attempt in range(self.max_retries + 1):
-            try:
-                response = await super().send(request, **kwargs)
-                last_response = response
-
-                # Check for retryable status
-                if response.status_code not in self.retry_status_codes:
-                    return response
-
-                # Close response if we're going to retry
-                await response.aclose()
-
-                # Determine wait time - Cerebras gets special treatment
-                if self._ignore_retry_headers:
-                    # Cerebras: 3s base with exponential backoff (3s, 6s, 12s...)
-                    wait_time = 3.0 * (2**attempt)
-                else:
-                    # Default exponential backoff: 1s, 2s, 4s...
-                    wait_time = 1.0 * (2**attempt)
-
-                    # Check Retry-After header (only for non-Cerebras)
-                    retry_after = response.headers.get("Retry-After")
-                    if retry_after:
-                        try:
-                            wait_time = float(retry_after)
-                        except ValueError:
-                            # Try parsing http-date
-                            from email.utils import parsedate_to_datetime
-
-                            try:
-                                date = parsedate_to_datetime(retry_after)
-                                wait_time = date.timestamp() - time.time()
-                            except Exception:
-                                pass
-
-                # Cap wait time
-                wait_time = max(0.5, min(wait_time, 60.0))
-
-                if attempt < self.max_retries:
-                    provider_note = (
-                        " (ignoring header)" if self._ignore_retry_headers else ""
-                    )
-                    emit_info(
-                        f"HTTP retry: {response.status_code} received{provider_note}. "
-                        f"Waiting {wait_time:.1f}s (attempt {attempt + 1}/{self.max_retries})"
-                    )
-                    await asyncio.sleep(wait_time)
-
-            except (httpx.ConnectError, httpx.ReadTimeout, httpx.PoolTimeout) as e:
-                last_exception = e
-                wait_time = 1.0 * (2**attempt)
-                if attempt < self.max_retries:
-                    emit_warning(
-                        f"HTTP connection error: {e}. Retrying in {wait_time}s..."
-                    )
-                    await asyncio.sleep(wait_time)
-                else:
-                    raise
-            except Exception:
-                raise
-
-        # Return last response (even if it's an error status)
-        if last_response:
-            return last_response
-
-        # Should catch this in loop, but just in case
-        if last_exception:
-            raise last_exception
-
-        return last_response
+    retryable_exceptions = (httpx.ConnectError, httpx.ReadTimeout, httpx.PoolTimeout)
 
 
 def get_cert_bundle_path() -> str | None:
-    # First check if SSL_CERT_FILE environment variable is set
-    ssl_cert_file = os.environ.get("SSL_CERT_FILE")
-    if ssl_cert_file and os.path.exists(ssl_cert_file):
+    """Return public + configured corporate trust as an exportable CA file.
+
+    ``SSL_CERT_FILE`` may contain only a corporate interception root. Passing
+    that file through unchanged makes public HTTPS fail in clients and child
+    processes that treat it as their complete file-based trust source. Combine
+    it with certifi roots in an immutable per-user file before propagation.
+    Sources are checked in SSL_CERT_FILE, REQUESTS_CA_BUNDLE, CURL_CA_BUNDLE
+    order. Set CODE_PUPPY_COMBINE_CA_BUNDLE=false to retain restricted file trust.
+    """
+    ssl_cert_file = next(
+        (
+            value
+            for name in ("SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE")
+            if (value := os.environ.get(name)) and os.path.isfile(value)
+        ),
+        None,
+    )
+    if not ssl_cert_file:
+        return None
+    # Preserve deliberately restricted/pinned file trust when requested.
+    if os.environ.get("CODE_PUPPY_COMBINE_CA_BUNDLE", "true").lower() in (
+        "0",
+        "false",
+        "no",
+    ):
         return ssl_cert_file
+
+    destination = os.path.join(
+        DATA_DIR,
+        "certs",
+        "public-and-corporate-ca-bundle.pem",
+    )
+    try:
+        return write_public_and_corporate_bundle(ssl_cert_file, destination)
+    except OSError as exc:
+        emit_warning(
+            f"Could not combine public roots with {ssl_cert_file}; "
+            f"using the configured CA file unchanged: {exc}"
+        )
+        return ssl_cert_file
+
+
+# Back-compat alias; the name was private before the httpx2 factory started sharing it.
+_resolve_proxy_config = resolve_proxy_config
 
 
 def create_client(
@@ -234,13 +175,12 @@ def create_async_client(
     retry_status_codes: tuple = (429, 502, 503, 504),
     model_name: str = "",
 ) -> httpx.AsyncClient:
-    config = _resolve_proxy_config(verify)
+    config = resolve_proxy_config(verify)
 
     if not config.disable_retry:
         return RetryingAsyncClient(
             retry_status_codes=retry_status_codes,
             model_name=model_name,
-            proxy=config.proxy_url,
             verify=config.verify,
             headers=headers or {},
             timeout=timeout,
@@ -249,7 +189,6 @@ def create_async_client(
         )
     else:
         return httpx.AsyncClient(
-            proxy=config.proxy_url,
             verify=config.verify,
             headers=headers or {},
             timeout=timeout,
@@ -307,10 +246,9 @@ def create_reopenable_async_client(
     retry_status_codes: tuple = (429, 502, 503, 504),
     model_name: str = "",
 ) -> Union[ReopenableAsyncClient, httpx.AsyncClient]:
-    config = _resolve_proxy_config(verify)
+    config = resolve_proxy_config(verify)
 
     base_kwargs = {
-        "proxy": config.proxy_url,
         "verify": config.verify,
         "headers": headers or {},
         "timeout": timeout,

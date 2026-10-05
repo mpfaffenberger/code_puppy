@@ -154,9 +154,24 @@ def ensure_windows_vt_processing() -> bool:
 #: ENABLE_VIRTUAL_TERMINAL_INPUT — stdin delivers VT sequences verbatim.
 _ENABLE_VIRTUAL_TERMINAL_INPUT = 0x0200
 
+#: Cooked-mode bits (ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT; ECHO is only
+#: legal alongside LINE, so they travel together). With LINE_INPUT on,
+#: conhost treats Ctrl+S / Pause as "suspend output" — the Windows twin of
+#: POSIX XOFF (see the IXON clamp in ``_key_listeners``) — which froze the
+#: terminal on the Ctrl+X Ctrl+S speculation chord.
+_COOKED_INPUT_BITS = 0x0002 | 0x0004
 
-def enable_windows_vt_input() -> bool:
-    """Enable VT input (``ENABLE_VIRTUAL_TERMINAL_INPUT``) on stdin, verified.
+#: Cooked bits the raw clamp stripped; handed back on release so we only
+#: ever restore what we took (0 = nothing to restore).
+_stripped_cooked_bits: int = 0
+
+
+def enable_windows_raw_input() -> bool:
+    """Put stdin in listener raw mode: cooked bits off, VT input on (verified).
+
+    Cooked bits go first and independently: every host supports clearing
+    them, while ancient hosts reject the VT flag outright — Ctrl+S must
+    stop freezing the console even there.
 
     ConPTY only forwards terminal-side VT input sequences to a client
     whose stdin carries this flag. Bracketed-paste markers
@@ -170,12 +185,16 @@ def enable_windows_vt_input() -> bool:
     empty bracketed paste.
 
     Scope contract: only the Windows key listener enables this, while it
-    owns stdin — and it disables it around suspensions, because
-    ``ReadConsoleInput``-based readers (prompt_toolkit TUIs) expect
-    classic key events. Returns True when the flag is CONFIRMED set via
-    a mode read-back (mirrors :func:`ensure_windows_vt_processing`;
-    ancient hosts silently no-op ``SetConsoleMode``). Never raises.
+    owns stdin (both of its readers use ``ReadConsoleInput``, which
+    ignores line mode) — and it disables it around suspensions, because
+    other readers (prompt_toolkit TUIs, ``input()``) expect classic key
+    events and their own console mode. Returns True when the VT flag is
+    CONFIRMED set via a mode read-back (mirrors
+    :func:`ensure_windows_vt_processing`; ancient hosts silently no-op
+    ``SetConsoleMode``). Never raises.
     """
+    global _stripped_cooked_bits
+
     if platform.system() != "Windows":
         return False
 
@@ -188,11 +207,20 @@ def enable_windows_vt_input() -> bool:
         mode = ctypes.c_ulong()
         if not kernel32.GetConsoleMode(stdin_handle, ctypes.byref(mode)):
             return False
-        if mode.value & _ENABLE_VIRTUAL_TERMINAL_INPUT:
+        current = mode.value
+
+        cooked = current & _COOKED_INPUT_BITS
+        if cooked and kernel32.SetConsoleMode(
+            stdin_handle, current & ~_COOKED_INPUT_BITS
+        ):
+            _stripped_cooked_bits |= cooked
+            current &= ~_COOKED_INPUT_BITS
+
+        if current & _ENABLE_VIRTUAL_TERMINAL_INPUT:
             return True  # already on
 
         if not kernel32.SetConsoleMode(
-            stdin_handle, mode.value | _ENABLE_VIRTUAL_TERMINAL_INPUT
+            stdin_handle, current | _ENABLE_VIRTUAL_TERMINAL_INPUT
         ):
             return False
 
@@ -204,14 +232,17 @@ def enable_windows_vt_input() -> bool:
         return False
 
 
-def disable_windows_vt_input() -> None:
-    """Clear ``ENABLE_VIRTUAL_TERMINAL_INPUT`` from stdin (best-effort).
+def disable_windows_raw_input() -> None:
+    """Undo :func:`enable_windows_raw_input` on stdin (best-effort).
 
-    Called by the Windows key listener before parking for a suspension
-    and on exit, so ``ReadConsoleInput``-based readers (prompt_toolkit
-    TUIs, the parent shell after we quit) get classic key events instead
-    of raw VT sequences. Never raises.
+    Clears VT input and hands back exactly the cooked bits the clamp
+    stripped. Called by the Windows key listener before parking for a
+    suspension and on exit, so other readers (prompt_toolkit TUIs, the
+    parent shell after we quit) get classic key events and line mode
+    instead of raw VT sequences. Never raises.
     """
+    global _stripped_cooked_bits
+
     if platform.system() != "Windows":
         return
 
@@ -224,10 +255,11 @@ def disable_windows_vt_input() -> None:
         mode = ctypes.c_ulong()
         if not kernel32.GetConsoleMode(stdin_handle, ctypes.byref(mode)):
             return
-        if mode.value & _ENABLE_VIRTUAL_TERMINAL_INPUT:
-            kernel32.SetConsoleMode(
-                stdin_handle, mode.value & ~_ENABLE_VIRTUAL_TERMINAL_INPUT
-            )
+        restored = (
+            mode.value & ~_ENABLE_VIRTUAL_TERMINAL_INPUT
+        ) | _stripped_cooked_bits
+        if restored == mode.value or kernel32.SetConsoleMode(stdin_handle, restored):
+            _stripped_cooked_bits = 0
     except Exception:
         pass
 
@@ -264,19 +296,54 @@ def reset_windows_terminal_full() -> None:
     flush_windows_keyboard_buffer()
 
 
-def reset_unix_terminal() -> None:
-    """Reset Unix/Linux/macOS terminal to sane state.
+#: Escape codes undoing every visual mode we could have left enabled:
+#: DECSTR soft reset, attributes off, cursor visible, alternate screen off.
+#: Deliberately NOT the full RIS (``\\x1bc``) that ``reset(1)`` sends -- that
+#: clears the screen, wiping the output the user just asked for.
+_UNIX_TERMINAL_RESET = "\x1b[!p\x1b[0m\x1b[?25h\x1b[?1049l"
 
-    Uses the `reset` command to restore terminal sanity.
-    Silently fails if the command isn't available.
+
+def reset_unix_terminal() -> None:
+    """Restore a sane Unix terminal state on exit.
+
+    Historically shelled out to ``reset(1)``, but ``reset``/``tset`` sleeps a
+    full second by design (a settling delay for hardware terminals), and with
+    output captured its escape sequences never reached the terminal anyway --
+    a one-second no-op on every exit. Instead: ``stty sane`` restores cooked
+    input instantly, and a handful of escape codes undo the visual modes we
+    could have left on. Skipped entirely when not attached to a terminal.
     """
     if platform.system() == "Windows":
         return
 
+    stderr_tty = _is_tty(sys.stderr)
+    if not stderr_tty and not _is_tty(sys.stdout):
+        return  # Piped/redirected: nothing to reset, don't touch anything.
+
     try:
-        subprocess.run(["reset"], check=True, capture_output=True)
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        pass  # Silently fail if reset command isn't available
+        # stty operates on its stdin; inherit ours so it reaches the tty.
+        subprocess.run(["stty", "sane"], check=True, capture_output=True, timeout=2)
+    except (
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+        FileNotFoundError,
+    ):
+        pass  # Best effort -- stdin may be a pipe, stty may be missing.
+
+    stream = sys.stderr if stderr_tty else sys.stdout
+    try:
+        stream.write(_UNIX_TERMINAL_RESET + _MOUSE_TRACKING_OFF)
+        stream.flush()
+    except Exception:
+        pass  # Never let a cleanup helper crash the exit path.
+
+
+def _is_tty(stream) -> bool:
+    """Best-effort ``isatty`` that treats broken streams as non-terminals."""
+    try:
+        return bool(stream.isatty())
+    except Exception:
+        return False
 
 
 #: Disable all xterm mouse-tracking modes + bracketed paste (1000/1002/1003,

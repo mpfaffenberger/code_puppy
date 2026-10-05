@@ -56,9 +56,10 @@ class SessionMetadata:
     metadata_path: Path
     json_path: Path
     auto_saved: bool = False
+    scope_key: str | None = None
 
     def as_serialisable(self) -> dict[str, Any]:
-        return {
+        data = {
             "session_name": self.session_name,
             "timestamp": self.timestamp,
             "message_count": self.message_count,
@@ -66,6 +67,9 @@ class SessionMetadata:
             "file_path": str(self.json_path),
             "auto_saved": self.auto_saved,
         }
+        if self.scope_key is not None:
+            data["scope_key"] = self.scope_key
+        return data
 
 
 def _extract_pickle_payload(raw: bytes) -> bytes:
@@ -92,6 +96,16 @@ def build_session_paths(base_dir: Path, session_name: str) -> SessionPaths:
         metadata_path=base_dir / f"{session_name}_meta.json",
         json_path=base_dir / f"{session_name}.json",
     )
+
+
+def compute_scope_key(path: str | Path) -> str:
+    """Return a stable scope identifier for ``path``.
+
+    Deliberately simple: the plain absolute path, normalized for symlinks.
+    No git-root detection, no branch awareness, no hashing -- an explicit
+    product decision to keep this primitive dead simple.
+    """
+    return str(Path(path).resolve())
 
 
 def _pydantic_ai_version() -> str | None:
@@ -201,6 +215,7 @@ def save_session(
     timestamp: str,
     token_estimator: TokenEstimator,
     auto_saved: bool = False,
+    scope_key: str | None = None,
 ) -> SessionMetadata:
     ensure_directory(base_dir)
     paths = build_session_paths(base_dir, session_name)
@@ -219,6 +234,7 @@ def save_session(
         metadata_path=paths.metadata_path,
         json_path=paths.json_path,
         auto_saved=auto_saved,
+        scope_key=scope_key,
     )
 
     tmp_metadata = paths.metadata_path.with_suffix(".tmp")
@@ -263,10 +279,29 @@ def _iter_session_stems(base_dir: Path) -> set[str]:
     return stems
 
 
-def list_sessions(base_dir: Path) -> List[str]:
+def _sidecar_scope_key(base_dir: Path, stem: str) -> str | None:
+    """Best-effort read of a session's sidecar ``scope_key``.
+
+    Never raises: a missing file, unreadable JSON, or absent field all
+    resolve to ``None`` so callers can silently exclude the candidate.
+    """
+    meta_path = base_dir / f"{stem}_meta.json"
+    try:
+        with meta_path.open("r", encoding="utf-8") as meta_file:
+            data = json.load(meta_file)
+        value = data.get("scope_key")
+        return value if isinstance(value, str) else None
+    except Exception:
+        return None
+
+
+def list_sessions(base_dir: Path, scope_key: str | None = None) -> List[str]:
     if not base_dir.exists():
         return []
-    return sorted(_iter_session_stems(base_dir))
+    stems = sorted(_iter_session_stems(base_dir))
+    if scope_key is None:
+        return stems
+    return [stem for stem in stems if _sidecar_scope_key(base_dir, stem) == scope_key]
 
 
 def cleanup_sessions(base_dir: Path, max_sessions: int) -> List[str]:
@@ -303,180 +338,3 @@ def cleanup_sessions(base_dir: Path, max_sessions: int) -> List[str]:
             continue
 
     return removed_sessions
-
-
-async def restore_autosave_interactively(base_dir: Path) -> None:
-    """Prompt the user to load an autosave session from base_dir, if any exist.
-
-    This helper is deliberately placed in session_storage to keep autosave
-    restoration close to the persistence layer. It uses the same public APIs
-    (list_sessions, load_session) and mirrors the interactive behaviours from
-    the command handler.
-    """
-    sessions = list_sessions(base_dir)
-    if not sessions:
-        return
-
-    # Import locally to avoid pulling the messaging layer into storage modules
-    from datetime import datetime
-
-    from prompt_toolkit.formatted_text import FormattedText
-
-    from code_puppy.agents.agent_manager import get_current_agent
-    from code_puppy.command_line.prompt_toolkit_completion import (
-        get_input_with_combined_completion,
-    )
-    from code_puppy.messaging import emit_success, emit_system_message, emit_warning
-
-    entries = []
-    for name in sessions:
-        meta_path = base_dir / f"{name}_meta.json"
-        try:
-            with meta_path.open("r", encoding="utf-8") as meta_file:
-                data = json.load(meta_file)
-            timestamp = data.get("timestamp")
-            message_count = data.get("message_count")
-        except Exception:
-            timestamp = None
-            message_count = None
-        entries.append((name, timestamp, message_count))
-
-    def sort_key(entry):
-        _, timestamp, _ = entry
-        if timestamp:
-            try:
-                return datetime.fromisoformat(timestamp)
-            except ValueError:
-                return datetime.min
-        return datetime.min
-
-    entries.sort(key=sort_key, reverse=True)
-
-    PAGE_SIZE = 5
-    total = len(entries)
-    page = 0
-
-    def render_page() -> None:
-        start = page * PAGE_SIZE
-        end = min(start + PAGE_SIZE, total)
-        page_entries = entries[start:end]
-        emit_system_message("Autosave Sessions Available:")
-        for idx, (name, timestamp, message_count) in enumerate(page_entries, start=1):
-            timestamp_display = timestamp or "unknown time"
-            message_display = (
-                f"{message_count} messages"
-                if message_count is not None
-                else "unknown size"
-            )
-            emit_system_message(
-                f"  [{idx}] {name} ({message_display}, saved at {timestamp_display})"
-            )
-        # If there are more pages, offer next-page; show 'Return to first page' on last page
-        if total > PAGE_SIZE:
-            page_count = (total + PAGE_SIZE - 1) // PAGE_SIZE
-            is_last_page = (page + 1) >= page_count
-            remaining = total - (page * PAGE_SIZE + len(page_entries))
-            summary = (
-                f" and {remaining} more" if (remaining > 0 and not is_last_page) else ""
-            )
-            next_label = (
-                "Return to first page" if is_last_page else f"Next page{summary}"
-            )
-            emit_system_message(f"  [6] {next_label}")
-        emit_system_message("  [Enter] Skip loading autosave")
-
-    chosen_name: str | None = None
-
-    while True:
-        render_page()
-        try:
-            selection = await get_input_with_combined_completion(
-                FormattedText(
-                    [
-                        (
-                            "class:prompt",
-                            "Pick 1-5 to load, 6 for next, or name/Enter: ",
-                        )
-                    ]
-                )
-            )
-        except (KeyboardInterrupt, EOFError):
-            emit_warning("Autosave selection cancelled")
-            return
-
-        selection = (selection or "").strip()
-        if not selection:
-            return
-
-        # Numeric choice: 1-5 select within current page; 6 advances page
-        if selection.isdigit():
-            num = int(selection)
-            if num == 6 and total > PAGE_SIZE:
-                page = (page + 1) % ((total + PAGE_SIZE - 1) // PAGE_SIZE)
-                # loop and re-render next page
-                continue
-            if 1 <= num <= 5:
-                start = page * PAGE_SIZE
-                idx = start + (num - 1)
-                if 0 <= idx < total:
-                    chosen_name = entries[idx][0]
-                    break
-                else:
-                    emit_warning("Invalid selection for this page")
-                    continue
-            emit_warning("Invalid selection; choose 1-5 or 6 for next")
-            continue
-
-        # Allow direct typing by exact session name
-        for name, _ts, _mc in entries:
-            if name == selection:
-                chosen_name = name
-                break
-        if chosen_name:
-            break
-        emit_warning("No autosave loaded (invalid selection)")
-        # keep looping and allow another try
-
-    if not chosen_name:
-        return
-
-    try:
-        history = load_session(chosen_name, base_dir)
-    except FileNotFoundError:
-        emit_warning(f"Autosave '{chosen_name}' could not be found")
-        return
-    except Exception as exc:
-        emit_warning(f"Failed to load autosave '{chosen_name}': {exc}")
-        return
-
-    agent = get_current_agent()
-    agent.set_message_history(history)
-
-    # Set current autosave session id so subsequent autosaves overwrite this session
-    try:
-        from code_puppy.config import pin_current_session_name
-
-        pin_current_session_name(chosen_name)
-    except Exception:
-        pass
-
-    total_tokens = sum(agent.estimate_tokens_for_message(msg) for msg in history)
-
-    session_paths = build_session_paths(base_dir, chosen_name)
-    session_path = (
-        session_paths.json_path
-        if session_paths.json_path.exists()
-        else session_paths.pickle_path
-    )
-    emit_success(
-        f"✅ Autosave loaded: {len(history)} messages ({total_tokens} tokens)\n"
-        f"📁 From: {session_path}"
-    )
-
-    # Display recent message history for context
-    try:
-        from code_puppy.command_line.autosave_menu import display_resumed_history
-
-        display_resumed_history(history)
-    except Exception:
-        pass  # Don't fail if display doesn't work in non-TTY environment

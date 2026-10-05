@@ -7,14 +7,19 @@ cached tool definitions) should use these helpers instead of poking at
 private attributes on whatever object they happen to hold.
 
 Only ``.wrapped`` (public ``WrapperToolset`` API) and ``.prefix`` (public
-``PrefixedToolset`` API) are used for traversal. The one private read left
-in the codebase — ``MCPToolset._cached_tools`` — is quarantined here behind
-``iter_cached_tool_defs`` with a defensive ``getattr``, because pydantic-ai
-exposes no *synchronous* tool-listing API (``list_tools()`` is async and
-performs I/O; token estimation must stay sync + side-effect-free).
+``PrefixedToolset`` API) are used for traversal. The private reads left in
+the codebase are quarantined here behind defensive ``getattr``s:
+
+* ``MCPToolset._cached_tools`` (``iter_cached_tool_defs``) — pydantic-ai
+  exposes no *synchronous* tool-listing API (``list_tools()`` is async and
+  performs I/O; token estimation must stay sync + side-effect-free).
+* ``fastmcp.Client._init_timeout`` (``toolset_init_timeout``) — pydantic-ai
+  forwards ``init_timeout`` to its fastmcp client without keeping a copy.
 """
 
-from typing import Any, Iterator, List, Optional, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Tuple
+
+_MISSING = object()
 
 
 def unwrap_toolset(toolset: Any) -> Any:
@@ -51,6 +56,39 @@ def toolset_prefix(toolset: Any) -> Optional[str]:
     return legacy or None
 
 
+def tool_input_schema(mcp_tool: Any) -> Optional[Dict[str, Any]]:
+    """Return a tool's JSON input schema across MCP SDK v1 and v2.
+
+    MCP SDK v1 exposes ``Tool.inputSchema``; SDK v2 renamed the field to
+    ``Tool.input_schema`` and *deprecates* the old name (reading it emits a
+    ``FastMCPDeprecationWarning`` — fastmcp installs a warn-once bridging
+    property in ``fastmcp/_compat.py``). Prefer the new snake_case attribute
+    and fall back to camelCase for older SDKs, so importers stay quiet on
+    both.
+    """
+    schema = getattr(mcp_tool, "input_schema", None)
+    if schema is not None:
+        return schema
+    return getattr(mcp_tool, "inputSchema", None)
+
+
+def toolset_init_timeout(toolset: Any, default: Optional[float]) -> Optional[float]:
+    """Seconds the leaf toolset allows for startup; ``None`` means no deadline.
+
+    ``MCPToolset`` has no ``init_timeout`` attribute — it hands the value to
+    its fastmcp ``Client``, which stores it (normalized, ``0`` → ``None``) as
+    ``_init_timeout``. Missing that read silently swapped every configured
+    timeout (330s for OAuth, 60s for stdio) for ``default``. A leaf-level
+    ``init_timeout`` attribute still wins for duck-typed toolsets.
+    """
+    leaf = unwrap_toolset(toolset)
+    timeout = getattr(leaf, "init_timeout", _MISSING)
+    if timeout is _MISSING:
+        client = getattr(leaf, "client", None)
+        timeout = getattr(client, "_init_timeout", _MISSING)
+    return default if timeout is _MISSING else timeout
+
+
 def toolset_is_running(toolset: Any) -> bool:
     """Whether the leaf toolset currently holds an open server session."""
     return bool(getattr(unwrap_toolset(toolset), "is_running", False))
@@ -73,5 +111,5 @@ def iter_cached_tool_defs(toolset: Any) -> Iterator[Tuple[str, str, Any]]:
         name = getattr(mcp_tool, "name", "") or ""
         full_name = f"{prefix}_{name}" if prefix and name else name
         description = getattr(mcp_tool, "description", "") or ""
-        schema = getattr(mcp_tool, "inputSchema", None)
+        schema = tool_input_schema(mcp_tool)
         yield full_name, description, schema

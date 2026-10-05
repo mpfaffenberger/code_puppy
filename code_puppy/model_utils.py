@@ -14,6 +14,11 @@ import re
 from dataclasses import dataclass
 
 _GLM_VERSION_RE = re.compile(r"glm-(\d+(?:\.\d+)?)")
+_GPT_VERSION_RE = re.compile(r"gpt-(\d+)(?:\.(\d+))?")
+
+# First GPT generation exposing the Responses-API reasoning controls
+# (reasoning_context / reasoning_mode / encrypted reasoning, "max" effort).
+GPT_RESPONSES_CONTROLS_MIN_VERSION = (5, 6)
 
 
 @dataclass
@@ -25,11 +30,39 @@ class PreparedPrompt:
         user_prompt: The user prompt (possibly modified)
         is_claude_code: Whether this is a claude-code model (set by the
             claude_code_oauth plugin via the ``prepare_model_prompt`` hook).
+        system_prompt: A standing system prompt emitted as its own
+            ``SystemPromptPart`` *ahead of* ``instructions`` (pydantic-ai's
+            ``Agent(system_prompt=...)``). Empty means none, the default.
+            Used by model families that fingerprint the opening system block
+            (claude-code OAuth) so the real prompt stays a separate block.
     """
 
     instructions: str
     user_prompt: str
     is_claude_code: bool
+    system_prompt: str = ""
+
+    @property
+    def system_prompt_parts(self) -> tuple[str, ...]:
+        """Value for ``Agent(system_prompt=...)``: one standing part, or none."""
+        return (self.system_prompt,) if self.system_prompt else ()
+
+    @property
+    def system_text(self) -> str:
+        """Everything that lands in the model's system slot (for token estimates)."""
+        return "\n\n".join(p for p in (self.system_prompt, self.instructions) if p)
+
+
+def _prepared_from_hook_result(
+    result: dict, system_prompt: str, user_prompt: str
+) -> PreparedPrompt:
+    """Build a ``PreparedPrompt`` from a taker-over hook's ``handled=True`` dict."""
+    return PreparedPrompt(
+        instructions=result.get("instructions", system_prompt),
+        user_prompt=result.get("user_prompt", user_prompt),
+        is_claude_code=bool(result.get("is_claude_code", False)),
+        system_prompt=result.get("system_prompt", ""),
+    )
 
 
 def prepare_prompt_for_model(
@@ -69,11 +102,7 @@ def prepare_prompt_for_model(
         model_name, system_prompt, user_prompt, prepend_system_to_user
     ):
         if result and isinstance(result, dict) and result.get("handled"):
-            return PreparedPrompt(
-                instructions=result.get("instructions", system_prompt),
-                user_prompt=result.get("user_prompt", user_prompt),
-                is_claude_code=bool(result.get("is_claude_code", False)),
-            )
+            return _prepared_from_hook_result(result, system_prompt, user_prompt)
 
     # 2) Legacy per-model hook: "taker-over" plugins return handled=True (first
     #    wins); "augmenters" (e.g. agent_skills) mutate prompts — thread those through.
@@ -85,11 +114,7 @@ def prepare_prompt_for_model(
         if not (result and isinstance(result, dict)):
             continue
         if result.get("handled"):
-            return PreparedPrompt(
-                instructions=result.get("instructions", system_prompt),
-                user_prompt=result.get("user_prompt", user_prompt),
-                is_claude_code=bool(result.get("is_claude_code", False)),
-            )
+            return _prepared_from_hook_result(result, system_prompt, user_prompt)
         # Augmenter: carry its mutations forward. Last augmenter wins on
         # collisions (YAGNI: there's exactly one augmenter today).
         if "instructions" in result:
@@ -184,6 +209,54 @@ _SUMMARY_TAGS: tuple[str, ...] = (
     "5-fable",
 )
 
+# Models that accept ``display: "updates"`` (progress updates surfaced as
+# text while reasoning stays hidden). Requires the
+# ``thinking-display-updates-2026-08-18`` beta header on the request;
+# ClaudeCacheAsyncClient adds it whenever the body asks for updates.
+# Both dashed and dotted spellings appear in the wild (aliases vs API IDs).
+_UPDATES_TAGS: tuple[str, ...] = (
+    "fable-5-1",
+    "5-1-fable",
+    "fable-5.1",
+    "5.1-fable",
+)
+
+
+def anthropic_forced_tool_choice_unsupported(
+    model_name: str, actual_model_id: str | None = None
+) -> bool:
+    """Return whether an Anthropic model rejects forced ``tool_choice``.
+
+    pydantic-ai 2.51.0 (our pinned version) correctly excludes
+    claude-opus-5-5 from forced tool_choice (``any``/``tool``) support,
+    but claude-sonnet-5-5 has the identical issue and wasn't covered
+    until pydantic-ai 2.52.0. Its profile source confirms both models
+    were tested and are both affected::
+
+        # `claude-opus-5-5` returns a 400 for both shapes where
+        # `claude-opus-5` returns 200, and likewise `claude-sonnet-5-5`
+        # where `claude-sonnet-5` returns 200.
+        supports_forced_tool_choice = not model_name.startswith(
+            ('claude-fable-5-1', 'claude-mythos-5-1', 'claude-opus-5-5',
+             'claude-sonnet-5-5')
+        )
+
+    This is a stopgap until we bump past 2.52.0 -- remove this function
+    (and its call sites) once we do, and let pydantic-ai's own profile
+    table make the call again.
+
+    Args:
+        model_name: The model alias/key from models.json (e.g. ``"sonnet"``).
+        actual_model_id: The real API model ID from config (e.g.
+            ``"claude-sonnet-5-5"``). This is what pydantic-ai profiles at
+            runtime, so it is checked too.
+    """
+    _KNOWN_GAPS = ("claude-sonnet-5-5",)
+    candidates = [model_name.lower()]
+    if actual_model_id:
+        candidates.append(actual_model_id.lower())
+    return any(candidate.startswith(_KNOWN_GAPS) for candidate in candidates)
+
 
 def anthropic_disallows_sampling_settings(
     model_name: str, actual_model_id: str | None = None
@@ -271,12 +344,52 @@ def should_use_anthropic_thinking_summary(
     return _model_matches_any_tag(model_name, actual_model_id, _SUMMARY_TAGS)
 
 
+def should_use_anthropic_thinking_updates(
+    model_name: str, actual_model_id: str | None = None
+) -> bool:
+    """Return whether adaptive thinking should request progress-update display.
+
+    Fable 5.1 writes short progress updates between tool calls, each arriving
+    as its own ``thinking`` block immediately before the tool call. Under the
+    default ``thinking.display`` of ``"omitted"`` those blocks come back
+    empty, so a long agentic turn looks silent. ``display: "updates"`` (gated
+    behind the ``thinking-display-updates-2026-08-18`` beta header) returns
+    the updates as text while reasoning stays hidden — any thinking block
+    with non-empty text is then a status line to show the user.
+    """
+    return _model_matches_any_tag(model_name, actual_model_id, _UPDATES_TAGS)
+
+
+# ``display`` values a user may pick on updates-capable models. ``"updates"``
+# = progress status lines only; ``"summarized"`` = those same updates mixed
+# into a condensed reasoning trace. ``"omitted"`` is deliberately absent: it
+# is what makes long agentic turns look silent, and the transport layer
+# coerces it back to summarized anyway.
+THINKING_DISPLAY_CHOICES: tuple[str, ...] = ("updates", "summarized")
+
+
+def get_anthropic_thinking_display_choices(
+    model_name: str, actual_model_id: str | None = None
+) -> tuple[str, ...]:
+    """Return the user-selectable ``thinking.display`` values for a model.
+
+    Only updates-capable models (Fable 5.1) offer a choice; everyone else
+    gets an empty tuple and keeps their hardcoded display. Both the
+    ``/model_settings`` menu and the request builder consult this so the UI
+    never advertises a value the wire path would ignore.
+    """
+    if should_use_anthropic_thinking_updates(model_name, actual_model_id):
+        return THINKING_DISPLAY_CHOICES
+    return ()
+
+
 def resolve_anthropic_thinking_payload(
     extended_thinking: str,
     *,
     budget_tokens: int,
     model_name: str,
     actual_model_id: str | None,
+    thinking_display: str | None = None,
 ) -> dict | None:
     """Map Code Puppy's internal thinking mode to the shape THIS model accepts.
 
@@ -289,7 +402,9 @@ def resolve_anthropic_thinking_payload(
     * **Adaptive** (Opus 4.6/4.7/4.8, Sonnet 4.6, Sonnet 5, Opus 5, Fable 5): the
       opposite — rejects ``type: "enabled"`` with
       ``"thinking.type.enabled" is not supported for this model. Use adaptive."``.
-      These models want ``type: "adaptive"`` and optionally ``display: "summarized"``.
+      These models want ``type: "adaptive"`` and optionally ``display: "summarized"``
+      (or ``display: "updates"`` on Fable 5.1, which surfaces its inter-tool
+      progress updates as status lines while reasoning stays hidden).
 
     This helper picks the right shape based on ``supports_adaptive_thinking``
     so a user's choice of ``"enabled"`` / ``"adaptive"`` (from the settings
@@ -307,6 +422,10 @@ def resolve_anthropic_thinking_payload(
         actual_model_id: The real model ID from config (also checked so
             Bedrock-style aliases like ``us.anthropic.claude-opus-4-7`` still
             route correctly).
+        thinking_display: The user's ``thinking_display`` setting, if any.
+            Honored only when it is one of
+            ``get_anthropic_thinking_display_choices`` for this model;
+            anything else falls back to the model's default display.
 
     Returns:
         Dict suitable for ``AnthropicModelSettings.anthropic_thinking``,
@@ -316,7 +435,20 @@ def resolve_anthropic_thinking_payload(
         return None
     if supports_adaptive_thinking(model_name, actual_model_id):
         payload: dict = {"type": "adaptive"}
-        if should_use_anthropic_thinking_summary(model_name, actual_model_id):
+        display_choices = get_anthropic_thinking_display_choices(
+            model_name, actual_model_id
+        )
+        if display_choices:
+            # Fable 5.1: default to progress updates as text, reasoning
+            # hidden; the user may opt into summarized instead. The updates
+            # beta header rides along at the transport layer
+            # (ClaudeCacheAsyncClient) whenever the body asks for it.
+            payload["display"] = (
+                thinking_display
+                if thinking_display in display_choices
+                else display_choices[0]
+            )
+        elif should_use_anthropic_thinking_summary(model_name, actual_model_id):
             payload["display"] = "summarized"
         return payload
     return {"type": "enabled", "budget_tokens": budget_tokens}
@@ -357,6 +489,134 @@ def supports_glm_reasoning_effort(model_name: str) -> bool:
     """Only GLM-5.2 and newer support the ``reasoning_effort`` parameter."""
     version = get_glm_version(model_name)
     return version is not None and version >= 5.2
+
+
+# OpenAI effort choices, ordered most-specific first.
+# None means unrecognized; an empty tuple means fixed effort.
+_OPENAI_REASONING_EFFORT_ORDER = ("none", "low", "medium", "high", "xhigh", "max")
+_OPENAI_REASONING_EFFORT_CHOICES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    # Non-reasoning chat variants: no reasoning_effort at all.
+    ("gpt-5.6-chat-latest", ()),
+    ("gpt-5.1-chat-latest", ()),
+    ("gpt-5-chat-latest", ()),
+    # Explicitly documented Codex variants, ordered newest first.
+    ("gpt-5.6-codex", ("low", "medium", "high", "xhigh")),
+    ("gpt-5.3-codex", ("low", "medium", "high", "xhigh")),
+    ("gpt-5.1-codex", ("low", "medium", "high", "xhigh")),
+    ("gpt-5-codex", ("low", "medium", "high")),
+    # Fixed-effort model: no configurable choice.
+    ("gpt-5-pro", ()),
+    # Pro variants omit none/low from their documented effort scale.
+    ("gpt-5.6-pro", ("medium", "high", "xhigh", "max")),
+    ("gpt-5.5-pro", ("medium", "high", "xhigh")),
+    ("gpt-5.4-pro", ("medium", "high", "xhigh")),
+    ("gpt-5.2-pro", ("medium", "high", "xhigh")),
+    # GPT-5.6 family: adds "max" on top of the full scale.
+    ("gpt-5.6", ("none", "low", "medium", "high", "xhigh", "max")),
+    # GPT-5.2/5.4/5.5: none/low/medium/high/xhigh (documented explicitly).
+    ("gpt-5.2", ("none", "low", "medium", "high", "xhigh")),
+    ("gpt-5.4", ("none", "low", "medium", "high", "xhigh")),
+    ("gpt-5.5", ("none", "low", "medium", "high", "xhigh")),
+    # GPT-5.1: none/low/medium/high (no minimal, no xhigh).
+    ("gpt-5.1", ("none", "low", "medium", "high")),
+    # Code Puppy's canonical "none" represents GPT-5's "minimal" effort.
+    ("gpt-5", ("none", "low", "medium", "high")),
+    # o-series: low/medium/high only. o1-mini/o1-preview predate the
+    # reasoning_effort parameter entirely.
+    ("o1-mini", ()),
+    ("o1-preview", ()),
+    ("o1", ("low", "medium", "high")),
+    ("o3", ("low", "medium", "high")),
+    ("o4-mini", ("low", "medium", "high")),
+    ("codex-mini-latest", ("low", "medium", "high")),
+)
+
+
+def get_openai_reasoning_effort_choices(
+    model_name: str, model_config: dict | None = None
+) -> list[str] | None:
+    """Return effective effort choices, None if unknown, or [] if fixed."""
+    if model_config:
+        setting_choices = model_config.get("setting_choices")
+        advertised = (
+            setting_choices.get("reasoning_effort")
+            if isinstance(setting_choices, dict)
+            else None
+        )
+        if isinstance(advertised, list):
+            recognized = [
+                choice
+                for choice in _OPENAI_REASONING_EFFORT_ORDER
+                if choice in advertised
+            ]
+            if recognized:
+                return recognized
+
+    # Boundary matching prevents short tags such as "o1" matching aliases.
+    name = model_name.lower()
+    for prefix, choices in _OPENAI_REASONING_EFFORT_CHOICES:
+        if _matches_model_tag(name, prefix):
+            allowed = set(choices)
+            if model_config:
+                if model_config.get("supports_xhigh_reasoning"):
+                    allowed.add("xhigh")
+                if model_config.get("supports_max_reasoning"):
+                    allowed.add("max")
+            return [
+                choice for choice in _OPENAI_REASONING_EFFORT_ORDER if choice in allowed
+            ]
+    return None
+
+
+def resolve_openai_reasoning_effort_choices(
+    model_name: str, model_config: dict | None = None
+) -> list[str] | None:
+    """Resolve effort choices for a model, falling back to underlying catalog name."""
+    choices = get_openai_reasoning_effort_choices(model_name, model_config)
+    if choices is None and model_config:
+        underlying_name = str(model_config.get("name") or "")
+        if underlying_name:
+            choices = get_openai_reasoning_effort_choices(underlying_name, model_config)
+    return choices
+
+
+def get_gpt_version(model_name: str) -> tuple[int, int] | None:
+    """Extract the ``(major, minor)`` GPT generation embedded in a model name.
+
+    Handles aliases and prefixes (``codex-gpt-5.6-sol``, ``gpt-6-astra``,
+    ``boodleton-gpt-5.4-mini``). A missing minor is ``0``. Returned as a
+    tuple, not a float, so ``5.10`` never sorts below ``5.6``.
+
+    Returns:
+        ``(major, minor)``, or ``None`` if the name isn't a GPT model.
+    """
+    match = _GPT_VERSION_RE.search(model_name.lower())
+    if not match:
+        return None
+    return int(match.group(1)), int(match.group(2) or 0)
+
+
+def is_gpt_reasoning_model(*model_names: str | None) -> bool:
+    """GPT-5 and newer take ``reasoning_effort`` (and verbosity/summaries)."""
+    return any(
+        (version := get_gpt_version(name)) is not None and version >= (5, 0)
+        for name in model_names
+        if name
+    )
+
+
+def supports_gpt_responses_controls(*model_names: str | None) -> bool:
+    """GPT-5.6 and newer expose reasoning_context/reasoning_mode and "max" effort.
+
+    Accepts several candidate names (config key, underlying ``name``) so callers
+    keyed by an alias (``luna-responses`` -> ``gpt-5.6-luna``) still match.
+    """
+    return any(
+        (version := get_gpt_version(name)) is not None
+        and version >= GPT_RESPONSES_CONTROLS_MIN_VERSION
+        for name in model_names
+        if name
+    )
 
 
 def get_thinking_tags(
