@@ -507,7 +507,8 @@ class BottomBar(TranscriptGuardMixin, SpeculationLineMixin, BarPainterMixin):
             # in effect, put the terminal back to normal and go dormant
             # (hardware cursor comes back too — no region, no pseudo-cursor).
             if self._region_up:
-                parts = [_RESET_REGION]
+                # DECSTBM homes the cursor: keep the writer's position.
+                parts = [_SAVE_CURSOR, _RESET_REGION, _RESTORE_CURSOR]
                 if self._cursor_hidden:
                     parts.append(_CURSOR_SHOW)
                     self._cursor_hidden = False

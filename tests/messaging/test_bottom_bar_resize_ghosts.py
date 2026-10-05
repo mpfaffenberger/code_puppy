@@ -165,3 +165,18 @@ def test_windows_guard_grow_keeps_old_row_erase():
     assert ERASE_BELOW not in out
     for row in range(24 - old_reserved + 1, 25):
         assert f"\x1b[{row};1H{CLEAR_LINE}" in out
+
+
+def test_going_dormant_keeps_the_writer_cursor():
+    """Shrinking below the band height drops the region; the reset form
+    of DECSTBM homes the cursor, so the writer position is saved around it."""
+    bar, tty, size = _bar(rows=24)
+    bar.start()
+    drain(tty)
+
+    size.rows = 2  # too small for region + reserved rows -> dormant
+    bar.set_prompt_text("> ", "hi", 2)
+    out = drain(tty)
+
+    assert f"{SAVE_CURSOR}{RESET_REGION}{RESTORE_CURSOR}" in out
+    assert not bar._region_up
