@@ -464,6 +464,16 @@ def run_add_model_flow(
         except Exception as e:
             emit_error(t("model_menu.registry.load_error", error=e))
             return False
+        # Only narrate the catalog size when we did the loading for a human
+        # who is about to browse it. An injected registry belongs to a caller
+        # that can speak for itself.
+        emit_info(
+            t(
+                "model_menu.registry.loaded",
+                providers=len(registry.get_providers()),
+                models=len(registry.get_models()),
+            )
+        )
     providers = registry.get_providers()
     if not providers:
         emit_error(t("model_menu.registry.no_providers"))

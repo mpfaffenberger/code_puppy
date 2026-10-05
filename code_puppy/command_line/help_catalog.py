@@ -14,6 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Dict, List, Tuple
 
+from code_puppy.i18n import t
 from code_puppy.keymap import get_cancel_agent_display_name
 
 
@@ -174,10 +175,18 @@ def _keybinding_section() -> HelpSection:
     )
     entries.extend(
         [
+            HelpEntry(
+                t("help.keybinding.ctrl_enter.label"),
+                t("help.keybinding.ctrl_enter.description"),
+            ),
+            HelpEntry(
+                t("help.keybinding.up.label"),
+                t("help.keybinding.up.description"),
+            ),
             HelpEntry("Alt+M or F2", "Toggle multiline input"),
             HelpEntry(
-                "Ctrl+J, Shift+Enter, or Ctrl+Enter",
-                "Insert a newline (Ctrl+J is most reliable across terminals)",
+                t("help.keybinding.newline.label"),
+                t("help.keybinding.newline.description"),
             ),
             HelpEntry("Ctrl+V / F3", "Paste an image (Ctrl+V works on macOS too)"),
             HelpEntry("Ctrl+X Ctrl+E", "Edit the prompt in $EDITOR"),

@@ -14,8 +14,8 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from code_puppy.command_line.set_menu_settings import (
-    SETTINGS_CATEGORIES,
     Setting,
+    iter_curated_settings,
 )
 from code_puppy.config import get_value
 
@@ -23,17 +23,14 @@ _MASK_KEEP_CHARS = 4
 _MASK_ELLIPSIS = "..."
 
 
-def _sensitive_keys() -> frozenset[str]:
-    """Set of curated keys flagged ``sensitive=True``.
+def sensitive_keys() -> frozenset[str]:
+    """Set of curated keys (core and plugin) flagged ``sensitive=True``.
 
     Deliberately not cached: tests monkey-patch the categories registry,
-    and the cost is negligible at the curated-setting scale (~20 keys).
+    plugins can load late, and the cost is negligible at this scale.
     """
     return frozenset(
-        setting.key
-        for category in SETTINGS_CATEGORIES
-        for setting in category.settings
-        if setting.sensitive
+        setting.key for _, setting in iter_curated_settings() if setting.sensitive
     )
 
 
@@ -43,7 +40,7 @@ def is_sensitive_key(key: str) -> bool:
     Used by the slash-command path to decide whether to mask values in
     success messages without needing the full :class:`Setting` object.
     """
-    return key in _sensitive_keys()
+    return key in sensitive_keys()
 
 
 def is_default_value(setting: Setting) -> bool:

@@ -12,14 +12,14 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Set
 
+from code_puppy._plugin_i18n_lifecycle import notify_i18n_plugin_state_changed
 from code_puppy.config import get_value, set_value
 
 logger = logging.getLogger(__name__)
 
 
-def get_disabled_plugins() -> Set[str]:
+def get_disabled_plugins() -> set[str]:
     """Return the set of explicitly disabled plugin names.
 
     Reads from ``disabled_plugins`` config key (JSON list in puppy.cfg).
@@ -66,4 +66,9 @@ def set_plugin_disabled(plugin_name: str, disabled: bool) -> bool:
         logger.info(f"Enabled plugin: {plugin_name}")
 
     set_value("disabled_plugins", json.dumps(sorted(disabled_plugins)))
+
+    # Plugin catalogs are merged into immutable per-locale snapshots. Rebuild
+    # those lazily after a state transition instead of consulting config on
+    # every translation lookup.
+    notify_i18n_plugin_state_changed()
     return True

@@ -4,6 +4,18 @@ import pytest
 
 from code_puppy.model_factory import ModelFactory, make_model_settings
 
+# Profile flags pydantic-ai gates reasoning.mode/context, ``include`` and the
+# sampling-param stripping on. It infers them by model-name prefix, so newer
+# families (gpt-6+) need them set explicitly.
+_REASONING_PROFILE_KEYS = (
+    "openai_responses_supports_reasoning_mode",
+    "openai_responses_supports_reasoning_context",
+    "openai_supports_encrypted_reasoning_content",
+    "openai_supports_reasoning",
+    "openai_reasoning_enabled_by_default",
+    "openai_supports_reasoning_effort_none",
+)
+
 
 def test_openai_gpt5_alias_uses_responses_reasoning_settings():
     config = {
@@ -46,9 +58,204 @@ def test_gpt56_alias_profile_enables_reasoning_fields():
     )
 
     assert profile is not None
-    assert profile["openai_responses_supports_reasoning_mode"] is True
-    assert profile["openai_responses_supports_reasoning_context"] is True
-    assert profile["openai_supports_encrypted_reasoning_content"] is True
+    for key in _REASONING_PROFILE_KEYS:
+        assert profile[key] is True
+
+
+@pytest.mark.parametrize(
+    ("config_key", "underlying"),
+    [
+        ("openai-gpt-6", "gpt-6"),
+        ("openai-gpt-6.1", "gpt-6.1"),
+        ("codex-gpt-6-astra", "gpt-6-astra"),
+        ("my-alias", "gpt-6.1"),
+    ],
+)
+def test_gpt6_family_profile_enables_reasoning_fields(config_key, underlying):
+    """GPT-6+ is newer than 5.6, so it needs the same profile gates.
+
+    The settings path already emits ``openai_reasoning_context``/``mode`` for
+    these models; without matching profile flags pydantic-ai would drop them.
+    """
+    from code_puppy.model_factory import _thinking_tags_profile
+
+    profile = _thinking_tags_profile(config_key, {"name": underlying})
+
+    assert profile is not None
+    for key in _REASONING_PROFILE_KEYS:
+        assert profile[key] is True
+
+
+def test_gpt6_profile_matches_on_config_key_when_name_missing():
+    from code_puppy.model_factory import _thinking_tags_profile
+
+    profile = _thinking_tags_profile("openai-gpt-6", {})
+
+    assert profile is not None
+    for key in _REASONING_PROFILE_KEYS:
+        assert profile[key] is True
+
+
+@pytest.mark.parametrize(
+    ("config_key", "config"),
+    [
+        # Regression guards: the gate must stay at >= 5.6.
+        ("some-alias", {"name": "gpt-5.5"}),
+        ("some-alias", {"name": "gpt-5.4"}),
+        ("some-alias", {"name": "gpt-4o"}),
+        ("some-alias", {"name": "o3"}),
+        # The underlying name wins: an alias must not flag another backend.
+        ("gpt-6-proxy", {"name": "claude-sonnet-4"}),
+        ("gpt-5.6-foo", {"name": "o3"}),
+        # Malformed ``name`` values never match and never raise.
+        ("some-alias", {"name": None}),
+        ("some-alias", {"name": ""}),
+        ("some-alias", {"name": 123}),
+    ],
+)
+def test_profile_flags_are_not_applied_to_non_56_plus_models(config_key, config):
+    from code_puppy.model_factory import _thinking_tags_profile
+
+    assert _thinking_tags_profile(config_key, config) is None
+
+
+_SAMPLING_SETTINGS = {"temperature": 0.2, "top_p": 0.9}
+
+
+def _capture_request(api: str, underlying: str, model_settings: dict):
+    """Run one agent turn against a mock transport.
+
+    Returns the JSON request body and the "Sampling parameters" warnings
+    pydantic-ai emitted, so tests can pin what actually reaches the wire.
+    """
+    import asyncio
+    import json
+    import warnings
+
+    import httpx
+    from openai import AsyncOpenAI
+    from pydantic_ai import Agent
+    from pydantic_ai.exceptions import ModelHTTPError
+    from pydantic_ai.models.openai import OpenAIChatModel, OpenAIResponsesModel
+    from pydantic_ai.providers.openai import OpenAIProvider
+
+    from code_puppy.model_factory import _strict_openai_profile, _thinking_tags_profile
+
+    captured: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.update(json.loads(request.content))
+        return httpx.Response(400, json={"error": {"message": "stop", "type": "x"}})
+
+    provider = OpenAIProvider(
+        openai_client=AsyncOpenAI(
+            api_key="test-key",
+            base_url="https://proxy.example.com/v1",
+            http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+            max_retries=0,
+        )
+    )
+    config = {"name": underlying}
+    if api == "responses":
+        model = OpenAIResponsesModel(
+            model_name=underlying,
+            provider=provider,
+            profile=_thinking_tags_profile("my-model", config),
+        )
+    else:
+        model = OpenAIChatModel(
+            model_name=underlying,
+            provider=provider,
+            profile=_strict_openai_profile("my-model", config),
+        )
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        with pytest.raises(ModelHTTPError):
+            asyncio.run(Agent(model, model_settings=model_settings).run("hi"))
+    sampling_warnings = [w for w in caught if "Sampling parameters" in str(w.message)]
+    return captured, sampling_warnings
+
+
+@pytest.mark.parametrize("underlying", ["gpt-6", "gpt-6.1", "gpt-5.6-luna"])
+def test_responses_request_body_honors_reasoning_settings(underlying):
+    """What actually goes on the wire for a reasoning model with our profile.
+
+    Pins the behavior users see in /model_settings: a non-default
+    ``reasoning_context`` reaches the request and ``include`` asks for
+    encrypted reasoning. pydantic-ai infers none of this for gpt-6 by name.
+    """
+    body, _ = _capture_request(
+        "responses",
+        underlying,
+        {
+            **_SAMPLING_SETTINGS,
+            "openai_reasoning_effort": "high",
+            "openai_reasoning_context": "current_turn",
+            "openai_reasoning_mode": "standard",
+        },
+    )
+
+    assert body["reasoning"]["effort"] == "high"
+    assert body["reasoning"]["context"] == "current_turn"
+    assert body["reasoning"]["mode"] == "standard"
+    assert "reasoning.encrypted_content" in body["include"]
+
+
+@pytest.mark.parametrize("api", ["responses", "chat"])
+@pytest.mark.parametrize("underlying", ["gpt-6", "gpt-6.1", "gpt-5.6-luna"])
+@pytest.mark.parametrize(
+    ("effort", "sampling_sent"),
+    [
+        # Reasoning off: sampling params are legal and must be kept.
+        ("none", True),
+        # Reasoning on, or on by default (effort unset): they are stripped.
+        ("high", False),
+        (None, False),
+    ],
+)
+def test_sampling_params_follow_reasoning_state_like_gpt56(
+    api, underlying, effort, sampling_sent
+):
+    """gpt-6+ must behave exactly like gpt-5.6 on both wire formats.
+
+    The profile flags drive pydantic-ai's sampling-param stripping. This also
+    covers Chat Completions models, which receive the same profile through
+    ``_strict_openai_profile``.
+    """
+    settings = dict(_SAMPLING_SETTINGS)
+    if effort is not None:
+        settings["openai_reasoning_effort"] = effort
+
+    body, sampling_warnings = _capture_request(api, underlying, settings)
+
+    assert ("temperature" in body) is sampling_sent
+    assert ("top_p" in body) is sampling_sent
+    assert bool(sampling_warnings) is (not sampling_sent)
+
+
+@pytest.mark.parametrize("underlying", ["gpt-6", "gpt-6.1", "gpt-5.6-luna"])
+def test_custom_openai_responses_model_carries_reasoning_profile(underlying):
+    """The real Responses model built for custom endpoints must carry the flags.
+
+    pydantic-ai's own name-based inference does not know gpt-6, so without an
+    explicit profile the context/mode/``include`` fields are silently dropped.
+    """
+    config = {
+        "my-responses": {
+            "type": "custom_openai_responses",
+            "name": underlying,
+            "custom_endpoint": {
+                "url": "https://proxy.example.com/v1",
+                "api_key": "test-key",
+            },
+        }
+    }
+    model = ModelFactory.get_model("my-responses", config)
+
+    assert type(model).__name__ == "OpenAIResponsesModel"
+    for key in _REASONING_PROFILE_KEYS:
+        assert model.profile.get(key) is True
 
 
 def test_alias_keyed_custom_responses_model_gets_reasoning_settings():

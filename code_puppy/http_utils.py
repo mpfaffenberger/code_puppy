@@ -13,7 +13,8 @@ import httpx
 
 if TYPE_CHECKING:
     import requests
-from code_puppy.config import get_http2
+from code_puppy.ca_bundle import write_public_and_corporate_bundle
+from code_puppy.config import DATA_DIR, get_http2
 
 from .http_retry import RetryingSendMixin
 
@@ -24,18 +25,16 @@ class ProxyConfig:
 
     verify: Union[bool, str, None]
     trust_env: bool
-    proxy_url: str | None
     disable_retry: bool
     http2_enabled: bool
 
 
 def resolve_proxy_config(verify: Union[bool, str, None] = None) -> ProxyConfig:
-    """Resolve proxy, SSL, and retry settings from environment.
+    """Resolve client TLS, retry, and environment-proxy settings.
 
-    This centralizes the logic for detecting proxies, determining SSL verification,
-    and checking if retry transport should be disabled.
-
-    Shared by the legacy ``httpx`` and ``httpx2`` client factories so proxy handling
+    Proxy selection is left to httpx so scheme-specific proxies and ``NO_PROXY``
+    are honored per destination. This centralizes TLS and retry settings shared by
+    the legacy ``httpx`` and ``httpx2`` client factories so proxy handling
     cannot drift between the two.
     """
     if verify is None:
@@ -65,20 +64,9 @@ def resolve_proxy_config(verify: Union[bool, str, None] = None) -> ProxyConfig:
     else:
         trust_env = False
 
-    # Extract proxy URL
-    proxy_url = None
-    if has_proxy:
-        proxy_url = (
-            os.environ.get("HTTPS_PROXY")
-            or os.environ.get("https_proxy")
-            or os.environ.get("HTTP_PROXY")
-            or os.environ.get("http_proxy")
-        )
-
     return ProxyConfig(
         verify=verify,
         trust_env=trust_env,
-        proxy_url=proxy_url,
         disable_retry=disable_retry,
         http2_enabled=http2_enabled,
     )
@@ -112,9 +100,45 @@ class RetryingAsyncClient(RetryingSendMixin, httpx.AsyncClient):
 
 
 def get_cert_bundle_path() -> str | None:
-    # First check if SSL_CERT_FILE environment variable is set
-    ssl_cert_file = os.environ.get("SSL_CERT_FILE")
-    if ssl_cert_file and os.path.exists(ssl_cert_file):
+    """Return public + configured corporate trust as an exportable CA file.
+
+    ``SSL_CERT_FILE`` may contain only a corporate interception root. Passing
+    that file through unchanged makes public HTTPS fail in clients and child
+    processes that treat it as their complete file-based trust source. Combine
+    it with certifi roots in an immutable per-user file before propagation.
+    Sources are checked in SSL_CERT_FILE, REQUESTS_CA_BUNDLE, CURL_CA_BUNDLE
+    order. Set CODE_PUPPY_COMBINE_CA_BUNDLE=false to retain restricted file trust.
+    """
+    ssl_cert_file = next(
+        (
+            value
+            for name in ("SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE")
+            if (value := os.environ.get(name)) and os.path.isfile(value)
+        ),
+        None,
+    )
+    if not ssl_cert_file:
+        return None
+    # Preserve deliberately restricted/pinned file trust when requested.
+    if os.environ.get("CODE_PUPPY_COMBINE_CA_BUNDLE", "true").lower() in (
+        "0",
+        "false",
+        "no",
+    ):
+        return ssl_cert_file
+
+    destination = os.path.join(
+        DATA_DIR,
+        "certs",
+        "public-and-corporate-ca-bundle.pem",
+    )
+    try:
+        return write_public_and_corporate_bundle(ssl_cert_file, destination)
+    except OSError as exc:
+        emit_warning(
+            f"Could not combine public roots with {ssl_cert_file}; "
+            f"using the configured CA file unchanged: {exc}"
+        )
         return ssl_cert_file
 
 
@@ -157,7 +181,6 @@ def create_async_client(
         return RetryingAsyncClient(
             retry_status_codes=retry_status_codes,
             model_name=model_name,
-            proxy=config.proxy_url,
             verify=config.verify,
             headers=headers or {},
             timeout=timeout,
@@ -166,7 +189,6 @@ def create_async_client(
         )
     else:
         return httpx.AsyncClient(
-            proxy=config.proxy_url,
             verify=config.verify,
             headers=headers or {},
             timeout=timeout,
@@ -227,7 +249,6 @@ def create_reopenable_async_client(
     config = resolve_proxy_config(verify)
 
     base_kwargs = {
-        "proxy": config.proxy_url,
         "verify": config.verify,
         "headers": headers or {},
         "timeout": timeout,

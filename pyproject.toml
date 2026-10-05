@@ -4,15 +4,17 @@ build-backend = "hatchling.build"
 
 [project]
 name = "code-puppy"
-version = "0.0.849"
+version = "0.0.898"
 description = "Code generation agent"
 readme = "README.md"
 requires-python = ">=3.11,<3.15"
 dependencies = [
-    "code-puppy-core-plugins>=0.0.54",
+    "code-puppy-core-plugins>=0.0.77",
     "logfire>=4.0",
-    "pydantic-ai-slim[openai,anthropic,mcp]==2.35.0",
-    "pydantic-ai-harness==0.23.0",
+    "pydantic-ai-slim[openai,anthropic,mcp]==2.51.0",
+    "pydantic-ai-harness[code-mode]==0.35.0",
+    # Monty 1.0 removed max_duration_secs, still used by harness CodeMode.
+    "pydantic-monty<1",
     "anyio>=4.7.0",
     "typer>=0.12.0",
     "mcp>=1.9.4",
@@ -30,7 +32,7 @@ dependencies = [
     "openai>=2.45.0",
     "ripgrep==14.1.0; sys_platform != 'android'",
     "playwright>=1.40.0; sys_platform != 'android'",
-    "termflow-md>=0.9.2",
+    "termflow-md>=0.10.0",
     "Pillow>=10.0.0",
     "azure-identity>=1.15.0",
     "anthropic>=1.0.0,<2",
@@ -39,6 +41,7 @@ dependencies = [
     "agent-client-protocol>=0.11.0,<0.12",
 ]
 dev-dependencies = [
+    "cryptography>=44.0.0",
     "pytest>=8.3.4",
     "pytest-cov>=6.1.1",
     "pytest-asyncio>=0.23.1",
@@ -63,9 +66,7 @@ classifiers = [
 bedrock = ["boto3>=1.35.0"]
 durable = ["dbos>=2.11.0"]
 computer-use = [
-    "pyobjc-framework-ApplicationServices>=10.3; sys_platform == 'darwin'",
-    "pyobjc-framework-Cocoa>=10.3; sys_platform == 'darwin'",
-    "pyobjc-framework-Quartz>=10.3; sys_platform == 'darwin'",
+    "code-puppy-core-plugins[computer-use]>=0.0.77",
 ]
 
 [project.urls]
@@ -111,6 +112,7 @@ python-preference = "only-managed"
 
 [dependency-groups]
 dev = [
+    "cryptography>=44.0.0",
     "pytest>=8.3.4",
     "pytest-cov>=6.1.1",
     "pytest-asyncio>=0.23.1",

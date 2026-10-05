@@ -9,6 +9,7 @@ from typing import Any, Dict, Optional
 # ``openai`` (~200ms cold) and ``anthropic`` (~170ms cold) each drag in
 # their whole surface, and a run only ever talks to one provider family.
 # Cold-start TTFT pays for every eager import in this module.
+from pydantic_ai.profiles.anthropic import AnthropicModelProfile
 from pydantic_ai.profiles.openai import OpenAIModelProfile
 from pydantic_ai.settings import ModelSettings
 
@@ -185,22 +186,55 @@ def _thinking_tags_profile(
     ``</think>`` tags, so callers can pass this straight through as
     ``profile=`` without an extra None-check.
     """
-    from code_puppy.model_utils import get_thinking_tags
+    from code_puppy.model_utils import (
+        get_thinking_tags,
+        supports_gpt_responses_controls,
+    )
 
     tags = get_thinking_tags(model_name, model_config)
     profile_kwargs: dict[str, Any] = {}
     if tags is not None:
         profile_kwargs["thinking_tags"] = tags
 
-    underlying_name = str(model_config.get("name", model_name)).lower()
-    if "gpt-5.6" in underlying_name:
+    # GPT-5.6+ gets the Responses reasoning controls (same >= 5.6 threshold as
+    # the /model_settings visibility check in config.py). pydantic-ai infers
+    # these flags from the model-name prefix and does not know newer families,
+    # so without them a gpt-6 setting that looks applied is silently dropped
+    # from the request. ``openai_supports_reasoning`` also gates non-``all_turns``
+    # reasoning_context values and the sampling-param stripping; the two
+    # companions mirror what pydantic-ai infers for gpt-5.5/5.6.
+    # Underlying name wins; the config key is only a fallback when ``name`` is
+    # absent (an alias must not flag another backend).
+    underlying_name = str(model_config.get("name", model_name))
+    if supports_gpt_responses_controls(underlying_name):
         profile_kwargs.update(
             openai_responses_supports_reasoning_mode=True,
             openai_responses_supports_reasoning_context=True,
             openai_supports_encrypted_reasoning_content=True,
+            openai_supports_reasoning=True,
+            openai_reasoning_enabled_by_default=True,
+            openai_supports_reasoning_effort_none=True,
         )
 
     return OpenAIModelProfile(**profile_kwargs) if profile_kwargs else None
+
+
+def forced_tool_choice_profile(
+    model_name: str, model_config: dict[str, Any]
+) -> AnthropicModelProfile | None:
+    """Work around pydantic-ai 2.51.0's incomplete forced-tool-choice table.
+
+    See ``code_puppy.model_utils.anthropic_forced_tool_choice_unsupported``
+    for the full story. Returns None for every model except the known
+    gaps, so callers can pass this straight through as ``profile=``
+    without an extra None-check.
+    """
+    from code_puppy.model_utils import anthropic_forced_tool_choice_unsupported
+
+    actual_model_id = str(model_config.get("name", model_name))
+    if anthropic_forced_tool_choice_unsupported(model_name, actual_model_id):
+        return AnthropicModelProfile(anthropic_supports_forced_tool_choice=False)
+    return None
 
 
 def _strict_openai_profile(
@@ -924,7 +958,11 @@ class ModelFactory:
             provider = make_anthropic_provider(
                 provider_identity, anthropic_client=anthropic_client
             )
-            return AnthropicModel(model_name=model_config["name"], provider=provider)
+            return AnthropicModel(
+                model_name=model_config["name"],
+                provider=provider,
+                profile=forced_tool_choice_profile(model_name, model_config),
+            )
 
         elif model_type == "custom_anthropic":
             url, headers, verify, api_key, timeout = get_custom_config(model_config)
@@ -976,7 +1014,11 @@ class ModelFactory:
             provider = make_anthropic_provider(
                 provider_identity, anthropic_client=anthropic_client
             )
-            return AnthropicModel(model_name=model_config["name"], provider=provider)
+            return AnthropicModel(
+                model_name=model_config["name"],
+                provider=provider,
+                profile=forced_tool_choice_profile(model_name, model_config),
+            )
         # NOTE: 'claude_code' model type is now handled by the claude_code_oauth plugin
         # via the register_model_type callback. See plugins/claude_code_oauth/register_callbacks.py
 
@@ -1083,7 +1125,9 @@ class ModelFactory:
 
             if _custom_openai_uses_responses_api(model_name, model_config):
                 return OpenAIResponsesModel(
-                    model_name=model_config["name"], provider=provider
+                    model_name=model_config["name"],
+                    provider=provider,
+                    profile=_thinking_tags_profile(model_name, model_config),
                 )
             return OpenAIChatModel(
                 model_name=model_config["name"],
@@ -1303,9 +1347,18 @@ class ModelFactory:
                         if callable(handler):
                             try:
                                 return handler(model_name, model_config, config)
-                            except Exception as e:
+                            except Exception:
+                                # exc_info is load-bearing: without it the only
+                                # diagnostic is str(e), which for an
+                                # AttributeError/TypeError carries no file or
+                                # line and makes handler bugs near-impossible
+                                # to place from a log alone.
                                 logger.error(
-                                    f"Plugin handler for model type '{model_type}' failed: {e}"
+                                    "Plugin handler for model type '%s' failed "
+                                    "to create model '%s'",
+                                    model_type,
+                                    model_name,
+                                    exc_info=True,
                                 )
                                 return None
 

@@ -1,9 +1,13 @@
 """OAuth configuration and transport integration, without real browser login."""
 
+import importlib
+import warnings
 from unittest.mock import MagicMock, patch
 
 import pytest
+from fastmcp.client.transports import StreamableHttpTransport
 
+from code_puppy.mcp_ import http_auth as http_auth_module
 from code_puppy.mcp_.http_auth import http_auth
 from code_puppy.mcp_.managed_server import ManagedMCPServer, ServerConfig
 
@@ -40,6 +44,43 @@ def test_oauth_provider_is_deferred(url):
     provider = http_auth({"auth": "oauth"}, url, None)
     assert provider._bound is False
     assert provider._callback_host == "127.0.0.1"
+
+
+def test_token_request_uses_a_single_auth_method():
+    """Regression: mcp.cloudflare.com 400s on Basic header + body client_id.
+
+    Register as a public client, then check the token request the SDK actually
+    builds: client_id in the body only, no Authorization header, no secret.
+    """
+    from mcp.shared.auth import OAuthClientInformationFull
+
+    provider = http_auth({"auth": "oauth"}, "https://example.com/mcp", None)
+    provider._bind("https://example.com/mcp")
+    metadata = provider.context.client_metadata
+    assert metadata.token_endpoint_auth_method == "none"
+
+    # What a compliant server echoes back for a public-client registration.
+    provider.context.client_info = OAuthClientInformationFull(
+        client_id="cid", **metadata.model_dump(exclude_none=True)
+    )
+    data, headers = provider.context.prepare_token_auth(
+        {"grant_type": "authorization_code", "client_id": "cid"}, {}
+    )
+    assert "Authorization" not in headers
+    assert "client_secret" not in data
+    assert data["client_id"] == "cid"
+
+
+def test_binding_oauth_to_transport_is_silent():
+    provider = http_auth({"auth": "oauth"}, "https://example.com/mcp", None)
+    # pytest collects modules inside its own catch_warnings, which discards
+    # filters installed at import time. Re-import inside this scope so the
+    # module's filter is the only thing standing between _bind and stderr.
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        importlib.reload(http_auth_module)
+        StreamableHttpTransport(url="https://example.com/mcp", auth=provider)
+    assert [str(w.message) for w in caught] == []
 
 
 @pytest.mark.parametrize("timeout,expected", [(None, 330), (90, 90)])

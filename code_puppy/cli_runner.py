@@ -317,18 +317,6 @@ async def main():
         except ImportError:
             emit_system_message(t("cli.loading"))
 
-        # Powered-by tagline under the big banner (prints even without pyfiglet).
-        display_console.print(
-            f"[dim]{t('cli.banner.powered_by')}[/dim] "
-            "[link=https://github.com/pydantic/pydantic-ai-harness]"
-            "[cyan]https://github.com/pydantic/pydantic-ai-harness[/cyan][/link]"
-        )
-        display_console.print(
-            f"[dim]{t('cli.banner.observability_pitch')}[/dim] "
-            "[link=https://pydantic.dev/logfire]"
-            "[cyan]https://pydantic.dev/logfire[/cyan][/link]\n"
-        )
-
         # Truecolor warning moved to interactive_mode() so it prints last — max visibility.
 
     from code_puppy.config import PORT_PROBE_WIDTH, resolve_port_base
@@ -696,7 +684,7 @@ def _prompt_echo_text(task: str):
 
     prompt_color = on_prompt_text_color()
     style = f"bold {prompt_color}" if prompt_color else "bold"
-    return Text(f"\n> {task}", style=style)
+    return Text(f"\n> {task}\n", style=style)
 
 
 def _interactive_sigint_guard(_sig, _frame):
@@ -794,9 +782,16 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     # renders as one line, actually bold.
     emit_system_message(Text(t("cli.help.press_tab"), style="bold"))
     # Tell the user how relentless the puppy is configured to be.
-    from code_puppy.config import get_agency_level
+    from code_puppy.config import get_agency_level, get_speculative_code_mode_enabled
 
     emit_info(t("cli.agency.status", level=get_agency_level().upper()))
+    # Advertise the chord: the feature is invisible until someone presses it.
+    speculation_key = (
+        "cli.speculation.on"
+        if get_speculative_code_mode_enabled()
+        else "cli.speculation.off"
+    )
+    emit_info(t(speculation_key))
     # Print truecolor warning LAST so it's the most visible thing on startup
     # Big ugly red box should be impossible to miss!
     print_truecolor_warning(display_console)
@@ -1339,14 +1334,14 @@ async def run_prompt_with_attachments(
     display_console=None,
     use_run_ui: bool = True,
 ):
-    """Run the agent after parsing CLI attachments for image/document support.
+    """Run the agent after parsing CLI attachments for image, video, and document support.
 
     Returns:
         tuple: (result, task) where result is the agent response and task is the asyncio task
     """
     import asyncio
 
-    from code_puppy.messaging import emit_system_message, emit_warning
+    from code_puppy.messaging import emit_warning
 
     # Shared resolver: file paths, URLs, and pending clipboard images.
     # (Same helper powers mid-run steering injection — keep them in sync.)
@@ -1354,28 +1349,6 @@ async def run_prompt_with_attachments(
 
     for warning in resolved.warnings:
         emit_warning(warning)
-
-    # Build summary of all attachments
-    summary_parts = []
-    if resolved.file_attachments:
-        summary_parts.append(
-            t("cli.attachments.files", count=len(resolved.file_attachments))
-        )
-    if resolved.clipboard_images:
-        summary_parts.append(
-            t(
-                "cli.attachments.clipboard_images",
-                count=len(resolved.clipboard_images),
-            )
-        )
-    if resolved.link_attachments:
-        summary_parts.append(
-            t("cli.attachments.urls", count=len(resolved.link_attachments))
-        )
-    if summary_parts:
-        emit_system_message(
-            t("cli.attachments.detected", summary=", ".join(summary_parts))
-        )
 
     cleaned_prompt = resolved.text
     if not cleaned_prompt:

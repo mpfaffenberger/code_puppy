@@ -3,6 +3,7 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
+from pydantic_ai import Agent
 
 from code_puppy.tools import (
     REMOVED_LEGACY_TOOLS,
@@ -25,7 +26,7 @@ class TestToolRegistration:
             "grep",
             "edit_file",
             "delete_file",
-            "agent_run_shell_command",
+            "shell",
             "list_agents",
             "invoke_agent",
             "invoke_agent_with_model",
@@ -54,6 +55,56 @@ class TestToolRegistration:
 
         for tool in tools:
             assert tool in TOOL_REGISTRY
+
+    def test_only_read_tools_are_marked_speculatable(self):
+        """Speculation is opt-in on the actual registered tool definitions."""
+        agent = Agent("test")
+        register_tools_for_agent(
+            agent,
+            [
+                "list_files",
+                "read_file",
+                "grep",
+                "load_image_for_analysis",
+                "list_available_models",
+                "list_agents",
+                "create_file",
+            ],
+        )
+        from code_puppy.tools.skills_tools import (
+            register_activate_skill,
+            register_list_or_search_skills,
+        )
+
+        register_activate_skill(agent)
+        register_list_or_search_skills(agent)
+        tools = agent._function_toolset.tools
+
+        for name in (
+            "list_files",
+            "read_file",
+            "grep",
+            "load_image_for_analysis",
+            "list_available_models",
+            "list_agents",
+            "activate_skill",
+            "list_or_search_skills",
+        ):
+            assert tools[name].metadata["speculatable"] is True
+        assert not (tools["create_file"].metadata or {}).get("speculatable", False)
+
+    @pytest.mark.parametrize(
+        "name",
+        ["shell", "agent_run_shell_command", "run_shell_command", "run_shell_commmand"],
+    )
+    def test_shell_legacy_names_register_with_their_requested_names(self, name):
+        """JSON subagent tool lists can still request the pre-rename spellings."""
+        assert name in get_available_tool_names()
+        agent = Agent("test")
+        register_tools_for_agent(agent, [name])
+        tools = agent._function_toolset.tools
+        assert name in tools
+        assert "command" in tools[name].function_schema.json_schema["properties"]
 
     def test_register_tools_for_agent(self):
         """Test registering specific tools for an agent."""
@@ -99,7 +150,7 @@ class TestToolRegistration:
         register_tools_for_agent(mock_agent, ["edit_file"])
 
         # Test command runner
-        register_tools_for_agent(mock_agent, ["agent_run_shell_command"])
+        register_tools_for_agent(mock_agent, ["shell"])
 
         # Test mixed categories
         register_tools_for_agent(

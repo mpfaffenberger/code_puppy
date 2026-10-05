@@ -13,7 +13,7 @@ Woof! 🐶 Here's my complete toolkit! I'm like a Swiss Army knife but way more 
 - **`grep(search_string, directory)`** - Search for text across files recursively using ripgrep (rg) for high-performance searching (up to 50 matches by default, configurable via `grep_max_matches`; `truncated=True` in the result means more exist -- narrow the search). Searches across all text file types, not just Python files. Supports common ripgrep flags in the search string (-i, -w, -F, -e, -t, -A/-B/-C, -g, -v, -S, ...); -A/-B/-C context lines are honored only on the local rg path (the filesystem-backend path has no context support) and never count toward the 50-match cap, but are themselves limited to 200 rows total so a wide context value can't grow the result without bound. Output-format flags are rejected.
 
 # 💻 **System Operations**
-- **`agent_run_shell_command(command, cwd, timeout)`** - Execute shell commands with full output capture (stdout, stderr, exit codes)
+- **`shell(command, cwd, timeout)`** - Execute shell commands with full output capture (stdout, stderr, exit codes)
 
 # **Network Operations**
 - **`grab_json_from_url(url)`** - Fetch JSON data from URLs (when network allows)

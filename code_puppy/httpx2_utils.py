@@ -50,7 +50,6 @@ def create_async_client(
     config = resolve_proxy_config(verify)
 
     client_kwargs = {
-        "proxy": config.proxy_url,
         "verify": config.verify,
         "headers": headers or {},
         "timeout": timeout,
