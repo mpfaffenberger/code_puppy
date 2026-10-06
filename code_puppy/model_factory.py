@@ -9,10 +9,12 @@ from typing import Any, Dict, Optional
 # ``openai`` (~200ms cold) and ``anthropic`` (~170ms cold) each drag in
 # their whole surface, and a run only ever talks to one provider family.
 # Cold-start TTFT pays for every eager import in this module.
+from pydantic_ai.profiles.anthropic import AnthropicModelProfile
 from pydantic_ai.profiles.openai import OpenAIModelProfile
 from pydantic_ai.settings import ModelSettings
 
 from code_puppy.gemini_model import GeminiModel
+from code_puppy.i18n import t
 from code_puppy.messaging import emit_warning
 
 from . import callbacks
@@ -55,6 +57,14 @@ _load_plugin_model_providers()
 CONTEXT_1M_BETA = "context-1m-2025-08-07"
 _CUSTOM_OPENAI_MODEL_TYPES = {"custom_openai", "custom_openai_responses"}
 _LEGACY_CUSTOM_OPENAI_RESPONSES_MODEL = "codex-gpt-5-codex"
+# Legacy effort normalization mapping
+_EFFORT_ALIAS = {"minimal": "none", "ultra": "max"}
+# Only these wire formats accept ``openai_reasoning_effort``.
+# A positive allowlist prevents short model tags from hijacking aliases.
+_OPENAI_COMPATIBLE_MODEL_TYPES = (
+    frozenset({"openai", "chatgpt_oauth", "azure_foundry_openai", "azure_openai"})
+    | _CUSTOM_OPENAI_MODEL_TYPES
+)
 
 
 def _custom_openai_uses_responses_api(
@@ -65,6 +75,43 @@ def _custom_openai_uses_responses_api(
         model_config.get("type") == "custom_openai_responses"
         or model_name == _LEGACY_CUSTOM_OPENAI_RESPONSES_MODEL
     )
+
+
+def _azure_foundry_uses_responses_api(deployment_name: str) -> bool:
+    """Mirror the azure_foundry plugin's Responses-vs-Chat deployment rule.
+
+    The plugin keys this decision solely off the Azure *deployment* name --
+    never the catalog key -- so this must do the same or the settings class
+    stops matching the constructed model. Deployments are free-form, so a
+    renamed gpt-5 deployment (``prod-gpt5-deploy``) gets a Chat model from
+    the plugin and therefore must get Chat settings here too; fixing that
+    narrowing belongs in the plugin, not in this mirror.
+    See ``azure_foundry/register_callbacks :: _create_azure_foundry_openai_model()``.
+    """
+    return deployment_name.startswith("gpt-5")
+
+
+def _uses_responses_api(model_name: str, model_config: Dict[str, Any]) -> bool:
+    """Return whether this model is built as an ``OpenAIResponsesModel``.
+
+    Mirrors the model construction decisions so the settings class always
+    matches the wire format. The ``chatgpt_oauth`` plugin always builds a
+    Responses model; the ``azure_foundry`` plugin only does so for gpt-5
+    deployments (see each plugin's ``register_callbacks :: create_model()``).
+    """
+    from code_puppy.model_utils import supports_gpt_responses_controls
+
+    model_type = model_config.get("type")
+    underlying_name = str(model_config.get("name") or "")
+    if model_type == "chatgpt_oauth":
+        return True
+    if model_type == "azure_foundry_openai":
+        return _azure_foundry_uses_responses_api(underlying_name)
+    if model_type == "openai":
+        return "codex" in model_name or supports_gpt_responses_controls(underlying_name)
+    if model_type in _CUSTOM_OPENAI_MODEL_TYPES:
+        return _custom_openai_uses_responses_api(model_name, model_config)
+    return False
 
 
 def _build_anthropic_beta_header(
@@ -139,22 +186,55 @@ def _thinking_tags_profile(
     ``</think>`` tags, so callers can pass this straight through as
     ``profile=`` without an extra None-check.
     """
-    from code_puppy.model_utils import get_thinking_tags
+    from code_puppy.model_utils import (
+        get_thinking_tags,
+        supports_gpt_responses_controls,
+    )
 
     tags = get_thinking_tags(model_name, model_config)
     profile_kwargs: dict[str, Any] = {}
     if tags is not None:
         profile_kwargs["thinking_tags"] = tags
 
-    underlying_name = str(model_config.get("name", model_name)).lower()
-    if "gpt-5.6" in underlying_name:
+    # GPT-5.6+ gets the Responses reasoning controls (same >= 5.6 threshold as
+    # the /model_settings visibility check in config.py). pydantic-ai infers
+    # these flags from the model-name prefix and does not know newer families,
+    # so without them a gpt-6 setting that looks applied is silently dropped
+    # from the request. ``openai_supports_reasoning`` also gates non-``all_turns``
+    # reasoning_context values and the sampling-param stripping; the two
+    # companions mirror what pydantic-ai infers for gpt-5.5/5.6.
+    # Underlying name wins; the config key is only a fallback when ``name`` is
+    # absent (an alias must not flag another backend).
+    underlying_name = str(model_config.get("name", model_name))
+    if supports_gpt_responses_controls(underlying_name):
         profile_kwargs.update(
             openai_responses_supports_reasoning_mode=True,
             openai_responses_supports_reasoning_context=True,
             openai_supports_encrypted_reasoning_content=True,
+            openai_supports_reasoning=True,
+            openai_reasoning_enabled_by_default=True,
+            openai_supports_reasoning_effort_none=True,
         )
 
     return OpenAIModelProfile(**profile_kwargs) if profile_kwargs else None
+
+
+def forced_tool_choice_profile(
+    model_name: str, model_config: dict[str, Any]
+) -> AnthropicModelProfile | None:
+    """Work around pydantic-ai 2.51.0's incomplete forced-tool-choice table.
+
+    See ``code_puppy.model_utils.anthropic_forced_tool_choice_unsupported``
+    for the full story. Returns None for every model except the known
+    gaps, so callers can pass this straight through as ``profile=``
+    without an extra None-check.
+    """
+    from code_puppy.model_utils import anthropic_forced_tool_choice_unsupported
+
+    actual_model_id = str(model_config.get("name", model_name))
+    if anthropic_forced_tool_choice_unsupported(model_name, actual_model_id):
+        return AnthropicModelProfile(anthropic_supports_forced_tool_choice=False)
+    return None
 
 
 def _strict_openai_profile(
@@ -333,19 +413,27 @@ def make_model_settings(
         for key in ("thinking_type", "clear_thinking", "glm_reasoning_effort"):
             model_settings_dict.pop(key, None)
 
+    if "reasoning_effort" in model_settings_dict and not model_supports_setting(
+        model_name, "reasoning_effort", models_config=models_config
+    ):
+        model_settings_dict.pop("reasoning_effort")
+
     model_settings: ModelSettings = ModelSettings(**model_settings_dict)
 
     # Copilot models speak OpenAI format even for Claude backends: Claude
     # thinking → reasoning_effort; GPT gets standard OpenAI reasoning.
     from code_puppy.model_utils import (
         is_gpt_reasoning_model,
-        supports_gpt_responses_controls,
+        resolve_openai_reasoning_effort_choices,
     )
 
     model_type = model_config.get("type")
     underlying_name = str(model_config.get("name", "")).lower()
     is_copilot = model_type == "copilot"
     copilot_underlying = underlying_name if is_copilot else ""
+    reasoning_effort_choices = resolve_openai_reasoning_effort_choices(
+        model_name, model_config
+    )
 
     if is_copilot and copilot_underlying.startswith("claude-"):
         # Copilot wraps Claude behind OpenAI-compatible API; translate
@@ -397,28 +485,14 @@ def make_model_settings(
         )
 
         # Normalize legacy effort values (minimal->none, ultra->max)
-        _EFFORT_ALIAS = {"minimal": "none", "ultra": "max"}
         effort = effective_settings.get("reasoning_effort", "medium")
         effort = _EFFORT_ALIAS.get(effort, effort)
-        model_settings_dict["openai_reasoning_effort"] = effort
+        if reasoning_effort_choices is None or (
+            reasoning_effort_choices and effort in reasoning_effort_choices
+        ):
+            model_settings_dict["openai_reasoning_effort"] = effort
 
-        uses_responses_api = (
-            model_type == "chatgpt_oauth"
-            or model_type == "azure_foundry_openai"
-            or (
-                model_type == "openai"
-                and (
-                    "codex" in model_name
-                    or supports_gpt_responses_controls(underlying_name)
-                )
-            )
-            or (
-                model_type in _CUSTOM_OPENAI_MODEL_TYPES
-                and _custom_openai_uses_responses_api(model_name, model_config)
-            )
-        )
-
-        if uses_responses_api:
+        if _uses_responses_api(model_name, model_config):
             model_settings_dict["openai_reasoning_summary"] = effective_settings.get(
                 "summary", "auto"
             )
@@ -441,6 +515,23 @@ def make_model_settings(
                 model_settings_dict["extra_body"] = {
                     "verbosity": effective_settings.get("verbosity", "medium")
                 }
+            model_settings = OpenAIChatModelSettings(**model_settings_dict)
+    elif model_type in _OPENAI_COMPATIBLE_MODEL_TYPES and reasoning_effort_choices:
+        from pydantic_ai.models.openai import (
+            OpenAIChatModelSettings,
+            OpenAIResponsesModelSettings,
+        )
+
+        # Forward only documented effort values for OpenAI-compatible models.
+        effort = effective_settings.get("reasoning_effort", "medium")
+        effort = _EFFORT_ALIAS.get(effort, effort)
+        if effort in reasoning_effort_choices:
+            model_settings_dict["openai_reasoning_effort"] = effort
+        # Non-GPT reasoning models (o-series, codex-mini) can still be served
+        # over the Responses API, so the settings class must follow the model.
+        if _uses_responses_api(model_name, model_config):
+            model_settings = OpenAIResponsesModelSettings(**model_settings_dict)
+        else:
             model_settings = OpenAIChatModelSettings(**model_settings_dict)
     elif _is_anthropic_model(model_name, model_config):
         from code_puppy.model_utils import (
@@ -564,7 +655,11 @@ def get_custom_config(model_config):
             resolved_value = get_api_key(env_var_name)
             if resolved_value is None:
                 emit_warning(
-                    f"'{env_var_name}' is not set (check config or environment) for custom endpoint header '{key}'. Proceeding with empty value."
+                    t(
+                        "model_factory.custom.header_missing",
+                        env_var=env_var_name,
+                        key=key,
+                    )
                 )
                 resolved_value = ""
             value = resolved_value
@@ -577,7 +672,11 @@ def get_custom_config(model_config):
                     resolved_value = get_api_key(env_var)
                     if resolved_value is None:
                         emit_warning(
-                            f"'{env_var}' is not set (check config or environment) for custom endpoint header '{key}'. Proceeding with empty value."
+                            t(
+                                "model_factory.custom.header_missing",
+                                env_var=env_var,
+                                key=key,
+                            )
                         )
                         resolved_values.append("")
                     else:
@@ -593,7 +692,7 @@ def get_custom_config(model_config):
             api_key = get_api_key(env_var_name)
             if api_key is None:
                 emit_warning(
-                    f"API key '{env_var_name}' is not set (checked config and environment); proceeding without API key."
+                    t("model_factory.custom.api_key_missing", env_var=env_var_name)
                 )
         else:
             api_key = custom_config["api_key"]
@@ -768,7 +867,10 @@ class ModelFactory:
             api_key = get_api_key("GEMINI_API_KEY")
             if not api_key:
                 emit_warning(
-                    f"GEMINI_API_KEY is not set (check config or environment); skipping Gemini model '{model_config.get('name')}'."
+                    t(
+                        "model_factory.gemini.api_key_missing",
+                        model=model_config.get("name"),
+                    )
                 )
                 return None
 
@@ -779,7 +881,10 @@ class ModelFactory:
             api_key = get_api_key("OPENAI_API_KEY")
             if not api_key:
                 emit_warning(
-                    f"OPENAI_API_KEY is not set (check config or environment); skipping OpenAI model '{model_config.get('name')}'."
+                    t(
+                        "model_factory.openai.api_key_missing",
+                        model=model_config.get("name"),
+                    )
                 )
                 return None
 
@@ -810,7 +915,10 @@ class ModelFactory:
             api_key = get_api_key("ANTHROPIC_API_KEY")
             if not api_key:
                 emit_warning(
-                    f"ANTHROPIC_API_KEY is not set (check config or environment); skipping Anthropic model '{model_config.get('name')}'."
+                    t(
+                        "model_factory.anthropic.api_key_missing",
+                        model=model_config.get("name"),
+                    )
                 )
                 return None
 
@@ -850,13 +958,20 @@ class ModelFactory:
             provider = make_anthropic_provider(
                 provider_identity, anthropic_client=anthropic_client
             )
-            return AnthropicModel(model_name=model_config["name"], provider=provider)
+            return AnthropicModel(
+                model_name=model_config["name"],
+                provider=provider,
+                profile=forced_tool_choice_profile(model_name, model_config),
+            )
 
         elif model_type == "custom_anthropic":
             url, headers, verify, api_key, timeout = get_custom_config(model_config)
             if not api_key:
                 emit_warning(
-                    f"API key is not set for custom Anthropic endpoint; skipping model '{model_config.get('name')}'."
+                    t(
+                        "model_factory.custom_anthropic.api_key_missing",
+                        model=model_config.get("name"),
+                    )
                 )
                 return None
 
@@ -899,7 +1014,11 @@ class ModelFactory:
             provider = make_anthropic_provider(
                 provider_identity, anthropic_client=anthropic_client
             )
-            return AnthropicModel(model_name=model_config["name"], provider=provider)
+            return AnthropicModel(
+                model_name=model_config["name"],
+                provider=provider,
+                profile=forced_tool_choice_profile(model_name, model_config),
+            )
         # NOTE: 'claude_code' model type is now handled by the claude_code_oauth plugin
         # via the register_model_type callback. See plugins/claude_code_oauth/register_callbacks.py
 
@@ -914,7 +1033,15 @@ class ModelFactory:
                 azure_endpoint = get_api_key(azure_endpoint_config[1:])
             if not azure_endpoint:
                 emit_warning(
-                    f"Azure OpenAI endpoint '{azure_endpoint_config[1:] if azure_endpoint_config.startswith('$') else azure_endpoint_config}' not found (check config or environment); skipping model '{model_config.get('name')}'."
+                    t(
+                        "model_factory.azure.endpoint_missing",
+                        endpoint=(
+                            azure_endpoint_config[1:]
+                            if azure_endpoint_config.startswith("$")
+                            else azure_endpoint_config
+                        ),
+                        model=model_config.get("name"),
+                    )
                 )
                 return None
 
@@ -928,7 +1055,15 @@ class ModelFactory:
                 api_version = get_api_key(api_version_config[1:])
             if not api_version:
                 emit_warning(
-                    f"Azure OpenAI API version '{api_version_config[1:] if api_version_config.startswith('$') else api_version_config}' not found (check config or environment); skipping model '{model_config.get('name')}'."
+                    t(
+                        "model_factory.azure.api_version_missing",
+                        version=(
+                            api_version_config[1:]
+                            if api_version_config.startswith("$")
+                            else api_version_config
+                        ),
+                        model=model_config.get("name"),
+                    )
                 )
                 return None
 
@@ -942,7 +1077,15 @@ class ModelFactory:
                 api_key = get_api_key(api_key_config[1:])
             if not api_key:
                 emit_warning(
-                    f"Azure OpenAI API key '{api_key_config[1:] if api_key_config.startswith('$') else api_key_config}' not found (check config or environment); skipping model '{model_config.get('name')}'."
+                    t(
+                        "model_factory.azure.api_key_missing",
+                        key=(
+                            api_key_config[1:]
+                            if api_key_config.startswith("$")
+                            else api_key_config
+                        ),
+                        model=model_config.get("name"),
+                    )
                 )
                 return None
 
@@ -982,7 +1125,9 @@ class ModelFactory:
 
             if _custom_openai_uses_responses_api(model_name, model_config):
                 return OpenAIResponsesModel(
-                    model_name=model_config["name"], provider=provider
+                    model_name=model_config["name"],
+                    provider=provider,
+                    profile=_thinking_tags_profile(model_name, model_config),
                 )
             return OpenAIChatModel(
                 model_name=model_config["name"],
@@ -993,7 +1138,10 @@ class ModelFactory:
             api_key = get_api_key("ZAI_API_KEY")
             if not api_key:
                 emit_warning(
-                    f"ZAI_API_KEY is not set (check config or environment); skipping ZAI coding model '{model_config.get('name')}'."
+                    t(
+                        "model_factory.zai.coding_api_key_missing",
+                        model=model_config.get("name"),
+                    )
                 )
                 return None
             provider = make_openai_provider(
@@ -1012,7 +1160,10 @@ class ModelFactory:
             api_key = get_api_key("ZAI_API_KEY")
             if not api_key:
                 emit_warning(
-                    f"ZAI_API_KEY is not set (check config or environment); skipping ZAI API model '{model_config.get('name')}'."
+                    t(
+                        "model_factory.zai.api_key_missing",
+                        model=model_config.get("name"),
+                    )
                 )
                 return None
             provider = make_openai_provider(
@@ -1032,7 +1183,10 @@ class ModelFactory:
             url, headers, verify, api_key, timeout = get_custom_config(model_config)
             if not api_key:
                 emit_warning(
-                    f"API key is not set for custom Gemini endpoint; skipping model '{model_config.get('name')}'."
+                    t(
+                        "model_factory.custom_gemini.api_key_missing",
+                        model=model_config.get("name"),
+                    )
                 )
                 return None
 
@@ -1063,7 +1217,10 @@ class ModelFactory:
 
             if not api_key:
                 emit_warning(
-                    f"API key is not set for Cerebras endpoint; skipping model '{model_config.get('name')}'."
+                    t(
+                        "model_factory.cerebras.api_key_missing",
+                        model=model_config.get("name"),
+                    )
                 )
                 return None
             # Add Cerebras 3rd party integration header
@@ -1115,7 +1272,11 @@ class ModelFactory:
                     api_key = get_api_key(env_var_name)
                     if api_key is None:
                         emit_warning(
-                            f"OpenRouter API key '{env_var_name}' not found (check config or environment); skipping model '{model_config.get('name')}'."
+                            t(
+                                "model_factory.openrouter.api_key_missing",
+                                env_var=env_var_name,
+                                model=model_config.get("name"),
+                            )
                         )
                         return None
                 else:
@@ -1126,7 +1287,10 @@ class ModelFactory:
                 api_key = get_api_key("OPENROUTER_API_KEY")
                 if api_key is None:
                     emit_warning(
-                        f"OPENROUTER_API_KEY is not set (check config or environment); skipping OpenRouter model '{model_config.get('name')}'."
+                        t(
+                            "model_factory.openrouter.default_api_key_missing",
+                            model=model_config.get("name"),
+                        )
                     )
                     return None
 
@@ -1183,9 +1347,18 @@ class ModelFactory:
                         if callable(handler):
                             try:
                                 return handler(model_name, model_config, config)
-                            except Exception as e:
+                            except Exception:
+                                # exc_info is load-bearing: without it the only
+                                # diagnostic is str(e), which for an
+                                # AttributeError/TypeError carries no file or
+                                # line and makes handler bugs near-impossible
+                                # to place from a log alone.
                                 logger.error(
-                                    f"Plugin handler for model type '{model_type}' failed: {e}"
+                                    "Plugin handler for model type '%s' failed "
+                                    "to create model '%s'",
+                                    model_type,
+                                    model_name,
+                                    exc_info=True,
                                 )
                                 return None
 

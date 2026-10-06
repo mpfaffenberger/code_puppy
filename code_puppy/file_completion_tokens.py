@@ -3,11 +3,26 @@
 import shlex
 
 
+def _opens_quote(text: str, i: int, symbol: str, token_start: int) -> bool:
+    """Decide whether the quote character at ``text[i]`` starts a quoted span.
+
+    Quotes group characters at word boundaries and anywhere within an
+    attachment token, including partially quoted paths like ``@dir/"my file``.
+    A quote embedded in ordinary prose (the apostrophe in ``don't``) must
+    never open quote state and hide a later attachment boundary.
+    """
+    if i == 0 or text[i - 1].isspace():
+        return True
+    return text.startswith(symbol, token_start, i)
+
+
 def active_reference(text: str, symbol: str = "@"):
     """Return decoded path and raw replacement length, or no active reference.
 
-    Only a token beginning with @ qualifies. Spaces require quotes or escaping;
-    a closed quote ends completion so subsequent prose is never replaced.
+    Only a token beginning with @ qualifies. Within the active token, spaces
+    require quotes or escaping; a closed quote ends completion so subsequent
+    prose is never replaced. Apostrophes in surrounding prose (contractions)
+    are literal characters and never open a quote.
     """
     start = 0
     quote = None
@@ -23,7 +38,8 @@ def active_reference(text: str, symbol: str = "@"):
                 quote = None
                 closed = True
         elif char in "\"'":
-            quote = char
+            if _opens_quote(text, i, symbol, start):
+                quote = char
         elif char.isspace():
             start = i + 1
             closed = False

@@ -246,6 +246,53 @@ async def test_paused_state_cleared_on_cancel(_isolated_runtime, monkeypatch):
 
 
 # =============================================================================
+# Bug A.3 - a nested run must not swallow the outer run's queued steer
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_nested_run_does_not_swallow_queued_steer(_isolated_runtime):
+    """Queue-mode steers belong to the run the user is talking to.
+
+    Mid-turn the agent triggers nested ``run_with_mcp`` calls (the
+    shell-safety plugin's structured-output assessment, model judges, ...).
+    Those share the process-wide PauseController, so without a nesting guard
+    the nested run drains the queue and feeds the user's message to a
+    throwaway agent whose result is discarded -- the message vanishes and
+    the outer agent never sees it.
+    """
+    inner_pydantic = _ScriptedPydanticAgent(_DummyResult("nested-verdict"))
+    inner_agent = _DummyAgent(inner_pydantic)
+
+    outer_pydantic = _ScriptedPydanticAgent(
+        _DummyResult("outer-first"), _DummyResult("outer-after-steer")
+    )
+    outer_agent = _DummyAgent(outer_pydantic)
+    outer_run = outer_pydantic.run
+
+    async def _steer_then_nest(prompt: Any, **kwargs: Any) -> Any:
+        # First model call only: the user hits Alt+Enter while the agent
+        # works, and the agent then fires a nested assessment run.
+        outer_pydantic.run = outer_run  # type: ignore[assignment]
+        get_pause_controller().request_steer("also update the docs", mode="queue")
+        await _runtime.run_with_mcp(inner_agent, "assess: rm -rf /tmp/x")
+        return await outer_run(prompt, **kwargs)
+
+    outer_pydantic.run = _steer_then_nest  # type: ignore[assignment]
+
+    await _runtime.run_with_mcp(outer_agent, "do the thing")
+
+    assert [call["prompt"] for call in inner_pydantic.calls] == [
+        "assess: rm -rf /tmp/x"
+    ], "nested run swallowed the outer run's queued steer"
+    assert [call["prompt"] for call in outer_pydantic.calls] == [
+        "do the thing",
+        "also update the docs",
+    ]
+    assert get_pause_controller().drain_pending_steer() == []
+
+
+# =============================================================================
 # Wiring: confirm the steer history processor is actually attached
 # =============================================================================
 
@@ -257,10 +304,10 @@ def test_steer_queued_mid_run_is_injected_via_history_processor():
     This is a unit test on the processor itself (we can't drive a real
     pydantic-ai agent in CI), but it locks the contract: queue a steer,
     invoke the processor, the steer shows up in the returned messages.
-    The actual pydantic-ai → ProcessHistory → model wiring is verified
+    The actual pydantic-ai → capability-chain → model wiring is verified
     by the unit tests in ``test_steer_history_processor.py`` and by the
-    ``_builder.py`` wiring (``capabilities=[ProcessHistory(compaction),
-    ProcessHistory(steer)]``).
+    ``_builder.py`` wiring (``capabilities=[HistoryCompaction(agent),
+    ProcessHistory(steer_processor), ...]``).
     """
     from unittest.mock import Mock
 
@@ -297,17 +344,17 @@ def test_steer_processor_is_wired_into_builder_after_compaction():
     from code_puppy.agents import _builder
 
     src = inspect.getsource(_builder)
-    # Both processors must be referenced in the builder.
+    # Both capabilities must be referenced in the builder.
     assert "make_steer_history_processor" in src
-    assert "make_history_processor" in src
+    assert "HistoryCompaction" in src
     # Order is checked textually against the capabilities list literal;
-    # ProcessHistory capabilities apply in registration order.
+    # before_model_request capabilities apply in registration order.
     cap_start = src.find("capabilities=[")
-    assert cap_start >= 0, "builder must register capabilities=[ProcessHistory(...)]"
+    assert cap_start >= 0, "builder must register a capabilities=[...] list"
     cap_block = src[cap_start : src.find("]", cap_start)]
-    # Just sanity-check both names appear and history_processor comes first.
-    h_idx = cap_block.find("ProcessHistory(history_processor)")
+    # Just sanity-check both names appear and compaction comes first.
+    h_idx = cap_block.find("history_compaction")
     s_idx = cap_block.find("ProcessHistory(steer_processor)")
     assert h_idx >= 0 and s_idx > h_idx, (
-        f"steer_processor must come AFTER history_processor: {cap_block!r}"
+        f"steer_processor must come AFTER history_compaction: {cap_block!r}"
     )

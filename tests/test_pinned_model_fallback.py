@@ -209,12 +209,6 @@ async def _invoke_with_dead_pin(
         p(patch("code_puppy.config.get_output_level", return_value="medium"))
         p(
             patch(
-                "code_puppy.agents._compaction.make_history_processor",
-                return_value=lambda messages: messages,
-            )
-        )
-        p(
-            patch(
                 "code_puppy.tools.subagent_invocation.Agent",
                 return_value=mock_temp_agent,
             )

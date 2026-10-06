@@ -1,14 +1,20 @@
 """Persistent bottom prompt bar via a terminal scroll region (DECSTBM).
 
-Reserves the bottom rows of the terminal (3 base rows plus one row for
-every active sub-agent panel entry):
+Reserves the bottom rows of the terminal, bottom-up (optional rows exist
+only while they have content):
 
-    rows H-2-n..H-3  sub-agent panel (n = number of panel rows, via set_panel_lines)
-    row  H-2         status line (token/context info, via set_status)
-    row  H-1         prompt line  (the always-available input line)
-    row  H           blank margin
+    row H          status line (token/context info, via set_status)
+    above it       identity line (agent/model metadata, from the
+                   prompt prefix)
+    above it       optional speculation stats row
+                   (via set_speculation_status)
+    above it       completion popup rows, directly below the prompt
+    prompt rows    the always-available input viewport
+                   (1..PROMPT_MAX_ROWS rows)
+    above it       sub-agent panel (n rows, via set_panel_lines)
+    top of band    blank margin (separator below the transcript)
 
-The scrollable region is rows ``1 .. H-3-n``, so
+The scrollable region is rows ``1 .. H-reserved``, so
 all existing streaming output — termflow markdown, thinking stream, tool
 token-count lines — keeps working unmodified: it simply scrolls *inside*
 the region while the reserved rows stay put.
@@ -49,6 +55,7 @@ import threading
 from contextlib import contextmanager
 from typing import Callable, Iterator, Optional, TextIO, Tuple
 
+from .bar_painters import PROMPT_MAX_ROWS, BarPainterMixin  # noqa: E402
 from .bar_rendering import (
     CLEAR_LINE as _CLEAR_LINE,
 )
@@ -80,13 +87,15 @@ from .bar_rendering import (
     SAVE_CURSOR as _SAVE_CURSOR,
 )
 from .bar_rendering import (
+    clear_ghost_band as _clear_ghost_band,
+)
+from .bar_rendering import (
     default_get_size as _default_get_size,
 )
 from .bar_rendering import (
     sanitize as _sanitize,
 )
-
-from .bar_painters import PROMPT_MAX_ROWS, BarPainterMixin  # noqa: E402
+from .speculation_line import SpeculationLineMixin  # noqa: E402
 from .transcript_guard import TranscriptGuardMixin  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -111,7 +120,7 @@ SizeProvider = Callable[[], Tuple[int, int]]
 # =============================================================================
 
 
-class BottomBar(TranscriptGuardMixin, BarPainterMixin):
+class BottomBar(TranscriptGuardMixin, SpeculationLineMixin, BarPainterMixin):
     """Scroll-region manager for the persistent bottom prompt.
 
     Use the module-level singleton via :func:`get_bottom_bar` in app code;
@@ -132,8 +141,10 @@ class BottomBar(TranscriptGuardMixin, BarPainterMixin):
         self._rows = 0
         self._cols = 0
         self._status = ""
+        self._tool_progress = ""  # transient tool argument streaming counter
         self._status_prefix = ""  # animated spinner slot (puppy_spinner)
         self._status_suffix = ""  # trailing slot (steer_queue's '(N queued)')
+        self._speculation_status = ""  # optional stats row above identity/context
         self._panel_lines: list[str] = []
         self._popup_lines: list[str] = []  # completion popup (over panel)
         self._popup_selected = -1
@@ -213,6 +224,12 @@ class BottomBar(TranscriptGuardMixin, BarPainterMixin):
         """Current status-line text (the cached :meth:`set_status` value)."""
         with self._lock:
             return self._status
+
+    def set_tool_progress(self, text: str) -> None:
+        """Update tool streaming progress without clobbering other status slots."""
+        with self._lock:
+            self._tool_progress = text or ""
+            self._sync_reserved(self._status_seq)
 
     def set_status_prefix(self, text: str) -> None:
         """Update the spinner slot painted BEFORE the status text.
@@ -321,12 +338,18 @@ class BottomBar(TranscriptGuardMixin, BarPainterMixin):
         ``prefix_sgrs``: per-char SGR codes for the prefix (out-of-band
         — in-band escapes would be sanitized away).
         """
+        from .identity_line import split_identity
+
         with self._lock:
-            self._prompt_prefix = prefix or ""
-            self._prompt_prefix_sgrs = list(prefix_sgrs or [])
+            (
+                self._prompt_prefix,
+                self._prompt_prefix_sgrs,
+                self._identity_text,
+                self._identity_sgrs,
+            ) = split_identity(prefix or "", list(prefix_sgrs or []))
             self._prompt_buffer = buffer or ""
             self._prompt_cursor = max(0, cursor_pos)
-            self._sync_reserved(self._prompt_seq)
+            self._sync_reserved(lambda: self._prompt_seq() + self._identity_seq())
 
     def _sync_reserved(self, painter) -> None:
         """Repaint (or resize the reserved area) after a state change.
@@ -389,7 +412,16 @@ class BottomBar(TranscriptGuardMixin, BarPainterMixin):
         Windows (no SIGWINCH there).
         """
         cols, rows = self._safe_size()
-        if (cols, rows) != (self._cols, self._rows):
+        if (cols, rows) == (self._cols, self._rows):
+            return
+        if self._region_up and rows == self._rows:
+            # Horizontal dragging is not a fresh allocation. Re-establishing
+            # feeds a whole footer's worth of LFs on EVERY width change,
+            # pushing blank rows / chrome into scrollback. Reuse the existing
+            # band; only wrapped input or panel changes may alter its height.
+            self._cols = cols
+            self._resize_reserved(self._reserved)
+        else:
             self._establish()
 
     def _on_resize(self) -> None:
@@ -475,7 +507,8 @@ class BottomBar(TranscriptGuardMixin, BarPainterMixin):
             # in effect, put the terminal back to normal and go dormant
             # (hardware cursor comes back too — no region, no pseudo-cursor).
             if self._region_up:
-                parts = [_RESET_REGION]
+                # DECSTBM homes the cursor: keep the writer's position.
+                parts = [_SAVE_CURSOR, _RESET_REGION, _RESTORE_CURSOR]
                 if self._cursor_hidden:
                     parts.append(_CURSOR_SHOW)
                     self._cursor_hidden = False
@@ -492,14 +525,10 @@ class BottomBar(TranscriptGuardMixin, BarPainterMixin):
         top = rows - reserved
         parts = []
         if old_reserved and old_rows > 0:
-            # Re-establish after a resize: old rows were painted at the previous
-            # geometry and linger as ghosts. Reset the region so erases can reach
-            # outside the incoming one, then blank the old band (clamped to height).
-            parts.append(_RESET_REGION)
-            for row in range(
-                max(1, old_rows - old_reserved + 1), min(old_rows, rows) + 1
-            ):
-                parts.append(f"\x1b[{row};1H{_CLEAR_LINE}")
+            # Re-establish after a resize: erase the old band's ghosts
+            # WITHOUT moving the writer cursor (see clear_ghost_band).
+            keep = not self._guard_scroll_fix  # Windows parks at (top, 1)
+            parts.append(_clear_ghost_band(old_rows, old_reserved, rows, keep))
         if self._guard_scroll_fix:
             # Windows: the transcript-guard simulator must know the exact
             # cursor row, so keep the deterministic park at (top, 1) that

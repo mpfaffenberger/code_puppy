@@ -103,25 +103,6 @@ def _ensure_builtin_plugin_callback_registrations() -> None:
     cp_callbacks.register_callback("startup", uc._on_startup)
 
 
-# Integration test fixtures - only import if pexpect.spawn is available (Unix)
-# On Windows, pexpect doesn't have spawn attribute, so skip these imports
-try:
-    from tests.integration.cli_expect.fixtures import live_cli as live_cli  # noqa: F401
-
-    # Re-export integration fixtures so pytest discovers them project-wide
-    # Expose the CLI harness fixtures globally
-    from tests.integration.cli_expect.harness import cli_harness as cli_harness
-    from tests.integration.cli_expect.harness import integration_env as integration_env
-    from tests.integration.cli_expect.harness import log_dump as log_dump
-    from tests.integration.cli_expect.harness import retry_policy as retry_policy
-    from tests.integration.cli_expect.harness import (  # noqa: F401
-        spawned_cli as spawned_cli,
-    )
-except (ImportError, AttributeError):
-    # On Windows or when pexpect.spawn is unavailable, skip integration fixtures
-    pass
-
-
 @pytest.fixture(autouse=True)
 def isolate_global_state_between_tests(tmp_path_factory):
     """Isolate mutable global state between tests.
@@ -282,14 +263,4 @@ def pytest_sessionfinish(session, exitstatus):
                 #     print(f"    (cleanup failed: {e})")
     except subprocess.CalledProcessError:
         # Not a git repo or git not available: ignore silently
-        pass
-
-    # After cleanup, print DBOS consolidated report if available
-    try:
-        from tests.integration.cli_expect.harness import get_dbos_reports
-
-        report = get_dbos_reports()
-        if report.strip():
-            print("\n[DBOS Report]\n" + report)
-    except Exception:
         pass

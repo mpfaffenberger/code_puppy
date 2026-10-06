@@ -100,6 +100,7 @@ class HistoryNavigator:
         self._entries: Optional[List[str]] = None
         self._index: int = 0
         self._working: str = ""
+        self._suppress_recent: List[str] = []
 
     @property
     def browsing(self) -> bool:
@@ -109,6 +110,11 @@ class HistoryNavigator:
         """Move to the previous (older) entry; None if nothing to show."""
         if self._entries is None:
             self._entries = self._store.load()
+            for queued_entry in self._suppress_recent:
+                if not self._entries or self._entries[-1] != queued_entry:
+                    break
+                self._entries.pop()
+            self._suppress_recent = []
             self._index = len(self._entries)
             self._working = current_text
         if self._index == 0:
@@ -125,6 +131,13 @@ class HistoryNavigator:
             return self._working
         return self._entries[self._index]
 
+    def suppress_recent(self, newest_first: List[str]) -> None:
+        """Skip matching queued submissions on the next history traversal."""
+        self._entries = None
+        self._index = 0
+        self._working = ""
+        self._suppress_recent = list(newest_first)
+
     def record_submit(self, text: str) -> None:
         """Persist a submission and reset browsing state."""
         self._store.append(text)
@@ -134,6 +147,7 @@ class HistoryNavigator:
         self._entries = None
         self._index = 0
         self._working = ""
+        self._suppress_recent = []
 
 
 class ReverseSearch:

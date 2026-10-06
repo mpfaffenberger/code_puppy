@@ -216,7 +216,7 @@ class TestMain:
         mock_exec.assert_called_once()
 
     @pytest.mark.anyio
-    async def test_interactive_mode_default(self):
+    async def test_interactive_mode_default(self, capsys):
         mock_inter = AsyncMock()
         await self._run_main(
             ["code-puppy"],
@@ -226,6 +226,10 @@ class TestMain:
             },
         )
         mock_inter.assert_called_once()
+        output = capsys.readouterr().out.lower()
+        assert "logo" in output
+        assert "pydantic" not in output
+        assert "logfire" not in output
 
     @pytest.mark.anyio
     async def test_narrow_terminal_interactive_mode_uses_compact_banner(self):

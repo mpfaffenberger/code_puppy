@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING
 from rich.console import Console
 from rich.markup import escape as rich_escape
 
+from code_puppy.i18n import t
+
 from .constants import (
     ARROW_DOWN,
     ARROW_LEFT,
@@ -59,7 +61,11 @@ def render_question_panel(
         # Best-effort fallback. Escape everything; never re-enter Rich markup parsing.
         buffer = io.StringIO()
         Console(file=buffer, force_terminal=True, no_color=True).print(
-            f"[render error: {type(exc).__name__}: {exc}]",
+            t(
+                "ask_user_question.render.error",
+                error_type=type(exc).__name__,
+                error=exc,
+            ),
             markup=False,
         )
         return buffer.getvalue()
@@ -116,7 +122,7 @@ def _render_question_panel_unsafe(
     if question.multi_select:
         console.print(
             f"{pad}[{colors.question}]? {safe_question}[/{colors.question}] "
-            f"[{colors.question_hint}](select multiple)[/{colors.question_hint}]"
+            f"[{colors.question_hint}]{t('ask_user_question.question.select_multiple')}[/{colors.question_hint}]"
         )
     else:
         console.print(f"{pad}[{colors.question}]? {safe_question}[/{colors.question}]")
@@ -161,25 +167,29 @@ def _render_question_panel_unsafe(
     if state.entering_other_text:
         console.print()
         console.print(
-            f"{pad}[{colors.input_label}]Enter your custom option:[/{colors.input_label}]"
+            f"{pad}[{colors.input_label}]{t('ask_user_question.input.custom_option')}[/{colors.input_label}]"
         )
         console.print(
             f"{pad}[{colors.input_text}]> {state.other_text_buffer}_[/{colors.input_text}]"
         )
         console.print()
         console.print(
-            f"{pad}[{colors.input_hint}]Enter to confirm, Esc to cancel[/{colors.input_hint}]"
+            f"{pad}[{colors.input_hint}]{t('ask_user_question.input.confirm_cancel')}[/{colors.input_hint}]"
         )
 
     # Help text at bottom - build dynamically, filtering out None entries
     console.print()
     is_last = state.current_question_index == total - 1
     help_parts = [
-        "Space Toggle" if question.multi_select else "Space Select",
-        "Enter Next" if not is_last else None,
-        f"{ARROW_LEFT}{ARROW_RIGHT} Questions" if total > 1 else None,
-        "Ctrl+S Submit",
-        "? Help",
+        t("ask_user_question.help.space_toggle")
+        if question.multi_select
+        else t("ask_user_question.help.space_select"),
+        t("ask_user_question.help.enter_next") if not is_last else None,
+        f"{ARROW_LEFT}{ARROW_RIGHT} {t('ask_user_question.help.questions')}"
+        if total > 1
+        else None,
+        t("ask_user_question.help.submit"),
+        t("ask_user_question.help.toggle_help"),
     ]
     separator = f" {PIPE_SEPARATOR} "
     console.print(
@@ -191,7 +201,7 @@ def _render_question_panel_unsafe(
         remaining = state.get_time_remaining()
         console.print()
         console.print(
-            f"{pad}[{colors.timeout_warning}] Timeout in {remaining}s - press any key to continue[/{colors.timeout_warning}]"
+            f"{pad}[{colors.timeout_warning}] {t('ask_user_question.timeout.warning', remaining=remaining)}[/{colors.timeout_warning}]"
         )
 
     return buffer.getvalue()
@@ -245,7 +255,7 @@ def _render_help_overlay(
 
     console.print(border_line)
     console.print(
-        f"{pad}[{colors.help_title}]           KEYBOARD SHORTCUTS[/{colors.help_title}]"
+        f"{pad}[{colors.help_title}]{'           ' + t('ask_user_question.help.title')}[/{colors.help_title}]"
     )
     console.print(border_line)
     console.print()
@@ -266,7 +276,7 @@ def _render_help_overlay(
 
     console.print(border_line)
     console.print(
-        f"{pad}[{colors.help_close}]Press [{key_style}]?[/{key_style}] to close this help[/{colors.help_close}]"
+        f"{pad}[{colors.help_close}]{t('ask_user_question.help.close', key_style=key_style)}[/{colors.help_close}]"
     )
     console.print(border_line)
 
@@ -291,7 +301,10 @@ def render_header_panel(
         no_color=False,
     )
     pad = PANEL_CONTENT_PADDING
-    console.print(f"{pad}[{colors.header}]Questions[/{colors.header}]")
+    console.print(
+        f"{pad}[{colors.header}]{t('ask_user_question.panel.questions')}[/{colors.header}]"
+    )
+
     console.print()
     for i, question in enumerate(state.questions):
         is_current = i == state.current_question_index
@@ -312,20 +325,20 @@ def render_header_panel(
     console.print()
     console.print(
         f"{pad}[{colors.help_key}]{ARROW_LEFT}{ARROW_RIGHT}[/{colors.help_key}]"
-        f"[{colors.description}] Switch question[/{colors.description}]"
+        f"[{colors.description}] {t('ask_user_question.panel.switch_question')}[/{colors.description}]"
     )
     console.print(
         f"{pad}[{colors.help_key}]{ARROW_UP}{ARROW_DOWN}[/{colors.help_key}]"
-        f"[{colors.description}] Navigate options[/{colors.description}]"
+        f"[{colors.description}] {t('ask_user_question.panel.navigate_options')}[/{colors.description}]"
     )
     console.print()
     console.print(
         f"{pad}[{colors.help_key}]Ctrl+S[/{colors.help_key}]"
-        f"[{colors.description}] Submit[/{colors.description}]"
+        f"[{colors.description}] {t('ask_user_question.panel.submit')}[/{colors.description}]"
     )
     console.print(
         f"{pad}[{colors.help_key}]Tab[/{colors.help_key}]"
-        f"[{colors.description}] Peek behind[/{colors.description}]"
+        f"[{colors.description}] {t('ask_user_question.panel.peek_behind')}[/{colors.description}]"
     )
     return buffer.getvalue()
 

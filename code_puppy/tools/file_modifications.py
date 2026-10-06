@@ -36,6 +36,7 @@ from code_puppy.tools import fs_access
 from code_puppy.tools.common import (
     generate_group_id,
     resolve_path,
+    read_text_sanitized,
     write_project_file,
 )
 from code_puppy.tools.file_permission_state import (
@@ -297,19 +298,16 @@ def _delete_snippet_from_file(
     try:
         if not fs_access.exists(file_path) or not fs_access.is_file(file_path):
             return {"error": f"File '{file_path}' does not exist.", "diff": diff_text}
-        original = fs_access.read_text(file_path)
-        # Sanitize any surrogate characters from reading
-        try:
-            original = original.encode("utf-8", errors="surrogatepass").decode(
-                "utf-8", errors="replace"
-            )
-        except (UnicodeEncodeError, UnicodeDecodeError):
-            pass
+
+        # Sanitize any surrogate characters from reading.
+        original = read_text_sanitized(file_path)
+
         if snippet not in original:
             return {
                 "error": f"Snippet not found in file '{file_path}'.",
                 "diff": diff_text,
             }
+
         modified = original.replace(snippet, "", 1)
         from code_puppy.config import get_diff_context_lines
 
@@ -322,7 +320,9 @@ def _delete_snippet_from_file(
                 n=get_diff_context_lines(),
             )
         )
+
         write_project_file(file_path, modified)
+
         return {
             "success": True,
             "path": file_path,
@@ -330,6 +330,7 @@ def _delete_snippet_from_file(
             "changed": True,
             "diff": diff_text,
         }
+
     except Exception as exc:
         return {"error": str(exc), "diff": diff_text}
 
@@ -398,15 +399,8 @@ def _replace_in_file(
         if not fs_access.exists(file_path) or not fs_access.is_file(file_path):
             return {"error": f"File '{file_path}' does not exist.", "diff": diff_text}
 
-        original = fs_access.read_text(file_path)
-
-        # Sanitize any surrogate characters from reading
-        try:
-            original = original.encode("utf-8", errors="surrogatepass").decode(
-                "utf-8", errors="replace"
-            )
-        except (UnicodeEncodeError, UnicodeDecodeError):
-            pass
+        # Sanitize any surrogate characters from reading.
+        original = read_text_sanitized(file_path)
 
         engine_result = apply_replacements_to_content(original, replacements)
         if "error" in engine_result:
@@ -418,6 +412,7 @@ def _replace_in_file(
                 "No changes to apply – proposed content is identical.",
                 message_group=message_group,
             )
+
             return {
                 "success": False,
                 "path": file_path,
@@ -437,7 +432,9 @@ def _replace_in_file(
                 n=get_diff_context_lines(),
             )
         )
+
         write_project_file(file_path, modified)
+
         return {
             "success": True,
             "path": file_path,
@@ -445,6 +442,7 @@ def _replace_in_file(
             "changed": True,
             "diff": diff_text,
         }
+
     except Exception as exc:
         return {"error": str(exc), "diff": diff_text}
 
@@ -473,14 +471,11 @@ def _write_to_file(
         from code_puppy.config import get_diff_context_lines
 
         if exists:
-            old_content = fs_access.read_text(file_path)
-            try:
-                old_content = old_content.encode(
-                    "utf-8", errors="surrogatepass"
-                ).decode("utf-8", errors="replace")
-            except (UnicodeEncodeError, UnicodeDecodeError):
-                pass
+            # Sanitize any surrogate characters from reading.
+            old_content = read_text_sanitized(file_path)
+
             old_lines = old_content.splitlines(keepends=True)
+
         else:
             old_lines = []
 
@@ -491,10 +486,11 @@ def _write_to_file(
             tofile=f"b/{os.path.basename(file_path)}",
             n=get_diff_context_lines(),
         )
+
         diff_text = "".join(diff_lines)
 
-        # Create local dirs only for local writes; a FS backend (e.g. ACP host)
-        # manages its own topology.
+        # Create local dirs only for local writes.
+        # An FS backend like ACP host manages its own topology.
         fs_access.make_dirs(os.path.dirname(file_path) or ".")
         write_project_file(file_path, content)
 
@@ -518,7 +514,8 @@ def delete_snippet_from_file(
     refused = _refuse_user_plugin_tree(file_path)
     if refused is not None:
         return refused
-    # Use the plugin system for permission handling with operation data
+
+    # Use the plugin system for permission handling with operation data.
     from code_puppy.callbacks import on_file_permission
 
     operation_data = {"snippet": snippet}
@@ -526,13 +523,14 @@ def delete_snippet_from_file(
         context, file_path, "delete snippet from", None, message_group, operation_data
     )
 
-    # If any permission handler denies the operation, return cancelled result
+    # If any permission handler denies the operation, return cancelled result.
     if _permission_denied(permission_results):
         return _create_rejection_response(file_path)
 
     res = _delete_snippet_from_file(
         context, file_path, snippet, message_group=message_group
     )
+
     diff = res.get("diff", "")
     if diff:
         _emit_diff_message(file_path, "modify", diff)
@@ -853,33 +851,30 @@ def _delete_file(
     refused = _refuse_user_plugin_tree(file_path)
     if refused is not None:
         return refused
+
     UndoManager().record_change(file_path, "delete_file")
     file_path = resolve_path(file_path)
 
-    # Use the plugin system for permission handling with operation data
+    # Use the plugin system for permission handling with operation data.
     from code_puppy.callbacks import on_file_permission
 
-    operation_data = {}  # No additional data needed for delete operations
+    operation_data = {}  # No additional data needed for delete operations.
     permission_results = on_file_permission(
         context, file_path, "delete", None, message_group, operation_data
     )
 
-    # If any permission handler denies the operation, return cancelled result
+    # If any permission handler denies the operation, return cancelled result.
     if _permission_denied(permission_results):
         return _create_rejection_response(file_path)
 
     try:
         if not fs_access.exists(file_path) or not fs_access.is_file(file_path):
             res = {"error": f"File '{file_path}' does not exist.", "diff": ""}
+
         else:
-            original = fs_access.read_text(file_path)
-            # Sanitize any surrogate characters from reading
-            try:
-                original = original.encode("utf-8", errors="surrogatepass").decode(
-                    "utf-8", errors="replace"
-                )
-            except (UnicodeEncodeError, UnicodeDecodeError):
-                pass
+            # Sanitize any surrogate characters from reading.
+            original = read_text_sanitized(file_path)
+
             from code_puppy.config import get_diff_context_lines
 
             diff_text = "".join(
@@ -891,7 +886,9 @@ def _delete_file(
                     n=get_diff_context_lines(),
                 )
             )
+
             fs_access.delete_file(file_path)
+
             res = {
                 "success": True,
                 "path": file_path,
@@ -899,6 +896,7 @@ def _delete_file(
                 "changed": True,
                 "diff": diff_text,
             }
+
     except Exception as exc:
         _log_error("Unhandled exception in delete_file", exc)
         res = {"error": str(exc), "diff": ""}
@@ -916,6 +914,7 @@ async def _delete_file_async(
     refused = _refuse_user_plugin_tree(file_path)
     if refused is not None:
         return refused
+
     file_path = resolve_path(file_path)
 
     from code_puppy.callbacks import on_file_permission_async
@@ -924,6 +923,7 @@ async def _delete_file_async(
     permission_results = await on_file_permission_async(
         context, file_path, "delete", None, message_group, operation_data
     )
+
     if _permission_denied(permission_results):
         return _create_rejection_response(file_path)
 
@@ -932,13 +932,9 @@ async def _delete_file_async(
             if not fs_access.exists(file_path) or not fs_access.is_file(file_path):
                 return {"error": f"File '{file_path}' does not exist.", "diff": ""}
 
-            original = fs_access.read_text(file_path)
-            try:
-                original = original.encode("utf-8", errors="surrogatepass").decode(
-                    "utf-8", errors="replace"
-                )
-            except (UnicodeEncodeError, UnicodeDecodeError):
-                pass
+            # Sanitize any surrogate characters from reading.
+            original = read_text_sanitized(file_path)
+
             from code_puppy.config import get_diff_context_lines
 
             diff_text = "".join(
@@ -950,7 +946,9 @@ async def _delete_file_async(
                     n=get_diff_context_lines(),
                 )
             )
+
             fs_access.delete_file(file_path)
+
             return {
                 "success": True,
                 "path": file_path,
@@ -958,6 +956,7 @@ async def _delete_file_async(
                 "changed": True,
                 "diff": diff_text,
             }
+
         except Exception as exc:
             _log_error("Unhandled exception in delete_file", exc)
             return {"error": str(exc), "diff": ""}

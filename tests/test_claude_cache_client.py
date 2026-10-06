@@ -348,6 +348,7 @@ class TestHeaderTransformation:
         ClaudeCacheAsyncClient._transform_headers_for_claude_code(headers)
 
         assert headers["user-agent"] == CLAUDE_CLI_USER_AGENT
+        assert headers["user-agent"].startswith("claude-cli/2.1.280 ")
 
     def test_transform_headers_adds_oauth_beta(self):
         """Test that oauth beta is always added."""
@@ -357,6 +358,16 @@ class TestHeaderTransformation:
 
         assert "oauth-2025-04-20" in headers["anthropic-beta"]
         assert "interleaved-thinking-2025-05-14" in headers["anthropic-beta"]
+
+    def test_transform_headers_always_streams_tool_args(self):
+        """Eager CodeMode needs streamed tool input, so the beta is unconditional
+        and never duplicated when a caller already sent it."""
+        from code_puppy.claude_cache_client import FINE_GRAINED_TOOL_STREAMING_BETA
+
+        for headers in ({}, {"anthropic-beta": FINE_GRAINED_TOOL_STREAMING_BETA}):
+            ClaudeCacheAsyncClient._transform_headers_for_claude_code(headers)
+            betas = headers["anthropic-beta"].split(",")
+            assert betas.count(FINE_GRAINED_TOOL_STREAMING_BETA) == 1
 
     def test_transform_headers_keeps_claude_code_beta_if_present(self):
         """Test that claude-code beta is kept if it was in the incoming headers."""

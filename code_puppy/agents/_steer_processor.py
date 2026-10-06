@@ -25,7 +25,6 @@ from typing import Any, Callable, List
 from pydantic_ai.messages import ModelMessage, ModelRequest, UserPromptPart
 
 from code_puppy.command_line.attachments import resolve_steer_content
-from code_puppy.messaging import emit_info
 from code_puppy.messaging.pause_controller import get_pause_controller
 from code_puppy.steer_metadata import STEER_METADATA
 
@@ -78,11 +77,7 @@ def make_steer_history_processor(agent: Any) -> Callable[..., List[ModelMessage]
                 )
             )
         for steer_text in pending:
-            content, preview_text = resolve_steer_content(steer_text)
-            n_extras = len(content) - 1 if isinstance(content, list) else 0
-            suffix = f" (+{n_extras} attachment(s))" if n_extras else ""
-            preview = preview_text[:80] + ("..." if len(preview_text) > 80 else "")
-            emit_info(f"Injecting steer mid-turn — model will see: {preview!r}{suffix}")
+            content, _ = resolve_steer_content(steer_text)
             injected.append(
                 ModelRequest(
                     parts=[UserPromptPart(content=content)],

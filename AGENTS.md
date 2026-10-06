@@ -75,6 +75,7 @@ approval. With `fail_closed=True` its exception is reported as a block instead. 
 | `shutdown` | Graceful exit | `() -> None` |
 | `invoke_agent` | Sub-agent invoked | `(*args, **kwargs) -> None` |
 | `agent_exception` | Unhandled agent error | `(exception, *args, **kwargs) -> None` |
+| `error_logged` | After `log_error()` writes to the local log | `(error, *, context=None, include_traceback=True) -> None` — sync observer; must return promptly |
 | `agent_run_start` | Before agent task | `(agent_name, model_name, session_id=None) -> None` |
 | `model_select` | Select a model for one run | `(*, agent_name, current_model, prompt, messages, session_id=None) -> str \| None` — first non-empty result wins |
 | `agent_run_end` | After agent run | `(agent_name, model_name, session_id=None, success=True, error=None, response_text=None, metadata=None) -> None` |
@@ -90,6 +91,7 @@ approval. With `fail_closed=True` its exception is reported as a block instead. 
 | `register_agents` | Agent catalogue | `() -> list[dict]` with `{"name": str, "class": type}` |
 | `register_model_type` | Custom model type | `() -> list[dict]` with `{"type": str, "handler": callable}` |
 | `register_skills` | Skill catalogue | `() -> list[dict]` with `{"name": str, "skill_md" \| "skill_md_path" \| "frontmatter"+"body"}` |
+| `register_settings` | `/set` keys (autocomplete + `/set` menu) | `() -> SettingsCategory \| list[SettingsCategory]` from `code_puppy.command_line.set_menu_schema` — same-named categories merge; core keys win; `sensitive=True` masks the value. Guard with `try/except ValueError` for older cores |
 | `register_cli_args` | Before CLI `parse_args()` | `(parser) -> list` — plugins call `parser.add_argument(...)`; namespace flags (e.g. `--myplugin-foo`) to avoid argparse collisions |
 | `handle_cli_args` | After CLI `parse_args()` | `(args) -> dict \| None` — return `{"handled": True, "exit_code": int}` to terminate the CLI cleanly; return `None` to let startup proceed |
 | `load_model_config` | Patch model config | `(*args, **kwargs) -> Any` |
@@ -102,6 +104,24 @@ approval. With `fail_closed=True` its exception is reported as a block instead. 
 | `pre_mcp_autostart` | Before bound MCP servers auto-start | `(agent_name, server_names) -> None` (refresh tokens / mint creds here) |
 
 Full list + rarely-used hooks: see `code_puppy/callbacks.py` source.
+
+## Speculative Execution
+
+With speculative execution on (`enable_speculative_code_mode`, `Ctrl+X Ctrl+S`),
+a tool call whose arguments are all literals may launch while the model is still
+writing the snippet. Tools opt in themselves -- core and plugin alike, no core
+edit needed:
+
+```python
+@agent.tool(metadata={"speculatable": True})
+async def my_lookup(context: RunContext, query: str) -> Result: ...
+```
+
+Only a literal `True` counts. Declare it only for side-effect-free reads: an
+early launch can run a call from a snippet that later errors before reaching
+it, and an unclaimed result is discarded. Re-check any opt-in setting inside
+the tool body so a disabled feature cannot run early. Resolution happens at
+each run start in `code_puppy/agents/_code_mode.py` (`DeclaredSpeculation`).
 
 ## Ctrl+X Chords
 
@@ -116,6 +136,7 @@ cancels the chord; unbound keys are then processed normally.
 | `Ctrl+X Ctrl+E` | Edit the prompt buffer in `$VISUAL`/`$EDITOR` | `run_ui` | Always (UI lifetime) |
 | `Ctrl+X Ctrl+X` | Kill all running shell commands | `command_runner` | While shell commands run |
 | `Ctrl+X Ctrl+B` | Background all running shell commands | `command_runner` | While shell commands run |
+| `Ctrl+X Ctrl+S` | Toggle speculative execution (`enable_speculative_code_mode`), rebuilds the current agent for the next turn | `run_ui` | Always (UI lifetime) |
 
 **Design notes:**
 

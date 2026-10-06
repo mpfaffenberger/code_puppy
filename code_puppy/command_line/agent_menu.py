@@ -36,6 +36,7 @@ from code_puppy.config import (
     get_agent_pinned_model,
     set_agent_pinned_model,
 )
+from code_puppy.i18n import t
 from code_puppy.messaging import emit_info, emit_success, emit_warning
 from code_puppy.tools.command_runner import set_awaiting_user_input
 
@@ -127,7 +128,7 @@ async def _select_pinned_model(agent_name: str) -> Optional[str]:
     try:
         model_names = load_model_names() or []
     except Exception as exc:
-        emit_warning(f"Failed to load models: {exc}")
+        emit_warning(t("agent_menu.models_load_failed", error=exc))
         return None
 
     # Prepend the "(unpin)" sentinel that _apply_pinned_model already understands.
@@ -162,11 +163,13 @@ def _apply_pinned_model(agent_name: str, model_choice: str) -> None:
                 # Remove the model key if it exists
                 if "model" in agent_config:
                     del agent_config["model"]
-                emit_success(f"Model pin cleared for '{agent_name}'")
+                emit_success(t("agent_menu.pin_cleared", agent=agent_name))
             else:
                 # Set the model
                 agent_config["model"] = model_choice
-                emit_success(f"Pinned '{model_choice}' to '{agent_name}'")
+                emit_success(
+                    t("agent_menu.pin_set", model=model_choice, agent=agent_name)
+                )
 
             # Save the updated configuration
             with open(agent_file_path, "w", encoding="utf-8") as f:
@@ -175,16 +178,18 @@ def _apply_pinned_model(agent_name: str, model_choice: str) -> None:
             # Handle built-in Python agent - use config functions
             if model_choice == "(unpin)":
                 clear_agent_pinned_model(agent_name)
-                emit_success(f"Model pin cleared for '{agent_name}'")
+                emit_success(t("agent_menu.pin_cleared", agent=agent_name))
             else:
                 set_agent_pinned_model(agent_name, model_choice)
-                emit_success(f"Pinned '{model_choice}' to '{agent_name}'")
+                emit_success(
+                    t("agent_menu.pin_set", model=model_choice, agent=agent_name)
+                )
 
         from code_puppy.agents import request_agent_reload
 
         request_agent_reload(agent_name)
     except Exception as exc:
-        emit_warning(f"Failed to apply pinned model: {exc}")
+        emit_warning(t("agent_menu.pin_apply_failed", error=exc))
 
 
 def _get_agent_entries() -> List[Tuple[str, str, str]]:
@@ -341,7 +346,7 @@ async def interactive_agent_picker() -> Optional[str]:
     current_agent_name = current_agent.name if current_agent else ""
 
     if not entries:
-        emit_info("No agents found.")
+        emit_info(t("agent_menu.none_found"))
         return None
 
     selected_index = 0
@@ -391,9 +396,9 @@ async def interactive_agent_picker() -> Optional[str]:
 
                 if action == "delete" and highlighted:
                     if not is_clone_agent_name(highlighted):
-                        emit_warning("Only cloned agents can be deleted.")
+                        emit_warning(t("agent_menu.delete_not_clone"))
                     elif highlighted == current_agent_name:
-                        emit_warning("Cannot delete the active agent. Switch first.")
+                        emit_warning(t("agent_menu.delete_active"))
                     elif delete_clone_agent(highlighted):
                         selected_index = 0
                     entries = _get_agent_entries()

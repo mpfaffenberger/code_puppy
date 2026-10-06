@@ -7,9 +7,11 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from pydantic_ai import VideoUrl
 
 from code_puppy.command_line.attachments import (
     MAX_PATH_LENGTH,
+    VIDEO_EXTENSION_MEDIA_TYPES,
     AttachmentParsingError,
     PromptLinkAttachment,
     _candidate_paths,
@@ -24,6 +26,7 @@ from code_puppy.command_line.attachments import (
     _strip_attachment_token,
     _tokenise,
     _unescape_dragged_path,
+    _video_media_type_from_url,
     parse_prompt_attachments,
 )
 
@@ -83,12 +86,14 @@ def test_normalise_path_expands_user():
 
 
 def test_normalise_path_invalid():
-    with patch(
-        "code_puppy.command_line.attachments.Path.absolute",
-        side_effect=ValueError("bad"),
+    with (
+        patch(
+            "code_puppy.command_line.attachments.Path.absolute",
+            side_effect=ValueError("bad"),
+        ),
+        pytest.raises(AttachmentParsingError, match="Invalid path"),
     ):
-        with pytest.raises(AttachmentParsingError, match="Invalid path"):
-            _normalise_path("some_token")
+        _normalise_path("some_token")
 
 
 # ---------------------------------------------------------------------------
@@ -96,6 +101,18 @@ def test_normalise_path_invalid():
 # ---------------------------------------------------------------------------
 def test_determine_media_type_known():
     assert "image" in _determine_media_type(Path("pic.png"))
+
+
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    sorted(VIDEO_EXTENSION_MEDIA_TYPES.items()),
+)
+def test_determine_media_type_video_extensions(name, expected):
+    with patch(
+        "code_puppy.command_line.attachments.mimetypes.guess_type",
+        return_value=("image/png", None),
+    ):
+        assert _determine_media_type(Path(f"clip{name}")) == expected
 
 
 @pytest.mark.parametrize(
@@ -224,14 +241,39 @@ def test_candidate_paths():
 def test_is_supported_extension():
     assert _is_supported_extension(Path("a.png")) is True
     assert _is_supported_extension(Path("a.PNG")) is True
+    assert _is_supported_extension(Path("a.mp4")) is True
+    assert _is_supported_extension(Path("a.MOV")) is True
     assert _is_supported_extension(Path("a.txt")) is False
 
 
 # ---------------------------------------------------------------------------
 # _parse_link
 # ---------------------------------------------------------------------------
-def test_parse_link_always_none():
+def test_parse_link_ignores_non_video_urls():
     assert _parse_link("https://example.com/pic.png") is None
+    assert _parse_link("https://www.youtube.com/watch?v=abc") is None
+    assert _parse_link("ftp://example.com/clip.mp4") is None
+    assert _parse_link("not a url") is None
+    assert _video_media_type_from_url("http://") is None
+
+
+def test_parse_link_video_url():
+    parsed = _parse_link("https://cdn.example.com/clip.mov,")
+    assert parsed is not None
+    assert isinstance(parsed.url_part, VideoUrl)
+    assert parsed.url_part.url == "https://cdn.example.com/clip.mov"
+    assert parsed.url_part.media_type == "video/quicktime"
+
+
+def test_parse_link_strips_trailing_sentence_period():
+    parsed = _parse_link("https://cdn.example.com/clip.mkv.")
+    assert parsed is not None
+    assert parsed.url_part.url == "https://cdn.example.com/clip.mkv"
+    assert parsed.url_part.media_type == "video/x-matroska"
+
+
+def test_parse_link_keeps_period_when_not_a_video_url():
+    assert _parse_link("https://example.com/readme.txt.") is None
 
 
 # ---------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-"""Import-time neon splash: a shimmering Pydantic pyramid while imports load.
+"""Import-time neon splash: a shimmering puppy paw while imports load.
 
 Code Puppy's cold start is dominated by heavy imports (pydantic-ai,
 prompt_toolkit, rich, ...). This module is deliberately **stdlib-only** so
@@ -22,32 +22,32 @@ import shutil
 import sys
 import threading
 
-# Pyramid raster, 20 rows x <=44 cols. Digits are glow tiers:
+# Paw-print raster: four toe pads above a broad central pad. Glow tiers:
 # 0 = empty, 1 = outer halo, 2 = inner glow, 3 = neon core.
-_PYRAMID = (
-    "000000000000000000112333211",
-    "0000000000000000112233233221",
-    "000000000000000112332212232211",
-    "0000000000000012233211012233211",
-    "00000000000011223221100011233221",
-    "0000000000011233221000000112232211",
-    "00000000011223321100000000012233211",
-    "000000001123322110001111100011233221",
-    "00000001223321101112223222110112232211",
-    "000001122322111122333333332221112233211",
-    "0000112332211223332222322233322211233221",
-    "001122332222333222111232111223333222232211",
-    "0112332223332221100012321001112223332233211",
-    "12233233322111000000123210000001122233333221",
-    "22333322111000000000123210000000001122233322",
-    "23333222111100000000123210000000011122233332",
-    "11222333332221110000123210001111222333322211",
-    "00011122223333222211123211122233333222111",
-    "0000000011122233333222322233332222111",
-    "00000000000011112223333333222111",
+_PAW = (
+    "00000000000011222110000112221100000000000",
+    "00000000000123333210000123333210000000000",
+    "00000000001233333321001233333321000000000",
+    "00000000001233333321001233333321000000000",
+    "00112211000123333210000123333210000112211",
+    "01233332100112222110000112222110012333321",
+    "12333333210000000000000000000001233333321",
+    "12333333210000000000000000000001233333321",
+    "01233332100000000112222110000000123333210",
+    "00112211000000001233333321000000011221100",
+    "00000000000000012333333332100000000000000",
+    "00000000000000123333333333210000000000000",
+    "00000000000001233333333333321000000000000",
+    "00000000000012333333333333332100000000000",
+    "00000000000123333333333333333210000000000",
+    "00000000001233333333333333333321000000000",
+    "00000000001233333333333333333321000000000",
+    "00000000000123333332222333333321000000000",
+    "00000000000012333321001233333210000000000",
+    "00000000000001122110000112211000000000000",
 )
 _CHARS = (" ", "\u2591", "\u2592", "\u2588")
-_PYRAMID_WIDTH = 44
+_PAW_WIDTH = max(map(len, _PAW))
 
 # "CODE PUPPY" / "PUP" pre-rendered in pyfiglet's ansi_shadow (the same
 # font as the scrollback banner). Baked as constants: pyfiglet is not
@@ -121,25 +121,25 @@ def _truecolor() -> bool:
 def _compose_rows(columns: int, lines: int):
     """Pick the biggest lockup the terminal can hold and lay it out.
 
-    Returns a list of (kind, content) rows: ``art`` rows are pyramid tier
+    Returns a list of (kind, content) rows: ``art`` rows are paw tier
     digits, ``text`` rows are literal figlet glyphs. Degrades gracefully:
-    pyramid + "CODE PUPPY" -> pyramid + "PUP" -> pyramid only.
+    paw + "CODE PUPPY" -> paw + "PUP" -> paw only.
     """
     full = [(line, _BANNER_FULL_WIDTH) for line in _BANNER_FULL]
     compact = [(line, _BANNER_COMPACT_WIDTH) for line in _BANNER_COMPACT]
     variants = (
         (full, _BANNER_FULL_WIDTH),
         (compact, _BANNER_COMPACT_WIDTH),
-        ([], _PYRAMID_WIDTH),
+        ([], _PAW_WIDTH),
     )
     for text_rows, text_width in variants:
-        width = max(_PYRAMID_WIDTH, text_width)
-        height = len(_PYRAMID) + (1 + len(text_rows) if text_rows else 0)
+        width = max(_PAW_WIDTH, text_width)
+        height = len(_PAW) + (1 + len(text_rows) if text_rows else 0)
         if columns >= width + 2 and lines >= height + 2:
             break
     rows = []
-    art_pad = "0" * ((width - _PYRAMID_WIDTH) // 2)
-    for row in _PYRAMID:
+    art_pad = "0" * ((width - _PAW_WIDTH) // 2)
+    for row in _PAW:
         rows.append(("art", art_pad + row))
     if text_rows:
         rows.append(("text", ""))
@@ -173,7 +173,7 @@ def _build_frame(phase: int, truecolor: bool, rows) -> str:
     only colors change), so no erase codes are needed -- erase-then-redraw
     is exactly what flickers on terminals without synchronized output. The
     sheen band is computed from absolute (column, row) so it sweeps one
-    continuous diagonal across the pyramid AND the figlet text below it.
+    continuous diagonal across the paw AND the figlet text below it.
     """
     base = _TRUECOLOR_BASE if truecolor else _FALLBACK_BASE
     hot = _TRUECOLOR_HOT if truecolor else _FALLBACK_HOT
@@ -372,11 +372,11 @@ def start_splash(stream=None, force: bool = False):
                 return _NullSplash()
             if not _wants_splash(sys.argv):
                 return _NullSplash()
-            # _compose_rows degrades CODE PUPPY -> PUP -> bare pyramid,
-            # but below even the pyramid's footprint there is nothing
+            # _compose_rows degrades CODE PUPPY -> PUP -> bare paw,
+            # but below even the paw's footprint there is nothing
             # honest left to draw: stay silent, never clip art.
             size = shutil.get_terminal_size(fallback=(80, 24))
-            if size.columns < _PYRAMID_WIDTH + 2 or size.lines < len(_PYRAMID) + 2:
+            if size.columns < _PAW_WIDTH + 2 or size.lines < len(_PAW) + 2:
                 return _NullSplash()
         if not _enable_windows_vt(stream):
             return _NullSplash()

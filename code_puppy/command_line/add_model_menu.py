@@ -218,16 +218,24 @@ def build_model_config(model: ModelInfo, provider: ProviderInfo) -> dict:
             "extended_thinking",
             "budget_tokens",
         ]
-    elif model_type == "openai" and "gpt-5" in model.model_id:
-        if "codex" in model.model_id:
-            config["supported_settings"] = ["temperature", "top_p", "reasoning_effort"]
-        else:
+    elif model_type == "openai":
+        # Share OpenAI effort capabilities with config and settings menus.
+        # Empty means fixed effort; None means an unrecognized model.
+        from code_puppy.model_utils import get_openai_reasoning_effort_choices
+
+        effort_choices = get_openai_reasoning_effort_choices(model.model_id)
+        if effort_choices:
             config["supported_settings"] = [
                 "temperature",
                 "top_p",
                 "reasoning_effort",
-                "verbosity",
             ]
+            # Verbosity is a GPT-5-family Responses/Chat option; codex
+            # variants and o-series models don't support it.
+            if "gpt-5" in model.model_id and "codex" not in model.model_id:
+                config["supported_settings"].append("verbosity")
+        else:
+            config["supported_settings"] = ["temperature", "seed", "top_p"]
     else:
         config["supported_settings"] = ["temperature", "seed", "top_p"]
 
@@ -456,6 +464,16 @@ def run_add_model_flow(
         except Exception as e:
             emit_error(t("model_menu.registry.load_error", error=e))
             return False
+        # Only narrate the catalog size when we did the loading for a human
+        # who is about to browse it. An injected registry belongs to a caller
+        # that can speak for itself.
+        emit_info(
+            t(
+                "model_menu.registry.loaded",
+                providers=len(registry.get_providers()),
+                models=len(registry.get_models()),
+            )
+        )
     providers = registry.get_providers()
     if not providers:
         emit_error(t("model_menu.registry.no_providers"))
