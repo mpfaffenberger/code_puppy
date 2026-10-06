@@ -67,41 +67,26 @@ def _model_supports_thinking_updates(model_name):
     return should_use_anthropic_thinking_updates(model_name)
 
 
-def _model_requires_between_tools(model_name):
-    if not model_name:
-        return False
-    from code_puppy.model_utils import should_use_anthropic_between_tools_thinking
-
-    return should_use_anthropic_between_tools_thinking(model_name)
-
-
-def _model_requires_thinking_omitted_when_off(model_name):
-    if not model_name:
-        return False
-    from code_puppy.model_utils import should_omit_anthropic_thinking_when_off
-
-    return should_omit_anthropic_thinking_when_off(model_name)
-
-
 # The API only accepts ``thinking.display`` while thinking actually runs.
 _DISPLAY_THINKING_TYPES = frozenset({"adaptive", "enabled"})
-
-
 _OFF_THINKING_TYPES = frozenset({"disabled", "between_tools"})
 
+# Models whose API refused an "off" thinking shape in this process. Learned
+# from the provider's own 400 (see ``_retry_without_thinking_after_400``),
+# never listed by name: each model family accepts a different off-switch
+# (``disabled``, ``between_tools``, or only omitting the key).
+_THINKING_OMITTED_WHEN_OFF: set[str] = set()
 
-def _normalize_thinking_off(payload):
-    thinking = payload["thinking"]
-    model_name = payload.get("model")
-    thinking_off = thinking.get("type") in _OFF_THINKING_TYPES
-    if thinking_off and _model_requires_thinking_omitted_when_off(model_name):
+
+def _normalize_thinking_off(payload, thinking):
+    modified = thinking.pop("display", None) is not None
+    model = payload.get("model")
+    if (
+        thinking.get("type") in _OFF_THINKING_TYPES
+        and model in _THINKING_OMITTED_WHEN_OFF
+    ):
         del payload["thinking"]
         return True
-    modified = "display" in thinking
-    thinking.pop("display", None)
-    if thinking.get("type") == "disabled" and _model_requires_between_tools(model_name):
-        thinking["type"] = "between_tools"
-        modified = True
     return modified
 
 
@@ -112,7 +97,7 @@ def _enforce_thinking_display_summary(payload):
     if not isinstance(thinking, dict):
         return False
     if thinking.get("type") not in _DISPLAY_THINKING_TYPES:
-        return _normalize_thinking_off(payload)
+        return _normalize_thinking_off(payload, thinking)
     if not _model_requires_thinking_summary(payload.get("model")):
         return False
     display = thinking.get("display")
@@ -394,6 +379,10 @@ class ClaudeCacheAsyncClient(ClaudeOAuthTransport, httpx2.AsyncClient):
             except Exception as exc:
                 logger.debug("Error in Claude Code transformations: %s", exc)
         response = await self._send_with_retries(request, *args, **kwargs)
+        if is_messages_endpoint:
+            response = await self._retry_without_thinking_after_400(
+                request, response, *args, **kwargs
+            )
         try:
             if (
                 oauth_request
@@ -439,6 +428,55 @@ class ClaudeCacheAsyncClient(ClaudeOAuthTransport, httpx2.AsyncClient):
         except Exception as exc:
             logger.debug("Error during token refresh attempt: %s", exc)
         return response
+
+    async def _retry_without_thinking_after_400(
+        self,
+        request: httpx2.Request,
+        response: httpx2.Response,
+        *args: Any,
+        **kwargs: Any,
+    ) -> httpx2.Response:
+        """Resend once without ``thinking`` when the API refuses the off-switch.
+
+        Which "thinking off" shape a model accepts differs per model and
+        changes over time, so ask the API instead of keeping a list: a 400
+        that names ``thinking`` on a request that only asked for thinking
+        off is retried with the key omitted, which every probed model
+        accepts. The model is remembered so later calls skip the failure.
+        """
+        if response.status_code != 400:
+            return response
+        try:
+            body = self._extract_body_bytes(request)
+            payload = json.loads(body) if body else None
+            thinking = payload.get("thinking") if isinstance(payload, dict) else None
+            if not isinstance(thinking, dict) or (
+                thinking.get("type") not in _OFF_THINKING_TYPES
+            ):
+                return response
+            error = json.loads(await response.aread()).get("error") or {}
+            if "thinking" not in str(error.get("message", "")).lower():
+                return response
+            _THINKING_OMITTED_WHEN_OFF.add(payload.get("model"))
+            del payload["thinking"]
+            headers = {
+                k: v
+                for k, v in request.headers.items()
+                if k.lower() != "content-length"
+            }
+            retry_request = self.build_request(
+                method=request.method,
+                url=request.url,
+                headers=headers,
+                content=json.dumps(payload).encode("utf-8"),
+                extensions=dict(request.extensions),
+            )
+        except Exception as exc:
+            logger.debug("Could not retry without thinking: %s", exc)
+            return response
+        logger.info("Model refused thinking off-switch; retrying without thinking")
+        await response.aclose()
+        return await self._send_with_retries(retry_request, *args, **kwargs)
 
     async def _send_with_retries(
         self, request: httpx2.Request, *args: Any, **kwargs: Any

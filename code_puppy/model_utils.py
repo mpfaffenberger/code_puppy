@@ -209,15 +209,6 @@ _SUMMARY_TAGS: tuple[str, ...] = (
     "5-fable",
 )
 
-# Models that 400 on ``thinking.type: "disabled"`` and want ``"between_tools"``
-# to turn thinking off. Sonnet 5 and Opus 5 are the reverse (accept disabled,
-# reject between_tools), so keep this list exact.
-_BETWEEN_TOOLS_TAGS: tuple[str, ...] = ("sonnet-5-5",)
-
-# Models that 400 on BOTH ``"disabled"`` and ``"between_tools"``; omitting
-# ``thinking`` is the only accepted way to turn it off (no thinking blocks).
-_OMIT_THINKING_OFF_TAGS: tuple[str, ...] = ("opus-5-5",)
-
 # Models that accept ``display: "updates"`` (progress updates surfaced as
 # text while reasoning stays hidden). Requires the
 # ``thinking-display-updates-2026-08-18`` beta header on the request;
@@ -351,20 +342,6 @@ def should_use_anthropic_thinking_summary(
     surface a condensed reasoning trace instead of the full block.
     """
     return _model_matches_any_tag(model_name, actual_model_id, _SUMMARY_TAGS)
-
-
-def should_use_anthropic_between_tools_thinking(
-    model_name: str, actual_model_id: str | None = None
-) -> bool:
-    """Return whether "thinking off" must be sent as ``type: "between_tools"``."""
-    return _model_matches_any_tag(model_name, actual_model_id, _BETWEEN_TOOLS_TAGS)
-
-
-def should_omit_anthropic_thinking_when_off(
-    model_name: str, actual_model_id: str | None = None
-) -> bool:
-    """Return whether "thinking off" must be sent by omitting ``thinking``."""
-    return _model_matches_any_tag(model_name, actual_model_id, _OMIT_THINKING_OFF_TAGS)
 
 
 def should_use_anthropic_thinking_updates(
