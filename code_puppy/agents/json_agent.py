@@ -317,8 +317,14 @@ class JSONAgent(BaseAgent):
 
         This keeps long-lived agent instances in sync after external edits.
         """
+        previous = self._config
         self._config = self._load_config()
-        self._validate_config()
+        try:
+            self._validate_config()
+        except Exception:
+            # A rejected edit must not leave the live agent half-configured.
+            self._config = previous
+            raise
 
     def get_model_name(self) -> Optional[str]:
         """Get the effective model name for this JSON agent.

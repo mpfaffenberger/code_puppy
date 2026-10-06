@@ -4,6 +4,8 @@ import threading
 import json
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from code_puppy.agents import (
     DeferredReloadQueue,
     apply_agent_reloads,
@@ -77,38 +79,57 @@ def test_completed_reload_is_not_repeated():
     agent.reload_code_generation_agent.assert_called_once_with()
 
 
-def test_reload_failure_is_retried_then_evicted_with_user_warning():
+def test_failed_reload_is_retried_in_the_drain_then_evicted_with_user_warning():
     queue = DeferredReloadQueue()
     agent = _agent("helper")
     agent.reload_code_generation_agent.side_effect = RuntimeError("MCP not ready")
 
     queue.request("helper")
     with patch("code_puppy.agents.deferred_reload.emit_warning") as warn:
-        for _ in range(2):
-            queue.apply(lambda: agent)
-        warn.assert_not_called()  # silent until attempts run out
         queue.apply(lambda: agent)
-        queue.apply(lambda: agent)  # evicted: no fourth attempt
+        queue.apply(lambda: agent)  # evicted: no further attempts
 
     assert agent.reload_code_generation_agent.call_count == 3
     warn.assert_called_once()
     assert "MCP not ready" in warn.call_args.args[0]
 
 
-def test_fresh_request_resets_retry_budget():
+def test_transient_failure_recovers_within_the_drain_without_warning():
     queue = DeferredReloadQueue()
     agent = _agent("helper")
-    agent.reload_code_generation_agent.side_effect = RuntimeError("boom")
+    agent.reload_code_generation_agent.side_effect = [RuntimeError("x"), None]
 
     queue.request("helper")
-    queue.apply(lambda: agent)
-    queue.apply(lambda: agent)  # two of three attempts used
-    queue.request("helper")  # config changed again
-    with patch("code_puppy.agents.deferred_reload.emit_warning"):
-        for _ in range(4):
-            queue.apply(lambda: agent)
+    with patch("code_puppy.agents.deferred_reload.emit_warning") as warn:
+        queue.apply(lambda: agent)
+        queue.apply(lambda: agent)
 
-    assert agent.reload_code_generation_agent.call_count == 2 + 3
+    assert agent.reload_code_generation_agent.call_count == 2
+    warn.assert_not_called()
+
+
+def test_request_during_failing_rebuild_gets_its_own_full_budget():
+    queue = DeferredReloadQueue()
+    agent = _agent("helper")
+    calls = []
+
+    def fail_and_request_again():
+        calls.append(1)
+        if len(calls) == 1:
+            queue.request("helper")  # config changed again mid-rebuild
+        raise RuntimeError("boom")
+
+    agent.reload_code_generation_agent.side_effect = fail_and_request_again
+
+    queue.request("helper")
+    with patch("code_puppy.agents.deferred_reload.emit_warning") as warn:
+        queue.apply(lambda: agent)  # superseded: stops after one attempt
+        assert len(calls) == 1
+        warn.assert_not_called()
+        queue.apply(lambda: agent)  # the fresh request spends three of its own
+
+    assert len(calls) == 1 + 3
+    warn.assert_called_once()
 
 
 def test_request_during_reload_is_not_lost():
@@ -229,32 +250,164 @@ def test_rename_does_not_consume_another_agents_request(tmp_path):
     assert reload.call_count == 2
 
 
-def test_failed_rename_follows_the_agent_for_bounded_retries(tmp_path):
+def test_failed_rebuild_of_a_renamed_agent_stays_bounded_and_quiet(tmp_path):
     queue = DeferredReloadQueue()
     agent, rewrite = _json_agent(tmp_path, "old")
     queue.request("old")
     rewrite(name="new")
 
-    broken = RuntimeError("broken")
     with (
         patch.object(
-            agent, "reload_code_generation_agent", side_effect=broken
+            agent, "reload_code_generation_agent", side_effect=RuntimeError("broken")
         ) as reload,
         patch("code_puppy.agents.deferred_reload.emit_warning") as warn,
     ):
-        for _ in range(4):
+        for _ in range(3):
             queue.apply(lambda: agent)
 
     assert reload.call_count == 3
     warn.assert_called_once()
-    assert "new" in warn.call_args.args[0]
 
 
-def test_agent_losing_its_name_never_escapes_the_queue(tmp_path):
+def test_rename_collision_leaves_the_other_request_untouched(tmp_path):
     queue = DeferredReloadQueue()
-    agent, rewrite = _json_agent(tmp_path, "helper")
-    queue.request("helper")
-    rewrite(name=None)  # refresh_config validation now rejects the config
+    target = _agent("new")
+    target.reload_code_generation_agent.side_effect = RuntimeError("earlier config")
+    agent, rewrite = _json_agent(tmp_path, "old")
+    with patch("code_puppy.agents.deferred_reload.emit_warning") as warn:
+        queue.request("new")
+        queue.apply(lambda: target)  # spends the whole budget of "new"
+        queue.request("new")
+        queue.request("old")
+        rewrite(name="new")
+        with patch.object(
+            agent, "reload_code_generation_agent", side_effect=RuntimeError("old")
+        ):
+            queue.apply(lambda: agent)  # fails "old" three times
+        target.reload_code_generation_agent.reset_mock()
+        queue.apply(lambda: target)  # "new" still pending, full budget
 
-    for _ in range(2):  # failure handling, then later drains of a broken agent
+    assert target.reload_code_generation_agent.call_count == 3
+    assert warn.call_count == 3
+
+
+def test_request_during_failing_renamed_rebuild_is_retried_for_its_own_name(
+    tmp_path,
+):
+    queue = DeferredReloadQueue()
+    agent, rewrite = _json_agent(tmp_path, "old")
+    queue.request("old")
+    rewrite(name="new")
+    calls = []
+
+    def fail_and_request_new():
+        calls.append(1)
+        if len(calls) == 1:
+            queue.request("new")
+        raise RuntimeError("failure")
+
+    with (
+        patch.object(
+            agent, "reload_code_generation_agent", side_effect=fail_and_request_new
+        ),
+        patch("code_puppy.agents.deferred_reload.emit_warning"),
+    ):
+        for _ in range(5):
+            queue.apply(lambda: agent)
+
+    assert len(calls) == 3 + 3  # old: three attempts, then "new": its own three
+
+
+def test_threaded_request_during_failing_rebuild_is_not_orphaned():
+    queue = DeferredReloadQueue()
+    agent = _agent("helper")
+    started, requested = threading.Event(), threading.Event()
+    calls = []
+
+    def producer():
+        started.wait()
+        queue.request("helper")
+        requested.set()
+
+    def rebuild():
+        calls.append(1)
+        if len(calls) == 1:
+            started.set()
+            assert requested.wait(5)
+        raise RuntimeError("failure")
+
+    agent.reload_code_generation_agent.side_effect = rebuild
+    thread = threading.Thread(target=producer)
+    thread.start()
+    queue.request("helper")
+    with patch("code_puppy.agents.deferred_reload.emit_warning"):
         queue.apply(lambda: agent)
+        thread.join()
+        queue.apply(lambda: agent)
+
+    assert len(calls) == 1 + 3
+
+
+def test_missing_name_fails_quietly_and_recovers_after_the_file_is_repaired(
+    tmp_path,
+):
+    queue = DeferredReloadQueue()
+    agent, rewrite = _json_agent(tmp_path, "old")
+    queue.request("old")
+    rewrite(name=None)  # refresh_config validation rejects this edit
+
+    with (
+        patch.object(agent, "reload_code_generation_agent") as reload,
+        patch("code_puppy.agents.deferred_reload.emit_warning") as warn,
+    ):
+        queue.apply(lambda: agent)  # rejected edit: bounded, warned, evicted
+        warn.assert_called_once()
+        reload.assert_not_called()
+        rewrite(name="old")  # user repairs the file and asks again
+        queue.request("old")
+        queue.apply(lambda: agent)
+
+    assert agent.name == "old"
+    reload.assert_called_once_with()
+
+
+@pytest.mark.parametrize("bad_name", [[], {}, 7, None, ""])
+def test_unusable_agent_name_is_skipped_without_touching_the_queue(bad_name):
+    queue = DeferredReloadQueue()
+    agent = _agent("helper")
+    agent.name = bad_name
+
+    queue.request("helper")
+    queue.apply(lambda: agent)  # must not raise (e.g. unhashable names)
+    agent.name = "helper"
+    queue.apply(lambda: agent)  # the real request is still there
+
+    agent.reload_code_generation_agent.assert_called_once_with()
+
+
+def test_malformed_name_written_into_the_config_never_escapes_the_queue(tmp_path):
+    queue = DeferredReloadQueue()
+    agent, rewrite = _json_agent(tmp_path, "old")
+    queue.request("old")
+    rewrite(name=[])  # passes JSONAgent validation but is not a usable name
+
+    with (
+        patch.object(
+            agent, "reload_code_generation_agent", side_effect=RuntimeError("bad")
+        ),
+        patch("code_puppy.agents.deferred_reload.emit_warning") as warn,
+    ):
+        queue.apply(lambda: agent)  # failure handling must not use the new name
+        queue.apply(lambda: agent)  # later drains skip the unusable name
+
+    warn.assert_called_once()
+
+
+def test_rejected_config_edit_leaves_the_live_json_agent_intact(tmp_path):
+    agent, rewrite = _json_agent(tmp_path, "old")
+    rewrite(name=None)
+
+    with pytest.raises(ValueError, match="name"):
+        agent.refresh_config()
+
+    assert agent.name == "old"
