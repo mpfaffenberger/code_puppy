@@ -82,7 +82,7 @@ approval. With `fail_closed=True` its exception is reported as a block instead. 
 | `load_prompt` | System prompt assembly | `() -> str \| None` |
 | `run_shell_command` | Before shell exec | `(context, command, cwd=None, timeout=60) -> dict \| None` (return `{"blocked": True}` to block, `{"rewrite": "<new cmd>"}` to transparently transform) |
 | `file_permission` | Before file op | `(context, file_path, operation, ...) -> bool` |
-| `pre_tool_call` | Before tool executes | `(tool_name, tool_args, context=None) -> Any` |
+| `pre_tool_call` | Before tool executes | `(tool_name, tool_args, context=None) -> Any` (return `{"blocked": True}` to deny; add `"tool_result": str` when the hook handled the call itself and that text is the tool's result) |
 | `post_tool_call` | After tool finishes | `(tool_name, tool_args, result, duration_ms, context=None) -> Any` |
 | `custom_command` | Unknown `/slash` cmd | `(command, name) -> True \| str \| None` |
 | `custom_command_help` | `/help` menu | `() -> list[tuple[str, str]]` |
