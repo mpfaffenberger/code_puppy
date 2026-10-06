@@ -411,3 +411,44 @@ def test_rejected_config_edit_leaves_the_live_json_agent_intact(tmp_path):
         agent.refresh_config()
 
     assert agent.name == "old"
+
+
+def test_request_between_retries_stops_the_obsolete_drain():
+    queue = DeferredReloadQueue()
+    agent = _agent("helper")
+    agent.reload_code_generation_agent.side_effect = RuntimeError("broken")
+    release, requested = threading.Event(), threading.Event()
+    real_lock = threading.Lock()
+
+    class PausingLock:
+        """After the first failed rebuild, let a producer slip in between
+        the drain's last lock release and its next attempt."""
+
+        paused = False
+
+        def __enter__(self):
+            real_lock.acquire()
+
+        def __exit__(self, *exc_info):
+            real_lock.release()
+            calls = agent.reload_code_generation_agent.call_count
+            if calls == 1 and not PausingLock.paused:
+                PausingLock.paused = True
+                release.set()
+                assert requested.wait(5)
+
+    def producer():
+        assert release.wait(5)
+        queue.request("helper")
+        requested.set()
+
+    queue.request("helper")
+    queue._lock = PausingLock()
+    thread = threading.Thread(target=producer)
+    thread.start()
+    with patch("code_puppy.agents.deferred_reload.emit_warning") as warn:
+        queue.apply(lambda: agent)
+        thread.join()
+
+    assert agent.reload_code_generation_agent.call_count == 1
+    warn.assert_not_called()

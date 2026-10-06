@@ -61,6 +61,8 @@ class DeferredReloadQueue:
 
         error: Exception | None = None
         for attempt in range(1, MAX_RELOAD_ATTEMPTS + 1):
+            if not self._is_current(name, generation):
+                return  # admission: never start a rebuild for a stale request
             try:
                 current.refresh_config()
                 current.reload_code_generation_agent()
@@ -72,9 +74,8 @@ class DeferredReloadQueue:
                     MAX_RELOAD_ATTEMPTS,
                     name,
                 )
-                with self._lock:
-                    if self._generations.get(name) != generation:
-                        return
+                if not self._is_current(name, generation):
+                    return
             else:
                 self._finish(name, generation)
                 return
@@ -88,6 +89,11 @@ class DeferredReloadQueue:
                     error=error,
                 )
             )
+
+    def _is_current(self, name: str, generation: int) -> bool:
+        """True while the request this drain was selected by is still pending."""
+        with self._lock:
+            return self._generations.get(name) == generation
 
     def _finish(self, name: str, generation: int) -> bool:
         """Drop the request unless a newer one replaced it; True if dropped."""
