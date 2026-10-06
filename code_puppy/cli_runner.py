@@ -1138,7 +1138,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 # Command not recognized, continue with normal processing
                 pass
 
-        apply_agent_reloads(get_current_agent)
+        apply_agent_reloads(lambda: current_agent)
         if task.strip():
             # Write to the secret file for permanent history with timestamp
             save_command_to_history(task)
@@ -1265,6 +1265,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 if delay > 0:
                     await asyncio.sleep(delay)
 
+                apply_agent_reloads(lambda: current_agent)
                 continuation_prompt = next_prompt
                 continuation_result = None
                 continuation_success = False

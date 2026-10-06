@@ -49,14 +49,17 @@ class DeferredReloadQueue:
 
     def apply(self, get_current_agent: Callable[[], object]) -> None:
         """Apply the active agent's request from the main event loop."""
+        # ``refresh_config`` can rewrite an agent's name, so the request is
+        # identified by the name the agent had when this drain started.
         try:
             current = get_current_agent()
+            name = current.name
         except Exception:
             logger.exception("Could not inspect the active agent for deferred reload")
             return
 
         with self._lock:
-            pending = self._pending.get(current.name)
+            pending = self._pending.get(name)
             if pending is None:
                 return
             generation = pending.generation
@@ -65,36 +68,54 @@ class DeferredReloadQueue:
             current.refresh_config()
             current.reload_code_generation_agent()
         except Exception as exc:
-            logger.exception("Deferred reload failed for agent %r", current.name)
-            self._record_failure(current.name, generation, exc)
+            logger.exception("Deferred reload failed for agent %r", name)
+            self._record_failure(name, generation, _name_or(current, name), exc)
             return
 
         with self._lock:
-            pending = self._pending.get(current.name)
+            pending = self._pending.get(name)
             # A newer request arrived mid-rebuild; keep it for the next drain.
             if pending is not None and pending.generation == generation:
-                del self._pending[current.name]
+                del self._pending[name]
 
-    def _record_failure(self, agent_name: str, generation: int, exc: Exception) -> None:
-        """Count a failed attempt; evict and warn the user once attempts run out."""
+    def _record_failure(
+        self, name: str, generation: int, current_name: str, exc: Exception
+    ) -> None:
+        """Count a failed attempt; evict and warn the user once attempts run out.
+
+        ``current_name`` is the agent's name after the failed refresh. If that
+        differs from ``name`` the request follows the agent, otherwise no
+        future drain would ever look it up again.
+        """
         with self._lock:
-            pending = self._pending.get(agent_name)
+            pending = self._pending.get(name)
             if pending is None or pending.generation != generation:
                 return  # superseded: the newer request starts from scratch
+            if current_name != name:
+                del self._pending[name]
+                pending = self._pending.setdefault(current_name, pending)
             pending.attempts += 1
             if pending.attempts < MAX_RELOAD_ATTEMPTS:
                 return
-            del self._pending[agent_name]
+            del self._pending[current_name]
             attempts = pending.attempts
 
         emit_warning(
             t(
                 "agent_reload.gave_up",
-                agent=agent_name,
+                agent=current_name,
                 attempts=attempts,
                 error=exc,
             )
         )
+
+
+def _name_or(agent: object, default: str) -> str:
+    """Return ``agent.name``, or *default* when a broken config hides it."""
+    try:
+        return agent.name
+    except Exception:
+        return default
 
 
 _queue = DeferredReloadQueue()
