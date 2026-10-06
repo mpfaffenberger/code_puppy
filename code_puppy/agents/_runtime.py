@@ -31,11 +31,6 @@ from typing import Any, Callable, Iterator, List, Optional, Sequence, Type, Unio
 import httpcore
 import httpx
 
-try:  # pragma: no cover - mcp version dependent
-    from mcp.shared.exceptions import McpError
-except ImportError:  # newer mcp SDKs renamed McpError -> MCPError
-    from mcp.shared.exceptions import MCPError as McpError
-
 from pydantic_ai import (
     BinaryContent,
     DocumentUrl,
@@ -640,6 +635,19 @@ def _checkpoint_cancelled_history(exc_group: BaseException, agent: Any) -> None:
         pass
 
 
+def _mcp_error_type() -> Type[BaseException]:
+    """Return the MCP SDK's protocol error class, imported on first use.
+
+    Importing ``mcp`` costs hundreds of milliseconds, and nothing needs the
+    class until a run is underway, so it is not imported at module scope.
+    """
+    try:  # pragma: no cover - mcp version dependent
+        from mcp.shared.exceptions import McpError
+    except ImportError:  # newer mcp SDKs renamed McpError -> MCPError
+        from mcp.shared.exceptions import MCPError as McpError
+    return McpError
+
+
 def _is_mcp_transport_failure(exc: BaseException) -> bool:
     """True for an HTTP/SSE MCP connector that could not be reached.
 
@@ -926,6 +934,7 @@ async def _run_with_mcp_impl(
             return await _run_agent_task_body()
 
     async def _run_agent_task_body() -> Any:
+        McpError = _mcp_error_type()
         try:
             agent._message_history = _history.prune_interrupted_tool_calls(
                 agent._message_history
