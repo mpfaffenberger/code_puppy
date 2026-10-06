@@ -30,7 +30,6 @@ from code_puppy.command_line.attachments import (
 )
 from code_puppy.config import (
     AUTOSAVE_DIR,
-    COMMAND_HISTORY_FILE,
     ensure_config_exists,
     finalize_autosave_session,
     get_current_session_name,
@@ -949,9 +948,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 # the CODE_PUPPY_CLASSIC_PROMPT escape hatch.
                 reset_windows_terminal_ansi()
                 task = input(">>> ")
-                from code_puppy.messaging.editor_history import HistoryStore
-
-                HistoryStore(COMMAND_HISTORY_FILE).append(task)
+                # Classic input has no editor: capture history here, even for
+                # shell/slash/exit commands that return before agent dispatch.
+                save_command_to_history(task)
 
         except (KeyboardInterrupt, asyncio.CancelledError) as cancel_exc:
             # Ctrl+C: cancel input and continue. Reset terminal state on Windows
@@ -1131,16 +1130,17 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                         emit_error(t("cli.autosave.load_failed", error=e))
                     continue
                 else:
-                    # Command returned a prompt to execute
+                    # The raw slash command was captured by the input owner;
+                    # its expansion is a distinct newly created prompt.
                     task = command_result
+                    save_command_to_history(task)
             elif command_result is False:
                 # Command not recognized, continue with normal processing
                 pass
 
         if task.strip():
-            # Write to the secret file for permanent history with timestamp
-            save_command_to_history(task)
-
+            # History belongs to input capture (editor/classic/queue insertion),
+            # not dispatch: queued or deferred inputs may already be recorded.
             turn_result = None
             turn_success = False
             turn_error = None
