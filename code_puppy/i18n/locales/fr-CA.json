@@ -34,6 +34,7 @@
   "agent_menu.pin_cleared": "Épingle du modèle retirée pour « {agent} »",
   "agent_menu.pin_set": "« {model} » épinglé pour « {agent} »",
   "agent_menu.pinned_reload_failed": "Modèle épinglé appliqué, mais rechargement impossible : {error}",
+  "agent_reload.gave_up": "Impossible de recharger l’agent « {agent} » après {attempts} tentatives : {error}",
   "ask_user_question.help.close": "Appuyez sur [{key_style}]?[/{key_style}] pour fermer cette aide",
   "ask_user_question.help.enter_next": "Entrée Suivante",
   "ask_user_question.help.questions": "Questions",

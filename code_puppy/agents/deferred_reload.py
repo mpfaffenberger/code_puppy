@@ -3,22 +3,44 @@
 import logging
 import threading
 from collections.abc import Callable
+from dataclasses import dataclass
+
+from code_puppy.i18n import t
+from code_puppy.messaging import emit_warning
 
 logger = logging.getLogger(__name__)
 MAX_RELOAD_ATTEMPTS = 3
+
+
+@dataclass
+class _Request:
+    """A pending reload; ``generation`` changes whenever it is re-requested."""
+
+    generation: int = 0
+    attempts: int = 0
 
 
 class DeferredReloadQueue:
     """Thread-safe queue that applies agent rebuilds on the main loop."""
 
     def __init__(self) -> None:
-        self._pending: dict[str, int] = {}
+        self._pending: dict[str, _Request] = {}
         self._lock = threading.Lock()
 
     def request(self, agent_name: str) -> None:
-        """Request a reload, preserving any existing retry count."""
+        """Request a reload; a repeat request supersedes any in-flight rebuild.
+
+        A fresh request means the configuration changed again, so it gets a
+        full set of attempts and cannot be cleared by a rebuild that started
+        before it arrived.
+        """
         with self._lock:
-            self._pending.setdefault(agent_name, 0)
+            pending = self._pending.get(agent_name)
+            if pending is None:
+                self._pending[agent_name] = _Request()
+            else:
+                pending.generation += 1
+                pending.attempts = 0
 
     def clear(self) -> None:
         """Clear queued requests; intended for deterministic test cleanup."""
@@ -26,7 +48,7 @@ class DeferredReloadQueue:
             self._pending.clear()
 
     def apply(self, get_current_agent: Callable[[], object]) -> None:
-        """Apply the active request from the main event loop."""
+        """Apply the active agent's request from the main event loop."""
         try:
             current = get_current_agent()
         except Exception:
@@ -34,36 +56,45 @@ class DeferredReloadQueue:
             return
 
         with self._lock:
-            pending = dict(self._pending)
-
-        if current.name not in pending:
-            return
+            pending = self._pending.get(current.name)
+            if pending is None:
+                return
+            generation = pending.generation
 
         try:
             current.refresh_config()
             current.reload_code_generation_agent()
-        except Exception:
-            with self._lock:
-                attempts = self._pending.get(current.name, 0) + 1
-                if attempts >= MAX_RELOAD_ATTEMPTS:
-                    self._pending.pop(current.name, None)
-                    logger.exception(
-                        "Giving up after %d failed reload attempts for agent %r",
-                        attempts,
-                        current.name,
-                    )
-                else:
-                    self._pending[current.name] = attempts
-                    logger.exception(
-                        "Deferred reload attempt %d/%d failed for agent %r",
-                        attempts,
-                        MAX_RELOAD_ATTEMPTS,
-                        current.name,
-                    )
+        except Exception as exc:
+            logger.exception("Deferred reload failed for agent %r", current.name)
+            self._record_failure(current.name, generation, exc)
             return
 
         with self._lock:
-            self._pending.pop(current.name, None)
+            pending = self._pending.get(current.name)
+            # A newer request arrived mid-rebuild; keep it for the next drain.
+            if pending is not None and pending.generation == generation:
+                del self._pending[current.name]
+
+    def _record_failure(self, agent_name: str, generation: int, exc: Exception) -> None:
+        """Count a failed attempt; evict and warn the user once attempts run out."""
+        with self._lock:
+            pending = self._pending.get(agent_name)
+            if pending is None or pending.generation != generation:
+                return  # superseded: the newer request starts from scratch
+            pending.attempts += 1
+            if pending.attempts < MAX_RELOAD_ATTEMPTS:
+                return
+            del self._pending[agent_name]
+            attempts = pending.attempts
+
+        emit_warning(
+            t(
+                "agent_reload.gave_up",
+                agent=agent_name,
+                attempts=attempts,
+                error=exc,
+            )
+        )
 
 
 _queue = DeferredReloadQueue()

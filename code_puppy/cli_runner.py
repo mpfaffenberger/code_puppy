@@ -21,7 +21,7 @@ from pathlib import Path
 from rich.console import Console
 
 from code_puppy import __version__, callbacks, get_core_plugins_version, plugins
-from code_puppy.agents import get_current_agent
+from code_puppy.agents import apply_agent_reloads, get_current_agent
 from code_puppy.asyncio_cleanup import install_httpcore2_shutdown_filter
 from code_puppy.i18n import t, use_detected_locale
 from code_puppy.command_line.attachments import (
@@ -809,7 +809,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
     # Initialize the runtime agent manager
     if initial_command:
-        from code_puppy.agents import apply_agent_reloads, get_current_agent
+        from code_puppy.agents import get_current_agent
         from code_puppy.messaging import emit_info, emit_success, emit_system_message
 
         apply_agent_reloads(get_current_agent)
@@ -902,7 +902,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             persistent_prompt = False  # degrade to classic on any failure
 
     while True:
-        from code_puppy.agents import get_current_agent
+        from code_puppy.agents.agent_manager import get_current_agent
         from code_puppy.messaging import emit_info
 
         # Get the custom prompt from the current agent, or use default
@@ -1137,8 +1137,6 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             elif command_result is False:
                 # Command not recognized, continue with normal processing
                 pass
-
-        from code_puppy.agents import apply_agent_reloads
 
         apply_agent_reloads(get_current_agent)
         if task.strip():
@@ -1508,8 +1506,6 @@ async def execute_single_prompt(
     emit_info(t("cli.headless.executing", prompt=prompt))
 
     try:
-        from code_puppy.agents import apply_agent_reloads
-
         apply_agent_reloads(get_current_agent)
         agent = get_current_agent()
         # Headless -p mode: no run UI (no bottom bar, no line editor) —

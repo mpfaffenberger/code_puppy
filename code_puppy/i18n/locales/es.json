@@ -34,6 +34,7 @@
   "agent_menu.pin_cleared": "Se eliminó la fijación del modelo para '{agent}'",
   "agent_menu.pin_set": "Se fijó '{model}' para '{agent}'",
   "agent_menu.pinned_reload_failed": "El modelo fijado se aplicó, pero no se pudo recargar: {error}",
+  "agent_reload.gave_up": "No se pudo recargar el agente '{agent}' tras {attempts} intentos: {error}",
   "ask_user_question.help.close": "Pulsa [{key_style}]?[/{key_style}] para cerrar esta ayuda",
   "ask_user_question.help.enter_next": "Enter Siguiente",
   "ask_user_question.help.questions": "Preguntas",
