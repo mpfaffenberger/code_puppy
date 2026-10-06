@@ -67,13 +67,53 @@ def _model_supports_thinking_updates(model_name):
     return should_use_anthropic_thinking_updates(model_name)
 
 
+def _model_requires_between_tools(model_name):
+    if not model_name:
+        return False
+    from code_puppy.model_utils import should_use_anthropic_between_tools_thinking
+
+    return should_use_anthropic_between_tools_thinking(model_name)
+
+
+def _model_requires_thinking_omitted_when_off(model_name):
+    if not model_name:
+        return False
+    from code_puppy.model_utils import should_omit_anthropic_thinking_when_off
+
+    return should_omit_anthropic_thinking_when_off(model_name)
+
+
+# The API only accepts ``thinking.display`` while thinking actually runs.
+_DISPLAY_THINKING_TYPES = frozenset({"adaptive", "enabled"})
+
+
+_OFF_THINKING_TYPES = frozenset({"disabled", "between_tools"})
+
+
+def _normalize_thinking_off(payload):
+    thinking = payload["thinking"]
+    model_name = payload.get("model")
+    thinking_off = thinking.get("type") in _OFF_THINKING_TYPES
+    if thinking_off and _model_requires_thinking_omitted_when_off(model_name):
+        del payload["thinking"]
+        return True
+    modified = "display" in thinking
+    thinking.pop("display", None)
+    if thinking.get("type") == "disabled" and _model_requires_between_tools(model_name):
+        thinking["type"] = "between_tools"
+        modified = True
+    return modified
+
+
 def _enforce_thinking_display_summary(payload):
     if not isinstance(payload, dict):
         return False
-    if not _model_requires_thinking_summary(payload.get("model")):
-        return False
     thinking = payload.get("thinking")
     if not isinstance(thinking, dict):
+        return False
+    if thinking.get("type") not in _DISPLAY_THINKING_TYPES:
+        return _normalize_thinking_off(payload)
+    if not _model_requires_thinking_summary(payload.get("model")):
         return False
     display = thinking.get("display")
     if display == "summarized":
@@ -197,7 +237,7 @@ class ClaudeCacheAsyncClient(ClaudeOAuthTransport, httpx2.AsyncClient):
 
     @staticmethod
     def _enforce_thinking_display_summary_body(body: bytes) -> bytes | None:
-        """Return a rewritten body when summarized thinking is required."""
+        """Return a rewritten body when the thinking shape needs normalizing."""
         try:
             payload = json.loads(body.decode("utf-8"))
         except Exception:
