@@ -292,8 +292,12 @@ class BaseAgent(ABC):
         return probe
 
     # ---- Orchestration (thin delegations) ---------------------------------
-    def reload_code_generation_agent(self, message_group: Optional[str] = None) -> Any:
-        return build_pydantic_agent(self, output_type=str, message_group=message_group)
+    def reload_code_generation_agent(
+        self, message_group: Optional[str] = None, *, output_type: Any = str
+    ) -> Any:
+        return build_pydantic_agent(
+            self, output_type=output_type, message_group=message_group
+        )
 
     async def run_with_mcp(self, prompt: str, **kwargs: Any) -> Any:
         return await run_with_mcp(self, prompt, **kwargs)
