@@ -123,5 +123,6 @@ def test_reviewed_corruption_does_not_return(locale):
         r"Annulerling|besontr|Supprimerd|cannot invoquer|it était stuck"
     )
     for key, value in values.items():
-        if isinstance(value, str):
-            assert not corrupt.search(value), key
+        forms = [value] if isinstance(value, str) else list(value.values())
+        for form in forms:
+            assert not corrupt.search(form), key

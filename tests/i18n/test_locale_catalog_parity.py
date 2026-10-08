@@ -2,9 +2,9 @@
 
 import json
 import re
+from pathlib import Path
 
 import pytest
-from pathlib import Path
 
 _PLACEHOLDER = re.compile(r"\{[^{}]+\}")
 _CATALOG_DIR = Path(__file__).parents[2] / "code_puppy" / "i18n" / "locales"
