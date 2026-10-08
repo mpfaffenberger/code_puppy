@@ -35,6 +35,7 @@
   "agent_menu.pin_set": "Pinned '{model}' to '{agent}'",
   "agent_menu.pinned_reload_failed": "Pinned model applied but reload failed: {error}",
   "agent_reload.gave_up": "Could not reload agent '{agent}' after {attempts} attempts: {error}",
+  "agent_reload.success": "Active agent '{agent}' reloaded",
   "ask_user_question.help.close": "Press [{key_style}]?[/{key_style}] to close this help",
   "ask_user_question.help.enter_next": "Enter Next",
   "ask_user_question.help.questions": "Questions",

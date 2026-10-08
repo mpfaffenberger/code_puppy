@@ -1,10 +1,11 @@
 """Tests for main-loop agent reload requests from worker threads."""
 
-import threading
 import json
+import threading
 from unittest.mock import MagicMock, patch
 
 import pytest
+from rich.text import Text
 
 from code_puppy.agents import (
     DeferredReloadQueue,
@@ -61,8 +62,11 @@ def test_pending_reload_waits_for_agent_to_become_active():
     active = _agent("helper")
 
     queue.request("helper")
-    queue.apply(lambda: inactive)
-    queue.apply(lambda: active)
+    with patch("code_puppy.agents.deferred_reload.emit_info") as info:
+        queue.apply(lambda: inactive)
+        info.assert_not_called()
+        queue.apply(lambda: active)
+        info.assert_called_once()
 
     active.refresh_config.assert_called_once_with()
     active.reload_code_generation_agent.assert_called_once_with()
@@ -70,13 +74,31 @@ def test_pending_reload_waits_for_agent_to_become_active():
 
 def test_completed_reload_is_not_repeated():
     queue = DeferredReloadQueue()
-    agent = _agent("helper")
+    agent = _agent("[bold]helper[/bold]")
 
-    queue.request("helper")
-    queue.apply(lambda: agent)
-    queue.apply(lambda: agent)
+    queue.request(agent.name)
+    with patch("code_puppy.agents.deferred_reload.emit_info") as info:
+        queue.apply(lambda: agent)
+        queue.apply(lambda: agent)
 
     agent.reload_code_generation_agent.assert_called_once_with()
+    info.assert_called_once()
+    message = info.call_args.args[0]
+    assert isinstance(message, Text)
+    assert message.plain == "Active agent '[bold]helper[/bold]' reloaded"
+    assert message.spans == []
+
+
+def test_no_pending_reload_does_not_emit_success():
+    queue = DeferredReloadQueue()
+    agent = _agent("helper")
+
+    with patch("code_puppy.agents.deferred_reload.emit_info") as info:
+        queue.apply(lambda: agent)
+
+    agent.refresh_config.assert_not_called()
+    agent.reload_code_generation_agent.assert_not_called()
+    info.assert_not_called()
 
 
 def test_failed_reload_is_retried_in_the_drain_then_evicted_with_user_warning():
@@ -85,9 +107,14 @@ def test_failed_reload_is_retried_in_the_drain_then_evicted_with_user_warning():
     agent.reload_code_generation_agent.side_effect = RuntimeError("MCP not ready")
 
     queue.request("helper")
-    with patch("code_puppy.agents.deferred_reload.emit_warning") as warn:
+    with (
+        patch("code_puppy.agents.deferred_reload.emit_warning") as warn,
+        patch("code_puppy.agents.deferred_reload.emit_info") as info,
+    ):
         queue.apply(lambda: agent)
         queue.apply(lambda: agent)  # evicted: no further attempts
+
+    info.assert_not_called()
 
     assert agent.reload_code_generation_agent.call_count == 3
     warn.assert_called_once()
@@ -100,12 +127,17 @@ def test_transient_failure_recovers_within_the_drain_without_warning():
     agent.reload_code_generation_agent.side_effect = [RuntimeError("x"), None]
 
     queue.request("helper")
-    with patch("code_puppy.agents.deferred_reload.emit_warning") as warn:
+    with (
+        patch("code_puppy.agents.deferred_reload.emit_warning") as warn,
+        patch("code_puppy.agents.deferred_reload.emit_info") as info,
+    ):
         queue.apply(lambda: agent)
         queue.apply(lambda: agent)
 
     assert agent.reload_code_generation_agent.call_count == 2
     warn.assert_not_called()
+    info.assert_called_once()
+    assert info.call_args.args[0].plain == "Active agent 'helper' reloaded"
 
 
 def test_request_during_failing_rebuild_gets_its_own_full_budget():
@@ -145,10 +177,14 @@ def test_request_during_reload_is_not_lost():
     agent.reload_code_generation_agent.side_effect = reload_and_request_again
 
     queue.request("helper")
-    queue.apply(lambda: agent)
-    queue.apply(lambda: agent)
+    with patch("code_puppy.agents.deferred_reload.emit_info") as info:
+        queue.apply(lambda: agent)
+        info.assert_not_called()  # successful rebuild, but superseded generation
+        queue.apply(lambda: agent)
+        queue.apply(lambda: agent)
 
     assert agent.reload_code_generation_agent.call_count == 2
+    info.assert_called_once()
 
 
 def test_concurrent_requests_are_not_lost():

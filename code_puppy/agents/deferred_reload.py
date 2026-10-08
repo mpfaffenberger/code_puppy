@@ -4,8 +4,10 @@ import logging
 import threading
 from collections.abc import Callable
 
+from rich.text import Text
+
 from code_puppy.i18n import t
-from code_puppy.messaging import emit_warning
+from code_puppy.messaging import emit_info, emit_warning
 
 logger = logging.getLogger(__name__)
 MAX_RELOAD_ATTEMPTS = 3
@@ -77,7 +79,8 @@ class DeferredReloadQueue:
                 if not self._is_current(name, generation):
                     return
             else:
-                self._finish(name, generation)
+                if self._finish(name, generation):
+                    emit_info(Text(t("agent_reload.success", agent=name)))
                 return
 
         if self._finish(name, generation):
