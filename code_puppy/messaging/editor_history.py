@@ -51,6 +51,11 @@ class HistoryStore:
             return
         with self._lock:
             try:
+                # Preserve the old config writer's Windows surrogate cleanup,
+                # now shared by every input owner. Ordinary text is unchanged.
+                text = text.encode("utf-8", errors="surrogatepass").decode(
+                    "utf-8", errors="replace"
+                )
                 self._append_fallback(text)
             except Exception:
                 logger.debug("history append failed", exc_info=True)
