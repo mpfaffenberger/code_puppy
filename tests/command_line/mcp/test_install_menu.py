@@ -123,6 +123,28 @@ class TestMenus:
         menu = im.build_servers_menu("Storage", [server], **keys("enter"))
         assert menu.run().item.value is server
 
+    def test_slash_is_ignored_not_appended_to_filter(self):
+        """This menu is already a type-to-filter widget with no prefix key,
+        but users instinctively press vim-style '/' to start a search. A
+        literal '/' used to get added to the filter buffer, matching
+        nothing (no category label contains '/') and making search look
+        broken. '/' must be swallowed as a no-op so the following
+        keystrokes filter normally.
+        """
+        menu = im.build_categories_menu(
+            FakeCatalog(),
+            [im.CUSTOM_SERVER_CATEGORY, "Storage"],
+            **keys("/", "t", "o", "r", "enter"),
+        )
+        assert menu.run().item.value == "Storage"
+
+    def test_slash_ignored_in_servers_menu_too(self):
+        server = FakeServer(display_name="File Server")
+        menu = im.build_servers_menu(
+            "Storage", [server], **keys("/", "F", "i", "enter")
+        )
+        assert menu.run().item.value is server
+
 
 class TestBrowseFlow:
     def test_pick_catalog_server(self):
