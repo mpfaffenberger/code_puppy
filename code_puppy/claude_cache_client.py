@@ -37,8 +37,9 @@ MAX_RETRIES = 5
 
 # Claude Code requires this namespace for outgoing tool names.
 TOOL_PREFIX = "cp_"
+FINE_GRAINED_TOOL_STREAMING_BETA = "fine-grained-tool-streaming-2025-05-14"
 
-CLAUDE_CLI_USER_AGENT = "claude-cli/2.1.251 (external, cli)"
+CLAUDE_CLI_USER_AGENT = "claude-cli/2.1.280 (external, cli)"
 
 # The Claude Code OAuth endpoint fingerprints this exact string as the FIRST
 # system block; requests that lead with anything else get rejected. Mirrors
@@ -222,6 +223,9 @@ class ClaudeCacheAsyncClient(ClaudeOAuthTransport, httpx2.AsyncClient):
         required_betas = [
             "oauth-2025-04-20",
             "interleaved-thinking-2025-05-14",
+            # Stream tool-call arguments as generated instead of one final
+            # burst; the eager CodeMode pump and speculation need the runway.
+            FINE_GRAINED_TOOL_STREAMING_BETA,
         ]
         if "claude-code-20250219" in incoming_betas:
             required_betas.append("claude-code-20250219")

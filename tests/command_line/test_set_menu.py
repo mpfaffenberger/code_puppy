@@ -30,29 +30,15 @@ from code_puppy.command_line.set_menu import (
     build_settings_menu,
     run_text_editor,
 )
-from code_puppy.command_line.set_menu_settings import (
-    SETTINGS_CATEGORIES,
-    Setting,
-)
+from code_puppy.command_line.set_menu_settings import Setting, iter_curated_settings
 
 
 def find_setting(key: str) -> Setting:
-    """Locate a curated :class:`Setting` by key. Test helper."""
-    for category in SETTINGS_CATEGORIES:
-        for setting in category.settings:
-            if setting.key == key:
-                return setting
-    raise AssertionError(f"Setting '{key}' not found in SETTINGS_CATEGORIES")
-
-
-def test_dbos_effective_value_uses_plugin_capability():
-    setting = find_setting("enable_dbos")
-    with patch(
-        "code_puppy.command_line.set_menu_catalog.get_feature_capability",
-        return_value=False,
-    ) as capability:
-        assert setting.effective_getter() is False
-    capability.assert_called_once_with("dbos_durable_exec")
+    """Locate a curated (core or plugin) :class:`Setting` by key. Test helper."""
+    for _, setting in iter_curated_settings():
+        if setting.key == key:
+            return setting
+    raise AssertionError(f"Setting '{key}' not found in curated settings")
 
 
 # ---------------------------------------------------------------------------

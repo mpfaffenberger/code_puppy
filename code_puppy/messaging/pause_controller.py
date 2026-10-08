@@ -225,7 +225,9 @@ class PauseController:
     # Steering queue
     # =========================================================================
 
-    def request_steer(self, text: str, mode: SteerMode = "now") -> None:
+    def request_steer(
+        self, text: str, mode: SteerMode = "now", *, history_recorded: bool = False
+    ) -> None:
         """Queue a steering message for delivery to the agent.
 
         The ``mode`` controls *when* the model sees it:
@@ -237,6 +239,8 @@ class PauseController:
             then drained by ``_runtime._do_run``'s loop and submitted as
             a fresh user turn. Won't interrupt in-progress work.
 
+        Newly created prompts are persisted at insertion, not drain. Set
+        ``history_recorded`` for editor-owned input or requeued leftovers.
         Empty / whitespace-only strings are silently ignored regardless
         of mode.
         """
@@ -245,6 +249,10 @@ class PauseController:
         stripped = text.strip()
         if not stripped:
             return
+        if not history_recorded:
+            from code_puppy.config import save_command_to_history
+
+            save_command_to_history(text)
         with self._lock:
             if mode == "queue":
                 self._steer_queue_queued.append(text)
@@ -317,6 +325,31 @@ class PauseController:
             total = len(self._steer_queue_now) + len(self._steer_queue_queued)
         self._fire_steer_queue_listeners(total)
         return item
+
+    def pending_steer_counts(self) -> tuple[int, int]:
+        """Atomic snapshot of (steering this turn, queued for later turns)."""
+        with self._lock:
+            return len(self._steer_queue_now), len(self._steer_queue_queued)
+
+    def pop_latest_steer_queued(self) -> Optional[str]:
+        """Reserve the newest queued turn for inline editing."""
+        with self._lock:
+            if not self._steer_queue_queued:
+                return None
+            item = self._steer_queue_queued.pop()
+            total = len(self._steer_queue_now) + len(self._steer_queue_queued)
+        self._fire_steer_queue_listeners(total)
+        return item
+
+    def restore_pending_steer_queued(self, items: List[str]) -> None:
+        """Append reserved turns in their original oldest-first order."""
+        cleaned = [item for item in items if item and item.strip()]
+        if not cleaned:
+            return
+        with self._lock:
+            self._steer_queue_queued.extend(cleaned)
+            total = len(self._steer_queue_now) + len(self._steer_queue_queued)
+        self._fire_steer_queue_listeners(total)
 
     def peek_pending_steer_queued(self) -> List[str]:
         """Copy of the queued-mode queue WITHOUT draining (for the /queue TUI)."""

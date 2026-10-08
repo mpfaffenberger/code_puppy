@@ -135,11 +135,15 @@ class SetCompleter(Completer):
                 lambda: (get_config_keys, sorted(get_config_keys()))
             )
 
+        from code_puppy.command_line.set_menu_values import sensitive_keys
+
+        hidden = {"model", "puppy_token"} | MODEL_SETTINGS_ONLY_KEYS
+        secret = sensitive_keys()  # complete the key, never echo its value
         for key in config_keys:
-            if key in {"model", "puppy_token"} | MODEL_SETTINGS_ONLY_KEYS:
+            if key in hidden:
                 continue
             if key.startswith(text_after_trigger):
-                prev_value = get_value(key)
+                prev_value = None if key in secret else get_value(key)
                 value_part = f" = {prev_value}" if prev_value is not None else " = "
                 completion_text = f"{key}{value_part}"
 
@@ -184,7 +188,10 @@ class CDCompleter(Completer):
                 name_prefix = os.path.basename(expanded_lookup)
 
             dirs, _ = list_directory(part)
-            dirnames = [d for d in dirs if d.startswith(name_prefix)]
+            # os.listdir order is arbitrary, and Enter accepts the first
+            # item. Sorting puts an exact match ("foo") ahead of longer
+            # siblings ("foobar") because a prefix always sorts first.
+            dirnames = sorted(d for d in dirs if d.startswith(name_prefix))
 
             # Preserve user's typed style (~, relative, absolute) in emitted
             # completion text instead of leaking expanded absolute paths.

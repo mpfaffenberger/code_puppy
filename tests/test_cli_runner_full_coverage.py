@@ -107,7 +107,6 @@ def _interactive_patches():
         "code_puppy.cli_runner.finalize_autosave_session": MagicMock(
             return_value="session-1"
         ),
-        "code_puppy.cli_runner.COMMAND_HISTORY_FILE": "/tmp/test_history",
         "code_puppy.command_line.onboarding_wizard.should_show_onboarding": MagicMock(
             return_value=False
         ),
@@ -216,7 +215,7 @@ class TestMain:
         mock_exec.assert_called_once()
 
     @pytest.mark.anyio
-    async def test_interactive_mode_default(self):
+    async def test_interactive_mode_default(self, capsys):
         mock_inter = AsyncMock()
         await self._run_main(
             ["code-puppy"],
@@ -226,6 +225,10 @@ class TestMain:
             },
         )
         mock_inter.assert_called_once()
+        output = capsys.readouterr().out.lower()
+        assert "logo" in output
+        assert "pydantic" not in output
+        assert "logfire" not in output
 
     @pytest.mark.anyio
     async def test_narrow_terminal_interactive_mode_uses_compact_banner(self):

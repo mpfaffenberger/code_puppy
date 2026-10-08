@@ -28,6 +28,7 @@ BANNER_DISPLAY_INFO = {
     "universal_constructor": ("UNIVERSAL CONSTRUCTOR", ""),
     "terminal_tool": ("TERMINAL TOOL", ""),
     "llm_judge": ("LLM JUDGE", ""),
+    "steer": ("STEER", ""),
 }
 
 # Sample content to show after each banner
@@ -49,6 +50,7 @@ BANNER_SAMPLE_CONTENT = {
     "universal_constructor": "action=create tool_name=api.weather\nCreated successfully",
     "terminal_tool": "$ chromium --headless\nBrowser terminal session started",
     "llm_judge": "Verdict: Complete\nGoal verified \u2014 all tests pass.",
+    "steer": "for next turn: also run the linter",
 }
 
 # Available background colors grouped by theme

@@ -15,6 +15,8 @@ from unittest.mock import Mock, patch
 
 import pytest
 
+import json
+
 from code_puppy.mcp_.config_wizard import (
     MCPConfigWizard,
     confirm_ask,
@@ -904,21 +906,20 @@ class TestRunAddWizard:
     @patch("code_puppy.mcp_.config_wizard.get_mcp_manager")
     @patch("code_puppy.mcp_.config_wizard.emit_success")
     @patch("code_puppy.mcp_.config_wizard.emit_info")
-    @patch("builtins.open", create=True)
-    @patch("os.path.exists", return_value=False)
-    @patch("os.makedirs")
-    @patch("json.dump")
     def test_run_add_wizard_success(
         self,
-        mock_json_dump,
-        mock_makedirs,
-        mock_exists,
-        mock_open,
         mock_info,
         mock_success,
         mock_get_manager,
+        tmp_path,
     ):
-        """Test successful wizard completion and registration."""
+        """Test successful wizard completion and registration.
+
+        Persists via the shared, locked mcp_servers_store rather than the
+        wizard's old hand-rolled open/json.dump -- uses a real tmp_path file
+        instead of mocking open()/os.path.exists()/json.dump so the test
+        actually exercises that write path (and any regression in it).
+        """
         config = ServerConfig(
             id="test-1",
             name="test-server",
@@ -930,14 +931,17 @@ class TestRunAddWizard:
         mock_manager.register_server.return_value = "test-1"
         mock_get_manager.return_value = mock_manager
 
+        mcp_servers_file = tmp_path / "mcp_servers.json"
         with patch.object(MCPConfigWizard, "run_wizard", return_value=config):
-            with patch("code_puppy.config.MCP_SERVERS_FILE", "/tmp/mcp_servers.json"):
-                with patch("pathlib.Path.replace"):
-                    result = run_add_wizard()
+            with patch("code_puppy.config.MCP_SERVERS_FILE", str(mcp_servers_file)):
+                result = run_add_wizard()
 
         assert result is True
         mock_manager.register_server.assert_called_once_with(config)
         mock_success.assert_called()
+
+        saved = json.loads(mcp_servers_file.read_text())
+        assert saved["mcp_servers"]["test-server"] == {"command": "python"}
 
     @patch("code_puppy.mcp_.config_wizard.get_mcp_manager")
     @patch("code_puppy.mcp_.config_wizard.emit_error")

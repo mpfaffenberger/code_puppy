@@ -5,14 +5,25 @@ import importlib.util
 import logging
 import os
 import sys
-from importlib.metadata import entry_points
+import threading
 import types
+from contextlib import contextmanager
+from importlib.metadata import entry_points
 from pathlib import Path
 
-from code_puppy.callbacks import clear_loading_context, set_loading_context
+from code_puppy._plugin_i18n_lifecycle import finish_i18n_plugin_load
+from code_puppy.callbacks import (
+    _deactivate_loading_transaction,
+    _get_loading_transaction,
+    clear_loading_context,
+    set_loading_context,
+)
 from code_puppy.plugins import trust as _trust
 
 logger = logging.getLogger(__name__)
+
+# Plugin loading isolates ordinary import/provider failures. Keep MemoryError
+# explicit at those local boundaries so process exhaustion always propagates.
 
 # User plugins directory
 USER_PLUGINS_DIR = Path.home() / ".code_puppy" / "plugins"
@@ -26,6 +37,10 @@ USER_PLUGINS_DIR = Path.home() / ".code_puppy" / "plugins"
 # source-only loader compiles in memory and writes nothing, so the plugin's own
 # modules never depend on it.
 _PROJECT_PLUGIN_PYCACHE = str(Path.home() / ".code_puppy" / "plugin_bytecode_cache")
+
+# sys.path, sys.modules, and sys.pycache_prefix are process-global. Serializing
+# trusted project loads keeps attribution snapshots and failure cleanup honest.
+_PROJECT_PLUGIN_LOAD_LOCK = threading.RLock()
 
 
 class _ProjectPluginLoader(importlib.machinery.SourceFileLoader):
@@ -128,6 +143,40 @@ _loaded_plugin_names: dict[str, list[str]] = {"builtin": [], "user": [], "projec
 _project_plugin_status: dict[str, str] = {}
 
 
+@contextmanager
+def _plugin_loading_context(plugin_name: str):
+    """Track one owner/transaction and atomically finish i18n registration."""
+    succeeded = False
+    transaction_id = object()
+    token = set_loading_context(plugin_name, transaction_id)
+    transaction = _get_loading_transaction()
+    if transaction is None:  # pragma: no cover - set immediately above.
+        clear_loading_context(token)
+        raise RuntimeError("plugin loading context was not installed")
+    try:
+        yield
+        succeeded = True
+    finally:
+        try:
+            # Deactivation and catalog finalization are one lineage-guarded
+            # operation. A nested child therefore transfers before its parent
+            # can publish, or observes an already-inactive ancestor and rolls
+            # back; it can never transfer into a removed parent savepoint.
+            with transaction.guard:
+                parent_transaction_id, ancestors_active = (
+                    _deactivate_loading_transaction(transaction_id)
+                )
+                # The optional i18n module registers this hook only when imported;
+                # plugins with no catalogs pay only for this no-op adapter call.
+                finish_i18n_plugin_load(
+                    transaction_id,
+                    parent_transaction_id=parent_transaction_id,
+                    succeeded=succeeded and ancestors_active,
+                )
+        finally:
+            clear_loading_context(token)
+
+
 def _load_installed_plugins() -> list[str]:
     """Load distribution-provided plugins advertised through entry points.
 
@@ -142,9 +191,11 @@ def _load_installed_plugins() -> list[str]:
     for entry_point in discovered:
         plugin_name = entry_point.name
         try:
-            set_loading_context(plugin_name)
-            entry_point.load()
+            with _plugin_loading_context(plugin_name):
+                entry_point.load()
             loaded.append(plugin_name)
+        except MemoryError:
+            raise
         except ImportError as exc:
             logger.warning("Failed to import installed plugin %s: %s", plugin_name, exc)
         except Exception as exc:
@@ -154,8 +205,6 @@ def _load_installed_plugins() -> list[str]:
                 exc,
                 exc_info=True,
             )
-        finally:
-            clear_loading_context()
     return loaded
 
 
@@ -171,7 +220,7 @@ def _load_builtin_plugins(
     loaded = []
     skip_names = set(skip_names or ())
 
-    for item in plugins_dir.iterdir():
+    for item in sorted(plugins_dir.iterdir(), key=lambda entry: entry.name):
         if item.is_dir() and not item.name.startswith("_"):
             plugin_name = item.name
             callbacks_file = item / "register_callbacks.py"
@@ -182,9 +231,11 @@ def _load_builtin_plugins(
             if callbacks_file.exists():
                 try:
                     module_name = f"code_puppy.plugins.{plugin_name}.register_callbacks"
-                    set_loading_context(plugin_name)
-                    importlib.import_module(module_name)
+                    with _plugin_loading_context(plugin_name):
+                        importlib.import_module(module_name)
                     loaded.append(plugin_name)
+                except MemoryError:
+                    raise
                 except ImportError as e:
                     logger.warning(
                         f"Failed to import callbacks from built-in plugin {plugin_name}: {e}"
@@ -193,8 +244,6 @@ def _load_builtin_plugins(
                     logger.error(
                         f"Unexpected error loading built-in plugin {plugin_name}: {e}"
                     )
-                finally:
-                    clear_loading_context()
 
     return loaded
 
@@ -255,7 +304,7 @@ def _load_user_plugins(
     if user_plugins_str not in sys.path:
         sys.path.insert(0, user_plugins_str)
 
-    for item in user_plugins_dir.iterdir():
+    for item in sorted(user_plugins_dir.iterdir(), key=lambda entry: entry.name):
         if (
             item.is_dir()
             and not item.name.startswith("_")
@@ -289,13 +338,12 @@ def _load_user_plugins(
                     module = importlib.util.module_from_spec(spec)
                     sys.modules[module_name] = module
 
-                    set_loading_context(plugin_name)
-                    try:
+                    with _plugin_loading_context(plugin_name):
                         spec.loader.exec_module(module)
-                    finally:
-                        clear_loading_context()
                     loaded.append(plugin_name)
 
+                except MemoryError:
+                    raise
                 except ImportError as e:
                     logger.warning(
                         f"Failed to import callbacks from user plugin {plugin_name}: {e}"
@@ -319,13 +367,12 @@ def _load_user_plugins(
 
                         module = importlib.util.module_from_spec(spec)
                         sys.modules[module_name] = module
-                        set_loading_context(plugin_name)
-                        try:
+                        with _plugin_loading_context(plugin_name):
                             spec.loader.exec_module(module)
-                        finally:
-                            clear_loading_context()
                         loaded.append(plugin_name)
 
+                    except MemoryError:
+                        raise
                     except Exception as e:
                         logger.error(
                             f"Unexpected error loading user plugin {plugin_name}: {e}",
@@ -455,6 +502,100 @@ def _find_path_entry_binary(path_entry: Path) -> Path | None:
     return None
 
 
+def _snapshot_project_modules() -> dict[str, object]:
+    """Snapshot all modules through an intentional failure-injection seam."""
+    return dict(sys.modules)
+
+
+def _module_origin_is_under(module: object | None, root: Path) -> bool:
+    """Return whether a module resolves from *root*, without trusting strings."""
+    if module is None:
+        return False
+    candidates: list[object] = []
+    try:
+        candidates.append(getattr(module, "__file__", None))
+        spec = getattr(module, "__spec__", None)
+        candidates.append(getattr(spec, "origin", None))
+        candidates.extend(list(getattr(module, "__path__", ()) or ()))
+    except MemoryError:
+        raise
+    except Exception:  # noqa: BLE001 - malformed modules are not attributable.
+        return False
+
+    try:
+        resolved_root = root.resolve()
+        for candidate in candidates:
+            if not isinstance(candidate, (str, os.PathLike)):
+                continue
+            resolved = Path(candidate).resolve()
+            if resolved == resolved_root or resolved_root in resolved.parents:
+                return True
+    except MemoryError:
+        raise
+    except (OSError, TypeError, ValueError):
+        return False
+    return False
+
+
+def _restore_failed_project_modules(
+    before: dict[str, object], module_prefix: str, project_plugins_root: Path
+) -> None:
+    """Remove attempt-owned modules and restore relevant prior identities."""
+    missing = object()
+    names = set(before) | set(sys.modules)
+    for name in names:
+        old_module = before.get(name, missing)
+        current_module = sys.modules.get(name)
+        namespace_owned = name == module_prefix or name.startswith(module_prefix + ".")
+        root_owned = _module_origin_is_under(current_module, project_plugins_root) or (
+            old_module is not missing
+            and _module_origin_is_under(old_module, project_plugins_root)
+        )
+        if not namespace_owned and not root_owned:
+            continue
+        if old_module is missing:
+            sys.modules.pop(name, None)
+        else:
+            sys.modules[name] = old_module
+
+
+def _execute_project_plugin(
+    plugin_dir: Path, plugin_name: str, callbacks_file: Path
+) -> bool:
+    """Execute one project plugin inside a single ownership transaction."""
+    if not callbacks_file.exists():
+        with _plugin_loading_context(plugin_name):
+            loaded_ok = _ensure_plugin_package(plugin_dir, plugin_name)
+        if not loaded_ok:
+            logger.warning(
+                "Could not load __init__.py for project plugin: %s",
+                plugin_name,
+            )
+        return loaded_ok
+
+    module_name = f"{_PROJECT_PLUGINS_NS}.{plugin_name}.register_callbacks"
+    spec = importlib.util.spec_from_file_location(
+        module_name,
+        callbacks_file,
+        loader=_ProjectPluginLoader(module_name, str(callbacks_file)),
+    )
+    if spec is None or spec.loader is None:
+        logger.warning(
+            "Could not create module spec for project plugin: %s",
+            plugin_name,
+        )
+        return False
+
+    # Package __init__ and eager imports share one ownership transaction with
+    # register_callbacks.py.
+    with _plugin_loading_context(plugin_name):
+        _ensure_plugin_package(plugin_dir, plugin_name)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module
+        spec.loader.exec_module(module)
+    return True
+
+
 def _load_one_project_plugin(plugin_dir: Path, plugin_name: str) -> bool:
     """Import a single (already trusted) project plugin.
 
@@ -495,79 +636,58 @@ def _load_one_project_plugin(plugin_dir: Path, plugin_name: str) -> bool:
         )
         return False
 
-    # sys.path entry is earned by trust — inserted just-in-time so sibling
-    # top-level imports inside the plugin resolve during exec below.
-    parent_str = str(plugin_dir.parent)
-    if parent_str not in sys.path:
-        sys.path.insert(0, parent_str)
+    with _PROJECT_PLUGIN_LOAD_LOCK:
+        # sys.path entry is earned by trust — inserted just-in-time so sibling
+        # top-level imports inside the plugin resolve during exec below.
+        parent_str = str(plugin_dir.parent)
+        if parent_str not in sys.path:
+            sys.path.insert(0, parent_str)
 
-    # Route the plugin and every sibling it imports through the source-only
-    # loader. The finder stays installed permanently — it is scoped to the
-    # project_plugins.* namespace, so it is inert for all other imports. The
-    # pycache_prefix redirect is process-wide, so it wraps only this plugin's own
-    # exec and is restored in the finally below: it keeps bytecode the *default*
-    # loader would emit for an eager top-level sibling import out of the project
-    # tree. The source-only loader compiles in memory and writes no cache, so the
-    # plugin's own modules never need the redirect to persist.
-    _install_project_plugin_finder()
-    prev_pycache_prefix = sys.pycache_prefix
-    sys.pycache_prefix = _PROJECT_PLUGIN_PYCACHE
+        _install_project_plugin_finder()
+        prev_pycache_prefix = sys.pycache_prefix
+        module_prefix = f"{_PROJECT_PLUGINS_NS}.{plugin_name}"
+        preexisting_modules: dict[str, object] = {}
+        snapshot_complete = False
+        load_succeeded = False
 
-    try:
-        if callbacks_file.exists():
-            # Register parent package so relative imports resolve.
-            _ensure_plugin_package(plugin_dir, plugin_name)
+        try:
+            # This redirect is process-wide. Its outermost finally covers setup,
+            # snapshotting, execution, and failure cleanup so no exception can
+            # strand it on an unrelated value.
+            sys.pycache_prefix = _PROJECT_PLUGIN_PYCACHE
+            preexisting_modules = _snapshot_project_modules()
+            snapshot_complete = True
 
-            module_name = f"{_PROJECT_PLUGINS_NS}.{plugin_name}.register_callbacks"
-            spec = importlib.util.spec_from_file_location(
-                module_name,
-                callbacks_file,
-                loader=_ProjectPluginLoader(module_name, str(callbacks_file)),
-            )
-            if spec is None or spec.loader is None:
+            try:
+                load_succeeded = _execute_project_plugin(
+                    plugin_dir, plugin_name, callbacks_file
+                )
+                return load_succeeded
+            except MemoryError:
+                raise
+            except ImportError as e:
                 logger.warning(
-                    f"Could not create module spec for project plugin: {plugin_name}"
+                    "Failed to import callbacks from project plugin %s: %s",
+                    plugin_name,
+                    e,
                 )
                 return False
-
-            module = importlib.util.module_from_spec(spec)
-            sys.modules[module_name] = module
-            set_loading_context(plugin_name)
-            try:
-                spec.loader.exec_module(module)
-            finally:
-                clear_loading_context()
-            return True
-
-        # Fallback to __init__.py (mirrors user plugin behavior)
-        set_loading_context(plugin_name)
-        try:
-            loaded_ok = _ensure_plugin_package(plugin_dir, plugin_name)
+            except Exception as e:
+                logger.error(
+                    "Unexpected error loading project plugin %s: %s",
+                    plugin_name,
+                    e,
+                    exc_info=True,
+                )
+                return False
         finally:
-            clear_loading_context()
-        if not loaded_ok:
-            logger.warning(
-                f"Could not load __init__.py for project plugin: {plugin_name}"
-            )
-        return loaded_ok
-
-    except ImportError as e:
-        logger.warning(
-            f"Failed to import callbacks from project plugin {plugin_name}: {e}"
-        )
-        return False
-    except Exception as e:
-        logger.error(
-            f"Unexpected error loading project plugin {plugin_name}: {e}",
-            exc_info=True,
-        )
-        return False
-    finally:
-        # Undo the process-wide redirect. Leaving it set diverts bytecode for
-        # every unrelated import in the process (and never restores the original
-        # cache), which is both a perf regression and a source of cross-test
-        # global-state leaks.
-        sys.pycache_prefix = prev_pycache_prefix
+            try:
+                if snapshot_complete and not load_succeeded:
+                    _restore_failed_project_modules(
+                        preexisting_modules, module_prefix, plugin_dir.parent
+                    )
+            finally:
+                sys.pycache_prefix = prev_pycache_prefix
 
 
 def _load_project_plugins(
@@ -607,7 +727,7 @@ def _load_project_plugins(
     # Create the top-level namespace package once
     _ensure_project_ns()
 
-    for item in project_plugins_dir.iterdir():
+    for item in sorted(project_plugins_dir.iterdir(), key=lambda entry: entry.name):
         if (
             item.is_dir()
             and not item.name.startswith("_")

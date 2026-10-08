@@ -112,7 +112,9 @@ def make_thinking_smoother(console: Console) -> Optional[ThinkingStreamSmoother]
     return ThinkingStreamSmoother(console)
 
 
-def make_smooth_termflow_writer(target: TextIO) -> Optional[SmoothTermflowWriter]:
+def make_smooth_termflow_writer(
+    target: TextIO, *, thinking: bool = False
+) -> Optional[SmoothTermflowWriter]:
     """Build a smooth termflow writer honoring the user's config toggle.
 
     Returns ``None`` when response smoothing is disabled or ``target``
@@ -121,9 +123,13 @@ def make_smooth_termflow_writer(target: TextIO) -> Optional[SmoothTermflowWriter
     if not _is_interactive_target(target):
         return None
     try:
-        from code_puppy.config import get_smooth_response_stream
+        from code_puppy.config import (
+            get_smooth_response_stream,
+            get_smooth_thinking_stream,
+        )
 
-        if not get_smooth_response_stream():
+        enabled = get_smooth_thinking_stream if thinking else get_smooth_response_stream
+        if not enabled():
             return None
     except Exception:
         pass

@@ -5,6 +5,17 @@ from unittest.mock import MagicMock, mock_open, patch
 
 import pytest
 
+from code_puppy.i18n import t, translate
+
+
+@pytest.fixture(autouse=True, params=("en-US", "es", "fr-CA"))
+def edit_locale(request):
+    translator = translate.get_translator()
+    previous = translator.locale
+    translator.set_locale(request.param)
+    yield
+    translator.set_locale(previous)
+
 
 @pytest.fixture
 def edit_cmd():
@@ -32,7 +43,9 @@ class TestEditCommand:
             patch("code_puppy.command_line.mcp.edit_command.emit_info"),
         ):
             edit_cmd.execute(["myserver"], group_id="g1")
-            assert "No MCP servers configured" in str(mock_err.call_args)
+            mock_err.assert_called_once_with(
+                t("mcp.edit.no_servers"), message_group="g1"
+            )
 
     def test_server_not_found(self, edit_cmd):
         data = {"mcp_servers": {"other": {"type": "stdio", "command": "echo"}}}
@@ -44,7 +57,9 @@ class TestEditCommand:
             patch("code_puppy.command_line.mcp.edit_command.emit_info"),
         ):
             edit_cmd.execute(["myserver"], group_id="g1")
-            assert "not found" in str(mock_err.call_args)
+            mock_err.assert_called_once_with(
+                t("mcp.edit.not_found", server="myserver"), message_group="g1"
+            )
 
     def test_server_not_found_shows_available(self, edit_cmd):
         data = {"mcp_servers": {"alpha": {"type": "stdio"}, "beta": {"type": "sse"}}}
@@ -124,7 +139,12 @@ class TestEditCommand:
             patch("code_puppy.command_line.mcp.edit_command.emit_error") as mock_err,
         ):
             edit_cmd.execute(["myserver"], group_id="g1")
-            assert "Error reading config" in str(mock_err.call_args)
+            error = json.JSONDecodeError(
+                "Expecting property name enclosed in double quotes", "{bad json", 1
+            )
+            mock_err.assert_called_once_with(
+                t("mcp.edit.config_read_error", error=error), message_group="g1"
+            )
 
     def test_generic_load_exception(self, edit_cmd):
         with (
@@ -133,7 +153,9 @@ class TestEditCommand:
             patch("code_puppy.command_line.mcp.edit_command.emit_error") as mock_err,
         ):
             edit_cmd.execute(["myserver"], group_id="g1")
-            assert "Error loading server config" in str(mock_err.call_args)
+            mock_err.assert_called_once_with(
+                t("mcp.edit.config_load_error", error="denied"), message_group="g1"
+            )
 
     def test_execute_exception(self, edit_cmd):
         with (
@@ -143,7 +165,9 @@ class TestEditCommand:
             patch("code_puppy.command_line.mcp.edit_command.emit_error") as mock_err,
         ):
             edit_cmd.execute(["myserver"], group_id="g1")
-            mock_err.assert_called_once()
+            mock_err.assert_called_once_with(
+                t("mcp.edit.error", error="boom"), message_group="g1"
+            )
 
     def test_server_type_defaults_to_stdio(self, edit_cmd):
         """Server without explicit type defaults to stdio."""

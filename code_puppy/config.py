@@ -7,6 +7,7 @@ import os
 import pathlib
 from typing import Any, Optional
 
+from code_puppy import atomic_io
 from code_puppy.config_file import load_config, mutate_config
 from code_puppy.session_storage import compute_scope_key, save_session
 
@@ -156,6 +157,28 @@ def get_universal_constructor_enabled() -> bool:
     """
     # Enabled to True as default.
     return get_truthy_bool_value("enable_universal_constructor", True)
+
+
+def get_speculative_code_mode_enabled() -> bool:
+    """Return True if speculative CodeMode is enabled (default False).
+
+    Applies to every agent: the whole tool surface folds into a harness
+    CodeMode `run_code` sandbox with speculative execution, so calls with
+    literal arguments start executing while the model is still streaming the
+    snippet. Dogfoods pydantic-ai-harness#699. Off by default because it
+    changes how every agent calls tools.
+
+    When False, agents use plain native tool calls.
+    """
+    return get_truthy_bool_value("enable_speculative_code_mode", False)
+
+
+def set_speculative_code_mode_enabled(enabled: bool) -> None:
+    """Persist the speculative CodeMode switch (Ctrl+X Ctrl+S toggles it).
+
+    Takes effect the next time an agent's pydantic agent is built.
+    """
+    set_value("enable_speculative_code_mode", "true" if enabled else "false")
 
 
 def set_universal_constructor_enabled(enabled: bool) -> None:
@@ -619,6 +642,9 @@ def get_config_keys():
     """
     Returns the list of all config keys currently in puppy.cfg,
     plus certain preset expected keys (e.g. "yolo_mode", "model", "compaction_strategy", "message_limit", "allow_recursion").
+
+    Only core-owned keys belong in ``default_keys``: plugins declare theirs
+    through the ``register_settings`` hook (see :func:`_plugin_setting_keys`).
     """
     default_keys = [
         "yolo_mode",
@@ -627,7 +653,6 @@ def get_config_keys():
         "protected_token_count",
         "compaction_threshold",
         "summarization_model",
-        "auto_continue_model",
         "message_limit",
         "allow_recursion",
         "subagent_recursion_limit",
@@ -638,13 +663,8 @@ def get_config_keys():
         "diff_context_lines",
         "default_agent",
         "temperature",
-        "frontend_emitter_enabled",
-        "frontend_emitter_max_recent_events",
-        "frontend_emitter_queue_size",
         "locale",
-        "timestamp_heartbeat_interval",
     ]
-    # 'enable_dbos' is plugin-reserved (read via get_value); not in default_keys.
     # Add pack agents control key
     default_keys.append("enable_pack_agents")
     # Add universal constructor control key
@@ -672,9 +692,6 @@ def get_config_keys():
     # Tool-output reduction threshold in chars for the harness ToolOutputLimits
     # capability (see get_tool_output_limit_chars()). 0 or negative disables.
     default_keys.append("tool_output_limit_chars")
-    # Add /goal iteration cap (owned by the wiggum plugin, surfaced here so
-    # /set autocompletes it). See plugins/wiggum/register_callbacks.py.
-    default_keys.append("goal_max_iterations")
     # How relentlessly the agent proceeds without checking in; headless -p
     # runs always behave as 'extreme' (see get_agency_level()).
     default_keys.append("agency_level")
@@ -693,7 +710,19 @@ def get_config_keys():
     config = _load_config()
     keys = set(config[DEFAULT_SECTION].keys()) if DEFAULT_SECTION in config else set()
     keys.update(default_keys)
+    keys.update(_plugin_setting_keys())
     return sorted(keys)
+
+
+def _plugin_setting_keys() -> set[str]:
+    """Keys plugins declare via ``register_settings`` (their own, not core's)."""
+    from code_puppy.callbacks import on_register_settings
+
+    return {
+        setting.key
+        for category in on_register_settings()
+        for setting in category.settings
+    }
 
 
 def set_config_value(key: str, value: str):
@@ -788,8 +817,8 @@ def load_mcp_server_configs(*, raise_on_error: bool = False):
     # 1. User-level config (global, implicitly trusted).
     try:
         if pathlib.Path(MCP_SERVERS_FILE).exists():
-            with open(MCP_SERVERS_FILE, "r", encoding="utf-8") as f:
-                configs.update(_parse_mcp_servers_mapping(f.read()))
+            raw = atomic_io.read_bounded_bytes(MCP_SERVERS_FILE)
+            configs.update(_parse_mcp_servers_mapping(raw.decode("utf-8")))
     except Exception as e:
         emit_error(f"Failed to load MCP servers - {str(e)}")
         if raise_on_error:
@@ -1995,39 +2024,14 @@ def get_command_timeout_seconds() -> int:
 
 
 def save_command_to_history(command: str):
-    """Save a command to the history file with an ISO format timestamp.
+    """Persist newly captured input using the editor's canonical FileHistory format.
 
-    Args:
-        command: The command to save
+    Call at capture/creation, not again when an already-recorded task is dispatched.
+    HistoryStore handles blank input and I/O failures without interrupting the UI.
     """
-    import datetime
+    from code_puppy.messaging.editor_history import HistoryStore
 
-    try:
-        timestamp = datetime.datetime.now().isoformat(timespec="seconds")
-
-        # Sanitize command to remove any invalid surrogate characters
-        # that could cause encoding errors on Windows
-        try:
-            command = command.encode("utf-8", errors="surrogatepass").decode(
-                "utf-8", errors="replace"
-            )
-        except (UnicodeEncodeError, UnicodeDecodeError):
-            # If that fails, do a more aggressive cleanup
-            command = "".join(
-                char if ord(char) < 0xD800 or ord(char) > 0xDFFF else "\ufffd"
-                for char in command
-            )
-
-        with open(
-            COMMAND_HISTORY_FILE, "a", encoding="utf-8", errors="surrogateescape"
-        ) as f:
-            f.write(f"\n# {timestamp}\n{command}\n")
-    except Exception as e:
-        from code_puppy.messaging import emit_error
-
-        emit_error(
-            f"An unexpected error occurred while saving command history: {str(e)}"
-        )
+    HistoryStore(COMMAND_HISTORY_FILE).append(command)
 
 
 def get_agent_pinned_model(agent_name: str) -> str:
@@ -2310,6 +2314,8 @@ DEFAULT_BANNER_COLORS = {
     "shell_passthrough": "medium_sea_green",  # Green - user's own shell commands
     # LLM Judge - goal-mode verdict (distinct from agent reasoning)
     "llm_judge": "gold3",  # Gold - judicial authority / gavel
+    # User steering (QUEUED / STEER acks) - hot pink so it never hides in the scrollback
+    "steer": "deep_pink3",
 }
 
 
@@ -2535,7 +2541,6 @@ def auto_save_session_if_enabled(*, force: bool = False) -> bool:
         import pathlib
 
         from code_puppy.agents.agent_manager import get_current_agent
-        from code_puppy.messaging import emit_info
 
         current_agent = get_current_agent()
         history = current_agent.get_message_history()
@@ -2559,24 +2564,6 @@ def auto_save_session_if_enabled(*, force: bool = False) -> bool:
         # Point quick-resume at this save; every turn/exit/finalize routes through
         # this chokepoint. Best-effort, never blocks the autosave.
         record_quick_resume_sessions(session_name)
-
-        # Append conversation-wide TTFT + TG averages if we have any data.
-        stats_suffix = ""
-        try:
-            from code_puppy.agents.run_stats import AgentRunStats
-
-            avg_ttft, avg_gen = AgentRunStats.get_conversation_stats()
-            formatted = AgentRunStats.format_conversation_stats(avg_ttft, avg_gen)
-            if formatted:
-                stats_suffix = f" | {formatted}"
-        except Exception:
-            # Stats are decorative; never block the auto-save line on them.
-            pass
-
-        emit_info(
-            f"\U0001f43e Auto-saved session: {metadata.message_count} messages "
-            f"({metadata.total_tokens} tokens){stats_suffix}"
-        )
 
         # Fire post_autosave so plugins can append lines (token quota) without
         # us knowing about them. See session_lifecycle's docstring re executor wrap.
@@ -3095,6 +3082,29 @@ def set_output_level(level: str) -> None:
             f"Invalid output_level {level!r}; choose from low, medium, high"
         )
     set_config_value("output_level", normalised)
+
+
+def get_show_tool_output() -> bool:
+    """Return True if full tool-call results are shown in the transcript.
+
+    Default is False: tool-call results stay collapsed to the compact
+    one-line call summary. Set ``show_tool_output`` in ``puppy.cfg`` (or via
+    ``/set``) to render the full result bodies the tools emit.
+
+    Note: on Windows, shell output is *always* hidden regardless of this
+    flag -- PowerShell control characters brick SIGINT and make Code Puppy
+    impossible to cancel.
+    """
+    return get_truthy_bool_value("show_tool_output", False)
+
+
+def set_show_tool_output(enabled: bool) -> None:
+    """Set whether full tool-call results are rendered.
+
+    Args:
+        enabled: Whether to show full tool results in the transcript.
+    """
+    set_config_value("show_tool_output", "true" if enabled else "false")
 
 
 # API Key management functions

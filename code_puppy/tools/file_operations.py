@@ -2,7 +2,6 @@
 
 import os
 import re
-import shutil
 import subprocess
 import tempfile
 from typing import Callable, List, Tuple
@@ -21,7 +20,8 @@ from code_puppy.messaging import (  # New structured messaging types
     GrepResultMessage,
     get_message_bus,
 )
-from code_puppy.tools.common import resolve_path
+from code_puppy.tools.common import resolve_path, _sanitize_string, read_text_sanitized
+from code_puppy.tools.ripgrep import find_ripgrep
 from code_puppy.tools import fs_access
 
 
@@ -246,7 +246,6 @@ def _list_entries_via_backend(directory: str, recursive: bool) -> List["ListedFi
 def _list_files(
     context: RunContext, directory: str = ".", recursive: bool = True
 ) -> ListFileOutput:
-    import sys
 
     results = []
     # Synthesized parent directories already added to ``results``. Membership is
@@ -292,18 +291,7 @@ def _list_files(
     # Create a temporary ignore file with our ignore patterns (local rg path)
     ignore_file = None
     try:
-        # Find ripgrep executable - first check system PATH, then virtual environment
-        rg_path = shutil.which("rg")
-        if not rg_path:
-            # Try to find it in the virtual environment
-            # Use sys.executable to determine the Python environment path
-            python_dir = os.path.dirname(sys.executable)
-            # python_dir is already bin/ (Unix) or Scripts/ (Windows)
-            for name in ["rg", "rg.exe"]:
-                candidate = os.path.join(python_dir, name)
-                if os.path.exists(candidate):
-                    rg_path = candidate
-                    break
+        rg_path = find_ripgrep()
 
         if not rg_path and recursive and not _use_backend:
             # Only need ripgrep for recursive listings
@@ -553,76 +541,30 @@ def _read_file(
 ) -> ReadFileOutput:
     file_path = resolve_path(file_path)
 
-    # With a FS backend (e.g. editor host), read through it to see unsaved
-    # buffers; it owns existence/permission semantics — skip local checks.
-    from code_puppy.tools.io_backends import get_filesystem_backend
+    if start_line is not None and start_line < 1:
+        error_msg = "start_line must be >= 1 (1-based indexing)"
+        return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
 
-    backend = get_filesystem_backend()
-    if backend is not None:
-        if start_line is not None and start_line < 1:
-            error_msg = "start_line must be >= 1 (1-based indexing)"
-            return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
-        if num_lines is not None and num_lines < 1:
-            error_msg = "num_lines must be >= 1"
-            return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
-        # Push line+limit down to the host (ACP fs/read) so chunked reads don't
-        # drag the whole file across; slice only when BOTH bounds are given.
-        want_slice = start_line is not None and num_lines is not None
-        try:
-            if want_slice:
-                raw = backend.read_text_file(
-                    file_path, line=start_line, limit=num_lines
-                )
-            else:
-                raw = backend.read_text_file(file_path)
-        except FileNotFoundError:
-            error_msg = f"File {file_path} does not exist"
-            return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
-        except Exception as e:
-            message = f"An error occurred trying to read the file: {e}"
-            return ReadFileOutput(content=message, num_tokens=0, error=message)
-        return _finalize_read_output(file_path, raw, start_line, num_lines)
+    if num_lines is not None and num_lines < 1:
+        error_msg = "num_lines must be >= 1"
+        return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
 
-    if not os.path.exists(file_path):
+    try:
+        content = read_text_sanitized(file_path, line=start_line, limit=num_lines)
+
+    except FileNotFoundError:
         error_msg = f"File {file_path} does not exist"
         return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
-    if not os.path.isfile(file_path):
-        error_msg = f"{file_path} is not a file"
-        return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
-    try:
-        # errors="surrogateescape" handles invalid UTF-8 (common on Windows when
-        # files contain emojis or were written by non-UTF-8 apps).
-        with open(file_path, "r", encoding="utf-8", errors="surrogateescape") as f:
-            if start_line is not None and start_line < 1:
-                error_msg = "start_line must be >= 1 (1-based indexing)"
-                return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
-            if num_lines is not None and num_lines < 1:
-                error_msg = "num_lines must be >= 1"
-                return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
-            if start_line is not None and num_lines is not None:
-                # Read only the specified lines efficiently using itertools.islice
-                # to avoid loading the entire file into memory
-                import itertools
 
-                start_idx = start_line - 1
-                selected_lines = list(
-                    itertools.islice(f, start_idx, start_idx + num_lines)
-                )
-                content = "".join(selected_lines)
-            else:
-                # Read the entire file
-                content = f.read()
-
-        return _finalize_read_output(file_path, content, start_line, num_lines)
-    except FileNotFoundError:
-        error_msg = "FILE NOT FOUND"
-        return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
     except PermissionError:
         error_msg = "PERMISSION DENIED"
         return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
+
     except Exception as e:
         message = f"An error occurred trying to read the file: {e}"
         return ReadFileOutput(content=message, num_tokens=0, error=message)
+
+    return _finalize_read_output(file_path, content, start_line, num_lines)
 
 
 def _finalize_read_output(
@@ -638,17 +580,9 @@ def _finalize_read_output(
     """
     # Sanitize the content to remove any surrogate characters that could cause
     # issues when the content is later serialized or displayed.
-    try:
-        content = content.encode("utf-8", errors="surrogatepass").decode(
-            "utf-8", errors="replace"
-        )
-    except (UnicodeEncodeError, UnicodeDecodeError):
-        content = "".join(
-            char if ord(char) < 0xD800 or ord(char) > 0xDFFF else "\ufffd"
-            for char in content
-        )
+    content = _sanitize_string(content)
 
-    # Simple approximation: ~4 characters per token
+    # Simple approximation: ~4 characters per token.
     num_tokens = len(content) // 4
     if num_tokens > 10000:
         return ReadFileOutput(
@@ -660,8 +594,10 @@ def _finalize_read_output(
     total_lines = content.count("\n") + (
         1 if content and not content.endswith("\n") else 0
     )
+
     emit_start_line = start_line if start_line is not None and start_line >= 1 else None
     emit_num_lines = num_lines if num_lines is not None and num_lines >= 1 else None
+
     get_message_bus().emit(
         FileContentMessage(
             path=file_path,
@@ -672,34 +608,8 @@ def _finalize_read_output(
             num_tokens=num_tokens,
         )
     )
+
     return ReadFileOutput(content=content, num_tokens=num_tokens)
-
-
-def _sanitize_string(text: str) -> str:
-    """Sanitize a string to remove invalid Unicode surrogates.
-
-    This handles encoding issues common on Windows with copy-paste operations.
-    """
-    if not text:
-        return text
-    try:
-        # Try encoding - if it works, string is clean
-        text.encode("utf-8")
-        return text
-    except UnicodeEncodeError:
-        pass
-
-    try:
-        # Encode allowing surrogates, then decode replacing them
-        return text.encode("utf-8", errors="surrogatepass").decode(
-            "utf-8", errors="replace"
-        )
-    except (UnicodeEncodeError, UnicodeDecodeError):
-        # Last resort: filter out surrogate characters
-        return "".join(
-            char if ord(char) < 0xD800 or ord(char) > 0xDFFF else "\ufffd"
-            for char in text
-        )
 
 
 # Ripgrep flags that suppress per-match JSON events (which _grep parses);
@@ -1231,9 +1141,7 @@ def _carries_type_filter(rg_args: list[str]) -> bool:
 def _grep(context: RunContext, search_string: str, directory: str = ".") -> GrepOutput:
     import json
     import os
-    import shutil
     import subprocess
-    import sys
 
     # Sanitize search string to handle any surrogates from copy-paste
     search_string = _sanitize_string(search_string)
@@ -1269,18 +1177,7 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
         # ripgrep: absolute path, --json output, --max-count 50, --max-filesize 5M,
         # --type=all, --ignore-file for our ignore list.
 
-        # Find ripgrep executable - first check system PATH, then virtual environment
-        rg_path = shutil.which("rg")
-        if not rg_path:
-            # Try to find it in the virtual environment
-            # Use sys.executable to determine the Python environment path
-            python_dir = os.path.dirname(sys.executable)
-            # python_dir is already bin/ (Unix) or Scripts/ (Windows)
-            for name in ["rg", "rg.exe"]:
-                candidate = os.path.join(python_dir, name)
-                if os.path.exists(candidate):
-                    rg_path = candidate
-                    break
+        rg_path = find_ripgrep()
 
         if not rg_path:
             error_message = (
@@ -1434,7 +1331,7 @@ def register_list_files(agent):
     """Register only the list_files tool."""
     from code_puppy.config import get_allow_recursion
 
-    @agent.tool
+    @agent.tool(metadata={"speculatable": True})
     def list_files(
         context: RunContext, directory: str = ".", recursive: bool = True
     ) -> ListFileOutput:
@@ -1490,7 +1387,7 @@ def register_list_files(agent):
 def register_read_file(agent):
     """Register only the read_file tool."""
 
-    @agent.tool
+    @agent.tool(metadata={"speculatable": True})
     def read_file(
         context: RunContext,
         file_path: str,
@@ -1507,7 +1404,7 @@ def register_read_file(agent):
 def register_grep(agent):
     """Register only the grep tool."""
 
-    @agent.tool
+    @agent.tool(metadata={"speculatable": True})
     def grep(
         context: RunContext, search_string: str, directory: str = "."
     ) -> GrepOutput:

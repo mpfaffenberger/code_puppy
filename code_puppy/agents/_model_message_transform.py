@@ -8,6 +8,7 @@ from pydantic_ai.capabilities import Hooks, WrapModelRequestHandler
 from pydantic_ai.messages import ModelResponse
 from pydantic_ai.models import ModelRequestContext
 
+from code_puppy.agents._foreign_thinking import strip_foreign_thinking
 from code_puppy.callbacks import on_transform_model_messages
 
 
@@ -21,7 +22,9 @@ def build_model_message_transform(agent_name: str | None) -> Hooks:
         handler: WrapModelRequestHandler,
     ) -> ModelResponse:
         transformed_context = copy(request_context)
-        transformed_context.messages = list(request_context.messages)
+        transformed_context.messages = strip_foreign_thinking(
+            list(request_context.messages), request_context.model
+        )
         await on_transform_model_messages(agent_name, transformed_context.messages)
         return await handler(transformed_context)
 

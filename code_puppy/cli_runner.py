@@ -30,7 +30,6 @@ from code_puppy.command_line.attachments import (
 )
 from code_puppy.config import (
     AUTOSAVE_DIR,
-    COMMAND_HISTORY_FILE,
     ensure_config_exists,
     finalize_autosave_session,
     get_current_session_name,
@@ -684,7 +683,7 @@ def _prompt_echo_text(task: str):
 
     prompt_color = on_prompt_text_color()
     style = f"bold {prompt_color}" if prompt_color else "bold"
-    return Text(f"\n> {task}", style=style)
+    return Text(f"\n> {task}\n", style=style)
 
 
 def _interactive_sigint_guard(_sig, _frame):
@@ -782,9 +781,16 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     # renders as one line, actually bold.
     emit_system_message(Text(t("cli.help.press_tab"), style="bold"))
     # Tell the user how relentless the puppy is configured to be.
-    from code_puppy.config import get_agency_level
+    from code_puppy.config import get_agency_level, get_speculative_code_mode_enabled
 
     emit_info(t("cli.agency.status", level=get_agency_level().upper()))
+    # Advertise the chord: the feature is invisible until someone presses it.
+    speculation_key = (
+        "cli.speculation.on"
+        if get_speculative_code_mode_enabled()
+        else "cli.speculation.off"
+    )
+    emit_info(t(speculation_key))
     # Print truecolor warning LAST so it's the most visible thing on startup
     # Big ugly red box should be impossible to miss!
     print_truecolor_warning(display_console)
@@ -942,9 +948,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 # the CODE_PUPPY_CLASSIC_PROMPT escape hatch.
                 reset_windows_terminal_ansi()
                 task = input(">>> ")
-                from code_puppy.messaging.editor_history import HistoryStore
-
-                HistoryStore(COMMAND_HISTORY_FILE).append(task)
+                # Classic input has no editor: capture history here, even for
+                # shell/slash/exit commands that return before agent dispatch.
+                save_command_to_history(task)
 
         except (KeyboardInterrupt, asyncio.CancelledError) as cancel_exc:
             # Ctrl+C: cancel input and continue. Reset terminal state on Windows
@@ -1124,16 +1130,17 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                         emit_error(t("cli.autosave.load_failed", error=e))
                     continue
                 else:
-                    # Command returned a prompt to execute
+                    # The raw slash command was captured by the input owner;
+                    # its expansion is a distinct newly created prompt.
                     task = command_result
+                    save_command_to_history(task)
             elif command_result is False:
                 # Command not recognized, continue with normal processing
                 pass
 
         if task.strip():
-            # Write to the secret file for permanent history with timestamp
-            save_command_to_history(task)
-
+            # History belongs to input capture (editor/classic/queue insertion),
+            # not dispatch: queued or deferred inputs may already be recorded.
             turn_result = None
             turn_success = False
             turn_error = None
@@ -1327,14 +1334,14 @@ async def run_prompt_with_attachments(
     display_console=None,
     use_run_ui: bool = True,
 ):
-    """Run the agent after parsing CLI attachments for image/document support.
+    """Run the agent after parsing CLI attachments for image, video, and document support.
 
     Returns:
         tuple: (result, task) where result is the agent response and task is the asyncio task
     """
     import asyncio
 
-    from code_puppy.messaging import emit_system_message, emit_warning
+    from code_puppy.messaging import emit_warning
 
     # Shared resolver: file paths, URLs, and pending clipboard images.
     # (Same helper powers mid-run steering injection — keep them in sync.)
@@ -1342,28 +1349,6 @@ async def run_prompt_with_attachments(
 
     for warning in resolved.warnings:
         emit_warning(warning)
-
-    # Build summary of all attachments
-    summary_parts = []
-    if resolved.file_attachments:
-        summary_parts.append(
-            t("cli.attachments.files", count=len(resolved.file_attachments))
-        )
-    if resolved.clipboard_images:
-        summary_parts.append(
-            t(
-                "cli.attachments.clipboard_images",
-                count=len(resolved.clipboard_images),
-            )
-        )
-    if resolved.link_attachments:
-        summary_parts.append(
-            t("cli.attachments.urls", count=len(resolved.link_attachments))
-        )
-    if summary_parts:
-        emit_system_message(
-            t("cli.attachments.detected", summary=", ".join(summary_parts))
-        )
 
     cleaned_prompt = resolved.text
     if not cleaned_prompt:

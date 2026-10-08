@@ -1,10 +1,10 @@
 """``get_registry()`` is the startup-path accessor and must stay off the network.
 
-``config.get_model_max_output_tokens`` consults it on every model resolution.
-The CI egress guard (``tests/integration/test_network_traffic_monitoring.py``)
-fails the whole release pipeline if a plain ``hi`` reaches models.dev, so the
-cached registry has to come from the bundled snapshot only. Live fetches are
-reserved for ``/add_model`` and ``/refresh_models``, which build their own.
+``config.get_model_max_output_tokens`` consults it on every model resolution,
+so a plain ``hi`` must never phone models.dev: the cached registry has to come
+from the bundled snapshot only. This module is the guard for that contract.
+Live fetches are reserved for ``/add_model`` and ``/refresh_models``, which
+build their own.
 """
 
 from unittest.mock import patch
@@ -45,6 +45,21 @@ def test_get_registry_is_cached_per_process():
         first = get_registry()
         second = get_registry()
     assert first is second
+
+
+def test_startup_registry_build_is_silent():
+    """Nobody typed anything to get here, so nothing may be printed.
+
+    The catalog size used to be announced from inside the parser, which made
+    every cold start claim ~1300 models the user had neither asked for nor
+    could select. Only ``/add_model`` narrates that now.
+    """
+    with (
+        patch.object(ModelsDevRegistry, "_fetch_from_api", side_effect=_no_network),
+        patch.object(models_dev_parser, "emit_info") as emit,
+    ):
+        assert get_registry() is not None
+    emit.assert_not_called()
 
 
 def test_missing_snapshot_yields_none_not_an_error(tmp_path):

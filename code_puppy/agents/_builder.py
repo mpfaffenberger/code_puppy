@@ -18,7 +18,11 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple
 from pydantic_ai import Agent as PydanticAgent
 from pydantic_ai.capabilities import ProcessHistory
 
-from code_puppy.agents._compaction import make_history_processor
+from code_puppy.agents._code_mode import (
+    bind_declared_speculation,
+    build_speculative_code_mode,
+)
+from code_puppy.agents._compaction import HistoryCompaction
 from code_puppy.agents._model_message_transform import build_model_message_transform
 from code_puppy.agents._subagent_recursion import build_subagent_recursion_guard
 from code_puppy.agents._output_limits import (
@@ -27,6 +31,7 @@ from code_puppy.agents._output_limits import (
 )
 from code_puppy.agents._steer_processor import make_steer_history_processor
 from code_puppy.agents.event_stream_handler import event_stream_handler
+from code_puppy.events.bridge import CapabilityEventBridge
 from code_puppy.callbacks import (
     on_pre_mcp_autostart,
     on_pre_mcp_autostart_sync,
@@ -561,7 +566,7 @@ def _build_gpt_5_6_invoke_agent_guard_text() -> str:
 _GPT_5_6_RUN_SHELL_COMMAND_GUARD_TEXT = """
 
 ## Shell Safety (GPT-5.6)
-Before using `agent_run_shell_command`, prefer inspection and dry runs. Confirm
+Before using `shell`, prefer inspection and dry runs. Confirm
 with the user before irreversible deletion, overwrites, history rewrites,
 database or production mutations, or other actions without a clear rollback.
 """
@@ -598,7 +603,7 @@ def _assemble_instructions(agent: Any, resolved_model_name: str) -> PreparedProm
     if _is_gpt_5_6_family(resolved_model_name):
         if _agent_exposes_tool(agent, "invoke_agent"):
             instructions += _build_gpt_5_6_invoke_agent_guard_text()
-        if _agent_exposes_tool(agent, "agent_run_shell_command"):
+        if _agent_exposes_tool(agent, "shell"):
             instructions += _GPT_5_6_RUN_SHELL_COMMAND_GUARD_TEXT
 
     return prepare_prompt_for_model(
@@ -649,7 +654,7 @@ def build_pydantic_agent(
         resolved_model_name,
         overrides=agent.get_model_settings_overrides(),
     )
-    history_processor = make_history_processor(agent)
+    history_compaction = HistoryCompaction(agent)
     steer_processor = make_steer_history_processor(agent)
     logical_agent_name = getattr(agent, "name", None) or agent.__class__.__name__
     # Read before ``_new_pydantic_agent`` runs: the closure's capability list
@@ -672,16 +677,17 @@ def build_pydantic_agent(
             toolsets=toolsets,
             # Order matters: compaction first (may trim history to fit
             # context), THEN steer injection (a fresh steer must not be
-            # compacted away). ProcessHistory capabilities apply in
+            # compacted away). Both hit before_model_request — the exact
+            # seam ProcessHistory uses — and capabilities apply in
             # registration order (replaces the deprecated
             # `history_processors=` kwarg, removed in pydantic-ai v2).
             # ToolOutputLimits reduces oversized tool returns on a different
             # hook (after_tool_execute), so its position is inert; the
-            # response clamp runs before_model_request after both history
-            # processors. The plugin transform wraps the final model request.
+            # response clamp runs before_model_request after compaction and
+            # steering. The plugin transform wraps the final model request.
             capabilities=[
                 *build_tool_output_limits(),
-                ProcessHistory(history_processor),
+                history_compaction,
                 ProcessHistory(steer_processor),
                 build_response_clamp(),
                 build_model_message_transform(logical_agent_name),
@@ -690,6 +696,21 @@ def build_pydantic_agent(
                 # tool body runs). Sole wrap_tool_execute implementer, so
                 # position is inert.
                 *build_subagent_recursion_guard(agent_tools),
+                # Speculative CodeMode, when the config flag is on: folds the
+                # agent's whole tool surface into a run_code sandbox and
+                # launches literal-argument calls while the snippet is still
+                # streaming (harness#699 dogfood). Its own ordering is
+                # declared outermost by the capability, so list position is
+                # inert; its speculation lifecycle leaves as typed
+                # code_mode.* CapabilityEvents for the bridge below.
+                *build_speculative_code_mode(agent_tools),
+                # LAST: the app-side event bridge. Capabilities above emit
+                # typed CapabilityEvents; the bridge's @on_event listeners
+                # translate them into legacy callbacks/spinner/messaging.
+                # Listener order follows registration order, so keeping it
+                # last means app observation runs after every capability
+                # listener that owns domain behavior.
+                CapabilityEventBridge(agent=agent),
             ],
             model_settings=model_settings,
         )
@@ -741,6 +762,9 @@ def build_pydantic_agent(
         model_name=resolved_model_name,
         agent_name=logical_agent_name,
     )
+    # Tools now exist: speculate every one that declares itself speculatable
+    # (plugin tools included). The probe agent never runs, so it is not bound.
+    bind_declared_speculation(final_pydantic)
 
     agent.cur_model = model
     agent._last_model_name = resolved_model_name

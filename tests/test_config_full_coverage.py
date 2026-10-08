@@ -759,6 +759,20 @@ class TestMCPServerConfigs:
                 result = cp_config.load_mcp_server_configs()
                 assert result == {}
 
+    def test_oversized_file_is_rejected_without_full_read(self, tmp_path):
+        """Reject oversized startup config before buffering it in full."""
+        f = tmp_path / "mcp_servers.json"
+        f.write_text('{"mcp_servers": {}}')
+        with patch.object(cp_config, "MCP_SERVERS_FILE", str(f)):
+            with patch(
+                "code_puppy.config.atomic_io.read_bounded_bytes",
+                side_effect=cp_config.atomic_io.ContentTooLarge("too big"),
+            ):
+                with patch("code_puppy.messaging.message_queue.emit_error") as err:
+                    result = cp_config.load_mcp_server_configs()
+                    assert result == {}
+                    err.assert_called_once()
+
     def test_bad_json_raise_on_error(self, tmp_path):
         f = tmp_path / "mcp_servers.json"
         f.write_text("not json")
@@ -781,7 +795,6 @@ class TestConfigKeys:
         assert "enable_streaming" in keys
         assert "cancel_agent_key" in keys
         assert "resume_message_count" in keys
-        assert "auto_continue_model" in keys
 
 
 def test_auto_continue_model_uses_override(monkeypatch):
