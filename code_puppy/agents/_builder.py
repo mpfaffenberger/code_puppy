@@ -29,6 +29,7 @@ from code_puppy.agents._output_limits import (
     build_response_clamp,
     build_tool_output_limits,
 )
+from code_puppy.agents._run_telemetry import RunTelemetry
 from code_puppy.agents._steer_processor import make_steer_history_processor
 from code_puppy.agents.event_stream_handler import event_stream_handler
 from code_puppy.events.bridge import CapabilityEventBridge
@@ -628,6 +629,8 @@ def build_pydantic_agent(
     - ``agent._code_generation_agent`` ← same as ``pydantic_agent``
     - ``agent._mcp_servers``          ← MCP toolsets (post-filter,
       post-``transform_mcp_toolsets``)
+    - ``agent._run_telemetry``        ← the ``RunTelemetry`` capability instance
+      (``run_with_mcp`` consumes its run-end capture; see ``_run_telemetry.py``)
 
     The build happens in two passes: we construct once with ``toolsets=[]`` so
     we can introspect registered tool names, then rebuild with MCP servers
@@ -660,6 +663,11 @@ def build_pydantic_agent(
     # Read before ``_new_pydantic_agent`` runs: the closure's capability list
     # conditions the recursion guard on the agent's declared tool surface.
     agent_tools = agent.get_available_tools()
+    # One instance shared by both construction passes (the probe never runs,
+    # so its capture slot stays empty), mirroring the single-instance hoists
+    # elsewhere in this builder; safe because the defaults of for_agent /
+    # for_run return self and binding never mutates the instance.
+    run_telemetry = RunTelemetry()
 
     def _new_pydantic_agent(toolsets: List[Any]) -> PydanticAgent:
         return PydanticAgent(
@@ -704,6 +712,10 @@ def build_pydantic_agent(
                 # inert; its speculation lifecycle leaves as typed
                 # code_mode.* CapabilityEvents for the bridge below.
                 *build_speculative_code_mode(agent_tools),
+                # RunTelemetry observes the finished result on after_run, a
+                # seam disjoint from every hook above, so its position is
+                # inert (kept ahead of the bridge, which must stay last).
+                run_telemetry,
                 # LAST: the app-side event bridge. Capabilities above emit
                 # typed CapabilityEvents; the bridge's @on_event listeners
                 # translate them into legacy callbacks/spinner/messaging.
@@ -769,6 +781,7 @@ def build_pydantic_agent(
     agent.cur_model = model
     agent._last_model_name = resolved_model_name
     agent._mcp_servers = final_mcp_servers
+    agent._run_telemetry = run_telemetry
 
     wrapped = on_wrap_pydantic_agent(
         agent,
