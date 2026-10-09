@@ -23,6 +23,7 @@ from code_puppy.agents._code_mode import (
     build_speculative_code_mode,
 )
 from code_puppy.agents._compaction import HistoryCompaction
+from code_puppy.agents._history_persistence import HistoryPersistence
 from code_puppy.agents._model_message_transform import build_model_message_transform
 from code_puppy.agents._subagent_recursion import build_subagent_recursion_guard
 from code_puppy.agents._output_limits import (
@@ -657,6 +658,9 @@ def build_pydantic_agent(
     history_compaction = HistoryCompaction(agent)
     steer_processor = make_steer_history_processor(agent)
     logical_agent_name = getattr(agent, "name", None) or agent.__class__.__name__
+    # One instance shared by both construction passes: the pass-1 probe agent
+    # never runs, so only the final agent's runs ever reach ``after_run``.
+    history_persistence = HistoryPersistence(agent)
     # Read before ``_new_pydantic_agent`` runs: the closure's capability list
     # conditions the recursion guard on the agent's declared tool surface.
     agent_tools = agent.get_available_tools()
@@ -685,12 +689,17 @@ def build_pydantic_agent(
             # hook (after_tool_execute), so its position is inert; the
             # response clamp runs before_model_request after compaction and
             # steering. The plugin transform wraps the final model request.
+            # HistoryPersistence is the only after_run capability here, so its
+            # position is inert too (NB: CombinedCapability applies after_run
+            # hooks in REVERSED list order, onion semantics, should another
+            # after_run capability ever join this list).
             capabilities=[
                 *build_tool_output_limits(),
                 history_compaction,
                 ProcessHistory(steer_processor),
                 build_response_clamp(),
                 build_model_message_transform(logical_agent_name),
+                history_persistence,
                 # Sub-agent recursion guards on the wrap_tool_execute seam
                 # (denies invoke_agent calls past the depth caps before the
                 # tool body runs). Sole wrap_tool_execute implementer, so
