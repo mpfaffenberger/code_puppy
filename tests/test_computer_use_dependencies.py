@@ -30,15 +30,15 @@ def test_computer_use_extra_delegates_to_published_plugin():
     assert delegated.extras == {"computer-use"}
     assert not base.extras  # Plain installations do not request desktop SDKs.
     for requirement in (base, delegated):
-        assert Version("0.0.77") in requirement.specifier
-        assert Version("0.0.76") not in requirement.specifier
+        assert Version("0.0.83") in requirement.specifier
+        assert Version("0.0.82") not in requirement.specifier
 
 
 @pytest.mark.parametrize("platform", ["win32", "darwin", "linux"])
 def test_locked_extra_selects_platform_dependencies(platform):
     packages = {item["name"]: item for item in _read_toml("uv.lock")["package"]}
     plugin = packages["code-puppy-core-plugins"]
-    assert Version(plugin["version"]) >= Version("0.0.77")
+    assert Version(plugin["version"]) >= Version("0.0.83")
     assert packages["code-puppy"]["optional-dependencies"]["computer-use"] == [
         {"name": "code-puppy-core-plugins", "extra": ["computer-use"]}
     ]
