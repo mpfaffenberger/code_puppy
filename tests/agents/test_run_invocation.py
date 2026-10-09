@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock
 import pytest
 from pydantic_ai import Agent
 from pydantic_ai.capabilities import ProcessHistory
-from pydantic_ai.exceptions import ModelHTTPError
+from pydantic_ai.exceptions import ModelHTTPError, RunCancelled
 from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
 from pydantic_ai.models.function import FunctionModel
 
@@ -144,7 +144,14 @@ async def test_identical_follow_up_gets_fresh_checkpoint_and_recovery(
     assert [event for event, _ in state.events] == ["enter", "exit"] * 3
 
 
-@pytest.mark.parametrize("error", [ValueError("fatal"), asyncio.CancelledError()])
+@pytest.mark.parametrize(
+    "error",
+    [
+        ValueError("fatal"),
+        asyncio.CancelledError(),
+        RunCancelled("explicit cancellation"),
+    ],
+)
 async def test_fatal_and_cancel_cleanup_without_recovery(case, error):
     state = case
     state.agent.current = state.client(AsyncMock(side_effect=error))
@@ -154,7 +161,7 @@ async def test_fatal_and_cancel_cleanup_without_recovery(case, error):
     assert len(state.calls) == 1
     assert [event for event, _ in state.events] == ["enter", "exit"]
     assert run_invocation.on_agent_exception.await_count == (
-        0 if isinstance(error, asyncio.CancelledError) else 1
+        0 if isinstance(error, (asyncio.CancelledError, RunCancelled)) else 1
     )
 
 

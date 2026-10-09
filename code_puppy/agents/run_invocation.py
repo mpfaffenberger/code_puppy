@@ -3,6 +3,8 @@
 import asyncio
 from contextlib import AsyncExitStack
 
+from pydantic_ai.exceptions import RunCancelled
+
 from code_puppy.callbacks import on_agent_exception
 
 
@@ -38,6 +40,8 @@ async def run_with_exception_retry(call, *, agent):
     """
     try:
         return await call()
+    except RunCancelled:
+        raise
     except Exception as exc:
         hook_results = await on_agent_exception(
             exc,

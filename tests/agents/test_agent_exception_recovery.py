@@ -232,6 +232,45 @@ async def test_multiple_agent_exception_callbacks_first_retry_wins(
 
 
 @pytest.mark.parametrize("follow_up", ["hook", "queue"])
+async def test_explicit_follow_up_cancel_never_enters_recovery(
+    monkeypatch: pytest.MonkeyPatch, follow_up: str
+) -> None:
+    from pydantic_ai.exceptions import RunCancelled
+
+    success = DummyResult("initial")
+    client = ScriptedPydanticAgent(
+        success, RunCancelled("explicit cancellation"), DummyResult("wrong retry")
+    )
+    agent = DummyAgent(client)
+    recovered = []
+    cancelled = []
+
+    def recover(exception, **kwargs):
+        recovered.append(exception)
+        return {"retry": True}
+
+    register_callback("agent_exception", recover)
+    monkeypatch.setattr(_runtime, "_checkpoint_cancelled_history", lambda *args: None)
+    monkeypatch.setattr(
+        _runtime, "emit_info", lambda message, **kwargs: cancelled.append(message)
+    )
+    if follow_up == "hook":
+        register_callback(
+            "agent_run_result",
+            lambda *args, **kwargs: {"retry": True, "prompt": "follow-up", "delay": 0},
+        )
+    else:
+        monkeypatch.setattr(
+            _runtime, "prepare_queued_steer_injection", lambda *args: "follow-up"
+        )
+
+    assert await _runtime.run_with_mcp(agent, "initial") is None
+    assert [call["prompt"] for call in client.calls] == ["initial", "follow-up"]
+    assert recovered == []
+    assert "\nCancelled" in cancelled
+
+
+@pytest.mark.parametrize("follow_up", ["hook", "queue"])
 async def test_follow_up_recovery_resolves_rebuilt_client_and_attempt_context(
     monkeypatch: pytest.MonkeyPatch, follow_up: str
 ) -> None:
