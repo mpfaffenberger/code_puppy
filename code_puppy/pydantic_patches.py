@@ -29,6 +29,7 @@ from typing import Any
 
 from code_puppy._pydantic_tool_helpers import (
     _block_reason,
+    _handled_result_for_blocks,
     _normalize_claude_code_tool_name,
     _tool_args_for_pre_tool_call,
     _writeback_tool_args,
@@ -607,6 +608,11 @@ def patch_tool_call_callbacks() -> bool:
                     ctx_msg = callback_result.get("context_message")
                     if isinstance(ctx_msg, str) and ctx_msg.strip():
                         hook_context_messages.append(ctx_msg.strip())
+
+            # A hook that handled the call itself returns the tool's result.
+            handled_result = _handled_result_for_blocks(callback_results)
+            if handled_result is not None:
+                return handled_result
 
             for callback_result in callback_results:
                 if (
