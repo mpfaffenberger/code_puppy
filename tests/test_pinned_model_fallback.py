@@ -186,7 +186,9 @@ async def _invoke_with_dead_pin(
                 side_effect=fake_get_model,
             )
         )
-        mock_make_settings = p(patch("code_puppy.model_factory.make_model_settings"))
+        mock_make_settings = p(
+            patch("code_puppy.agents._model_settings.make_model_settings")
+        )
         p(
             patch(
                 "code_puppy.agents._builder.get_global_model_name",
@@ -266,6 +268,7 @@ class TestPinnedModelFallback:
         assert out.error is None
         mock_make_settings.assert_called_once_with(
             "global-default-model",
+            None,
             overrides=overrides,
         )
 
@@ -418,7 +421,7 @@ async def _invoke_with_dead_explicit_override(dead_model="dead-model"):
                 side_effect=fake_get_model,
             )
         )
-        p(patch("code_puppy.model_factory.make_model_settings"))
+        p(patch("code_puppy.agents._model_settings.make_model_settings"))
         p(
             patch(
                 "code_puppy.agents._builder.get_global_model_name",

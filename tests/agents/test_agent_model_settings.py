@@ -236,7 +236,7 @@ def test_main_agent_builder_passes_agent_model_settings():
             ),
         ),
         patch("code_puppy.agents._builder.load_mcp_servers", return_value=[]),
-        patch("code_puppy.agents._builder.make_model_settings") as make_settings,
+        patch("code_puppy.agents._model_settings.make_model_settings") as make_settings,
         patch(
             "code_puppy.agents._builder.HistoryCompaction",
             return_value=MagicMock(),
@@ -262,5 +262,6 @@ def test_main_agent_builder_passes_agent_model_settings():
     assert result is final
     make_settings.assert_called_once_with(
         "gpt-5-test",
+        None,
         overrides={"reasoning_effort": "high"},
     )

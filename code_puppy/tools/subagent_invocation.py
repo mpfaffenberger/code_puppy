@@ -347,7 +347,7 @@ async def _invoke_agent_impl(
 
     try:
         # Lazy import to break circular dependency with messaging module
-        from code_puppy.model_factory import ModelFactory, make_model_settings
+        from code_puppy.model_factory import ModelFactory
 
         # Load the specified agent config
         agent_config = load_agent(agent_name)
@@ -431,11 +431,6 @@ async def _invoke_agent_impl(
             instructions = prepared.instructions
             prompt = prepared.user_prompt
 
-            model_settings = make_model_settings(
-                effective_model_name,
-                overrides=agent_config.get_model_settings_overrides(),
-            )
-
             # Warm up bound MCP servers with the ASYNC autostart variant: the run
             # is wrapped in create_task, and the sync variant races pydantic-ai's
             # cancel-scope entry ("Attempted to exit a cancel scope..."). Awaiting
@@ -467,6 +462,7 @@ async def _invoke_agent_impl(
             from code_puppy.agents._model_message_transform import (
                 build_model_message_transform,
             )
+            from code_puppy.agents._model_settings import PerModelSettings
 
             # Build the pydantic-ai agent. MCP servers always included; plugins
             # (e.g. DBOS) may swap them via the agent_run_context hook.
@@ -485,10 +481,16 @@ async def _invoke_agent_impl(
                 toolsets=mcp_servers,
                 # HistoryCompaction hits before_model_request (the seam the
                 # deprecated `history_processors=` kwarg fed, removed in
-                # pydantic-ai v2).
+                # pydantic-ai v2). PerModelSettings replaces the
+                # model_settings= kwarg via the get_model_settings seam;
+                # position in this list is inert.
                 capabilities=[
                     HistoryCompaction(agent_config),
                     build_model_message_transform(agent_name),
+                    PerModelSettings(
+                        effective_model_name,
+                        overrides=agent_config.get_model_settings_overrides(),
+                    ),
                     # Recursion guards ride the wrap_tool_execute seam so a
                     # sub-agent's own invoke_agent calls are denied before
                     # the tool body runs. Sole wrap_tool_execute implementer,
@@ -503,7 +505,6 @@ async def _invoke_agent_impl(
                     # CapabilityEvents into legacy callbacks/messaging.
                     CapabilityEventBridge(agent=agent_config),
                 ],
-                model_settings=model_settings,
             )
 
             # Register the tools that the agent needs

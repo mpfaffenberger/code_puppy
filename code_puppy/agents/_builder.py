@@ -24,6 +24,7 @@ from code_puppy.agents._code_mode import (
 )
 from code_puppy.agents._compaction import HistoryCompaction
 from code_puppy.agents._model_message_transform import build_model_message_transform
+from code_puppy.agents._model_settings import PerModelSettings
 from code_puppy.agents._subagent_recursion import build_subagent_recursion_guard
 from code_puppy.agents._output_limits import (
     build_response_clamp,
@@ -46,7 +47,7 @@ from code_puppy.config import (
 )
 from code_puppy.mcp_ import get_mcp_manager
 from code_puppy.messaging import emit_error, emit_info, emit_warning
-from code_puppy.model_factory import ModelFactory, make_model_settings
+from code_puppy.model_factory import ModelFactory
 
 if TYPE_CHECKING:
     from code_puppy.model_utils import PreparedPrompt
@@ -650,7 +651,9 @@ def build_pydantic_agent(
     )
     prepared = _assemble_instructions(agent, resolved_model_name)
     mcp_servers = load_mcp_servers(agent_name=getattr(agent, "name", None))
-    model_settings = make_model_settings(
+    # Built once and shared by both construction passes, mirroring the old
+    # single make_model_settings() call (the snapshot lives in the instance).
+    model_settings_cap = PerModelSettings(
         resolved_model_name,
         overrides=agent.get_model_settings_overrides(),
     )
@@ -685,12 +688,16 @@ def build_pydantic_agent(
             # hook (after_tool_execute), so its position is inert; the
             # response clamp runs before_model_request after compaction and
             # steering. The plugin transform wraps the final model request.
+            # PerModelSettings feeds the get_model_settings configuration
+            # seam (formerly the model_settings= kwarg), so its position is
+            # inert too.
             capabilities=[
                 *build_tool_output_limits(),
                 history_compaction,
                 ProcessHistory(steer_processor),
                 build_response_clamp(),
                 build_model_message_transform(logical_agent_name),
+                model_settings_cap,
                 # Sub-agent recursion guards on the wrap_tool_execute seam
                 # (denies invoke_agent calls past the depth caps before the
                 # tool body runs). Sole wrap_tool_execute implementer, so
@@ -712,7 +719,6 @@ def build_pydantic_agent(
                 # listener that owns domain behavior.
                 CapabilityEventBridge(agent=agent),
             ],
-            model_settings=model_settings,
         )
 
     # Pass 1: build with empty toolsets so we can see what pydantic-ai + our
