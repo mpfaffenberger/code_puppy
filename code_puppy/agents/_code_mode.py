@@ -39,6 +39,7 @@ from pydantic_monty import MountDir, OSAccess
 from pydantic_ai_harness.code_mode import CodeMode
 
 from code_puppy.agents._code_mode_guidance import CodeModeGuidance
+from code_puppy.agents._native_tools import iter_function_toolsets
 from code_puppy.agents._wire_tool_names import StreamedToolNameNormalizer
 from code_puppy.capabilities.eager_timing import EagerTiming
 from code_puppy.config import get_speculative_code_mode_enabled
@@ -98,12 +99,16 @@ class DeclaredSpeculation(Sequence[str]):
 
     def _names(self) -> tuple[str, ...]:
         names = dict.fromkeys(self._fallback)
-        for toolset in getattr(self._agent, "toolsets", None) or ():
-            for name, tool in (getattr(toolset, "tools", None) or {}).items():
-                metadata = getattr(tool, "metadata", None) or {}
-                # Literal True only: a truthy stand-in is not a declaration.
-                if metadata.get(SPECULATABLE_METADATA_KEY) is True:
-                    names[name] = None
+        # Walk nested toolsets: NativeTools delivers the registry through a
+        # capability, which surfaces wrapped (CombinedToolset ->
+        # CapabilityOwnedToolset -> FunctionToolset), not at the top level.
+        for node in getattr(self._agent, "toolsets", None) or ():
+            for toolset in iter_function_toolsets(node):
+                for name, tool in toolset.tools.items():
+                    metadata = getattr(tool, "metadata", None) or {}
+                    # Literal True only: a truthy stand-in is not a declaration.
+                    if metadata.get(SPECULATABLE_METADATA_KEY) is True:
+                        names[name] = None
         return tuple(names)
 
     def __getitem__(self, index):  # type: ignore[override]

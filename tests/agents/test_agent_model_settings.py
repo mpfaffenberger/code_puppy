@@ -218,10 +218,8 @@ def test_main_agent_builder_passes_agent_model_settings():
     agent.get_available_tools.return_value = []
 
     model = MagicMock()
-    probe = MagicMock()
-    probe._tools = {}
+    # Single construction: NativeTools removed the throwaway probe pass.
     final = MagicMock()
-    final._tools = {}
 
     with (
         patch.object(ModelFactory, "load_config", return_value={"gpt-5-test": {}}),
@@ -249,8 +247,8 @@ def test_main_agent_builder_passes_agent_model_settings():
         patch("code_puppy.agents._builder.build_response_clamp"),
         patch(
             "code_puppy.agents._builder.PydanticAgent",
-            side_effect=[probe, final],
-        ),
+            return_value=final,
+        ) as pydantic_agent_cls,
         patch("code_puppy.tools.register_tools_for_agent"),
         patch(
             "code_puppy.agents._builder.on_wrap_pydantic_agent",
@@ -260,6 +258,7 @@ def test_main_agent_builder_passes_agent_model_settings():
         result = build_pydantic_agent(agent)
 
     assert result is final
+    pydantic_agent_cls.assert_called_once()
     make_settings.assert_called_once_with(
         "gpt-5-test",
         overrides={"reasoning_effort": "high"},

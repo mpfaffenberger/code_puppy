@@ -342,9 +342,9 @@ def test_builder_wires_guard_from_tool_surface():
     assert "agent_tools = agent.get_available_tools()" in src
     cap_block = src[src.find("capabilities=[") :]
     assert "*build_subagent_recursion_guard(agent_tools)" in cap_block
-    # The tool surface must be read before the closure first runs (probe pass).
+    # Read before construction so the splice sees the declared tool surface.
     assert src.find("agent_tools = agent.get_available_tools()") < src.find(
-        "def _new_pydantic_agent"
+        "final_pydantic = PydanticAgent("
     )
 
 
