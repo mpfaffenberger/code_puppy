@@ -19,6 +19,16 @@ import pytest
 from code_puppy import pydantic_patches
 
 LOGGER_NAME = "code_puppy.pydantic_patches"
+
+
+@pytest.fixture(autouse=True)
+def _reset_placeholder_warned_keys():
+    """Isolate the module-level dedup set: any test may seed it, and a
+    later WARNING assertion must not silently see DEBUG instead."""
+    pydantic_patches._PLACEHOLDER_WARNED_KEYS.clear()
+    yield
+
+
 SHATTERING_MALFORMED_JSON = (
     '{"file_path": "demo.py", "content": "print(f\\"wrote {n_rows:,} rows\\")\n'
     'print(f"  {name:<30}{count:>10,}")\n'
@@ -171,7 +181,10 @@ def test_non_dict_envelope_payloads_are_left_untouched(raw):
 def test_sanitize_unwraps_dict_args_in_place():
     call = SimpleNamespace(args={"arguments": {"file_path": "puppy.py"}})
 
-    pydantic_patches._sanitize_tool_call_args(_stub_manager({}), call)
+    # The tool really takes ``file_path``; only the envelope is spurious.
+    pydantic_patches._sanitize_tool_call_args(
+        _stub_manager({"file_path": {"type": "string"}}), call
+    )
 
     assert call.args == {"file_path": "puppy.py"}
 
@@ -193,9 +206,347 @@ def test_sanitize_leaves_invalid_json_string_for_the_repairer():
     assert call.args == "{not json at all"
 
 
-def _stub_manager(properties):
-    """A ToolManager stand-in whose zero-arg tool declares ``properties``."""
-    schema = {"type": "object", "properties": properties, "additionalProperties": False}
+@pytest.mark.parametrize(
+    "junk_args",
+    [
+        {"command": "list_agents"},
+        {"extra": "ignore"},
+        {"dummy": "x"},
+        {"city": "ignore"},
+    ],
+)
+def test_zero_param_tool_placeholder_args_are_stripped(junk_args):
+    """Observed in the wild: a provider that cannot emit an empty arguments
+    object injects one placeholder key, and the call dies with
+    ``extra_forbidden`` while the model insists it sent ``{}``."""
+    call = SimpleNamespace(tool_name="list_agents", args=junk_args)
+
+    pydantic_patches._sanitize_tool_call_args(_stub_manager({}), call)
+
+    assert call.args == {}
+
+
+def test_zero_param_tool_placeholder_args_string_shape_preserved():
+    call = SimpleNamespace(tool_name="list_agents", args='{"city": "ignore"}')
+
+    pydantic_patches._sanitize_tool_call_args(_stub_manager({}), call)
+
+    assert call.args == "{}"
+    assert isinstance(call.args, str)
+
+
+def test_parameterized_tool_junk_args_are_not_stripped():
+    """Only zero-parameter tools get the nuclear option; stripping unknown
+    keys from a tool with real parameters could mask a confused call."""
+    args = {"command": "echo hi"}
+    call = SimpleNamespace(tool_name="shell", args=args)
+
+    pydantic_patches._sanitize_tool_call_args(
+        _stub_manager({"command": {"type": "string"}}), call
+    )
+
+    assert call.args is args
+
+
+def test_unknown_schema_junk_args_are_not_stripped():
+    """No resolvable schema means we cannot know the tool is zero-param."""
+    args = {"command": "list_agents"}
+    call = SimpleNamespace(tool_name="mystery", args=args)
+
+    pydantic_patches._sanitize_tool_call_args(
+        SimpleNamespace(get_tool_def=lambda _name: None), call
+    )
+
+    assert call.args is args
+
+
+@pytest.mark.parametrize(
+    "additional_properties",
+    [
+        True,  # explicitly permissive
+        None,  # key omitted — JSON-Schema default is to ALLOW extras
+        {},  # permissive-with-constraints; falsy in Python, still allows!
+    ],
+)
+def test_permissive_zero_prop_schema_args_are_never_stripped(additional_properties):
+    """MAJOR regression guard: a schema that permits extra properties may
+    carry legitimate free-form args; wiping them breaks the tool silently."""
+    args = {"payload": "legit data"}
+    call = SimpleNamespace(tool_name="mcp_tool", args=args)
+
+    pydantic_patches._sanitize_tool_call_args(
+        _stub_manager({}, additional_properties=additional_properties), call
+    )
+
+    assert call.args is args
+
+
+def test_schema_omitting_properties_still_strips():
+    """A resolved schema without ``properties`` is zero-param, not unknown:
+    the production bug must stay fixed for such tools too."""
+    manager = SimpleNamespace(
+        get_tool_def=lambda _name: SimpleNamespace(
+            parameters_json_schema={
+                "type": "object",
+                "additionalProperties": False,
+            }
+        )
+    )
+    call = SimpleNamespace(tool_name="list_agents", args={"command": "list_agents"})
+
+    pydantic_patches._sanitize_tool_call_args(manager, call)
+
+    assert call.args == {}
+
+
+def test_non_object_schema_args_are_not_stripped():
+    """Foreign schema shapes are exotic; we do not guess for them."""
+    manager = SimpleNamespace(
+        get_tool_def=lambda _name: SimpleNamespace(
+            parameters_json_schema={"type": "string"}
+        )
+    )
+    args = {"command": "list_agents"}
+    call = SimpleNamespace(tool_name="weird", args=args)
+
+    pydantic_patches._sanitize_tool_call_args(manager, call)
+
+    assert call.args is args
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        # legal JSON-Schema variants that still admit object args:
+        {"type": ["object", "null"], "properties": {}, "additionalProperties": False},
+        # type-less schema constraining objects only via keywords:
+        {"additionalProperties": False},
+    ],
+)
+def test_object_admitting_type_variants_still_strip(schema):
+    """Nullable/typeless strict-zero-param tools keep the production fix."""
+    manager = SimpleNamespace(
+        get_tool_def=lambda _name: SimpleNamespace(parameters_json_schema=schema)
+    )
+    call = SimpleNamespace(tool_name="list_agents", args={"command": "list_agents"})
+
+    pydantic_patches._sanitize_tool_call_args(manager, call)
+
+    assert call.args == {}
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        {"arguments": {"command": "x"}},  # the two-malformation composition
+        {"arguments": 5},  # non-dict envelope payload, zero-param tool
+        {"arguments": "not json"},
+    ],
+)
+def test_strict_zero_param_tool_envelope_payloads_end_up_empty(raw):
+    """Pipeline-level pin: for a strict zero-param tool, envelope leftovers
+    are junk by contract (validation would reject them anyway) and collapse
+    to ``{}`` — in both arg shapes."""
+    call = SimpleNamespace(tool_name="list_agents", args=raw)
+    pydantic_patches._sanitize_tool_call_args(_stub_manager({}), call)
+    assert call.args == {}
+
+    call = SimpleNamespace(tool_name="list_agents", args=json.dumps(raw))
+    pydantic_patches._sanitize_tool_call_args(_stub_manager({}), call)
+    assert call.args == "{}"
+
+
+def test_parameterized_tool_envelope_payload_stays_untouched():
+    """A tool with a real ``arguments`` property keeps its envelope."""
+    args = {"arguments": 5}
+    call = SimpleNamespace(tool_name="enveloper", args=args)
+
+    pydantic_patches._sanitize_tool_call_args(
+        _stub_manager({"arguments": {"type": "integer"}}), call
+    )
+
+    assert call.args is args
+
+
+def test_placeholder_strip_logs_once_per_quirk(caplog):
+    """WARNING once per (tool, quirk) then DEBUG for identical repeats —
+    but a NEW quirk on the same tool still surfaces at WARNING."""
+    quirks = [{"city": "ignore"}, {"city": "ignore"}, {"dummy": "x"}]
+    with caplog.at_level("DEBUG", logger=LOGGER_NAME):
+        for junk in quirks:
+            call = SimpleNamespace(tool_name="list_agents", args=junk)
+            pydantic_patches._sanitize_tool_call_args(_stub_manager({}), call)
+
+    warnings = [
+        r
+        for r in caplog.records
+        if r.levelname == "WARNING" and "placeholder" in r.message
+    ]
+    debugs = [
+        r
+        for r in caplog.records
+        if r.levelname == "DEBUG" and "placeholder" in r.message
+    ]
+    assert len(warnings) == 2  # city-quirk, then dummy-quirk
+    assert len(debugs) == 1  # the repeated city-quirk
+    assert "list_agents" in warnings[0].getMessage()
+    assert "city" in warnings[0].getMessage()  # values identify the provider quirk
+
+
+def test_permissive_schema_keeps_legit_arguments_arg():
+    """A schema that omits properties may accept free-form args; a real
+    ``arguments`` arg must survive the envelope unwrap untouched."""
+    manager = SimpleNamespace(
+        get_tool_def=lambda _name: SimpleNamespace(
+            parameters_json_schema={"type": "object"}
+        )
+    )
+    args = {"arguments": {"legit": 1}}
+    call = SimpleNamespace(tool_name="freeform", args=args)
+
+    pydantic_patches._sanitize_tool_call_args(manager, call)
+
+    assert call.args is args
+
+
+def test_unresolvable_schema_keeps_envelope():
+    """No schema, no proof the envelope is spurious — hands off."""
+    args = {"arguments": {"x": 1}}
+    call = SimpleNamespace(tool_name="mystery", args=args)
+
+    pydantic_patches._sanitize_tool_call_args(
+        SimpleNamespace(get_tool_def=lambda _name: None), call
+    )
+
+    assert call.args is args
+
+
+def test_placeholder_strip_survives_mixed_type_keys():
+    """Exotic args must not crash the validation hot path."""
+    call = SimpleNamespace(
+        tool_name="list_agents", args={1: "int key", "city": "ignore"}
+    )
+
+    pydantic_patches._sanitize_tool_call_args(_stub_manager({}), call)
+
+    assert call.args == {}
+
+
+class _ReprHostileKey:
+    """Hashable key whose repr raises — defeats json.dumps *and* repr."""
+
+    def __repr__(self):  # pragma: no cover - exercised via logging fallback
+        raise RuntimeError("no repr for you")
+
+
+class _ReprHostileValue:
+    """Value that defeats json.dumps via ``default=str`` -> ``__str__``
+    (object.__str__ delegates to the raising __repr__) and then repr too."""
+
+    def __repr__(self):  # pragma: no cover - exercised via logging fallback
+        raise RuntimeError("no repr for you either")
+
+
+def test_placeholder_strip_survives_repr_hostile_key(caplog):
+    """The deepest logging guard: neither serializer works, the strip still
+    completes and the log names the situation instead of raising."""
+    with caplog.at_level("DEBUG", logger=LOGGER_NAME):
+        call = SimpleNamespace(tool_name="list_agents", args={_ReprHostileKey(): "x"})
+        pydantic_patches._sanitize_tool_call_args(_stub_manager({}), call)
+
+    assert call.args == {}
+    assert any("unrepr-able" in r.message for r in caplog.records)
+
+
+def test_placeholder_strip_survives_repr_hostile_value(caplog):
+    """Same guarantee reached via a hostile *value*: json.dumps fails in
+    ``default=str`` (``__str__`` delegates to the raising ``__repr__``),
+    then the repr fallback fails too."""
+    with caplog.at_level("DEBUG", logger=LOGGER_NAME):
+        call = SimpleNamespace(
+            tool_name="list_agents", args={"city": _ReprHostileValue()}
+        )
+        pydantic_patches._sanitize_tool_call_args(_stub_manager({}), call)
+
+    assert call.args == {}
+    assert any("unrepr-able" in r.message for r in caplog.records)
+
+
+def test_dedup_signature_uses_log_line_bound(caplog):
+    """Two quirks differing only past char 200 dedup as one: the signature
+    reuses the log line's 200-char bound."""
+    quirks = [{"junk": "a" * 300}, {"junk": "a" * 300 + "b"}]
+    with caplog.at_level("DEBUG", logger=LOGGER_NAME):
+        for junk in quirks:
+            call = SimpleNamespace(tool_name="list_agents", args=junk)
+            pydantic_patches._sanitize_tool_call_args(_stub_manager({}), call)
+
+    warnings = [
+        r
+        for r in caplog.records
+        if r.levelname == "WARNING" and "placeholder" in r.message
+    ]
+    debugs = [
+        r
+        for r in caplog.records
+        if r.levelname == "DEBUG" and "placeholder" in r.message
+    ]
+    assert len(warnings) == 1
+    assert len(debugs) == 1
+
+
+def test_dedup_set_at_cap_always_warns_and_stops_growing(monkeypatch, caplog):
+    """With the set full, a new quirk still logs WARNING and the set does
+    not grow — no silent dedup, no unbounded memory."""
+    monkeypatch.setattr(pydantic_patches, "_PLACEHOLDER_WARNED_KEYS_MAX", 1)
+    pydantic_patches._PLACEHOLDER_WARNED_KEYS.add(("other-tool", "seed"))
+
+    with caplog.at_level("DEBUG", logger=LOGGER_NAME):
+        for junk in ({"city": "ignore"}, {"dummy": "x"}):
+            call = SimpleNamespace(tool_name="list_agents", args=junk)
+            pydantic_patches._sanitize_tool_call_args(_stub_manager({}), call)
+
+    warnings = [
+        r
+        for r in caplog.records
+        if r.levelname == "WARNING" and "placeholder" in r.message
+    ]
+    debugs = [
+        r
+        for r in caplog.records
+        if r.levelname == "DEBUG" and "placeholder" in r.message
+    ]
+    assert len(warnings) == 2  # both quirks surface: set is full, no dedup
+    assert len(debugs) == 0
+    assert pydantic_patches._PLACEHOLDER_WARNED_KEYS == {("other-tool", "seed")}
+
+
+def test_omitted_properties_strict_schema_collapses_envelope_via_strip():
+    """Composition: a strict zero-param schema that omits ``properties``
+    keeps the envelope from the unwrap (unproven), but the strip still
+    collapses the whole junk envelope to ``{}``."""
+    manager = SimpleNamespace(
+        get_tool_def=lambda _name: SimpleNamespace(
+            parameters_json_schema={"type": "object", "additionalProperties": False}
+        )
+    )
+    call = SimpleNamespace(tool_name="list_agents", args={"arguments": {"junk": 1}})
+
+    pydantic_patches._sanitize_tool_call_args(manager, call)
+
+    assert call.args == {}
+
+
+def _stub_manager(properties, additional_properties=False):
+    """A ToolManager stand-in whose tool's schema is built to order.
+
+    ``properties`` declares the tool's parameters (empty = zero-param);
+    ``additional_properties=False`` forbids extras (pass ``None`` to omit
+    the key, ``True``/a dict for permissive variants).
+    """
+    schema = {"type": "object", "properties": properties}
+    if additional_properties is not None:
+        schema["additionalProperties"] = additional_properties
     return SimpleNamespace(
         get_tool_def=lambda _name: SimpleNamespace(parameters_json_schema=schema)
     )
@@ -219,6 +570,26 @@ async def test_zero_arg_tool_call_with_arguments_envelope_validates(monkeypatch)
 
     assert result == {}
     assert call.args == {}
+
+
+@pytest.mark.asyncio
+async def test_zero_arg_tool_call_with_placeholder_key_validates(monkeypatch):
+    """Same contract, wilder malformation: ``{"command": "list_agents"}``."""
+    from pydantic_ai.tool_manager import ToolManager
+
+    async def validate_tool_call(_manager, call, **_kwargs):
+        return call.args
+
+    monkeypatch.setattr(ToolManager, "validate_tool_call", validate_tool_call)
+    assert pydantic_patches.patch_tool_call_json_repair() is True
+
+    manager = _stub_manager({})
+    call = SimpleNamespace(tool_name="list_agents", args='{"command": "list_agents"}')
+
+    result = await ToolManager.validate_tool_call(manager, call)
+
+    assert result == "{}"
+    assert call.args == "{}"
 
 
 @pytest.mark.parametrize("tool_name", ["replace_in_file", "create_file"])
