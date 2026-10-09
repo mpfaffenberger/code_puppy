@@ -241,6 +241,21 @@ def load_mcp_servers(
     return manager.get_servers_for_agent(agent_name=agent_name)
 
 
+def _with_runtime_mcp_toolsets(agent: Any, mcp_servers: List[Any]) -> List[Any]:
+    """Append the MCP toolsets injected for this agent instance.
+
+    Embedders (an ACP client's ``mcpServers``) attach these with
+    ``BaseAgent.set_runtime_mcp_toolsets``. ``--no-tools`` still means no MCP
+    toolsets at all.
+    """
+    from code_puppy.tools import tools_disabled
+
+    runtime = getattr(agent, "get_runtime_mcp_toolsets", lambda: [])()
+    if not runtime or tools_disabled():
+        return mcp_servers
+    return list(mcp_servers or []) + list(runtime)
+
+
 def _iter_autostart_targets(manager: Any, agent_name: str):
     """Yield ``(server_name, config)`` tuples that need to be auto-started.
 
@@ -650,6 +665,7 @@ def build_pydantic_agent(
     )
     prepared = _assemble_instructions(agent, resolved_model_name)
     mcp_servers = load_mcp_servers(agent_name=getattr(agent, "name", None))
+    mcp_servers = _with_runtime_mcp_toolsets(agent, mcp_servers)
     model_settings = make_model_settings(
         resolved_model_name,
         overrides=agent.get_model_settings_overrides(),

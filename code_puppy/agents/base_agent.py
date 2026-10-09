@@ -72,6 +72,9 @@ class BaseAgent(ABC):
         self._last_model_name: Optional[str] = None
         self._runtime_model_name_override: Optional[str] = None
         self._runtime_system_prompt_additions: List[str] = []
+        # MCP toolsets injected by an embedding client (e.g. ACP ``mcpServers``)
+        # for this agent instance only; merged on every build.
+        self._runtime_mcp_toolsets: List[Any] = []
         # Model chosen by a ``model_select`` hook for the current run. Slots
         # below an explicit runtime override but above pinned/JSON/global, and
         # is reset at the start of every run (see resolve_run_model_selection),
@@ -303,6 +306,21 @@ class BaseAgent(ABC):
         return await run_with_mcp(self, prompt, **kwargs)
 
     # ---- MCP integration shims --------------------------------------------
+    def get_runtime_mcp_toolsets(self) -> List[Any]:
+        """Return MCP toolsets injected for this agent instance."""
+        return list(self._runtime_mcp_toolsets)
+
+    def set_runtime_mcp_toolsets(self, toolsets: List[Any]) -> None:
+        """Replace this instance's injected MCP toolsets.
+
+        For embedders that bring their own MCP servers -- an ACP client's
+        ``mcpServers`` -- rather than ``mcp_servers.json``. They are merged
+        with the configured servers on every build, so a rebuild (a model
+        switch, a reload) keeps them, and they never touch global bindings or
+        other agent instances.
+        """
+        self._runtime_mcp_toolsets = list(toolsets)
+
     def transform_mcp_toolsets(self, toolsets: List[Any]) -> List[Any]:
         """Extension seam: post-process resolved MCP toolsets before build.
 
