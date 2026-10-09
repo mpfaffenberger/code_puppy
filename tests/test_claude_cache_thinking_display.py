@@ -17,6 +17,8 @@ from code_puppy.claude_cache_client import (
     _enforce_thinking_display_summary,
 )
 
+ENDPOINT = ("api.anthropic.com", None, "/v1/messages")
+OTHER_ENDPOINT = ("provider-b.example", None, "/v1/messages")
 THINKING_400 = {
     "type": "error",
     "error": {
@@ -80,16 +82,19 @@ def test_enabled_display_behavior_unchanged():
 
 
 def test_learned_model_omits_thinking_when_off_and_others_do_not():
-    claude_cache_client._THINKING_OMITTED_WHEN_OFF.add("model-a")
+    claude_cache_client._THINKING_OMITTED_WHEN_OFF.add((ENDPOINT, "model-a"))
     learned = {"model": "model-a", "thinking": {"type": "disabled"}}
     other = {"model": "model-b", "thinking": {"type": "disabled"}}
     thinking_on = {"model": "model-a", "thinking": {"type": "adaptive"}}
 
-    assert _enforce_thinking_display_summary(learned) is True
+    assert _enforce_thinking_display_summary(learned, ENDPOINT) is True
     assert "thinking" not in learned
-    assert _enforce_thinking_display_summary(other) is False
+    elsewhere = {"model": "model-a", "thinking": {"type": "disabled"}}
+    assert _enforce_thinking_display_summary(elsewhere, OTHER_ENDPOINT) is False
+    assert elsewhere["thinking"] == {"type": "disabled"}
+    assert _enforce_thinking_display_summary(other, ENDPOINT) is False
     assert other["thinking"] == {"type": "disabled"}
-    _enforce_thinking_display_summary(thinking_on)
+    _enforce_thinking_display_summary(thinking_on, ENDPOINT)
     assert thinking_on["thinking"]["type"] == "adaptive"
 
 
@@ -113,11 +118,11 @@ class _FakeAnthropic:
         return httpx2.Response(200, json={"content": [{"type": "text", "text": "ok"}]})
 
 
-async def _post(client, model, thinking):
+async def _post(client, model, thinking, url="https://api.anthropic.com/v1/messages"):
     body = {"model": model, "max_tokens": 8, "messages": []}
     if thinking is not None:
         body["thinking"] = thinking
-    return await client.post("https://api.anthropic.com/v1/messages", json=body)
+    return await client.post(url, json=body)
 
 
 def _client(api):
@@ -188,3 +193,96 @@ async def test_thinking_400_on_a_thinking_on_request_is_not_retried():
 
     assert response.status_code == 400
     assert len(api.bodies) == 1
+
+
+@pytest.mark.asyncio
+async def test_failed_fallback_is_not_learned():
+    bad_signature = {
+        "error": {"type": "invalid_request_error", "message": "thinking block bad"}
+    }
+    api = _FakeAnthropic(strict={"model-a"}, refusal=bad_signature)
+
+    def still_failing(request):
+        api(request)
+        return httpx2.Response(400, json=bad_signature)
+
+    async with ClaudeCacheAsyncClient(
+        transport=httpx2.MockTransport(still_failing)
+    ) as client:
+        await _post(client, "model-a", {"type": "disabled"})
+        await _post(client, "model-a", {"type": "disabled"})
+
+    assert [b.get("thinking") for b in api.bodies] == [{"type": "disabled"}, None] * 2
+    assert not claude_cache_client._THINKING_OMITTED_WHEN_OFF
+
+
+@pytest.mark.asyncio
+async def test_learning_is_scoped_to_the_provider_endpoint():
+    api = _FakeAnthropic(strict={"model-a"})
+    other_url = "https://provider-b.example/v1/messages"
+
+    async with _client(api) as client:
+        await _post(client, "model-a", {"type": "disabled"})
+        api.bodies.clear()
+        await _post(client, "model-a", {"type": "disabled"}, url=other_url)
+
+    assert [b.get("thinking") for b in api.bodies] == [{"type": "disabled"}, None]
+
+
+def _oauth_api(old_token_reply):
+    sent = []
+
+    def api(request):
+        token = request.headers["authorization"].removeprefix("Bearer ")
+        thinking = json.loads(request.content).get("thinking")
+        sent.append((token, thinking))
+        if token == "old":
+            return old_token_reply(thinking)
+        if thinking:
+            return httpx2.Response(400, json=THINKING_400)
+        return httpx2.Response(200, json={"content": []})
+
+    return api, sent
+
+
+def _unauthorized():
+    return httpx2.Response(401, json={"error": {"message": "expired"}})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "old_token_reply, expected",
+    [
+        pytest.param(  # thinking 400 -> omitted request gets 401 -> refresh
+            lambda t: httpx2.Response(400, json=THINKING_400) if t else _unauthorized(),
+            [("old", "off"), ("old", None), ("new", None)],
+            id="thinking-then-auth",
+        ),
+        pytest.param(  # 401 -> refreshed request gets thinking 400
+            lambda t: _unauthorized(),
+            [("old", "off"), ("new", "off"), ("new", None)],
+            id="auth-then-thinking",
+        ),
+    ],
+)
+async def test_thinking_fallback_composes_with_oauth_recovery(
+    old_token_reply, expected
+):
+    api, sent = _oauth_api(old_token_reply)
+
+    async def provide_token():
+        return "old"
+
+    async def refresh(rejected_token):
+        return "new"
+
+    async with ClaudeCacheAsyncClient(
+        transport=httpx2.MockTransport(api),
+        apply_claude_code_prefix=True,
+        oauth_token_provider=provide_token,
+        oauth_refresh_callback=refresh,
+    ) as client:
+        response = await _post(client, "model-a", {"type": "disabled"})
+
+    assert response.status_code == 200
+    assert [(t, "off" if th else None) for t, th in sent] == expected

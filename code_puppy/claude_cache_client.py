@@ -24,6 +24,12 @@ from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 import httpx2
 
 from .claude_oauth_transport import ClaudeOAuthTransport
+from .claude_thinking_display import (
+    _OFF_THINKING_TYPES,
+    _THINKING_OMITTED_WHEN_OFF,
+    _enforce_thinking_display_summary,
+    _thinking_endpoint,
+)
 from .http_retry import describe_exception
 
 logger = logging.getLogger(__name__)
@@ -49,66 +55,6 @@ CLAUDE_CODE_SYSTEM_PROMPT = "You are Claude Code, Anthropic's official CLI for C
 # Beta flag required for ``thinking.display: "updates"`` (Fable 5.1 progress
 # updates surfaced as text while reasoning stays hidden).
 THINKING_DISPLAY_UPDATES_BETA = "thinking-display-updates-2026-08-18"
-
-
-def _model_requires_thinking_summary(model_name):
-    if not model_name:
-        return False
-    from code_puppy.model_utils import should_use_anthropic_thinking_summary
-
-    return should_use_anthropic_thinking_summary(model_name)
-
-
-def _model_supports_thinking_updates(model_name):
-    if not model_name:
-        return False
-    from code_puppy.model_utils import should_use_anthropic_thinking_updates
-
-    return should_use_anthropic_thinking_updates(model_name)
-
-
-# The API only accepts ``thinking.display`` while thinking actually runs.
-_DISPLAY_THINKING_TYPES = frozenset({"adaptive", "enabled"})
-_OFF_THINKING_TYPES = frozenset({"disabled", "between_tools"})
-
-# Models whose API refused an "off" thinking shape in this process. Learned
-# from the provider's own 400 (see ``_retry_without_thinking_after_400``),
-# never listed by name: each model family accepts a different off-switch
-# (``disabled``, ``between_tools``, or only omitting the key).
-_THINKING_OMITTED_WHEN_OFF: set[str] = set()
-
-
-def _normalize_thinking_off(payload, thinking):
-    modified = thinking.pop("display", None) is not None
-    model = payload.get("model")
-    if (
-        thinking.get("type") in _OFF_THINKING_TYPES
-        and model in _THINKING_OMITTED_WHEN_OFF
-    ):
-        del payload["thinking"]
-        return True
-    return modified
-
-
-def _enforce_thinking_display_summary(payload):
-    if not isinstance(payload, dict):
-        return False
-    thinking = payload.get("thinking")
-    if not isinstance(thinking, dict):
-        return False
-    if thinking.get("type") not in _DISPLAY_THINKING_TYPES:
-        return _normalize_thinking_off(payload, thinking)
-    if not _model_requires_thinking_summary(payload.get("model")):
-        return False
-    display = thinking.get("display")
-    if display == "summarized":
-        return False
-    if display == "updates" and _model_supports_thinking_updates(payload.get("model")):
-        # Fable 5.1 legitimately asked for progress updates; don't clobber
-        # it back to summarized (which would drown status lines in reasoning).
-        return False
-    thinking["display"] = "summarized"
-    return True
 
 
 class ClaudeCacheAsyncClient(ClaudeOAuthTransport, httpx2.AsyncClient):
@@ -221,14 +167,16 @@ class ClaudeCacheAsyncClient(ClaudeOAuthTransport, httpx2.AsyncClient):
         return json.dumps(data).encode("utf-8")
 
     @staticmethod
-    def _enforce_thinking_display_summary_body(body: bytes) -> bytes | None:
+    def _enforce_thinking_display_summary_body(
+        body: bytes, endpoint=None
+    ) -> bytes | None:
         """Return a rewritten body when the thinking shape needs normalizing."""
         try:
             payload = json.loads(body.decode("utf-8"))
         except Exception:
             return None
         if not isinstance(payload, dict) or not _enforce_thinking_display_summary(
-            payload
+            payload, endpoint
         ):
             return None
         return json.dumps(payload).encode("utf-8")
@@ -343,7 +291,7 @@ class ClaudeCacheAsyncClient(ClaudeOAuthTransport, httpx2.AsyncClient):
                         body_modified = True
                 if body_bytes:
                     summarized_body = self._enforce_thinking_display_summary_body(
-                        body_bytes
+                        body_bytes, _thinking_endpoint(url)
                     )
                     if summarized_body is not None:
                         body_bytes = summarized_body
@@ -380,7 +328,7 @@ class ClaudeCacheAsyncClient(ClaudeOAuthTransport, httpx2.AsyncClient):
                 logger.debug("Error in Claude Code transformations: %s", exc)
         response = await self._send_with_retries(request, *args, **kwargs)
         if is_messages_endpoint:
-            response = await self._retry_without_thinking_after_400(
+            request, response = await self._retry_without_thinking_after_400(
                 request, response, *args, **kwargs
             )
         try:
@@ -418,9 +366,14 @@ class ClaudeCacheAsyncClient(ClaudeOAuthTransport, httpx2.AsyncClient):
                         retry_request.extensions["claude_oauth_refresh_attempted"] = (
                             True
                         )
-                        return await self._send_with_retries(
+                        retried = await self._send_with_retries(
                             retry_request, *args, **kwargs
                         )
+                        if is_messages_endpoint:
+                            _, retried = await self._retry_without_thinking_after_400(
+                                retry_request, retried, *args, **kwargs
+                            )
+                        return retried
                     else:
                         logger.warning(
                             "Token recovery failed, returning original error"
@@ -435,17 +388,19 @@ class ClaudeCacheAsyncClient(ClaudeOAuthTransport, httpx2.AsyncClient):
         response: httpx2.Response,
         *args: Any,
         **kwargs: Any,
-    ) -> httpx2.Response:
+    ) -> tuple[httpx2.Request, httpx2.Response]:
         """Resend once without ``thinking`` when the API refuses the off-switch.
 
         Which "thinking off" shape a model accepts differs per model and
         changes over time, so ask the API instead of keeping a list: a 400
         that names ``thinking`` on a request that only asked for thinking
         off is retried with the key omitted, which every probed model
-        accepts. The model is remembered so later calls skip the failure.
+        accepts. The (endpoint, model) is remembered only once that retry
+        succeeds. Returns the request actually in effect so OAuth recovery
+        resends the corrected body, not the refused one.
         """
         if response.status_code != 400:
-            return response
+            return request, response
         try:
             body = self._extract_body_bytes(request)
             payload = json.loads(body) if body else None
@@ -453,11 +408,10 @@ class ClaudeCacheAsyncClient(ClaudeOAuthTransport, httpx2.AsyncClient):
             if not isinstance(thinking, dict) or (
                 thinking.get("type") not in _OFF_THINKING_TYPES
             ):
-                return response
+                return request, response
             error = json.loads(await response.aread()).get("error") or {}
             if "thinking" not in str(error.get("message", "")).lower():
-                return response
-            _THINKING_OMITTED_WHEN_OFF.add(payload.get("model"))
+                return request, response
             del payload["thinking"]
             headers = {
                 k: v
@@ -473,10 +427,15 @@ class ClaudeCacheAsyncClient(ClaudeOAuthTransport, httpx2.AsyncClient):
             )
         except Exception as exc:
             logger.debug("Could not retry without thinking: %s", exc)
-            return response
+            return request, response
         logger.info("Model refused thinking off-switch; retrying without thinking")
         await response.aclose()
-        return await self._send_with_retries(retry_request, *args, **kwargs)
+        retried = await self._send_with_retries(retry_request, *args, **kwargs)
+        if retried.status_code < 400:
+            _THINKING_OMITTED_WHEN_OFF.add(
+                (_thinking_endpoint(request.url), payload.get("model"))
+            )
+        return retry_request, retried
 
     async def _send_with_retries(
         self, request: httpx2.Request, *args: Any, **kwargs: Any
