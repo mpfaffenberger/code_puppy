@@ -8,7 +8,7 @@ and the editor keeps its swallow-unknown-CSI safety.
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, Tuple
 
 # --- Raw control chars fed to the editor (shared with line_editor) ---
 ENTER = "\r"
@@ -29,7 +29,24 @@ CTRL_U = "\x15"
 CTRL_V = "\x16"  # smart paste fallback (most terminals bracket-paste first)
 CTRL_W = "\x17"  # delete word backwards
 CTRL_X = "\x18"  # chord prefix: Ctrl+X Ctrl+E = edit buffer in $EDITOR
+# Undo/redo. ^Z only arrives because the POSIX listener disables VSUSP (no
+# SIGTSTP) and macOS VDSUSP (^Y); Windows raw console input delivers both.
+CTRL_Y = "\x19"
+CTRL_Z = "\x1a"
 ESC = "\x1b"
+
+#: Single control char -> buffer-editing action (see editor_actions).
+_CONTROL_ACTIONS = {
+    "\x7f": "backspace",
+    "\x08": "backspace",
+    CTRL_A: "home",
+    CTRL_E: "end",
+    CTRL_K: "kill_to_end",
+    CTRL_U: "kill_all",
+    CTRL_W: "kill_word_back",
+    CTRL_Y: "redo",
+    CTRL_Z: "undo",
+}
 
 #: CSI body (params + final byte) → editor action.
 _CSI_ACTIONS = {
@@ -86,7 +103,65 @@ _SS3_ACTIONS = {
 
 def classify_csi(seq: str) -> Optional[str]:
     """Map a complete CSI body to an action name (None = swallow)."""
-    return _CSI_ACTIONS.get(seq)
+    return _CSI_ACTIONS.get(seq) or classify_undo_csi(seq)
+
+
+def classify_control(ch: str) -> Optional[str]:
+    """Map a single raw control char to an editing action (None = other)."""
+    return _CONTROL_ACTIONS.get(ch)
+
+
+# --- Undo/redo via CSI-u (kitty protocol / fixterms) + modifyOtherKeys ---
+# Cmd+Z never reaches the app as a legacy byte; terminals that report it do
+# so as CSI-u with the SUPER bit (kitty/Ghostty/WezTerm/iTerm2 key maps).
+_MOD_SHIFT, _MOD_CTRL, _MOD_SUPER = 1, 4, 8  # bits of (mods - 1); Alt = 2
+_MOD_LOCKS = 64 | 128  # Caps Lock / Num Lock: never change the meaning
+_KEY_Z, _KEY_Y = (ord("z"), ord("Z")), (ord("y"), ord("Y"))
+_KEY_RELEASE = "3"  # kitty event type (1 press, 2 repeat, 3 release)
+
+
+def _parse_modified_key(seq: str) -> Optional[Tuple[int, int]]:
+    """``(codepoint, modifier_bits)`` for a CSI-u or modifyOtherKeys body.
+
+    CSI-u: ``code[:alt...];mods[:event][;text]u``.
+    modifyOtherKeys: ``27;mods;code~``. Release events and anything
+    malformed return None.
+    """
+    fields = seq[:-1].split(";")
+    try:
+        if seq.endswith("u") and len(fields) >= 2:
+            mods, _, event = fields[1].partition(":")
+            if event == _KEY_RELEASE:
+                return None
+            code = fields[0].split(":")[0]
+        elif seq.endswith("~") and len(fields) == 3 and fields[0] == "27":
+            mods, code = fields[1], fields[2]
+        else:
+            return None
+        return int(code), (int(mods) - 1) & ~_MOD_LOCKS
+    except ValueError:
+        return None
+
+
+def classify_undo_csi(seq: str) -> Optional[str]:
+    """``undo`` / ``redo`` for modified Z/Y CSI sequences, else None.
+
+    Undo: Ctrl+Z or Cmd(Super)+Z. Redo: Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y.
+    Alt anywhere (or Ctrl and Cmd together) is not an undo gesture.
+    """
+    parsed = _parse_modified_key(seq)
+    if parsed is None:
+        return None
+    code, mods = parsed
+    command = mods & ~_MOD_SHIFT
+    if command not in (_MOD_CTRL, _MOD_SUPER):
+        return None
+    shifted = bool(mods & _MOD_SHIFT)
+    if code in _KEY_Z:
+        return "redo" if shifted else "undo"
+    if code in _KEY_Y and not shifted:
+        return "redo"
+    return None
 
 
 def classify_ss3(ch: str) -> Optional[str]:
@@ -159,8 +234,10 @@ def line_down(buffer: str, cursor: int) -> Optional[int]:
 
 
 __all__ = [
+    "classify_control",
     "classify_csi",
     "classify_ss3",
+    "classify_undo_csi",
     "line_bounds",
     "line_down",
     "line_up",
