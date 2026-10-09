@@ -460,6 +460,7 @@ async def _invoke_agent_impl(
                 build_speculative_code_mode,
             )
             from code_puppy.agents._compaction import HistoryCompaction
+            from code_puppy.agents._instrumentation import build_instrumentation
             from code_puppy.agents._subagent_recursion import (
                 build_subagent_recursion_guard,
             )
@@ -485,14 +486,18 @@ async def _invoke_agent_impl(
                 toolsets=mcp_servers,
                 # HistoryCompaction hits before_model_request (the seam the
                 # deprecated `history_processors=` kwarg fed, removed in
-                # pydantic-ai v2).
+                # pydantic-ai v2). Instrumentation is empty unless logfire is
+                # live and sorts itself outermost regardless of position
+                # (_instrumentation.py).
                 capabilities=[
+                    *build_instrumentation(),
                     HistoryCompaction(agent_config),
                     build_model_message_transform(agent_name),
                     # Recursion guards ride the wrap_tool_execute seam so a
                     # sub-agent's own invoke_agent calls are denied before
-                    # the tool body runs. Sole wrap_tool_execute implementer,
-                    # so position is inert.
+                    # the tool body runs. Only other wrap_tool_execute
+                    # implementer is Instrumentation (sorted outermost), so
+                    # position is inert.
                     *build_subagent_recursion_guard(agent_tools),
                     # Speculative CodeMode when the config flag is on: the
                     # whole tool surface folds into run_code with early

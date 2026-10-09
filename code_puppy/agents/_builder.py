@@ -23,6 +23,7 @@ from code_puppy.agents._code_mode import (
     build_speculative_code_mode,
 )
 from code_puppy.agents._compaction import HistoryCompaction
+from code_puppy.agents._instrumentation import build_instrumentation
 from code_puppy.agents._model_message_transform import build_model_message_transform
 from code_puppy.agents._subagent_recursion import build_subagent_recursion_guard
 from code_puppy.agents._output_limits import (
@@ -685,7 +686,12 @@ def build_pydantic_agent(
             # hook (after_tool_execute), so its position is inert; the
             # response clamp runs before_model_request after compaction and
             # steering. The plugin transform wraps the final model request.
+            # Instrumentation declares its own 'outermost' ordering, so its
+            # list position is inert too; it is empty unless logfire is live
+            # (see _instrumentation.py; the run-layer fallback covers agents
+            # built before configure_logfire ran).
             capabilities=[
+                *build_instrumentation(),
                 *build_tool_output_limits(),
                 history_compaction,
                 ProcessHistory(steer_processor),
@@ -693,7 +699,8 @@ def build_pydantic_agent(
                 build_model_message_transform(logical_agent_name),
                 # Sub-agent recursion guards on the wrap_tool_execute seam
                 # (denies invoke_agent calls past the depth caps before the
-                # tool body runs). Sole wrap_tool_execute implementer, so
+                # tool body runs). Only other wrap_tool_execute implementer
+                # is Instrumentation, which sorts itself outermost, so
                 # position is inert.
                 *build_subagent_recursion_guard(agent_tools),
                 # Speculative CodeMode, when the config flag is on: folds the
