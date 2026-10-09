@@ -114,14 +114,32 @@ def test_meta_browser_label_renders_literally(locale):
     assert Text(rendered).plain == rendered
 
 
+def _reviewed_corruption_pattern():
+    return re.compile(
+        r"Cancelarling|ejecutyo|abyoned|cancelarada|commy|clesond|Cargyo|Instalyo|"
+        r"ningún (?:puede|se)\b|destponibles|utilestation|utilestez|enregesttrée|"
+        r"Annulerling|besontr|Supprimerd|cannot invoquer|it était stuck"
+    )
+
+
+@pytest.mark.parametrize(
+    ("text", "is_corrupt"),
+    [
+        ("ningún puede estar vacía", True),
+        ("ningún se sobrescribió", True),
+        ("ningún se puede importar", True),
+        ("No se encontró ningún servidor que coincida con '{server}'", False),
+        ("ningún servicio disponible", False),
+    ],
+)
+def test_reviewed_corruption_matches_words_not_prefixes(text, is_corrupt):
+    assert bool(_reviewed_corruption_pattern().search(text)) is is_corrupt
+
+
 @pytest.mark.parametrize("locale", ("es", "fr-CA"))
 def test_reviewed_corruption_does_not_return(locale):
     values = json.loads((_CATALOG_DIR / f"{locale}.json").read_text(encoding="utf-8"))
-    corrupt = re.compile(
-        r"Cancelarling|ejecutyo|abyoned|cancelarada|commy|clesond|Cargyo|Instalyo|"
-        r"ningún (?:puede|se)|destponibles|utilestation|utilestez|enregesttrée|"
-        r"Annulerling|besontr|Supprimerd|cannot invoquer|it était stuck"
-    )
+    corrupt = _reviewed_corruption_pattern()
     for key, value in values.items():
         forms = [value] if isinstance(value, str) else list(value.values())
         for form in forms:
