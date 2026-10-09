@@ -1806,9 +1806,11 @@ def on_wrap_pydantic_agent(
 def on_agent_run_context(agent, pydantic_agent, group_id, mcp_servers) -> List[Any]:
     """Collect async context managers that should wrap the ``pydantic_agent.run()`` call.
 
-    Each callback returns an async CM (with ``__aenter__``/``__aexit__``) or
-    ``None``. The caller composes all non-``None`` results via
-    ``contextlib.AsyncExitStack``.
+    Each callback returns a fresh async CM (with ``__aenter__``/``__aexit__``)
+    or ``None``. Main-agent contexts are created and exited per physical model
+    attempt, including retries and follow-ups, around the currently resolved
+    client. They are not a scope for the whole prompt or retry loop. The caller
+    composes all non-``None`` results via ``contextlib.AsyncExitStack``.
 
     Returns a list of async context managers (may be empty).
     """

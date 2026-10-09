@@ -2,9 +2,9 @@
 
 Replaces the monolithic ``BaseAgent.run_with_mcp`` coroutine. Everything here
 is a free function; the agent is passed in explicitly. Integration points
-preserved verbatim:
+include:
 
-- Plugin-supplied async context managers wrap the run (see
+- Plugin-supplied async context managers wrap each physical model attempt (see
   ``on_agent_run_context``); used e.g. by the DBOS plugin to set a workflow
   ID and swap MCP toolsets in/out.
 - SIGINT fallback-handler choice driven by ``sigint_fallback_cancels()``
@@ -25,7 +25,6 @@ import ssl
 import sys
 import threading
 import uuid
-from contextlib import AsyncExitStack
 from typing import Any, Callable, Iterator, List, Optional, Sequence, Type, Union
 
 import httpcore
@@ -82,8 +81,8 @@ from code_puppy.agents._run_signals import (
     sigint_should_cancel,
 )
 from code_puppy.agents.event_stream_handler import event_stream_handler
+from code_puppy.agents.run_invocation import ModelCall, run_with_exception_retry
 from code_puppy.callbacks import (
-    on_agent_exception,
     on_agent_run_cancel,
     on_agent_run_context,
     on_agent_run_end,
@@ -784,10 +783,16 @@ async def _run_with_mcp_impl(
 
     if agent._code_generation_agent is None:
         build_pydantic_agent(agent)
-    pydantic_agent = agent._code_generation_agent
 
     if output_type is not None:
-        pydantic_agent = build_pydantic_agent(agent, output_type=output_type)
+        build_pydantic_agent(agent, output_type=output_type)
+
+    invocation = ModelCall(
+        lambda: agent._code_generation_agent,
+        lambda current: on_agent_run_context(
+            agent, current, group_id, getattr(agent, "_mcp_servers", None) or []
+        ),
+    )
 
     prompt = _should_prepend_system_prompt(agent, prompt)
     prompt_payload = _build_prompt_payload(prompt, attachments, link_attachments)
@@ -830,42 +835,19 @@ async def _run_with_mcp_impl(
             usage_limits=usage_limits, event_stream_handler=stream_handler, **kwargs
         )
         _call = _main_retry(
-            resumable_call(agent, pydantic_agent, prompt_to_use, **run_options)
+            resumable_call(agent, invocation, prompt_to_use, **run_options)
         )
 
-        async def _call_with_exception_recovery() -> Any:
-            """Run ``_call`` and let plugins request one exception retry."""
-            try:
-                return await _call()
-            except Exception as exc:
-                hook_results = await on_agent_exception(
-                    exc,
-                    agent=agent,
-                    agent_name=agent.name,
-                    model_name=agent.get_model_name(),
-                )
-                retry_req = next(
-                    (r for r in hook_results if isinstance(r, dict) and r.get("retry")),
-                    None,
-                )
-                if not retry_req:
-                    raise
-
-                retry_delay = retry_req.get("delay", 0.0)
-                if retry_delay:
-                    await asyncio.sleep(retry_delay)
-                return await _call()
-
-        result = await _call_with_exception_recovery()
+        result = await run_with_exception_retry(_call, agent=agent)
 
         # ``now``-mode steers are injected by make_steer_history_processor
         # (before every model call); ``queue``-mode ones drain between runs
         # below — additive, won't interrupt in-progress work.
         async def _follow_up_run(follow_up_prompt: Any) -> Any:
             call = _main_retry(
-                resumable_call(agent, pydantic_agent, follow_up_prompt, **run_options)
+                resumable_call(agent, invocation, follow_up_prompt, **run_options)
             )
-            return await call()
+            return await run_with_exception_retry(call, agent=agent)
 
         hook_retries_used = 0
         queued_steers_used = 0
@@ -935,14 +917,7 @@ async def _run_with_mcp_impl(
                 agent._message_history
             )
 
-            mcp_servers = getattr(agent, "_mcp_servers", None) or []
-            run_ctxs = on_agent_run_context(
-                agent, pydantic_agent, group_id, mcp_servers
-            )
-            async with AsyncExitStack() as stack:
-                for cm in run_ctxs:
-                    await stack.enter_async_context(cm)
-                return await _do_run(prompt_payload)
+            return await _do_run(prompt_payload)
         except* UsageLimitExceeded as ule:
             emit_info(f"Usage limit exceeded: {ule}", group_id=group_id)
             emit_info(

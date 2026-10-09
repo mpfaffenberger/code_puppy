@@ -229,3 +229,85 @@ async def test_multiple_agent_exception_callbacks_first_retry_wins(
     assert len(pydantic_agent.calls) == 2
     assert order == ["observer", "first_retry", "second_retry"]
     assert sleeps == [0.1]
+
+
+@pytest.mark.parametrize("follow_up", ["hook", "queue"])
+async def test_follow_up_recovery_resolves_rebuilt_client_and_attempt_context(
+    monkeypatch: pytest.MonkeyPatch, follow_up: str
+) -> None:
+    from contextlib import asynccontextmanager
+
+    from pydantic_ai.messages import ModelRequest, UserPromptPart
+
+    events = []
+    prompts = []
+    result = DummyResult("done")
+    result.all_messages = lambda: agent._message_history
+    attempts = 0
+
+    class Client:
+        async def run(self, prompt, **kwargs):
+            nonlocal attempts
+            attempts += 1
+            prompts.append((self, prompt))
+            if prompt is not None:
+                kwargs["message_history"].append(
+                    ModelRequest(parts=[UserPromptPart(prompt)])
+                )
+            if attempts == 2:
+                raise RuntimeError("replace on follow-up")
+            return result
+
+    original, replacement = Client(), Client()
+    agent = DummyAgent(original)
+
+    @asynccontextmanager
+    async def context(current):
+        events.append(("enter", current))
+        try:
+            yield
+        finally:
+            events.append(("exit", current))
+
+    register_callback("agent_run_context", lambda _, current, *args: context(current))
+
+    def recover(exception, **kwargs):
+        assert str(exception) == "replace on follow-up"
+        agent._code_generation_agent = replacement
+        return {"retry": True}
+
+    register_callback("agent_exception", recover)
+    if follow_up == "hook":
+        register_callback(
+            "agent_run_result",
+            lambda *args, **kwargs: (
+                {"retry": True, "prompt": "hello", "delay": 0}
+                if attempts == 1
+                else None
+            ),
+        )
+    else:
+        queued = iter(["hello", None])
+        monkeypatch.setattr(
+            _runtime, "prepare_queued_steer_injection", lambda *args: next(queued)
+        )
+
+    assert await _runtime.run_with_mcp(agent, "hello") is result
+    assert prompts == [(original, "hello"), (original, "hello"), (replacement, None)]
+    assert events == [
+        ("enter", original),
+        ("exit", original),
+        ("enter", original),
+        ("exit", original),
+        ("enter", replacement),
+        ("exit", replacement),
+    ]
+    assert (
+        sum(
+            isinstance(part, UserPromptPart)
+            for message in agent._message_history
+            if isinstance(message, ModelRequest)
+            for part in message.parts
+        )
+        == 2
+    )
