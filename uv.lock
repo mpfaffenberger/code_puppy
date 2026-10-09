@@ -466,8 +466,8 @@ requires-dist = [
     { name = "azure-identity", specifier = ">=1.15.0" },
     { name = "boto3", specifier = ">=1.43.9" },
     { name = "boto3", marker = "extra == 'bedrock'", specifier = ">=1.35.0" },
-    { name = "code-puppy-core-plugins", specifier = ">=0.0.77" },
-    { name = "code-puppy-core-plugins", extras = ["computer-use"], marker = "extra == 'computer-use'", specifier = ">=0.0.77" },
+    { name = "code-puppy-core-plugins", specifier = ">=0.0.83" },
+    { name = "code-puppy-core-plugins", extras = ["computer-use"], marker = "extra == 'computer-use'", specifier = ">=0.0.83" },
     { name = "dbos", marker = "extra == 'durable'", specifier = ">=2.11.0" },
     { name = "httpx", extras = ["http2"], specifier = ">=0.24.1" },
     { name = "httpx2", specifier = ">=2.7" },
@@ -507,7 +507,7 @@ dev = [
 
 [[package]]
 name = "code-puppy-core-plugins"
-version = "0.0.77"
+version = "0.0.83"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
@@ -530,9 +530,9 @@ dependencies = [
     { name = "tree-sitter-swift" },
     { name = "tree-sitter-typescript" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/7b/92/fb1215c74700c7ec0392248977232d75f267839286b02ba1ab8f42948935/code_puppy_core_plugins-0.0.77.tar.gz", hash = "sha256:df0dcf54c0eb7be57727472e56dd884893361c4c25a5506b090e7190136a8b54", size = 609798, upload-time = "2026-10-05T00:34:05.415Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/1e/46/2899721ec02e7cdc891b61edc7e773edba768efb583e110266b72ab6ac42/code_puppy_core_plugins-0.0.83.tar.gz", hash = "sha256:3cce927ad9ecd64b596a780820c66614915557032804ee214ba9f0ff709d2861" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/63/f0/a725d68c3d12b4beb55dbc43a5a6a47def866e8b2991a84bde3281190635/code_puppy_core_plugins-0.0.77-py3-none-any.whl", hash = "sha256:c50ab4add9dd8a046060e309c610f289d526b18dc9b698fe3eb341a79074aaef", size = 823984, upload-time = "2026-10-05T00:34:04.119Z" },
+    { url = "https://files.pythonhosted.org/packages/0a/48/5597212ccf189eb27f45623787508e270de561fb334e91a2457c2354ceb8/code_puppy_core_plugins-0.0.83-py3-none-any.whl", hash = "sha256:80cd8544e8f7fcd79bcef9971813bb2cbfdd54437cbdb72eacabed1840886aec" },
 ]
 
 [package.optional-dependencies]
