@@ -460,6 +460,7 @@ async def _invoke_agent_impl(
                 build_speculative_code_mode,
             )
             from code_puppy.agents._compaction import HistoryCompaction
+            from code_puppy.agents._mcp_toolsets import McpToolsets
             from code_puppy.agents._subagent_recursion import (
                 build_subagent_recursion_guard,
             )
@@ -468,8 +469,10 @@ async def _invoke_agent_impl(
                 build_model_message_transform,
             )
 
-            # Build the pydantic-ai agent. MCP servers always included; plugins
-            # (e.g. DBOS) may swap them via the agent_run_context hook.
+            # Build the pydantic-ai agent. MCP servers always included (via
+            # the McpToolsets capability, which replaces the `toolsets=`
+            # kwarg); plugins (e.g. DBOS) may swap them via the
+            # agent_run_context hook.
             agent_tools = agent_config.get_available_tools()
             temp_agent = Agent(
                 model=model,
@@ -482,11 +485,11 @@ async def _invoke_agent_impl(
                 instructions=instructions,
                 output_type=str,
                 retries=3,
-                toolsets=mcp_servers,
                 # HistoryCompaction hits before_model_request (the seam the
                 # deprecated `history_processors=` kwarg fed, removed in
                 # pydantic-ai v2).
                 capabilities=[
+                    McpToolsets(mcp_servers),
                     HistoryCompaction(agent_config),
                     build_model_message_transform(agent_name),
                     # Recursion guards ride the wrap_tool_execute seam so a
