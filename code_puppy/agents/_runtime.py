@@ -787,8 +787,15 @@ async def _run_with_mcp_impl(
     if output_type is not None:
         build_pydantic_agent(agent, output_type=output_type)
 
+    # MCP lifecycle tasks can invalidate the cache during this run. Keep its
+    # built client as a fallback, while still resolving live replacements lazily.
+    built_client = agent._code_generation_agent
     invocation = ModelCall(
-        lambda: agent._code_generation_agent,
+        lambda: (
+            current
+            if (current := agent._code_generation_agent) is not None
+            else built_client
+        ),
         lambda current: on_agent_run_context(
             agent, current, group_id, getattr(agent, "_mcp_servers", None) or []
         ),

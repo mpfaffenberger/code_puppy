@@ -165,6 +165,62 @@ async def test_fatal_and_cancel_cleanup_without_recovery(case, error):
     )
 
 
+@pytest.mark.parametrize(
+    "error",
+    [
+        ExceptionGroup("cancelled", [RunCancelled("stop")]),
+        ExceptionGroup(
+            "nested cancellation",
+            [ExceptionGroup("inner", [RunCancelled("stop")])],
+        ),
+        ExceptionGroup(
+            "mixed cancellation",
+            [ValueError("sibling"), ExceptionGroup("inner", [RunCancelled("stop")])],
+        ),
+        BaseExceptionGroup(
+            "async cancellation", [ValueError("sibling"), asyncio.CancelledError()]
+        ),
+    ],
+)
+async def test_grouped_cancellation_preserves_original_without_recovery(
+    case, monkeypatch, error
+):
+    state = case
+    state.agent.current = state.client(AsyncMock(side_effect=error))
+    callback = AsyncMock(return_value=[{"retry": True}])
+    monkeypatch.setattr(run_invocation, "on_agent_exception", callback)
+    with pytest.raises(type(error)) as caught:
+        await run_with_exception_retry(
+            resumable_call(state.agent, state.invocation, "continue"), agent=state.agent
+        )
+    assert caught.value is error
+    callback.assert_not_awaited()
+    assert len(state.calls) == 1
+    assert [event for event, _ in state.events] == ["enter", "exit"]
+
+
+async def test_non_cancellation_group_still_reaches_recovery(case, monkeypatch):
+    state = case
+    error = ExceptionGroup("transient", [ExceptionGroup("inner", [ValueError("bad")])])
+    state.agent.current = state.client(AsyncMock(side_effect=[error, "recovered"]))
+    callback = AsyncMock(return_value=[{"retry": True}])
+    monkeypatch.setattr(run_invocation, "on_agent_exception", callback)
+    assert (
+        await run_with_exception_retry(
+            resumable_call(state.agent, state.invocation, "continue"), agent=state.agent
+        )
+        == "recovered"
+    )
+    callback.assert_awaited_once_with(
+        error,
+        agent=state.agent,
+        agent_name=state.agent.name,
+        model_name=state.agent.get_model_name(),
+    )
+    assert [prompt for _, prompt, _ in state.calls] == ["continue", None]
+    assert [event for event, _ in state.events] == ["enter", "exit"] * 2
+
+
 async def test_recovery_is_bounded_to_one_retry(case, monkeypatch):
     state = case
     state.agent.current = state.client(AsyncMock(side_effect=ConnectionError))

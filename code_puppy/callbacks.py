@@ -1811,6 +1811,8 @@ def on_agent_run_context(agent, pydantic_agent, group_id, mcp_servers) -> List[A
     attempt, including retries and follow-ups, around the currently resolved
     client. They are not a scope for the whole prompt or retry loop. The caller
     composes all non-``None`` results via ``contextlib.AsyncExitStack``.
+    In ``tools/subagent_invocation.py``, this same hook retains whole-run
+    scope around the subagent's run and retry loop, not per-attempt scope.
 
     Returns a list of async context managers (may be empty).
     """

@@ -1,7 +1,9 @@
 """Separate logical-prompt retries from physical model-call resources."""
 
 import asyncio
+from collections.abc import Awaitable, Callable, Sequence
 from contextlib import AsyncExitStack
+from typing import Any, AsyncContextManager
 
 from pydantic_ai.exceptions import RunCancelled
 
@@ -18,11 +20,15 @@ class ModelCall:
     Neither the client nor its context managers are cached between attempts.
     """
 
-    def __init__(self, resolve, contexts):
+    def __init__(
+        self,
+        resolve: Callable[[], Any],
+        contexts: Callable[[Any], Sequence[AsyncContextManager[Any]]],
+    ) -> None:
         self.resolve = resolve
         self.contexts = contexts
 
-    async def run(self, prompt, **kwargs):
+    async def run(self, prompt: Any, **kwargs: Any) -> Any:
         current = self.resolve()
         async with AsyncExitStack() as stack:
             for context in self.contexts(current):
@@ -30,7 +36,9 @@ class ModelCall:
             return await current.run(prompt, **kwargs)
 
 
-async def run_with_exception_retry(call, *, agent):
+async def run_with_exception_retry(
+    call: Callable[[], Awaitable[Any]], *, agent: Any
+) -> Any:
     """Let exception callbacks request one retry of the same logical call.
 
     The callback may replace the model client; ``ModelCall`` resolves that
@@ -43,6 +51,8 @@ async def run_with_exception_retry(call, *, agent):
     except RunCancelled:
         raise
     except Exception as exc:
+        if isinstance(exc, ExceptionGroup) and exc.subgroup(RunCancelled) is not None:
+            raise  # Preserve the whole original group, including sibling errors.
         hook_results = await on_agent_exception(
             exc,
             agent=agent,

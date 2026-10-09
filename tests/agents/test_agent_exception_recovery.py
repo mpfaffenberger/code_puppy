@@ -285,6 +285,9 @@ async def test_follow_up_recovery_resolves_rebuilt_client_and_attempt_context(
     attempts = 0
 
     class Client:
+        def __bool__(self):
+            return False  # A live replacement must not be mistaken for a cache miss.
+
         async def run(self, prompt, **kwargs):
             nonlocal attempts
             attempts += 1
@@ -350,3 +353,93 @@ async def test_follow_up_recovery_resolves_rebuilt_client_and_attempt_context(
         )
         == 2
     )
+
+
+@pytest.mark.parametrize("follow_up", ["hook", "queue"])
+@pytest.mark.parametrize("invalidate_at", ["result", "recovery"])
+async def test_real_mcp_invalidation_keeps_built_client_for_in_flight_run(
+    monkeypatch: pytest.MonkeyPatch, follow_up: str, invalidate_at: str
+) -> None:
+    from contextlib import asynccontextmanager
+    from unittest.mock import Mock
+
+    from code_puppy.agents import agent_manager
+    from code_puppy.mcp_.agent_bindings import invalidate_agent_mcp_cache
+
+    initial, bridge, final = (
+        DummyResult("initial"),
+        DummyResult("bridge"),
+        DummyResult("done"),
+    )
+    original_error = RuntimeError("invalidate during recovery")
+    outcomes = [initial]
+    if invalidate_at == "recovery":
+        outcomes.append(original_error)
+    if follow_up == "queue":
+        outcomes.append(bridge)
+    outcomes.append(final)
+    client = ScriptedPydanticAgent(*outcomes)
+    agent = DummyAgent(client)
+    agent.pydantic_agent = client
+    agent._mcp_servers = [object()]
+    monkeypatch.setattr(agent_manager, "_CURRENT_AGENT", agent)
+    build = Mock(side_effect=AssertionError("Do not rebuild an in-flight client"))
+    monkeypatch.setattr(_runtime, "build_pydantic_agent", build)
+    events, recovered = [], []
+    queued = False
+
+    def invalidate():
+        invalidate_agent_mcp_cache(agent.name)
+        assert agent._code_generation_agent is None
+        assert agent.pydantic_agent is None
+        assert agent._mcp_servers == []
+
+    @asynccontextmanager
+    async def context(current):
+        events.append(("enter", current))
+        try:
+            yield
+        finally:
+            events.append(("exit", current))
+
+    register_callback("agent_run_context", lambda _, current, *args: context(current))
+
+    def recover(exception, **kwargs):
+        recovered.append(exception)
+        assert exception is original_error
+        invalidate()
+        return {"retry": True}
+
+    register_callback("agent_exception", recover)
+
+    def result_hook(result, *args, **kwargs):
+        nonlocal queued
+        if result is not initial:
+            return None
+        if invalidate_at == "result":
+            invalidate()
+        queued = follow_up == "queue"
+        # A hook retry lets the loop revisit its queue after this result hook.
+        return {"retry": True, "prompt": "hook-follow-up", "delay": 0}
+
+    register_callback("agent_run_result", result_hook)
+
+    def drain_queue(*args):
+        nonlocal queued
+        if queued:
+            queued = False
+            return "queued-follow-up"
+        return None
+
+    monkeypatch.setattr(_runtime, "prepare_queued_steer_injection", drain_queue)
+    assert await _runtime.run_with_mcp(agent, "hello") is final
+    prompts = ["hello", "hook-follow-up"]
+    if invalidate_at == "recovery":
+        prompts.append("hook-follow-up")
+    if follow_up == "queue":
+        prompts.append("queued-follow-up")
+    assert [call["prompt"] for call in client.calls] == prompts
+    assert events == [(event, client) for _ in prompts for event in ("enter", "exit")]
+    assert recovered == ([original_error] if invalidate_at == "recovery" else [])
+    build.assert_not_called()
+    assert agent._code_generation_agent is None
