@@ -403,7 +403,7 @@ wheels = [
 
 [[package]]
 name = "code-puppy"
-version = "0.0.907"
+version = "0.0.908"
 source = { editable = "." }
 dependencies = [
     { name = "agent-client-protocol" },
@@ -530,9 +530,9 @@ dependencies = [
     { name = "tree-sitter-swift" },
     { name = "tree-sitter-typescript" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/1e/46/2899721ec02e7cdc891b61edc7e773edba768efb583e110266b72ab6ac42/code_puppy_core_plugins-0.0.83.tar.gz", hash = "sha256:3cce927ad9ecd64b596a780820c66614915557032804ee214ba9f0ff709d2861" }
+sdist = { url = "https://files.pythonhosted.org/packages/1e/46/2899721ec02e7cdc891b61edc7e773edba768efb583e110266b72ab6ac42/code_puppy_core_plugins-0.0.83.tar.gz", hash = "sha256:3cce927ad9ecd64b596a780820c66614915557032804ee214ba9f0ff709d2861", size = 618799, upload-time = "2026-10-09T21:58:12.143Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/0a/48/5597212ccf189eb27f45623787508e270de561fb334e91a2457c2354ceb8/code_puppy_core_plugins-0.0.83-py3-none-any.whl", hash = "sha256:80cd8544e8f7fcd79bcef9971813bb2cbfdd54437cbdb72eacabed1840886aec" },
+    { url = "https://files.pythonhosted.org/packages/0a/48/5597212ccf189eb27f45623787508e270de561fb334e91a2457c2354ceb8/code_puppy_core_plugins-0.0.83-py3-none-any.whl", hash = "sha256:80cd8544e8f7fcd79bcef9971813bb2cbfdd54437cbdb72eacabed1840886aec", size = 833117, upload-time = "2026-10-09T21:58:10.287Z" },
 ]
 
 [package.optional-dependencies]
