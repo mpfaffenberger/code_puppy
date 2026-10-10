@@ -176,6 +176,17 @@ def write_envelope_file(json_path: Path, envelope: dict[str, Any]) -> None:
     tmp_path.replace(json_path)
 
 
+def export_conversation(json_path: Path, history: SessionHistory) -> None:
+    """Write ``history`` to an arbitrary path as a session envelope.
+
+    Same format as saved sessions, so an export doubles as a ``--resume``
+    target. Missing parent directories are created.
+    """
+    envelope = build_envelope(history)  # encode first: no half-written export
+    ensure_directory(json_path.parent)
+    write_envelope_file(json_path, envelope)
+
+
 def read_envelope_file(json_path: Path) -> dict[str, Any]:
     """Read + shape-check a session envelope. Raises ``ValueError`` if bad."""
     with json_path.open("r", encoding="utf-8") as json_file:
