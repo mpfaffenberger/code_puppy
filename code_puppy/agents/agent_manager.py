@@ -537,11 +537,14 @@ def get_current_agent() -> BaseAgent:
     return _CURRENT_AGENT
 
 
-def load_agent(agent_name: str) -> BaseAgent:
+def load_agent(agent_name: str, *, allow_fallback: bool = True) -> BaseAgent:
     """Load an agent configuration by name.
 
     Args:
         agent_name: The name of the agent to load.
+        allow_fallback: When ``False``, an unknown name raises instead of
+            loading ``code-puppy`` in its place -- for callers that must run
+            exactly the agent they asked for.
 
     Returns:
         The agent configuration instance.
@@ -554,6 +557,8 @@ def load_agent(agent_name: str) -> BaseAgent:
     _discover_agents(message_group_id=message_group_id)
 
     if agent_name not in _AGENT_REGISTRY:
+        if not allow_fallback:
+            raise ValueError(f"Agent '{agent_name}' not found")
         # Fallback to code-puppy if agent not found
         if "code-puppy" in _AGENT_REGISTRY:
             agent_name = "code-puppy"

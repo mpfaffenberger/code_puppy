@@ -71,6 +71,7 @@ class BaseAgent(ABC):
         self._code_generation_agent: Any = None
         self._last_model_name: Optional[str] = None
         self._runtime_model_name_override: Optional[str] = None
+        self._runtime_model_fallback_allowed = True
         self._runtime_system_prompt_additions: List[str] = []
         # MCP toolsets injected by an embedding client (e.g. ACP ``mcpServers``)
         # for this agent instance only; merged on every build.
@@ -133,14 +134,30 @@ class BaseAgent(ABC):
         """Return a temporary per-run model override, if one is active."""
         return self._runtime_model_name_override
 
-    def set_runtime_model_name_override(self, model_name: Optional[str]) -> None:
+    def set_runtime_model_name_override(
+        self,
+        model_name: Optional[str],
+        *,
+        allow_fallback: Optional[bool] = None,
+    ) -> None:
         """Set a temporary per-run model override.
 
         This is intentionally not persisted. It lets orchestration code run an
         agent on a specific model for one invocation without mutating global,
         pinned, or JSON agent model configuration.
+
+        ``allow_fallback=False`` makes building the agent fail if that model
+        cannot be loaded, instead of quietly substituting another configured
+        model -- for callers that report which model a session runs on.
+        ``None`` leaves the current setting unchanged.
         """
         self._runtime_model_name_override = model_name
+        if allow_fallback is not None:
+            self._runtime_model_fallback_allowed = allow_fallback
+
+    def allows_runtime_model_fallback(self) -> bool:
+        """Whether building this agent may substitute another configured model."""
+        return self._runtime_model_fallback_allowed
 
     def get_auto_model_override(self) -> Optional[str]:
         """Return the model chosen by a ``model_select`` hook for this run."""
@@ -152,15 +169,23 @@ class BaseAgent(ABC):
 
     @contextmanager
     def temporary_model_name_override(
-        self, model_name: Optional[str]
+        self,
+        model_name: Optional[str],
+        *,
+        allow_fallback: Optional[bool] = None,
     ) -> Iterator[None]:
         """Temporarily apply a per-run model override within a scoped block."""
         previous_model_name = self.get_runtime_model_name_override()
+        previous_fallback = self.allows_runtime_model_fallback()
         try:
-            self.set_runtime_model_name_override(model_name)
+            self.set_runtime_model_name_override(
+                model_name, allow_fallback=allow_fallback
+            )
             yield
         finally:
-            self.set_runtime_model_name_override(previous_model_name)
+            self.set_runtime_model_name_override(
+                previous_model_name, allow_fallback=previous_fallback
+            )
 
     @contextmanager
     def temporary_system_prompt_addition(self, prompt: str) -> Iterator[None]:

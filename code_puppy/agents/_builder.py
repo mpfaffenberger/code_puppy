@@ -443,17 +443,28 @@ def _model_fallback_fix_hint(agent_name: Optional[str]) -> str:
     return "Set a valid model with `/model`, or check your models configuration."
 
 
+def _allows_model_fallback(agent: Any) -> bool:
+    """Whether building ``agent`` may substitute another configured model."""
+    return getattr(agent, "allows_runtime_model_fallback", lambda: True)()
+
+
 def load_model_with_fallback(
     requested_model_name: str,
     models_config: Dict[str, Any],
     message_group: str,
     agent_name: Optional[str] = None,
     conversation_scope: Optional[str] = None,
+    *,
+    allow_fallback: bool = True,
 ) -> Tuple[Any, str]:
     """Load the requested model, or fall back to a sensible alternative.
 
     Falls back in order: the globally configured model, then any other
     configured model. Raises ``ValueError`` only if nothing loads.
+
+    With ``allow_fallback=False`` the requested model is the only candidate:
+    its load error is raised as-is, for callers that must run exactly the
+    model they asked for (see ``BaseAgent.set_runtime_model_name_override``).
 
     ``agent_name``, when given, scopes the model-unavailable warning to fire
     once per (conversation, agent, requested model) combo per conversation
@@ -477,6 +488,8 @@ def load_model_with_fallback(
             )
         return model, requested_model_name
     except ValueError as exc:
+        if not allow_fallback:
+            raise
         available = list(models_config.keys())
         available_str = (
             ", ".join(sorted(available)) if available else "no configured models"
@@ -682,6 +695,7 @@ def build_pydantic_agent(
         models_config,
         message_group,
         agent_name=getattr(agent, "name", None),
+        allow_fallback=_allows_model_fallback(agent),
     )
     prepared = _assemble_instructions(agent, resolved_model_name)
     mcp_servers = load_mcp_servers(agent_name=getattr(agent, "name", None))
@@ -839,6 +853,7 @@ def build_tool_probe_for_agent(agent: Any) -> Optional[Any]:
             models_config,
             message_group=str(uuid.uuid4()),
             agent_name=getattr(agent, "name", None),
+            allow_fallback=_allows_model_fallback(agent),
         )
     except Exception:
         return None
