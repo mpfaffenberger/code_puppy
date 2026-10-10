@@ -170,6 +170,10 @@ def register_list_or_search_skills(agent):
                 error=f"Failed to discover skills: {e}",
             )
 
+        # Hide skills with disable_model_invocation from model discovery.
+        # Users can still activate them via /skill-name slash commands.
+        skills_list = [s for s in skills_list if not s.get("disable_model_invocation")]
+
         # Filter: match if ANY term appears in name/description/tags — avoids the
         # old bug of treating the whole query as one substring.
         if query:
