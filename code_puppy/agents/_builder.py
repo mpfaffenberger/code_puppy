@@ -45,7 +45,6 @@ from code_puppy.config import (
     get_global_model_name,
     get_value,
 )
-from code_puppy.mcp_ import get_mcp_manager
 from code_puppy.messaging import emit_error, emit_info, emit_warning
 from code_puppy.model_factory import ModelFactory, make_model_settings
 
@@ -255,6 +254,11 @@ def load_mcp_servers(
     if mcp_disabled and str(mcp_disabled).lower() in ("1", "true", "yes", "on"):
         return []
 
+    # Imported here, not at module scope: code_puppy.mcp_ pulls in fastmcp
+    # and the mcp SDK (hundreds of ms), which a run without MCP servers
+    # never needs before its first tool list.
+    from code_puppy.mcp_ import get_mcp_manager
+
     manager = get_mcp_manager()
     if agent_name:
         _autostart_bound_servers(manager, agent_name)
@@ -392,6 +396,8 @@ async def autostart_bound_servers_async(manager: Any, agent_name: str) -> None:
 
 def reload_mcp_servers(agent_name: Optional[str] = None) -> List[Any]:
     """Force re-sync from ``mcp_servers.json`` and return updated servers."""
+    from code_puppy.mcp_ import get_mcp_manager
+
     manager = get_mcp_manager()
     manager.sync_from_config()
     return manager.get_servers_for_agent(agent_name=agent_name)
