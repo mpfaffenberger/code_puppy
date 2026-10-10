@@ -12,8 +12,10 @@ caller/validation layer: it round-trips the normalized messages through
 declaring a migration successful.
 
 Startup entry point is :func:`sweep_legacy_pickle_sessions`, idempotent via a
-marker file in the config dir. Originals are never deleted: migrated pickles
-move to ``<dir>/pre_v2_backup/``, failures to ``<dir>/pre_v2_backup/failed/``.
+marker file in the config dir. Originals are never deleted or moved on a
+successful migration -- the ``.pkl`` stays next to its new ``.json`` twin so
+an older code_puppy version can still find it after a downgrade. Only
+unmigratable pickles are relocated, to ``<dir>/pre_v2_backup/failed/``.
 """
 
 from __future__ import annotations
@@ -127,12 +129,16 @@ def _move_to(pkl_path: pathlib.Path, dest_dir: pathlib.Path) -> None:
 
 
 def archive_legacy_pickle(pkl_path: pathlib.Path) -> None:
-    """Move a migrated pickle into its directory's ``pre_v2_backup/``."""
-    try:
-        _move_to(pkl_path, pkl_path.parent / _BACKUP_DIRNAME)
-    except OSError:
-        # Leaving the pickle behind is harmless: loads prefer the JSON twin.
-        pass
+    """No-op: a successfully migrated pickle is left at ``pkl_path``.
+
+    Moving it out of the session directory (the old behavior) hid it from
+    any older code_puppy version's loader -- which only ever looks for
+    ``<name>.pkl`` next to the session, never in a backup subfolder -- so a
+    downgrade after migration looked like data loss even though nothing was
+    deleted. Leaving the original in place keeps downgrades working; the
+    current version already prefers the JSON twin (see ``load_session``), so
+    the leftover ``.pkl`` is otherwise inert.
+    """
 
 
 def quarantine_failed_pickle(pkl_path: pathlib.Path) -> None:
@@ -264,8 +270,9 @@ def sweep_legacy_pickle_sessions() -> None:
             )
         if migrated or failed:
             _emit_info_safely(
-                f"Session format migration: {migrated} migrated to JSON, "
-                f"{failed} failed (originals kept under {_BACKUP_DIRNAME}/)."
+                f"Session format migration: {migrated} migrated to JSON "
+                f"(original .pkl left in place), {failed} failed "
+                f"(quarantined under {_BACKUP_DIRNAME}/failed/)."
             )
         if rescued:
             _emit_info_safely(
