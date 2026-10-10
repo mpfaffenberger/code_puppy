@@ -41,6 +41,7 @@ def submit_buffer(editor, mode: str) -> Optional[str]:
     queue_route = editor._queued_messages.prepare_submit(text, mode)
     editor._buffer = ""
     editor._cursor = 0
+    editor._undo.reset()  # a submitted prompt is not undoable
     editor._close_completion()
     editor._repaint()
 

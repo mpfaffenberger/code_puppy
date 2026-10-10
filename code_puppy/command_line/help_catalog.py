@@ -196,6 +196,15 @@ def _keybinding_section() -> HelpSection:
             HelpEntry("Ctrl+A / Ctrl+E", "Jump to the start / end of the line"),
             HelpEntry("Ctrl+U", "Clear the whole input buffer"),
             HelpEntry("Ctrl+W", "Delete the word before the cursor"),
+            HelpEntry(
+                "Ctrl+Z / Cmd+Z",
+                "Undo the last prompt edit (Cmd needs a CSI-u key map, "
+                "see docs/PROMPT_UNDO.md)",
+            ),
+            HelpEntry(
+                "Ctrl+Y / Cmd+Shift+Z",
+                "Redo the last undone prompt edit",
+            ),
             HelpEntry("Ctrl+R", "Start a reverse history search"),
             HelpEntry(
                 "Ctrl+Left/Right, Option+Left/Right, or Meta-b/f",
