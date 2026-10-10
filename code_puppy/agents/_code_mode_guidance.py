@@ -13,11 +13,14 @@ from typing import Any
 from pydantic_ai.capabilities import AbstractCapability
 
 CODE_MODE_GUIDANCE = """\
-Speculation is on. Use `create_file`, `replace_in_file`, and
-`load_image_for_analysis` as native tools, outside `run_code`; they are not
-available as functions inside the sandbox. Every other tool is an async function inside `run_code`, a
-persistent sandboxed Python REPL. Call `run_code` with a Python snippet to
-use them; do not attempt to call those functions as native tools.
+Speculation is on. Tools exposed directly in your tool list are native:
+call them outside `run_code`, not as sandbox functions. These include
+`create_file`, `replace_in_file`, `load_image_for_analysis`, screenshot-returning
+Computer Use tools when registered, and plugin tools declaring native routing.
+Other tools listed as sandbox functions below are async functions inside
+`run_code`, a persistent sandboxed Python REPL. Call `run_code` with a Python
+snippet to use those functions. Native routing does not bypass consent or
+permissions and does not authorize speculative execution.
 
 The sandbox also has direct capabilities, no function call needed:
 
