@@ -190,6 +190,15 @@ def _load_installed_plugins() -> list[str]:
     )
     for entry_point in discovered:
         plugin_name = entry_point.name
+        if plugin_name == "token_ratio_learner":
+            # Retired: context accounting now anchors to the API's own
+            # reported prompt-token usage (see code_puppy.context_accounting)
+            # instead of a learned chars-per-token ratio. Older installed
+            # core-plugins bundles may still advertise this entry point for
+            # a while; skip it unconditionally rather than let a dead
+            # learner monkeypatch the shared fallback estimator.
+            logger.debug("Skipping retired plugin %s", plugin_name)
+            continue
         try:
             with _plugin_loading_context(plugin_name):
                 entry_point.load()

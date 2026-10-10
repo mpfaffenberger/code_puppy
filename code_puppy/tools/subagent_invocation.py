@@ -488,7 +488,7 @@ async def _invoke_agent_impl(
                 # pydantic-ai v2).
                 capabilities=[
                     HistoryCompaction(agent_config),
-                    build_model_message_transform(agent_name),
+                    build_model_message_transform(agent_name, agent_config),
                     # Recursion guards ride the wrap_tool_execute seam so a
                     # sub-agent's own invoke_agent calls are denied before
                     # the tool body runs. Sole wrap_tool_execute implementer,
