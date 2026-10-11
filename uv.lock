@@ -403,7 +403,7 @@ wheels = [
 
 [[package]]
 name = "code-puppy"
-version = "0.0.914"
+version = "0.0.915"
 source = { editable = "." }
 dependencies = [
     { name = "agent-client-protocol" },
