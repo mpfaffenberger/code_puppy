@@ -7,81 +7,137 @@ system prompt changes model behavior.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
+from pydantic_ai import RunContext
 from pydantic_ai.capabilities import AbstractCapability
+from pydantic_ai.tools import ToolDefinition
+
+RUN_CODE_TOOL_NAME = "run_code"
 
 CODE_MODE_GUIDANCE = """\
-Speculation is on. Tools exposed directly in your tool list are native:
+Code mode is on. Tools exposed directly in your tool list are native:
 call them outside `run_code`, not as sandbox functions. These include
 `create_file`, `replace_in_file`, `load_image_for_analysis`, screenshot-returning
 Computer Use tools when registered, and plugin tools declaring native routing.
-Other tools listed as sandbox functions below are async functions inside
-`run_code`, a persistent sandboxed Python REPL. Call `run_code` with a Python
-snippet to use those functions. Native routing does not bypass consent or
-permissions and does not authorize speculative execution.
+Every other tool is an async Python function inside `run_code`, a persistent
+sandboxed Python REPL. Native routing does not bypass consent or permissions
+and does not authorize speculative execution.
 
-The sandbox also has direct capabilities, no function call needed:
+## Write programs, not single calls
+
+Each `run_code` call is a full model round trip: slow, and it resends the
+whole conversation. Tool calls INSIDE a snippet are nearly free. So plan the
+work in a few steps and spend ONE `run_code` per step, with as many tool
+calls inside it as the step needs (5, 10, 30 is normal):
+
+- Batch: fetch everything a step needs in one snippet. Read every file you
+  might need, not just the one you are sure of. A snippet wrapping a single
+  tool call is almost always a wasted round trip.
+- Chain: feed one call's result straight into the next (grep, then read the
+  hits, then extract the lines that matter). Do not stop to eyeball an
+  intermediate result that code can process.
+- Loop: iterate over search hits or file lists and call tools per item, or
+  fan out with `await asyncio.gather(...)` (positional awaitables only; no
+  other task-creation APIs exist in the sandbox).
+- Filter in code: inside the sandbox, tool results are full Python values
+  (dicts and lists, not truncated). Slice, regex, count and compare them in
+  Python and return only the compact facts you need. When code computes an
+  answer (a count, a match), return the matched lines next to it so you can
+  check the filter missed nothing; a too-narrow regex fails silently.
+- Absorb errors: wrap calls that may fail in `try`/`except` and record the
+  error, so one bad path does not cost a round trip.
+- Never spend a `run_code` just to print a variable: state persists between
+  snippets, so use what you already hold in the next real step.
+
+Single-call snippets to stop writing, and what to write instead:
+
+- `list_files` alone as an opener. Open with the listing PLUS a grep for
+  every name or term in the task PLUS reads of the files those terms point
+  at, all in one snippet.
+- One ranged `read_file` to peek at a region. Read the whole file once, or
+  every region you need, and slice the lines in Python.
+- One `shell` running the tests. Run the tests AND re-read or grep the code
+  you just changed in the same snippet, so a failure comes back with the
+  context to fix it.
+
+One snippet that locates, reads and summarizes:
+
+    import asyncio
+    hits = await grep(search_string=r"class \\w+\\(.*BaseHandler")
+    files = sorted({m["file_path"] for m in hits["matches"] if m["file_path"]})
+    srcs = await asyncio.gather(*[read_file(file_path=f) for f in files])
+    raised = await grep(search_string=r"raise \\w+Error")
+    {
+        "subclasses": [m["line_content"].strip() for m in hits["matches"]],
+        "sizes": {f: len(s["content"] or "") for f, s in zip(files, srcs)},
+        "raise_sites": len(raised["matches"]),
+    }
+
+And one that tests and, on failure, pulls the failing source in the same call:
+
+    import re
+    r = await shell(command="python -m pytest -x -q", timeout=300)
+    tail = (r["stdout"] or "")[-3000:]
+    out = {"exit": r["exit_code"], "tail": tail}
+    for f in sorted(set(re.findall(r"([\\w/]+\\.py):\\d+", tail)))[:3]:
+        out[f] = ((await read_file(file_path=f))["content"] or "")[:4000]
+    out
+
+The snippet's final expression is its return value; prefer a compact dict
+over printing large blobs. Oversized `run_code` output is spilled to a handle.
+
+## Sandbox facts
 
 - The workspace is mounted read-write (mount path at the end of these
-  instructions): use `pathlib.Path` with absolute paths under the mount to
-  read, write, glob, and stat project files directly. Relative paths do
-  not resolve inside the sandbox.
+  instructions): `pathlib.Path` with absolute paths under the mount can
+  read, write, `iterdir` and stat project files directly. Relative paths
+  do not resolve inside the sandbox.
+- Snippets are type-checked before they run, against the result types in
+  the function signatures below. Fields typed `str | None` (`content`,
+  `file_path`, `stdout`, ...) must be narrowed first: `(r["content"] or "")`,
+  or `if m["file_path"]` in a comprehension. Results also carry an `error`
+  field: check it (or return it) instead of letting `or ""` hide a failure.
+- NOT available: `Path.glob`, `Path.rglob`, `os.walk`, `sys.path`,
+  `subprocess`, `importlib`, `ast` and third-party packages. Discover
+  files with `list_files` / `grep`, run processes with the shell tool.
+- Generator expressions evaluate to lists, so `next(x for x in ...)` raises
+  TypeError: write `next(iter([x for x in ...]), None)` instead.
 - Environment variables (isolated), in-memory scratch files, and the real
   clock (`time` module) work.
 - There is NO network in the sandbox: anything remote goes through a
   function like `shell` (e.g. `curl`) or an agent.
+- Use raw Python strings for regex patterns so backslashes are not invalid
+  escapes.
+- Multi-line shell input (heredocs, inline scripts): pass the whole command
+  as ONE triple-quoted string, e.g.
+  `await shell(command=\"\"\"python - <<'PY'` ... `PY\"\"\")`. A heredoc split
+  across ordinary quoted lines is a SyntaxError.
 
-Use raw Python strings for regex patterns so backslashes are not invalid escapes.
+## Speculation (a bonus, not a rule)
 
-How to work. The runtime watches your code AS YOU WRITE IT and starts
-eligible calls before the snippet is finished, so the SHAPE of your code
-determines how fast it runs:
+Read calls (`list_files`, `read_file`, `grep`) whose keyword arguments are
+all literal start running while you are still writing the snippet, so put
+the reads you already know you need first, one per line. Loops and computed
+arguments are still fine: one extra round trip costs far more than
+speculation can save.
 
-1. Emit small, flat statements, one per line. A read call (`list_files`,
-   `read_file`, `grep`) starts executing the moment its line is complete,
-   when its call has all-literal keyword arguments:
-
-       hits = await grep(search_string="SpeculationState")
-       src = await read_file(file_path="code_puppy/agents/_code_mode.py")
-
-   Each such line runs while you are still writing the lines below it.
-   Computing arguments forfeits that speculative head start. Literal
-   calls can also be detected inside expressions or across multiple lines.
-2. Go BIG in one `run_code` call. Do not split work across many small
-   snippets: every extra round trip to the model wastes the runway that
-   makes early execution pay. 60-100 lines with ten, twenty, thirty tool
-   calls in a single snippet is not just fine, it is the fast path --
-   every additional literal read line is another call already running
-   while you write the lines below it, and the longer the snippet, the
-   more of that work finishes before execution even starts.
-3. Front-load the reads: open every snippet with the literal read lines,
-   one per line, then process the results with plain Python below them.
-   Cast a wide net up front -- read the files you MIGHT need, not just
-   the one you are sure of; an unused result costs nothing you were not
-   already spending on generation.
-4. Never introduce a variable just to pass it: `q = "x"` followed by
-   `grep(search_string=q)` runs cold; `grep(search_string="x")` runs
-   early. Repeat the literal even if it feels less DRY -- here, DRY
-   loses to speed.
-5. Writes and shell commands never speculate, but eager execution can
-   execute them as soon as their statements close, before generation ends.
-   Obtain required approval BEFORE emitting a side-effectful statement;
-   later code cannot undo it. Run independent calls concurrently with
-   `await asyncio.gather(...)` (positional awaitables only; no other
-   task-creation APIs exist in the sandbox).
-6. Keep mutable state small and local: assign results to short fresh
-   names, keep processing blocks brief, and never rebind a name a
-   pending call's line already used. `print(...)` what matters and make
-   the snippet's final expression the value you want returned.
-7. State persists between snippets within a run -- variables and
-   functions carry over. Do not re-fetch what you already hold. Prefer
-   the read functions over `pathlib` for discovery (they start early);
-   use `pathlib` for surgical follow-ups on paths you already hold.
-8. Read before you write, and verify after you change: re-read the file
-   or run the tests in a follow-up snippet.
+Writes and shell commands never speculate, but eager execution can run them
+as soon as their statement closes, before generation ends. Obtain required
+approval BEFORE emitting a side-effectful statement; later code cannot undo
+it. Read before you write, and verify after you change.
 """
+
+
+# Appended to the harness-owned `run_code` description: the model rereads a
+# tool's description at the moment it decides how to call it.
+RUN_CODE_BATCHING_NOTE = """
+
+Write a program, not a single call: every `run_code` call costs a full model
+round trip, while tool calls inside one snippet are nearly free. Batch, chain
+and loop over as many tool calls as the current step needs in ONE snippet,
+filter their results in Python, and return only the compact facts."""
 
 
 def mount_note(host_path: str, mount_path: str) -> str:
@@ -104,3 +160,16 @@ class CodeModeGuidance(AbstractCapability[Any]):
 
     def get_instructions(self) -> str:
         return CODE_MODE_GUIDANCE + mount_note(self.host_path, self.mount_path)
+
+    async def prepare_tools(
+        self, ctx: RunContext[object], tool_defs: list[ToolDefinition]
+    ) -> list[ToolDefinition]:
+        return [
+            replace(
+                tool_def,
+                description=(tool_def.description or "") + RUN_CODE_BATCHING_NOTE,
+            )
+            if tool_def.name == RUN_CODE_TOOL_NAME
+            else tool_def
+            for tool_def in tool_defs
+        ]
