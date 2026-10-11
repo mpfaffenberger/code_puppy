@@ -16,6 +16,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterator, Optional
 
+from code_puppy.agents._tty_modes import apply_editor_cbreak_attrs
 from code_puppy.keymap import get_cancel_agent_char_code
 from code_puppy.messaging import emit_info, emit_warning
 
@@ -877,30 +878,17 @@ def _posix_read_session(
         nonlocal cbreak_active
         if not cbreak_active:
             tty.setcbreak(fd)
-            # Post-setcbreak termios cleanup (the raw-mode emulation
-            # prompt_toolkit's classic path used):
-            #  - ICRNL off: keep Enter (\r) distinct from Ctrl+J (\n).
-            #  - IEXTEN off: BSD/macOS VLNEXT eats the first ^V as a
-            #    quote-prefix (the 'Ctrl+V twice to paste an image' bug);
-            #    VDISCARD (Ctrl+O) is likewise IEXTEN-gated.
-            #  - IXON/IXOFF off: Ctrl+S would freeze output and brick a
-            #    repaint on this thread (2026-07-11 incident). Windows
-            #    twin: ``enable_windows_raw_input`` drops LINE_INPUT.
-            #  - VINTR to _POSIX_VDISABLE: deliver ^C raw as \x03 instead
-            #    of SIGINT, keeping ^Z/^\ job control (ISIG stays on).
+            # Post-setcbreak termios cleanup (ICRNL/IXON/IEXTEN off, ^C/^Z/^Y
+            # delivered raw instead of signals) -- see ``_tty_modes``.
             # Restored with the original attrs on suspend/exit.
             try:
-                attrs = termios.tcgetattr(fd)
-                attrs[0] &= ~termios.ICRNL  # preserve Ctrl+J vs Enter
-                attrs[0] &= ~termios.IXON  # Ctrl+S must reach the editor
-                if hasattr(termios, "IXOFF"):
-                    attrs[0] &= ~termios.IXOFF
-                attrs[3] &= ~termios.IEXTEN  # deliver Ctrl+V/Ctrl+O raw
                 try:
                     vdisable = os.fpathconf(fd, "PC_VDISABLE")
                 except (OSError, ValueError, AttributeError):
                     vdisable = 0
-                attrs[6][termios.VINTR] = bytes([vdisable])  # cc
+                attrs = apply_editor_cbreak_attrs(
+                    termios.tcgetattr(fd), termios, vdisable
+                )
                 termios.tcsetattr(fd, termios.TCSANOW, attrs)
             except Exception:
                 pass

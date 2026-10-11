@@ -238,6 +238,7 @@ def feed_reverse_search(ed, ch: str) -> None:
         rs.cancel()
         ed._set_completion_suppressed(False)
         if match is not None:
+            ed._checkpoint("recall")
             ed._buffer = match
             ed._cursor = len(match)
             ed._history.reset()
