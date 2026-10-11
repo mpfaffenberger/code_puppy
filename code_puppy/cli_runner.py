@@ -55,6 +55,14 @@ from code_puppy.version_checker import default_version_mismatch_behavior
 
 plugins.load_plugin_callbacks()
 
+
+def _save_autosave_snapshot() -> bool:
+    """Persist the current autosave snapshot if autosave is enabled."""
+    from code_puppy.config import auto_save_session_if_enabled
+
+    return auto_save_session_if_enabled()
+
+
 _HEADLESS_AUTONOMY_PROMPT = """\
 This is an unattended, non-interactive run. Never ask for confirmation, approval,
 clarification, or manual verification, including through tools or MCP servers. Use
@@ -591,6 +599,10 @@ async def main():
             # Default to interactive mode (no args = same as -i)
             await interactive_mode(message_renderer, initial_command=initial_command)
     finally:
+        # Final best-effort persistence attempt: Ctrl-D, /exit, a top-level
+        # interrupt, or any other shutdown path should not lose session
+        # history that a cancelled turn skipped saving.
+        _save_autosave_snapshot()
         # Tear down the persistent prompt first (restores scroll region, cursor,
         # key listener) so the renderer stops on a sane screen. Idempotent.
         try:
@@ -1170,6 +1182,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                     from code_puppy.callbacks import on_interactive_turn_cancel
 
                     await on_interactive_turn_cancel(task, reason="cancellation")
+                    _save_autosave_snapshot()
                     continue
                 # Get the structured response
                 agent_response = result.output
@@ -1210,15 +1223,14 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
                 await on_interactive_turn_cancel(task, reason="Ctrl+C")
                 emit_warning("\n" + t("cli.turn.cancelled"))
+                _save_autosave_snapshot()
                 continue
             except Exception as e:
                 turn_error = e
                 _render_turn_exception(e)
 
             # Auto-save session if enabled (moved outside the try block to avoid being swallowed)
-            from code_puppy.config import auto_save_session_if_enabled
-
-            auto_save_session_if_enabled()
+            _save_autosave_snapshot()
 
             # ================================================================
             # CONTINUATION LOOP: plugins may request follow-up prompt runs.
@@ -1280,6 +1292,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                         await on_interactive_turn_cancel(
                             next_prompt, reason="cancellation"
                         )
+                        _save_autosave_snapshot()
                         break
 
                     agent_response = result.output
@@ -1296,17 +1309,18 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                         display_console.file.flush()
                     await asyncio.sleep(0.1)
 
-                    auto_save_session_if_enabled()
+                    _save_autosave_snapshot()
                     continuation_result = result
                     continuation_success = True
 
                 except KeyboardInterrupt:
                     await on_interactive_turn_cancel(next_prompt, reason="Ctrl+C")
+                    _save_autosave_snapshot()
                     break
                 except Exception as e:
                     continuation_error = e
                     _render_turn_exception(e)
-                    auto_save_session_if_enabled()
+                    _save_autosave_snapshot()
 
             # Windows: re-clamp raw-Ctrl+C mode after each iteration, as
             # various operations may restore console mode
