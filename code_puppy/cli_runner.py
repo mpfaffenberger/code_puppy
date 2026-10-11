@@ -42,6 +42,7 @@ from code_puppy.keymap import (
     KeymapError,
     validate_cancel_agent_key,
 )
+from code_puppy.malloc_noise_guard import install_malloc_noise_guard
 from code_puppy.messaging import emit_info
 from code_puppy.platform_utils import startup_banner_text
 from code_puppy.terminal_utils import (
@@ -1582,6 +1583,8 @@ def _initialize_locale():
 def main_entry():
     """Entry point for the installed CLI tool."""
     _force_utf8_stdio()
+    # Before anything spawns: fork children inherit fd 2 (see the module).
+    install_malloc_noise_guard()
     try:
         # Capture main()'s return so plugins / normal paths set the exit status
         # (None → 0 or an int exit code).
