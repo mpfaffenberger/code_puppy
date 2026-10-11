@@ -460,6 +460,10 @@ async def _invoke_agent_impl(
                 build_speculative_code_mode,
             )
             from code_puppy.agents._compaction import HistoryCompaction
+            from code_puppy.agents._output_limits import (
+                build_response_clamp,
+                build_tool_output_limits,
+            )
             from code_puppy.agents._subagent_recursion import (
                 build_subagent_recursion_guard,
             )
@@ -487,7 +491,12 @@ async def _invoke_agent_impl(
                 # deprecated `history_processors=` kwarg fed, removed in
                 # pydantic-ai v2).
                 capabilities=[
+                    # Same output bounds as the main builder. Without them a
+                    # sub-agent's oversized tool or run_code return lands in
+                    # its context whole (A/B: up to 295k chars per return).
+                    *build_tool_output_limits(),
                     HistoryCompaction(agent_config),
+                    build_response_clamp(),
                     build_model_message_transform(agent_name, agent_config),
                     # Recursion guards ride the wrap_tool_execute seam so a
                     # sub-agent's own invoke_agent calls are denied before
