@@ -4,6 +4,19 @@
 > `code_puppy_core_plugins` repository that hooks into core via
 > `code_puppy/callbacks.py`. Don't edit `code_puppy/command_line/`.
 
+## Rules
+
+1. **Plugins over core** — if a hook exists for it, use it
+2. **One `register_callbacks.py` per plugin** — register at module scope
+3. **600-line hard cap** — split into submodules
+4. **Fail gracefully** — never crash the app
+5. **Return `None` from commands you don't own**
+6. **Always run linters** — `ruff check --fix`, `ruff format .`
+7. **NEVER ALLOW A CLAUDE CO-AUTHOR COMMIT**
+8. **Keep this file under 10,000 characters** — Code Puppy drops everything
+   past that. Put reference material in `docs/`; `tests/test_agents_md_size.py`
+   enforces the cap.
+
 ## How Plugins Work
 
 Plugins are discovered from three tiers, loaded in order:
@@ -29,45 +42,32 @@ That's it. The plugin loader auto-discovers `register_callbacks.py` in subdirs.
 
 ### Project Plugins
 
-Project plugins live at `<CWD>/.code_puppy/plugins/<name>/register_callbacks.py`.
-This mirrors the project-level discovery already used by agents (`<CWD>/.code_puppy/agents/`)
-and skills (`<CWD>/.code_puppy/skills/`).
+`<CWD>/.code_puppy/plugins/<name>/register_callbacks.py`, mirroring project
+agents (`.code_puppy/agents/`) and skills (`.code_puppy/skills/`).
 
-**Key details:**
-
-- **Directory must be created intentionally.** Code Puppy will never auto-create
-  `.code_puppy/plugins/` — your team opts in by creating it.
-- **Disabled by default (trust gate).** Project plugins run arbitrary repo
-  code at import time, so none load until the user accepts them in the
-  `/plugins` TUI ceremony (select → Enter → type `trust`); accepted plugins
-  hot-load with no restart. Trust is a SHA-256 of the plugin dir, stored
-  user-side in `~/.code_puppy/trusted_plugins.json` and scoped to the project
-  path — any file change reverts the plugin to untrusted, and everything else
-  fails closed. `/plugins revoke <name>` removes trust. Full security model:
-  `code_puppy/plugins/trust.py`.
-- **Keep runtime state out of the plugin dir** — writing state (SQLite,
-  caches, logs) next to the code self-tampers the hash and demands
-  re-acceptance every boot. Use `~/.code_puppy/` like builtin plugins do, or
-  a dot-path (e.g. `.state/`), which is excluded from hashing.
-- **Load order is builtin → user → project.** Project plugins load last, giving
-  them highest precedence for override-style hooks.
-- **Project wins on name collision.** If a project plugin shares a name with a
-  user plugin, only the project copy loads (the user plugin is skipped). This
-  matches how agents deduplicate — `discover_json_agents()` overwrites user
-  agents with project agents of the same name. A warning is logged when a
-  project plugin shadows a builtin.
-- **Module namespace isolation.** Project plugins use `project_plugins.<name>.register_callbacks`
-  in `sys.modules`, so they never collide with user plugins at the import level.
+- **Opt-in directory.** Code Puppy never auto-creates `.code_puppy/plugins/`.
+- **Untrusted by default.** Project plugins run repo code at import, so none
+  load until accepted in the `/plugins` TUI (select → Enter → type `trust`);
+  they then hot-load. Trust is a SHA-256 of the plugin dir, scoped to the
+  project path in `~/.code_puppy/trusted_plugins.json`; any file change
+  revokes it and everything else fails closed. `/plugins revoke <name>`
+  removes trust. Security model: `code_puppy/plugins/trust.py`.
+- **Keep runtime state out of the plugin dir** — it changes the hash. Use
+  `~/.code_puppy/` or a dot-path (e.g. `.state/`), which hashing skips.
+- **Load order is builtin → user → project**, so project plugins win
+  override-style hooks. On a name clash the project copy replaces the user
+  plugin (as with agents); shadowing a builtin logs a warning.
+- **Namespaced imports:** `project_plugins.<name>.register_callbacks` in
+  `sys.modules`, so they never collide with user plugins.
 
 ## Available Hooks
 
 `register_callback("<hook>", func)` — deduplicated, async hooks accept sync or async functions.
 
-`register_callback("<hook>", func, fail_closed=True)` — for security callbacks on `pre_tool_call`
-and `run_shell_command` only. Error isolation normally reports a crashed callback as `None`, and
-both of those consumers read `None` as "no objection", so a guard that raises currently reads as
-approval. With `fail_closed=True` its exception is reported as a block instead. Defaults to
-`False`; the flag is rejected on other hooks, whose consumers would misread a block result.
+`register_callback("<hook>", func, fail_closed=True)` — security guards on `pre_tool_call` /
+`run_shell_command` only. A crashed callback normally reports `None`, which those hooks read as
+approval; with `fail_closed=True` the crash blocks instead. Defaults to `False`; rejected on
+other hooks.
 
 | Hook | When | Signature |
 |------|------|-----------|
@@ -108,93 +108,35 @@ Full list + rarely-used hooks: see `code_puppy/callbacks.py` source.
 ## Speculative Execution
 
 With speculative execution on (`enable_speculative_code_mode`, `Ctrl+X Ctrl+S`),
-a tool call whose arguments are all literals may launch while the model is still
-writing the snippet. Tools opt in themselves -- core and plugin alike, no core
-edit needed:
+an all-literal tool call may launch while the model is still writing the
+snippet. Tools opt in themselves (core or plugin, no core edit):
 
 ```python
 @agent.tool(metadata={"speculatable": True})
 async def my_lookup(context: RunContext, query: str) -> Result: ...
 ```
 
-Only a literal `True` counts. Declare it only for side-effect-free reads: an
-early launch can run a call from a snippet that later errors before reaching
-it, and an unclaimed result is discarded. Re-check any opt-in setting inside
-the tool body so a disabled feature cannot run early. Resolution happens at
-each run start in `code_puppy/agents/_code_mode.py` (`DeclaredSpeculation`).
+Only a literal `True` counts. Opt in only for side-effect-free reads (an early
+launch can run a call the snippet never reaches; unclaimed results are
+discarded), and re-check opt-in settings inside the tool body. Resolved at each
+run start by `DeclaredSpeculation` in `code_puppy/agents/_code_mode.py`.
 
 ## Ctrl+X Chords
 
-`Ctrl+X` is a **chord prefix** (readline-style), never a standalone hotkey. The
-line editor arms a pending state on `Ctrl+X`, paints a hint of the currently
-registered bindings on the bottom bar, and resolves the NEXT key against the
-chord registry in `code_puppy/messaging/chords.py`. `Esc` (or any unbound key)
-cancels the chord; unbound keys are then processed normally.
-
-| Chord | Action | Registered by | Active when |
-|-------|--------|---------------|-------------|
-| `Ctrl+X Ctrl+E` | Edit the prompt buffer in `$VISUAL`/`$EDITOR` | `run_ui` | Always (UI lifetime) |
-| `Ctrl+X Ctrl+X` | Kill all running shell commands | `command_runner` | While shell commands run |
-| `Ctrl+X Ctrl+B` | Background all running shell commands | `command_runner` | While shell commands run |
-| `Ctrl+X Ctrl+S` | Toggle speculative execution (`enable_speculative_code_mode`), rebuilds the current agent for the next turn | `run_ui` | Always (UI lifetime) |
-
-**Design notes:**
-
-- **No modes.** This replaced a modal design where a bare `Ctrl+X` meant
-  "kill shells if a handler happened to be armed, editor chord otherwise" --
-  the arm/disarm lifecycle raced against keystrokes. Now `Ctrl+X` always
-  flows into the editor; the registry decides what the follow-up key does.
-- **Backgrounding is mid-flight detach.** `Ctrl+X Ctrl+B` makes every
-  streaming shell tool call return immediately with `background=True`,
-  `log_file`, and `pid`; the process keeps running and its remaining output
-  diverts to the log file (readers keep the pipes drained).
-- **Headless fallback.** With no line editor installed (piped stdin, embeds),
-  a bare `Ctrl+X` keeps its historical kill-all-shells meaning via the
-  listener's spawn-time `on_escape` callback.
-
-**Plugins can register their own chords:**
-
-```python
-from code_puppy.messaging.chords import register_chord, unregister_chord
-
-register_chord("\x14", my_callback, "Ctrl+T do the thing")  # Ctrl+X Ctrl+T
-```
-
-Rules for chord callbacks: they run on the key-listener thread, so **never
-block** (hop to the asyncio loop's executor like the `$EDITOR` handler in
-`messaging/external_editor.py`); never raise (failures are swallowed and
-logged); register only while the binding is meaningful so the armed-chord
-hint stays honest. Keys are single raw control characters -- prefer
-`Ctrl+<letter>` bytes; digits and F-keys are deliberately unsupported.
+`Ctrl+X` is a **chord prefix**, never a standalone hotkey: the next key resolves
+against the registry in `code_puppy/messaging/chords.py`. Plugins add chords via
+`register_chord(...)`. Chord callbacks run on the key-listener thread, so they
+must **never block** and **never raise**; register them only while the binding
+is meaningful. Bindings, design notes, and examples: **`docs/CHORDS.md`**.
 
 ## Internationalization (i18n)
 
-User-facing CLI/TUI strings are localizable via `code_puppy/i18n/`. See
-**`docs/I18N.md`** for the full guide (architecture, decisions, translator
-quickstart). Rules for new user-facing output (PUP-473):
+Full guide: **`docs/I18N.md`**. Rules for new user-facing CLI/TUI output (PUP-473):
 
-- **Wrap display strings** in `t("key", **params)` / `ngettext("key", n)`
-  (`from code_puppy.i18n import t, ngettext`). Keys are dotted IDs; catalogs
-  live in `code_puppy/i18n/locales/<locale>.json`. A missing key echoes the
-  key (never crashes).
-- **Interpolate with `{name}`** placeholders — do NOT build strings with
-  f-strings/concatenation, and do NOT rely on `str.format` semantics on
-  catalog text (attribute/index access and format specs are intentionally
-  unsupported; catalogs are untrusted input).
-- The single emit choke point (`messaging/message_queue.py::emit_message`)
-  resolves `i18n.lazy(...)` values; plain strings pass through unchanged.
-- **Model-facing system prompts are OUT of scope** — translating them changes
-  LLM behavior. Don't run them through the i18n seam.
-- Add extraction behind the pseudolocale/coverage CI gate
-  (`tests/i18n/test_i18n_audit.py`): every translated key must exist in the
-  `en-US` source, and a pseudolocale run must emit only bracketed text.
-
-## Rules
-
-1. **Plugins over core** — if a hook exists for it, use it
-2. **One `register_callbacks.py` per plugin** — register at module scope
-3. **600-line hard cap** — split into submodules
-4. **Fail gracefully** — never crash the app
-5. **Return `None` from commands you don't own**
-6. **Always run linters - `ruff check --fix`, `ruff format .`
-7. **NEVER ALLOW A CLAUDE CO-AUTHOR COMMIT**
+- **Wrap display strings** in `t("key", **params)` / `ngettext("key", n)` from
+  `code_puppy.i18n`; catalogs live in `code_puppy/i18n/locales/<locale>.json`.
+- **Interpolate with `{name}` placeholders** — never f-strings or concatenation.
+  Catalogs are untrusted: no `str.format` attribute/index access or format specs.
+- **Never translate model-facing system prompts** — it changes LLM behavior.
+- New extractions must pass `tests/i18n/test_i18n_audit.py` (keys exist in
+  `en-US`; a pseudolocale run emits only bracketed text).
