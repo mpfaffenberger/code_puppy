@@ -215,6 +215,25 @@ class TestMain:
         mock_exec.assert_called_once()
 
     @pytest.mark.anyio
+    async def test_prompt_mode_does_not_double_autosave(self):
+        """The interactive-only belt-and-braces save must not also fire for
+        headless `-p` runs: execute_single_prompt() already persists itself
+        in its own finally (via persist_named_session), to the same session
+        name. A second save here would write the file twice, fire the
+        post_autosave hook in headless mode, and touch sessions for runs
+        that never invoked the agent."""
+        mock_exec = AsyncMock()
+        mock_autosave = MagicMock()
+        await self._run_main(
+            ["code-puppy", "-p", "hello world"],
+            extra_patches={
+                "code_puppy.cli_runner.execute_single_prompt": mock_exec,
+                "code_puppy.cli_runner._save_autosave_snapshot": mock_autosave,
+            },
+        )
+        mock_autosave.assert_not_called()
+
+    @pytest.mark.anyio
     async def test_interactive_mode_default(self, capsys):
         mock_inter = AsyncMock()
         await self._run_main(
@@ -1220,7 +1239,13 @@ class TestInteractiveMode:
     async def test_continuation_loop_keyboard_interrupt_autosaves(self):
         """A Ctrl+C during a continuation-requested turn previously broke out
         of the loop with zero persistence attempt; it must now autosave
-        before breaking, same as every other cancel path."""
+        before breaking, same as every other cancel path.
+
+        The first turn's own post-turn save already calls
+        ``_save_autosave_snapshot()`` once, so asserting ``called()`` alone
+        would pass even without the fix. Assert the count instead: one call
+        for the successful first turn, one for the interrupted continuation.
+        """
         fake_input = _scripted_input("write hello")
 
         mock_result = MagicMock(output="done")
@@ -1252,7 +1277,10 @@ class TestInteractiveMode:
                 "code_puppy.cli_runner._save_autosave_snapshot": mock_autosave,
             },
         )
-        mock_autosave.assert_called()
+        assert mock_autosave.call_count == 2
+
+    @pytest.mark.anyio
+    async def test_continuation_no_request_stops(self):
         fake_input = _scripted_input("write hello")
 
         mock_result = MagicMock(output="done")

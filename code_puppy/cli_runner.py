@@ -56,11 +56,14 @@ from code_puppy.version_checker import default_version_mismatch_behavior
 plugins.load_plugin_callbacks()
 
 
-def _save_autosave_snapshot() -> bool:
-    """Persist the current autosave snapshot if autosave is enabled."""
+def _save_autosave_snapshot() -> None:
+    """Persist the current autosave snapshot if autosave is enabled.
+
+    No caller needs the success/failure signal (yet) -- keep it YAGNI.
+    """
     from code_puppy.config import auto_save_session_if_enabled
 
-    return auto_save_session_if_enabled()
+    auto_save_session_if_enabled()
 
 
 _HEADLESS_AUTONOMY_PROMPT = """\
@@ -597,12 +600,17 @@ async def main():
             )
         else:
             # Default to interactive mode (no args = same as -i)
-            await interactive_mode(message_renderer, initial_command=initial_command)
+            try:
+                await interactive_mode(
+                    message_renderer, initial_command=initial_command
+                )
+            finally:
+                # Belt-and-braces: Ctrl-D, /exit, or a top-level interrupt must
+                # not lose history that a cancelled turn skipped saving.
+                # Headless `-p` runs persist themselves in execute_single_prompt's
+                # own finally, so this must not run for that branch too.
+                _save_autosave_snapshot()
     finally:
-        # Final best-effort persistence attempt: Ctrl-D, /exit, a top-level
-        # interrupt, or any other shutdown path should not lose session
-        # history that a cancelled turn skipped saving.
-        _save_autosave_snapshot()
         # Tear down the persistent prompt first (restores scroll region, cursor,
         # key listener) so the renderer stops on a sane screen. Idempotent.
         try:
