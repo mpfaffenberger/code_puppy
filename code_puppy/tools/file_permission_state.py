@@ -10,7 +10,10 @@ through this small registration API:
   ``clear_diff_shown_flag`` - the "a diff preview was already rendered in
   the approval panel" flag so core can skip a redundant inline diff.
 * ``get_last_user_feedback`` / ``clear_user_feedback`` - the feedback the
-  user typed while rejecting, surfaced in the rejection response.
+  user typed while rejecting, surfaced in the rejection response. A provider
+  may return a :class:`PermissionNotDecided` instead, when the operation was
+  denied without anyone choosing Reject (a timeout, a cancelled or failed
+  approval request).
 
 A provider (e.g. the file-permission plugin) installs thread-local
 accessors with :func:`register_file_permission_state_provider`. Its plugin
@@ -25,6 +28,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Callable, Optional
+
+
+class PermissionNotDecided(str):
+    """Feedback for a denial that no person chose.
+
+    An approval backend reports ``(False, feedback)`` both when someone
+    selected Reject and when no decision was made at all -- the request timed
+    out, was cancelled, or could not reach the person. Returning this ``str``
+    subtype as the feedback keeps the ``(approved, feedback)`` contract intact
+    while letting the rejection response say what actually happened, instead
+    of telling the model the user rejected the change.
+    """
+
 
 _DiffShownSetter = Callable[[bool], None]
 _DiffShownGetter = Callable[[], bool]
