@@ -62,6 +62,10 @@ class TestBuildSpeculativeCodeMode:
             "create_file",
             "replace_in_file",
             "load_image_for_analysis",
+            "computer_get_app_state",
+            "computer_snapshot",
+            "computer_screenshot",
+            "computer_use_batch",
         }
         for name in NATIVE_TOOLS:
             assert not _sandbox_tool(ctx, ToolDefinition(name=name))
@@ -216,9 +220,13 @@ class TestCodeModeGuidance:
     def test_guidance_teaches_the_native_write_contract(self):
         assert "run_code" in CODE_MODE_GUIDANCE
         assert "literal" in CODE_MODE_GUIDANCE
-        for name in NATIVE_TOOLS:
+        for name in ("create_file", "replace_in_file", "load_image_for_analysis"):
             assert f"`{name}`" in CODE_MODE_GUIDANCE
-        assert "as native tools, outside `run_code`" in CODE_MODE_GUIDANCE
+        assert (
+            "Tools exposed directly in your tool list are native" in CODE_MODE_GUIDANCE
+        )
+        assert "plugin tools declaring native routing" in CODE_MODE_GUIDANCE
+        assert "does not bypass consent" in CODE_MODE_GUIDANCE
         assert "Speculative Puppy" not in CODE_MODE_GUIDANCE
 
 

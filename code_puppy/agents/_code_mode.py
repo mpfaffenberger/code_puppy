@@ -145,12 +145,30 @@ def bind_declared_speculation(pydantic_agent: Any) -> None:
 # Never folded into run_code. File writes stay native so edits render as diffs;
 # load_image_for_analysis stays native because its multimodal ToolReturn must
 # reach the model as real image content, which a sandbox value cannot carry.
-NATIVE_TOOLS = frozenset({"create_file", "replace_in_file", "load_image_for_analysis"})
+# Plugin tools can declare native routing without adding names to core.
+# Routing is independent of consent, permissions, and speculation eligibility.
+NATIVE_TOOL_METADATA_KEY = "code_mode_native"
+NATIVE_TOOLS = frozenset(
+    {
+        "create_file",
+        "replace_in_file",
+        "load_image_for_analysis",
+        # Compatibility for computer-use plugins predating the metadata contract.
+        "computer_get_app_state",
+        "computer_snapshot",
+        "computer_screenshot",
+        "computer_use_batch",
+    }
+)
 
 
 def _sandbox_tool(ctx: RunContext[object], tool_def: ToolDefinition) -> bool:
-    """Fold every tool into ``run_code`` except the ``NATIVE_TOOLS``."""
-    return tool_def.name not in NATIVE_TOOLS
+    """Keep explicitly native tools outside the JSON-only sandbox boundary."""
+    metadata = tool_def.metadata or {}
+    return (
+        tool_def.name not in NATIVE_TOOLS
+        and metadata.get(NATIVE_TOOL_METADATA_KEY) is not True
+    )
 
 
 class SilenceToolOutput(AbstractCapability[Any]):
