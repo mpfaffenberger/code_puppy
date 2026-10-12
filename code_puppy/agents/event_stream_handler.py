@@ -259,6 +259,7 @@ async def event_stream_handler(
         termflow_line_buffers[index] = buffer
 
     thinking_stream_id = object()
+    thinking_trailing_whitespace: dict[int, str] = {}
 
     def _filter_thinking(index: int, text: str, *, final: bool = False) -> str:
         """Apply synchronous display-only filters before rendering thinking."""
@@ -286,6 +287,14 @@ async def event_stream_handler(
         would end the box early.
         """
         text = _filter_thinking(index, text, final=final)
+        # Hold whitespace until more content proves it is internal. Trimming
+        # each delta would eat paragraph breaks; trimming only at finalization
+        # is too late once blank lines have already reached the terminal.
+        text = thinking_trailing_whitespace.pop(index, "") + text
+        trimmed = text.rstrip()
+        if not final and len(trimmed) < len(text):
+            thinking_trailing_whitespace[index] = text[len(trimmed) :]
+        text = trimmed
         if not text or _suppress_thinking_stream():
             return
         if index not in termflow_parsers:
