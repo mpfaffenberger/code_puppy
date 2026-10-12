@@ -12,9 +12,7 @@ from code_puppy.agents import _output_limits
 from code_puppy.agents._code_mode import build_speculative_code_mode
 from code_puppy.agents._code_mode_guidance import (
     CODE_MODE_GUIDANCE,
-    RUN_CODE_BATCHING_NOTE,
     RUN_CODE_TOOL_NAME,
-    CodeModeGuidance,
 )
 from code_puppy.agents._output_limits import (
     build_tool_output_limits,
@@ -41,15 +39,18 @@ def _tool(name: str) -> ToolDefinition:
     return ToolDefinition(name=name, description=f"{name} description")
 
 
+FLAT_GUIDANCE = " ".join(CODE_MODE_GUIDANCE.split())
+
+
 class TestGuidance:
     def test_leads_with_batching_over_round_trips(self):
         assert "Write programs, not single calls" in CODE_MODE_GUIDANCE
-        for habit in ("Batch:", "Chain:", "Loop:", "Filter in code:"):
+        for habit in ("Batch:", "Chain and loop:", "Filter in code:", "Absorb errors"):
             assert habit in CODE_MODE_GUIDANCE
 
     def test_names_sandbox_gaps_instead_of_promising_glob(self):
-        unavailable = CODE_MODE_GUIDANCE.split("NOT available:")[1].split("\n- ")[0]
-        for missing in ("`Path.glob`", "`Path.rglob`", "`os.walk`", "`subprocess`"):
+        unavailable = FLAT_GUIDANCE.split("NOT available:")[1].split(". ")[0]
+        for missing in ("`Path.glob`", "`rglob`", "`os.walk`", "`subprocess`"):
             assert missing in unavailable
         assert "write, glob, and stat" not in CODE_MODE_GUIDANCE
 
@@ -64,20 +65,43 @@ class TestGuidance:
         assert '["content"][:' not in CODE_MODE_GUIDANCE
 
     def test_speculation_no_longer_forbids_computed_arguments(self):
-        assert "Loops and computed\narguments are still fine" in CODE_MODE_GUIDANCE
+        assert "loops and computed arguments are still fine" in FLAT_GUIDANCE
         assert "Never introduce a variable" not in CODE_MODE_GUIDANCE
+
+    def test_guidance_stays_small(self):
+        """It rides on every request; the A/B priced each extra token (PR #1015)."""
+        assert len(CODE_MODE_GUIDANCE) < 3_000
 
 
 @pytest.mark.asyncio
-async def test_batching_note_rides_on_run_code_only():
-    tools = [_tool(RUN_CODE_TOOL_NAME), _tool("create_file")]
+async def test_workspace_path_is_a_dynamic_part_after_the_static_guidance(
+    code_mode_on,
+):
+    """Keep the cached instruction prefix identical across workspaces.
 
-    run_code, create_file = await CodeModeGuidance("/p", "/p").prepare_tools(
-        None, tools
+    pydantic-ai puts the Anthropic cache breakpoint after the last static
+    instruction part. A workspace path inside the static guidance changes that
+    block for every new directory (each worktree, each sub-agent session), so
+    the whole guidance was re-written to the 1-hour cache at 2x input price.
+    """
+    seen = []
+
+    async def respond(messages, info):
+        seen.extend(info.model_request_parameters.instruction_parts or [])
+        yield "done"
+
+    agent = Agent(
+        FunctionModel(stream_function=respond),
+        capabilities=build_speculative_code_mode([]),
     )
+    await agent.run("go")
 
-    assert run_code.description == "run_code description" + RUN_CODE_BATCHING_NOTE
-    assert create_file == tools[1]
+    static_text = CODE_MODE_GUIDANCE.strip()
+    guidance = next(iter([p for p in seen if p.content.strip() == static_text]), None)
+    mount = next(iter([p for p in seen if "Workspace mount:" in p.content]), None)
+    assert guidance is not None and not guidance.dynamic
+    assert mount is not None and mount.dynamic
+    assert "Workspace mount" not in guidance.content
 
 
 class TestReachesTheModel:
