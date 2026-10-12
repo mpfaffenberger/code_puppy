@@ -215,6 +215,25 @@ class TestMain:
         mock_exec.assert_called_once()
 
     @pytest.mark.anyio
+    async def test_prompt_mode_does_not_double_autosave(self):
+        """The interactive-only belt-and-braces save must not also fire for
+        headless `-p` runs: execute_single_prompt() already persists itself
+        in its own finally (via persist_named_session), to the same session
+        name. A second save here would write the file twice, fire the
+        post_autosave hook in headless mode, and touch sessions for runs
+        that never invoked the agent."""
+        mock_exec = AsyncMock()
+        mock_autosave = MagicMock()
+        await self._run_main(
+            ["code-puppy", "-p", "hello world"],
+            extra_patches={
+                "code_puppy.cli_runner.execute_single_prompt": mock_exec,
+                "code_puppy.cli_runner._save_autosave_snapshot": mock_autosave,
+            },
+        )
+        mock_autosave.assert_not_called()
+
+    @pytest.mark.anyio
     async def test_interactive_mode_default(self, capsys):
         mock_inter = AsyncMock()
         await self._run_main(
@@ -229,6 +248,22 @@ class TestMain:
         assert "logo" in output
         assert "pydantic" not in output
         assert "logfire" not in output
+
+    @pytest.mark.anyio
+    async def test_shutdown_persists_autosave_snapshot(self):
+        """main()'s finally is the belt-and-braces save for any shutdown path
+        (Ctrl-D, /exit, top-level interrupt) a cancelled turn skipped."""
+        mock_inter = AsyncMock()
+        mock_autosave = MagicMock()
+        await self._run_main(
+            ["code-puppy"],
+            extra_patches={
+                "code_puppy.cli_runner.interactive_mode": mock_inter,
+                "pyfiglet.figlet_format": MagicMock(return_value="LOGO\n\n"),
+                "code_puppy.cli_runner._save_autosave_snapshot": mock_autosave,
+            },
+        )
+        mock_autosave.assert_called_once()
 
     @pytest.mark.anyio
     async def test_narrow_terminal_interactive_mode_uses_compact_banner(self):
@@ -828,6 +863,7 @@ class TestInteractiveMode:
     @pytest.mark.anyio
     async def test_prompt_returns_none_cancelled(self):
         fake_input = _scripted_input("write hello")
+        mock_autosave = MagicMock()
 
         await _run_interactive(
             _mock_renderer(),
@@ -840,8 +876,10 @@ class TestInteractiveMode:
                 "code_puppy.cli_runner.parse_prompt_attachments": MagicMock(
                     return_value=_mock_parse_result("write hello")
                 ),
+                "code_puppy.cli_runner._save_autosave_snapshot": mock_autosave,
             },
         )
+        mock_autosave.assert_called()
 
     @pytest.mark.anyio
     async def test_prompt_cancelled_notifies_continuation_plugins(self):
@@ -884,6 +922,30 @@ class TestInteractiveMode:
                 ),
             },
         )
+
+    @pytest.mark.anyio
+    async def test_prompt_keyboard_interrupt_mid_turn_autosaves(self):
+        """A bare KeyboardInterrupt mid-turn must not lose history: the
+        'defense-in-depth' cancel branch should still persist before
+        continuing the loop."""
+        fake_input = _scripted_input("write hello")
+        mock_autosave = MagicMock()
+
+        await _run_interactive(
+            _mock_renderer(),
+            _interactive_patches(),
+            fake_input,
+            extra_patches={
+                "code_puppy.cli_runner.run_prompt_with_attachments": AsyncMock(
+                    side_effect=KeyboardInterrupt()
+                ),
+                "code_puppy.cli_runner.parse_prompt_attachments": MagicMock(
+                    return_value=_mock_parse_result("write hello")
+                ),
+                "code_puppy.cli_runner._save_autosave_snapshot": mock_autosave,
+            },
+        )
+        mock_autosave.assert_called()
 
     @pytest.mark.anyio
     async def test_empty_input_skipped(self):
@@ -1172,6 +1234,50 @@ class TestInteractiveMode:
             },
         )
         mock_cancel.assert_awaited()
+
+    @pytest.mark.anyio
+    async def test_continuation_loop_keyboard_interrupt_autosaves(self):
+        """A Ctrl+C during a continuation-requested turn previously broke out
+        of the loop with zero persistence attempt; it must now autosave
+        before breaking, same as every other cancel path.
+
+        The first turn's own post-turn save already calls
+        ``_save_autosave_snapshot()`` once, so asserting ``called()`` alone
+        would pass even without the fix. Assert the count instead: one call
+        for the successful first turn, one for the interrupted continuation.
+        """
+        fake_input = _scripted_input("write hello")
+
+        mock_result = MagicMock(output="done")
+        mock_result.all_messages.return_value = []
+        run_call = 0
+
+        async def fake_run(*a, **kw):
+            nonlocal run_call
+            run_call += 1
+            if run_call == 1:
+                return (mock_result, MagicMock())
+            raise KeyboardInterrupt()
+
+        mock_autosave = MagicMock()
+        mock_turn_end = AsyncMock(
+            side_effect=[[{"prompt": "repeat", "clear_context": True}], []]
+        )
+
+        await _run_interactive(
+            _mock_renderer(),
+            _interactive_patches(),
+            fake_input,
+            extra_patches={
+                "code_puppy.cli_runner.run_prompt_with_attachments": fake_run,
+                "code_puppy.cli_runner.parse_prompt_attachments": MagicMock(
+                    return_value=_mock_parse_result("write hello")
+                ),
+                "code_puppy.callbacks.on_interactive_turn_end": mock_turn_end,
+                "code_puppy.cli_runner._save_autosave_snapshot": mock_autosave,
+            },
+        )
+        assert mock_autosave.call_count == 2
 
     @pytest.mark.anyio
     async def test_continuation_no_request_stops(self):
