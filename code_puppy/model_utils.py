@@ -12,6 +12,7 @@ Plugins can register:
 
 import re
 from dataclasses import dataclass
+from typing import Callable
 
 _GLM_VERSION_RE = re.compile(r"glm-(\d+(?:\.\d+)?)")
 _GPT_VERSION_RE = re.compile(r"gpt-(\d+)(?:\.(\d+))?")
@@ -51,6 +52,19 @@ class PreparedPrompt:
     def system_text(self) -> str:
         """Everything that lands in the model's system slot (for token estimates)."""
         return "\n\n".join(p for p in (self.system_prompt, self.instructions) if p)
+
+
+def static_then_runtime(static: str, runtime: str) -> list[str | Callable[[], str]]:
+    """Agent ``instructions``: the static prompt, then the per-run tail as a dynamic part.
+
+    pydantic-ai marks callables as dynamic instruction parts and places the
+    Anthropic cache breakpoint after the last static part (other providers get
+    the parts joined in that order). A per-session value such as the agent ID
+    inside the static text made every session and sub-agent re-write the whole
+    system prompt to the prompt cache. The runtime text is computed once by the
+    caller, so plugins behind it are not re-queried on every request.
+    """
+    return [static, lambda: runtime]
 
 
 def _prepared_from_hook_result(

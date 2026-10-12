@@ -48,6 +48,7 @@ from code_puppy.config import (
 from code_puppy.mcp_ import get_mcp_manager
 from code_puppy.messaging import emit_error, emit_info, emit_warning
 from code_puppy.model_factory import ModelFactory, make_model_settings
+from code_puppy.model_utils import static_then_runtime
 
 if TYPE_CHECKING:
     from code_puppy.model_utils import PreparedPrompt
@@ -624,13 +625,15 @@ def _agent_exposes_tool(agent: Any, tool_name: str) -> bool:
 def _assemble_instructions(agent: Any, resolved_model_name: str) -> PreparedPrompt:
     """Compose full system prompt + puppy rules.
 
-    Returns the model-prepared prompt: ``instructions`` for the agent plus any
-    standing ``system_prompt`` a plugin wants emitted as its own
+    Returns the model-prepared prompt: the *static* ``instructions`` for the
+    agent plus any standing ``system_prompt`` a plugin wants emitted as its own
     ``SystemPromptPart`` ahead of them.
     """
     from code_puppy.model_utils import prepare_prompt_for_model
 
-    instructions = agent.get_full_system_prompt()
+    # Static part only: the per-run tail (identity, load_prompt fragments) is a
+    # separate dynamic instruction part, see build_pydantic_agent.
+    instructions = agent.get_system_prompt()
     puppy_rules = load_puppy_rules()
     if puppy_rules:
         instructions += f"\n{puppy_rules}"
@@ -684,6 +687,9 @@ def build_pydantic_agent(
         agent_name=getattr(agent, "name", None),
     )
     prepared = _assemble_instructions(agent, resolved_model_name)
+    instructions = static_then_runtime(
+        prepared.instructions, agent.get_runtime_system_prompt()
+    )
     mcp_servers = load_mcp_servers(agent_name=getattr(agent, "name", None))
     mcp_servers = _with_runtime_mcp_toolsets(agent, mcp_servers)
     model_settings = make_model_settings(
@@ -707,7 +713,7 @@ def build_pydantic_agent(
             # A standing system_prompt (if any) becomes its own SystemPromptPart
             # in the first request, rendered ahead of the instructions block.
             system_prompt=prepared.system_prompt_parts,
-            instructions=prepared.instructions,
+            instructions=instructions,
             output_type=output_type,
             retries=3,
             toolsets=toolsets,

@@ -409,16 +409,25 @@ async def _invoke_agent_impl(
                 )
 
             # Create a temporary agent instance to avoid interfering with current agent state
-            instructions = agent_config.get_full_system_prompt()
-            instructions += f"\n\n{_subagent_identity_prompt(agent_name)}"
+            # Static authored prompt here; the per-run tail (identity, load_prompt
+            # fragments, nesting context) rides as a dynamic part so sub-agent
+            # sessions share the cached prompt prefix.
+            instructions = agent_config.get_system_prompt()
+            runtime_instructions = (
+                agent_config.get_runtime_system_prompt()
+                + f"\n\n{_subagent_identity_prompt(agent_name)}"
+            )
 
             # AGENTS.md deliberately NOT injected into sub-agents: those are
             # user-facing steering for the MAIN agent and would create recursion
             # traps (e.g. "always invoke xyz" makes xyz invoke itself).
 
-            # NOTE: load_prompt fragments are already baked into get_full_system_prompt
-            # via BaseAgent — appending again would double-inject them.
-            from code_puppy.model_utils import prepare_prompt_for_model
+            # NOTE: load_prompt fragments come from get_runtime_system_prompt;
+            # appending them again would double-inject them.
+            from code_puppy.model_utils import (
+                prepare_prompt_for_model,
+                static_then_runtime,
+            )
 
             # Model-family prep (e.g. claude-code): may split off a standing
             # system_prompt part, or touch the user prompt on the first message.
@@ -428,7 +437,9 @@ async def _invoke_agent_impl(
                 prompt,
                 prepend_system_to_user=is_new_session,  # Only prepend on first message
             )
-            instructions = prepared.instructions
+            instructions = static_then_runtime(
+                prepared.instructions, runtime_instructions
+            )
             prompt = prepared.user_prompt
 
             model_settings = make_model_settings(
