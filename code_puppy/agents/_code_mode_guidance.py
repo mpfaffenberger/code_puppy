@@ -32,7 +32,8 @@ work, with every tool call that step needs:
   of the files they point at. Read whole files once and slice in Python rather
   than peeking at ranges. Run tests AND re-read the code you changed together.
 - Chain and loop: feed results into the next call; fan out with
-  `await asyncio.gather(...)` (positional awaitables only).
+  `await asyncio.gather(...)` after `import asyncio` (modules are never
+  preloaded; positional awaitables only).
 - Filter in code: results are full Python values. Return compact facts, plus
   the matched lines behind any count so a too-narrow regex cannot hide misses.
 - Absorb errors with `try`/`except` so one bad path does not cost a round trip.
