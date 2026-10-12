@@ -57,12 +57,22 @@ _load_plugin_model_providers()
 CONTEXT_1M_BETA = "context-1m-2025-08-07"
 _CUSTOM_OPENAI_MODEL_TYPES = {"custom_openai", "custom_openai_responses"}
 _LEGACY_CUSTOM_OPENAI_RESPONSES_MODEL = "codex-gpt-5-codex"
-# Legacy effort normalization mapping
-_EFFORT_ALIAS = {"minimal": "none", "ultra": "max"}
 # Only these wire formats accept ``openai_reasoning_effort``.
 # A positive allowlist prevents short model tags from hijacking aliases.
+# ``meta_oauth``/``grok_oauth`` plugins build ``OpenAIResponsesModel``s
+# whose backends accept a native ``reasoning.effort``; per-model scales
+# arrive via the catalog's ``setting_choices``.
 _OPENAI_COMPATIBLE_MODEL_TYPES = (
-    frozenset({"openai", "chatgpt_oauth", "azure_foundry_openai", "azure_openai"})
+    frozenset(
+        {
+            "openai",
+            "chatgpt_oauth",
+            "azure_foundry_openai",
+            "azure_openai",
+            "meta_oauth",
+            "grok_oauth",
+        }
+    )
     | _CUSTOM_OPENAI_MODEL_TYPES
 )
 
@@ -103,7 +113,7 @@ def _uses_responses_api(model_name: str, model_config: Dict[str, Any]) -> bool:
 
     model_type = model_config.get("type")
     underlying_name = str(model_config.get("name") or "")
-    if model_type == "chatgpt_oauth":
+    if model_type in ("chatgpt_oauth", "meta_oauth", "grok_oauth"):
         return True
     if model_type == "azure_foundry_openai":
         return _azure_foundry_uses_responses_api(underlying_name)
@@ -423,7 +433,9 @@ def make_model_settings(
     # Copilot models speak OpenAI format even for Claude backends: Claude
     # thinking → reasoning_effort; GPT gets standard OpenAI reasoning.
     from code_puppy.model_utils import (
+        get_default_reasoning_effort,
         is_gpt_reasoning_model,
+        normalize_openai_reasoning_effort,
         resolve_openai_reasoning_effort_choices,
     )
 
@@ -484,12 +496,16 @@ def make_model_settings(
             OpenAIResponsesModelSettings,
         )
 
-        # Normalize legacy effort values (minimal->none, ultra->max)
-        effort = effective_settings.get("reasoning_effort", "medium")
-        effort = _EFFORT_ALIAS.get(effort, effort)
-        if reasoning_effort_choices is None or (
-            reasoning_effort_choices and effort in reasoning_effort_choices
-        ):
+        # Unrecognized effort values are dropped for GPT backends
+        # (clamp=False): the API applies its own default, which is safer
+        # than guessing a depth. Catalog-declared defaults still apply.
+        effort = normalize_openai_reasoning_effort(
+            effective_settings.get("reasoning_effort"),
+            reasoning_effort_choices,
+            default=get_default_reasoning_effort(model_config) or "medium",
+            clamp=False,
+        )
+        if effort is not None:
             model_settings_dict["openai_reasoning_effort"] = effort
 
         if _uses_responses_api(model_name, model_config):
@@ -522,10 +538,18 @@ def make_model_settings(
             OpenAIResponsesModelSettings,
         )
 
-        # Forward only documented effort values for OpenAI-compatible models.
-        effort = effective_settings.get("reasoning_effort", "medium")
-        effort = _EFFORT_ALIAS.get(effort, effort)
-        if effort in reasoning_effort_choices:
+        # Forward only advertised effort values for OpenAI-compatible
+        # models. Unlike GPT backends, these may REJECT out-of-scale
+        # values (Meta Muse returns HTTP 400 for "none"), so an
+        # unsupported stored value clamps to the nearest supported
+        # depth instead of being dropped. Catalog-declared defaults
+        # (``setting_defaults``) win over the global "medium" fallback.
+        effort = normalize_openai_reasoning_effort(
+            effective_settings.get("reasoning_effort"),
+            reasoning_effort_choices,
+            default=get_default_reasoning_effort(model_config) or "medium",
+        )
+        if effort is not None:
             model_settings_dict["openai_reasoning_effort"] = effort
         # Non-GPT reasoning models (o-series, codex-mini) can still be served
         # over the Responses API, so the settings class must follow the model.
