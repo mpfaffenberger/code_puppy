@@ -208,15 +208,27 @@ class BaseAgent(ABC):
         fresh every run and never get persisted into static agent definitions
         (e.g. when an agent is cloned to JSON). See ``clone_agent``.
         """
+        return self.get_system_prompt() + self.get_runtime_system_prompt()
+
+    def get_runtime_system_prompt(self) -> str:
+        """The per-run tail of the system prompt: ``load_prompt`` fragments,
+        runtime additions and this instance's identity.
+
+        Agent builders send it as a *dynamic* instruction part after the static
+        authored prompt. Anthropic prompt caching keys on the static prefix, so
+        a per-session value (the identity ID, a live timestamp) inside the static
+        text would make every session and sub-agent re-write the whole prompt to
+        the cache at a premium.
+        """
         from code_puppy import callbacks
 
-        prompt = self.get_system_prompt()
+        runtime = ""
         prompt_additions = callbacks.on_load_prompt()
         if prompt_additions:
-            prompt += "\n" + "\n".join(prompt_additions)
+            runtime += "\n" + "\n".join(prompt_additions)
         if self._runtime_system_prompt_additions:
-            prompt += "\n" + "\n".join(self._runtime_system_prompt_additions)
-        return prompt + self.get_identity_prompt()
+            runtime += "\n" + "\n".join(self._runtime_system_prompt_additions)
+        return runtime + self.get_identity_prompt()
 
     # ---- Message history (plain dict-level access) ------------------------
     def get_message_history(self) -> List[Any]:
