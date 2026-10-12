@@ -80,6 +80,39 @@ async def test_structured_thinking_matches_embedded_think_block(monkeypatch):
     assert "<think>" not in plain
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("explicit_end", [True, False])
+@pytest.mark.parametrize(
+    "chunks",
+    [
+        ["First paragraph\n\nSecond paragraph\n\n"],
+        ["First paragraph", "\n", "\nSecond", " paragraph", "\n", " \n\t"],
+    ],
+)
+async def test_thinking_trims_only_trailing_whitespace(
+    monkeypatch, explicit_end, chunks
+):
+    output = io.StringIO()
+    console = Console(file=output, force_terminal=True, width=80)
+    monkeypatch.setattr(handler, "get_streaming_console", lambda: console)
+    monkeypatch.setattr(handler, "_should_suppress_output", lambda: False)
+    monkeypatch.setattr(handler, "_suppress_thinking_stream", lambda: False)
+    monkeypatch.setattr(handler, "_fire_stream_event", lambda *args: None)
+    monkeypatch.setattr(handler, "is_subagent", lambda: True)
+    part = ThinkingPart(content=chunks[0])
+
+    async def events():
+        yield PartStartEvent(index=0, part=part)
+        for chunk in chunks[1:]:
+            yield PartDeltaEvent(index=0, delta=ThinkingPartDelta(content_delta=chunk))
+        if explicit_end:
+            yield PartEndEvent(index=0, part=part)
+
+    await handler.event_stream_handler(None, events())
+    plain = ANSI.sub("", output.getvalue())
+    assert "│ First paragraph\n│ \n│ Second paragraph\n└──" in plain
+
+
 def test_dim_survives_markdown_resets_and_does_not_leak():
     output = io.StringIO()
     writer = DimWriter(output)
