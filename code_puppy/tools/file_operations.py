@@ -55,9 +55,13 @@ class ReadFileOutput(BaseModel):
 
 
 class MatchInfo(BaseModel):
-    file_path: str | None
-    line_number: int | None
-    line_content: str | None
+    # Never None: both grep paths only emit rows with a path, line and text.
+    # Declaring them optional made every code-mode snippet narrow them before
+    # sorting or reading, which models got wrong ~1x per task (sandbox type
+    # checker rejection, a wasted round trip).
+    file_path: str
+    line_number: int
+    line_content: str
     # True for -A/-B/-C context lines, which are displayed but excluded from
     # the 50-match budget and the reported match/file counts.
     is_context: bool = False
