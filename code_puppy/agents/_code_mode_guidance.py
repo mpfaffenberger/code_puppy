@@ -39,7 +39,7 @@ work, with every tool call that step needs:
 
     import asyncio
     hits = await grep(search_string=r"class \\w+\\(.*BaseHandler")
-    files = sorted({m["file_path"] for m in hits["matches"] if m["file_path"]})
+    files = sorted({f for m in hits["matches"] if (f := m["file_path"])})
     srcs = await asyncio.gather(*[read_file(file_path=f) for f in files])
     {f: (s["content"] or "")[:2000] for f, s in zip(files, srcs)}
 
@@ -50,9 +50,10 @@ work, with every tool call that step needs:
   resolve). NOT available: `Path.glob`/`rglob`, `os.walk`, `sys.path`,
   `subprocess`, `importlib`, `ast`, third-party packages, network. Use
   `list_files`/`grep`, and the shell function for processes and `curl`.
-- Snippets are type-checked: narrow `str | None` result fields
-  (`(r["content"] or "")`, `if m["file_path"]`) and check the `error` field
-  rather than letting `or ""` hide a failure.
+- Snippets are type-checked. Narrow `str | None` result fields by binding them
+  once: `if (f := m["file_path"])` then use `f`, or `(r["content"] or "")`.
+  Filtering on `m.get("x")` but using `m["x"]` does not narrow. Check the
+  `error` field rather than letting `or ""` hide a failure.
 - Generator expressions are lists: `next(x for x in ...)` raises; use
   `next(iter([...]), None)`. Use raw strings for regexes. Pass multi-line shell
   input (heredocs) as ONE triple-quoted string.

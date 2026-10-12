@@ -60,7 +60,11 @@ class TestGuidance:
         An unguarded `sorted({m["file_path"] ...})` in an earlier example
         caused half of all run_code errors in the A/B runs.
         """
-        assert 'if m["file_path"]' in CODE_MODE_GUIDANCE
+        # Bind once, then use the bound name: filtering on one expression and
+        # yielding another (`m.get("x")` vs `m["x"]`) does not narrow, and the
+        # A/B saw ~1 rejected snippet per task when the example taught that.
+        assert 'if (f := m["file_path"])' in CODE_MODE_GUIDANCE
+        assert 'if m["file_path"]}' not in CODE_MODE_GUIDANCE
         assert '["content"] or ""' in CODE_MODE_GUIDANCE
         assert '["content"][:' not in CODE_MODE_GUIDANCE
 
