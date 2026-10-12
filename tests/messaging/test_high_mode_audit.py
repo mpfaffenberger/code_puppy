@@ -39,6 +39,8 @@ from code_puppy.messaging.rich_renderer import RichConsoleRenderer
 # ---------------------------------------------------------------------------
 
 _HIGH_PATCHES = {
+    # These density audits explicitly exercise compact tool-output mode.
+    "code_puppy.messaging.rich_renderer.tool_output_visible": False,
     "code_puppy.messaging.rich_renderer.get_output_level": "high",
     "code_puppy.messaging.rich_renderer.get_subagent_verbose": False,
     "code_puppy.messaging.rich_renderer.get_suppress_informational_messages": False,
@@ -47,6 +49,7 @@ _HIGH_PATCHES = {
 }
 
 _MEDIUM_PATCHES = {
+    "code_puppy.messaging.rich_renderer.tool_output_visible": False,
     "code_puppy.messaging.rich_renderer.get_output_level": "medium",
     "code_puppy.messaging.rich_renderer.get_subagent_verbose": False,
     "code_puppy.messaging.rich_renderer.get_suppress_informational_messages": False,

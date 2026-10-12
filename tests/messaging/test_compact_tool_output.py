@@ -1,4 +1,4 @@
-"""Tool summaries are literal one-liners; bodies never reach the transcript."""
+"""Tool summaries stay compact; result visibility follows the user's setting."""
 
 from io import StringIO
 from unittest.mock import patch
@@ -20,6 +20,16 @@ from code_puppy.messaging.tool_output import (
     format_tool_call,
     suppress_tool_message,
 )
+
+
+@pytest.mark.parametrize(
+    "configured, expected", [(None, True), ("true", True), ("false", False)]
+)
+def test_show_tool_output_default_and_explicit_preferences(configured, expected):
+    from code_puppy.config import get_show_tool_output
+
+    with patch("code_puppy.config.get_value", return_value=configured):
+        assert get_show_tool_output() is expected
 
 
 def test_summary_is_one_literal_line():
@@ -81,7 +91,8 @@ def test_long_call_stays_on_one_line_with_blank_separator():
     assert lines[1] == ""
 
 
-def test_execution_suppresses_both_buses_and_restores_after_exception():
+@patch("code_puppy.messaging.tool_output.tool_output_visible", return_value=False)
+def test_execution_suppresses_both_buses_and_restores_after_exception(_visible):
     bus = MessageBus()
     queue = MessageQueue()
     output = StringIO()
@@ -118,8 +129,13 @@ def test_execution_suppresses_both_buses_and_restores_after_exception():
 def test_thread_emitted_shell_output_is_hidden(level):
     output = StringIO()
     renderer = RichConsoleRenderer(bus=MessageBus(), console=Console(file=output))
-    with patch(
-        "code_puppy.messaging.rich_renderer.get_output_level", return_value=level
+    with (
+        patch(
+            "code_puppy.messaging.rich_renderer.get_output_level", return_value=level
+        ),
+        patch(
+            "code_puppy.messaging.rich_renderer.tool_output_visible", return_value=False
+        ),
     ):
         renderer._do_render(ShellLineMessage(line="never display tool results"))
     assert output.getvalue() == ""

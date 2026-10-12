@@ -3087,15 +3087,15 @@ def set_output_level(level: str) -> None:
 def get_show_tool_output() -> bool:
     """Return True if full tool-call results are shown in the transcript.
 
-    Default is False: tool-call results stay collapsed to the compact
-    one-line call summary. Set ``show_tool_output`` in ``puppy.cfg`` (or via
-    ``/set``) to render the full result bodies the tools emit.
+    Default is True: full result bodies are visible. Set
+    ``show_tool_output`` to False in ``puppy.cfg`` (or via ``/set``)
+    to collapse results to the compact one-line call summary.
 
     Note: on Windows, shell output is *always* hidden regardless of this
     flag -- PowerShell control characters brick SIGINT and make Code Puppy
     impossible to cancel.
     """
-    return get_truthy_bool_value("show_tool_output", False)
+    return get_truthy_bool_value("show_tool_output", True)
 
 
 def set_show_tool_output(enabled: bool) -> None:

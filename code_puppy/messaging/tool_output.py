@@ -1,9 +1,9 @@
 """Compact tool-call display and task-local suppression of tool chatter.
 
-Results still flow to the model. By default only UI messages emitted during
-execution are silenced; input/confirmation requests and warnings/errors
-remain visible. Enabling ``show_tool_output`` keeps the full result bodies
-visible too. On Windows, shell output is always silenced regardless.
+Results still flow to the model. Full result bodies are visible by default.
+Disabling ``show_tool_output`` silences UI messages emitted during execution;
+input/confirmation requests and warnings/errors remain visible. On Windows,
+shell output is always silenced regardless.
 """
 
 import json
@@ -40,7 +40,7 @@ def is_shell_message(message: object) -> bool:
 def tool_output_visible() -> bool:
     """Return True when the user opted into full tool-call results.
 
-    Backed by the ``show_tool_output`` setting (default off). Keeping the
+    Backed by the ``show_tool_output`` setting (default on). Keeping the
     lookup in one place means the emit-time and render-time gates can never
     disagree about whether results are shown.
     """
