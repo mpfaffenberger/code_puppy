@@ -376,6 +376,15 @@ class TranscriptGuardMixin:
             if moved or did_prepend or not pending:
                 self._sim_real_flag = True
             return
+        # The dance repositions with CUP, which CLEARS the terminal's real
+        # deferred-wrap flag. A wrap still pending here would be silently
+        # dropped: the next printable char would overwrite the glyph parked
+        # in the last column instead of wrapping past it, eating one
+        # character and shifting the rest of the line. Commit it explicitly.
+        # ``did_prepend`` means the commit already happened above.
+        if state[2] and not did_prepend and first_effective_is_printable(emit):
+            emit = "\r\n" + emit
+            state = (state[0], state[1], False)
         end_state, _, _, _ = feed(state, emit, cols, rows)
         self._dance(emit, state, end_state, top, rows, stream)
 
