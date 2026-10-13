@@ -493,9 +493,9 @@ class TestHeadlessSessionPersistence:
         run_result.output = "ok"
 
         with (
-            patch("code_puppy.cli_runner.get_current_agent", return_value=agent),
+            patch("code_puppy.prompt_runner.get_current_agent", return_value=agent),
             patch(
-                "code_puppy.cli_runner.run_prompt_with_attachments",
+                "code_puppy.prompt_runner.run_prompt_with_attachments",
                 new=AsyncMock(return_value=(run_result, MagicMock())),
             ),
             patch("code_puppy.config.AUTOSAVE_DIR", str(tmp_path)),
@@ -537,9 +537,9 @@ class TestHeadlessSessionPersistence:
         run_result.output = "ok"
 
         with (
-            patch("code_puppy.cli_runner.get_current_agent", return_value=agent),
+            patch("code_puppy.prompt_runner.get_current_agent", return_value=agent),
             patch(
-                "code_puppy.cli_runner.run_prompt_with_attachments",
+                "code_puppy.prompt_runner.run_prompt_with_attachments",
                 new=AsyncMock(return_value=(run_result, MagicMock())),
             ),
             patch("code_puppy.config.AUTOSAVE_DIR", str(tmp_path)),
@@ -569,9 +569,9 @@ class TestHeadlessSessionPersistence:
             raise asyncio.CancelledError()
 
         with (
-            patch("code_puppy.cli_runner.get_current_agent", return_value=agent),
+            patch("code_puppy.prompt_runner.get_current_agent", return_value=agent),
             patch(
-                "code_puppy.cli_runner.run_prompt_with_attachments",
+                "code_puppy.prompt_runner.run_prompt_with_attachments",
                 new=_raise_cancelled,
             ),
             patch("code_puppy.config.AUTOSAVE_DIR", str(tmp_path)),
@@ -592,8 +592,8 @@ class TestHeadlessSessionPersistence:
             raise RuntimeError("model exploded")
 
         with (
-            patch("code_puppy.cli_runner.get_current_agent", return_value=agent),
-            patch("code_puppy.cli_runner.run_prompt_with_attachments", new=_raise),
+            patch("code_puppy.prompt_runner.get_current_agent", return_value=agent),
+            patch("code_puppy.prompt_runner.run_prompt_with_attachments", new=_raise),
             patch("code_puppy.config.AUTOSAVE_DIR", str(tmp_path)),
             patch("code_puppy.session_lifecycle.fire_post_autosave_callback"),
         ):
@@ -621,9 +621,9 @@ class TestHeadlessSessionPersistence:
         run_result.output = "ok"
 
         with (
-            patch("code_puppy.cli_runner.get_current_agent", return_value=agent),
+            patch("code_puppy.prompt_runner.get_current_agent", return_value=agent),
             patch(
-                "code_puppy.cli_runner.run_prompt_with_attachments",
+                "code_puppy.prompt_runner.run_prompt_with_attachments",
                 new=AsyncMock(return_value=(run_result, MagicMock())),
             ),
             patch("code_puppy.config.AUTOSAVE_DIR", str(tmp_path)),

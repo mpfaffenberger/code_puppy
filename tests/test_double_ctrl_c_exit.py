@@ -16,7 +16,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-import code_puppy.cli_runner as cli_runner
+import code_puppy.interactive_runner as cli_runner
 import code_puppy.messaging.run_ui as run_ui
 from code_puppy.messaging.line_editor import RunningLineEditor
 

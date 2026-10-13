@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-import code_puppy.cli_runner as cli_runner
+import code_puppy.interactive_runner as cli_runner
 
 
 @pytest.fixture

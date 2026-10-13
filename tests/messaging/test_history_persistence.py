@@ -145,7 +145,7 @@ def test_blank_inputs_and_surrogates(history):
 async def test_actual_interactive_loop_persists_each_input_once(
     monkeypatch, history, source, text
 ):
-    import code_puppy.cli_runner as cli
+    import code_puppy.interactive_runner as cli
     from code_puppy.messaging import pause_controller, run_ui
 
     controller = PauseController()
