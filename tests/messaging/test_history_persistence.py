@@ -7,6 +7,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
+# Import the facade first, before any other code_puppy import in this file:
+# config/messaging below pull in pydantic_ai transitively (e.g. callbacks.py
+# imports pydantic_ai.messages), so applying patches afterward would be too
+# late (see prior review round).
+import code_puppy.cli_runner  # noqa: F401
+
 from code_puppy import config
 from code_puppy.messaging.editor_actions import apply_action
 from code_puppy.messaging.editor_history import (
@@ -145,9 +151,8 @@ def test_blank_inputs_and_surrogates(history):
 async def test_actual_interactive_loop_persists_each_input_once(
     monkeypatch, history, source, text
 ):
-    # Import the facade first so apply_all_patches() runs before the direct
-    # submodule import below pulls in pydantic_ai unpatched (see prior review).
-    import code_puppy.cli_runner  # noqa: F401
+    # Patches are already applied via this module's top-of-file facade
+    # import; code_puppy.cli_runner is intentionally not re-imported here.
     import code_puppy.interactive_runner as cli
     from code_puppy.messaging import pause_controller, run_ui
 
