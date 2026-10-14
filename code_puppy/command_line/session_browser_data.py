@@ -339,7 +339,7 @@ def derive_titles(history: list) -> Tuple[str, str]:
 
 
 def delete_session(base_dir: Path, session_name: str) -> bool:
-    """Remove a session's envelope, legacy pickle, and metadata sidecar.
+    """Remove a session's envelope, legacy pickle, metadata and REPL sidecars.
 
     Mirrors the file trio ``cleanup_sessions`` removes during retention
     pruning. Returns False on OS errors instead of raising.
@@ -349,6 +349,7 @@ def delete_session(base_dir: Path, session_name: str) -> bool:
         paths.json_path.unlink(missing_ok=True)
         paths.pickle_path.unlink(missing_ok=True)
         paths.metadata_path.unlink(missing_ok=True)
+        paths.repl_path.unlink(missing_ok=True)
         return True
     except OSError:
         return False

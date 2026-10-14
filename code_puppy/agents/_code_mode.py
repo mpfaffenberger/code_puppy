@@ -27,8 +27,8 @@ from __future__ import annotations
 
 import os
 import warnings
-from pathlib import PureWindowsPath
-from typing import Any, List, Sequence
+from pathlib import Path, PureWindowsPath
+from typing import Any, Callable, List, Sequence
 
 import pydantic_ai
 from pydantic_ai import RunContext
@@ -39,6 +39,7 @@ from pydantic_monty import MountDir, OSAccess
 from pydantic_ai_harness.code_mode import CodeMode
 
 from code_puppy.agents._code_mode_guidance import CodeModeGuidance
+from code_puppy.agents._code_mode_session import SessionCodeMode, repl_path_for
 from code_puppy.agents._wire_tool_names import StreamedToolNameNormalizer
 from code_puppy.capabilities.eager_timing import EagerTiming
 from code_puppy.config import get_speculative_code_mode_enabled
@@ -209,7 +210,16 @@ def sandbox_mount_path(host_path: str) -> str:
     return "/" + posix.lstrip("/")
 
 
-def build_speculative_code_mode(agent_tools: Sequence[str]) -> List[Any]:
+def main_repl_path() -> Path:
+    """REPL dump beside the current main-agent autosave (follows ``/resume``)."""
+    from code_puppy.config import AUTOSAVE_DIR, get_current_session_name
+
+    return repl_path_for(AUTOSAVE_DIR, get_current_session_name())
+
+
+def build_speculative_code_mode(
+    agent_tools: Sequence[str], *, repl_path: Callable[[], Path | None] | None = None
+) -> List[Any]:
     """Build the speculative CodeMode capabilities when the flag is on, else ``[]``.
 
     Returned as a list so the caller can splice it into ``capabilities=[...]``
@@ -217,6 +227,8 @@ def build_speculative_code_mode(agent_tools: Sequence[str]) -> List[Any]:
     ``run_code``. Only tools that declare ``speculatable: True`` are launched
     early; call :func:`bind_declared_speculation` once tools are registered.
     A tool without the declaration is sandboxed but never launched early.
+    ``repl_path`` names where the REPL is kept between runs; ``None`` keeps it
+    run-scoped.
     """
     if not get_speculative_code_mode_enabled():
         return []
@@ -226,7 +238,8 @@ def build_speculative_code_mode(agent_tools: Sequence[str]) -> List[Any]:
     workspace = os.getcwd()
     mount_path = sandbox_mount_path(workspace)
     return [
-        CodeMode(
+        SessionCodeMode(
+            repl_path=repl_path,
             tools=_sandbox_tool,
             speculate=speculate,
             # Composed tiers: eager runs each streamed statement in the live REPL as it

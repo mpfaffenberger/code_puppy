@@ -22,6 +22,7 @@ from pydantic_ai.capabilities import ProcessHistory
 from code_puppy.agents._code_mode import (
     bind_declared_speculation,
     build_speculative_code_mode,
+    main_repl_path,
 )
 from code_puppy.agents._compaction import HistoryCompaction
 from code_puppy.agents._model_message_transform import build_model_message_transform
@@ -745,7 +746,7 @@ def build_pydantic_agent(
                 # declared outermost by the capability, so list position is
                 # inert; its speculation lifecycle leaves as typed
                 # code_mode.* CapabilityEvents for the bridge below.
-                *build_speculative_code_mode(agent_tools),
+                *build_speculative_code_mode(agent_tools, repl_path=main_repl_path),
                 # LAST: the app-side event bridge. Capabilities above emit
                 # typed CapabilityEvents; the bridge's @on_event listeners
                 # translate them into legacy callbacks/spinner/messaging.

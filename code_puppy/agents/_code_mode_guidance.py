@@ -46,6 +46,9 @@ work, with every tool call that step needs:
 
 ## Sandbox facts
 
+- `run_code` state (variables, functions, imports) is saved with the session:
+  it carries over to your next turn and comes back on resume. `restart: true`
+  clears it.
 - The workspace is mounted read-write at the path given at the end of these
   instructions; `pathlib` needs absolute paths under it (relative paths do not
   resolve). NOT available: `Path.glob`/`rglob`, `os.walk`, `sys.path`,
