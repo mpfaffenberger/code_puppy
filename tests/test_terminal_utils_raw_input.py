@@ -56,6 +56,14 @@ def console(monkeypatch):
     return _install
 
 
+def test_question_input_strips_cooked_bits_without_enabling_vt(console):
+    fake = console()
+
+    assert terminal_utils.enable_windows_question_input() is True
+    assert not fake.mode & (LINE | ECHO)
+    assert not fake.mode & VT
+
+
 def test_enable_strips_line_input_so_ctrl_s_cannot_pause(console):
     fake = console()
     assert terminal_utils.enable_windows_raw_input() is True

@@ -242,6 +242,32 @@ class TestPainting:
                 assert visible_length(line) <= 100
 
 
+class TestWindowsRawInput:
+    def test_question_tui_claims_and_restores_windows_raw_input(self, monkeypatch):
+        import sys
+
+        from code_puppy import terminal_utils
+
+        calls: list[str] = []
+        monkeypatch.setattr(sys, "platform", "win32")
+        monkeypatch.setattr(
+            terminal_utils,
+            "enable_windows_question_input",
+            lambda: calls.append("enable") or True,
+        )
+        monkeypatch.setattr(
+            terminal_utils,
+            "disable_windows_raw_input",
+            lambda: calls.append("disable"),
+        )
+
+        (answers, cancelled, timed_out), _ = drive(make_questions(1), ["ctrl-s"])
+
+        assert calls == ["enable", "disable"]
+        assert not cancelled and not timed_out
+        assert answers[0].selected_options == []
+
+
 class TestAsyncEntry:
     def test_run_question_tui_seam(self, monkeypatch):
         import asyncio
