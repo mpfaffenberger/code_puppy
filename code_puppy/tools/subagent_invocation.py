@@ -39,6 +39,7 @@ from code_puppy.tools.agent_tools import (
     AgentInvokeOutput,
     AgentInvokeWithModelOutput,
     _generate_session_hash_suffix,
+    _get_subagent_sessions_dir,
     _load_session_history,
     _sanitize_for_session_id,
     _save_session_history,
@@ -470,6 +471,7 @@ async def _invoke_agent_impl(
                 bind_declared_speculation,
                 build_speculative_code_mode,
             )
+            from code_puppy.agents._code_mode_session import repl_path_for
             from code_puppy.agents._compaction import HistoryCompaction
             from code_puppy.agents._output_limits import (
                 build_response_clamp,
@@ -518,7 +520,12 @@ async def _invoke_agent_impl(
                     # whole tool surface folds into run_code with early
                     # launches during streaming (harness#699 dogfood); same
                     # wiring as the main builder.
-                    *build_speculative_code_mode(agent_tools),
+                    *build_speculative_code_mode(
+                        agent_tools,
+                        repl_path=lambda: repl_path_for(
+                            _get_subagent_sessions_dir(), session_id
+                        ),
+                    ),
                     # LAST: app-side event bridge translating typed
                     # CapabilityEvents into legacy callbacks/messaging.
                     CapabilityEventBridge(agent=agent_config),
