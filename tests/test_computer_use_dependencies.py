@@ -29,9 +29,12 @@ def test_computer_use_extra_delegates_to_published_plugin():
     assert delegated.name == base.name
     assert delegated.extras == {"computer-use"}
     assert not base.extras  # Plain installations do not request desktop SDKs.
+    # Both pins move together; 0.0.83 first published the computer-use extra,
+    # so the floor may rise with each bundle release but never drop below it.
+    assert delegated.specifier == base.specifier
     for requirement in (base, delegated):
-        assert Version("0.0.83") in requirement.specifier
         assert Version("0.0.82") not in requirement.specifier
+        assert Version("999.0.0") in requirement.specifier
 
 
 @pytest.mark.parametrize("platform", ["win32", "darwin", "linux"])
