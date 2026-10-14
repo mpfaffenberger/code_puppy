@@ -6,6 +6,15 @@ UI/signal/shutdown seams), and ``prompt_runner.py`` (prompt execution +
 headless dispatch). This module re-exports their public entrypoints for
 backwards compatibility and owns ``main_entry()`` -- the installed console
 script's actual entrypoint (see ``code_puppy/main.py``).
+
+Export policy: ``__all__`` is the full compatibility surface -- every
+public entrypoint (``main``, ``interactive_mode``, ``execute_single_prompt``,
+``run_prompt_with_attachments``, ``apply_quick_resume``, ``main_entry``)
+plus the four underscore-prefixed names that existing tests/callers patch
+or import directly (``_HEADLESS_AUTONOMY_PROMPT``, ``_save_autosave_snapshot``,
+``_use_persistent_prompt``, ``_write_usage_file``). Other formerly-private
+helpers moved to their owning module without a facade alias because nothing
+in this repo or the official plugin bundle references them.
 """
 
 # Apply pydantic-ai patches BEFORE any pydantic-ai imports

@@ -13,6 +13,9 @@ from types import SimpleNamespace
 
 import pytest
 
+# Import the facade first so apply_all_patches() runs before the direct
+# submodule import below pulls in pydantic_ai unpatched (see prior review).
+import code_puppy.cli_runner  # noqa: F401
 from code_puppy import interactive_support as cli_runner
 from code_puppy.agents import _run_signals
 

@@ -145,6 +145,9 @@ def test_blank_inputs_and_surrogates(history):
 async def test_actual_interactive_loop_persists_each_input_once(
     monkeypatch, history, source, text
 ):
+    # Import the facade first so apply_all_patches() runs before the direct
+    # submodule import below pulls in pydantic_ai unpatched (see prior review).
+    import code_puppy.cli_runner  # noqa: F401
     import code_puppy.interactive_runner as cli
     from code_puppy.messaging import pause_controller, run_ui
 

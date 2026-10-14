@@ -1,10 +1,12 @@
 """Startup/main dispatch: argument parsing, config/renderer setup, and the
 -p/-r vs interactive branch selection, plus --quick-resume resolution.
 
-Depends on: cli_runner.py (facade calls main() via asyncio.run in
-main_entry()); interactive_runner.py::interactive_mode();
+Depends on: interactive_runner.py::interactive_mode();
 prompt_runner.py::execute_single_prompt();
 interactive_support.py::_save_autosave_snapshot().
+
+Called by: cli_runner.py (facade calls main() via asyncio.run in
+main_entry()).
 """
 
 import argparse

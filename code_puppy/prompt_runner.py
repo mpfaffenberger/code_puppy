@@ -3,12 +3,14 @@
 Owns attachment-resolved agent execution (shared by interactive turns and
 headless prompts), headless usage-file serialization, and the headless
 autonomy system-prompt addition. Split out of ``cli_runner.py`` to keep
-each module under 600 lines; callers import these via
-``code_puppy.cli_runner`` (re-exported) or directly.
+each module under 600 lines; this module has no cross-module imports
+within the runner split.
 
-Depends on: cli_entry.py :: main() for headless dispatch selection;
+Called by: cli_entry.py :: main() for headless dispatch selection;
 interactive_runner.py :: interactive_mode() reuses
-``run_prompt_with_attachments`` for interactive turns.
+``run_prompt_with_attachments`` for interactive turns. Not imported
+directly by callers that need patched pydantic-ai -- go through
+``code_puppy.cli_runner`` first so ``apply_all_patches()`` runs.
 """
 
 import asyncio

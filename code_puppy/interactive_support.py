@@ -3,11 +3,13 @@
 Owns prompt UI (persistent bottom-bar vs classic), the baseline SIGINT
 guard, agent-task shutdown on quit, turn-exception rendering, and the
 interactive autosave snapshot wrapper. Split out of ``cli_runner.py`` to
-keep each module under 600 lines; callers import these via
-``code_puppy.cli_runner`` (re-exported) or directly.
+keep each module under 600 lines; this module has no cross-module
+imports within the runner split.
 
-Depends on: interactive_runner.py :: interactive_mode() for the loop that
+Called by: interactive_runner.py :: interactive_mode() for the loop that
 calls these seams; cli_entry.py :: main() for ``_save_autosave_snapshot``.
+Not imported directly by callers that need patched pydantic-ai -- go
+through ``code_puppy.cli_runner`` first so ``apply_all_patches()`` runs.
 """
 
 import asyncio
@@ -26,14 +28,6 @@ def _save_autosave_snapshot() -> None:
     from code_puppy.config import auto_save_session_if_enabled
 
     auto_save_session_if_enabled()
-
-
-_HEADLESS_AUTONOMY_PROMPT = """\
-This is an unattended, non-interactive run. Never ask for confirmation, approval,
-clarification, or manual verification, including through tools or MCP servers. Use
-reasonable defaults, proceed autonomously, and validate with the tools available to
-you. State any assumptions or optional manual checks only in the final response.\
-"""
 
 
 def _render_turn_exception(exc: Exception) -> None:
