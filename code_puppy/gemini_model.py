@@ -378,6 +378,9 @@ class GeminiModel(Model):
                     or pending_signature
                     or BYPASS_THOUGHT_SIGNATURE
                 )
+                # Gemini signs only the first call of a parallel batch, so a
+                # pending thinking signature belongs to the next call only.
+                pending_signature = None
                 parts.append(part_dict)
             elif isinstance(item, TextPart):
                 part_dict = {"text": item.content}

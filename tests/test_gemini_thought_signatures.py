@@ -133,6 +133,23 @@ class TestMapModelResponse:
             BYPASS_THOUGHT_SIGNATURE,
         ]
 
+    def test_thinking_signature_reaches_only_the_next_call(self, model):
+        """Gemini signs only the first call of a parallel batch, so a signature
+        from a preceding thinking part belongs to that call, not every call."""
+        response = ModelResponse(
+            parts=[
+                ThinkingPart(content="plan", signature="SIG_T"),
+                _tool_call("grep", call_id="a"),
+                _tool_call("list_files", call_id="b"),
+                _tool_call("read_file", call_id="c"),
+            ]
+        )
+        assert _replayed_signatures(model._map_model_response(response)) == [
+            "SIG_T",
+            BYPASS_THOUGHT_SIGNATURE,
+            BYPASS_THOUGHT_SIGNATURE,
+        ]
+
     def test_parse_then_map_round_trip(self, model):
         _, parts = _parse_candidate_parts(
             {}, _candidates(_call("grep", signature="SIG_RT"))
