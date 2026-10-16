@@ -175,6 +175,7 @@ async def prepared_mcp_run(agent: Any) -> AsyncIterator[None]:
     Called by: BaseAgent.run_with_mcp.
     Depends on: bound-server autostart and MCPManager readiness/toolset selection.
     """
+    from code_puppy.agents._run_signals import mcp_preparation_cancellation
     from code_puppy.tools import tools_disabled
 
     if tools_disabled() or get_truthy_bool_value("disable_mcp_servers", False):
@@ -183,8 +184,9 @@ async def prepared_mcp_run(agent: Any) -> AsyncIterator[None]:
 
     try:
         manager = get_mcp_manager()
-        await autostart_bound_servers_async(manager, agent.name)
-        await manager.wait_for_pending_starts()
+        with mcp_preparation_cancellation():
+            await autostart_bound_servers_async(manager, agent.name)
+            await manager.wait_for_pending_starts()
         if agent._bound_mcp_toolsets != manager.get_servers_for_agent(agent.name):
             agent._code_generation_agent = None
             agent.pydantic_agent = None

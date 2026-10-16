@@ -58,6 +58,9 @@ class ManagerLifecycleMixin:
     def _request_start(self, server_id: str, *, auto_start: bool = False):
         if server_id not in self._managed_servers:
             return None
+        if auto_start and not self._managed_servers[server_id].config.enabled:
+            self._disable_for_lifecycle(server_id)
+            return None
         if auto_start and self.is_autostart_suppressed(server_id):
             return None
         stopping = self._lifecycle_tasks("stop").get(server_id)
@@ -74,7 +77,7 @@ class ManagerLifecycleMixin:
         )
 
     async def start_server(self, server_id: str, *, auto_start: bool = False) -> bool:
-        """Start when ready; implicit requests cannot override an explicit stop."""
+        """Start when ready; implicit requests respect config disable and user stops."""
         task = self._request_start(server_id, auto_start=auto_start)
         if task is None:
             return False

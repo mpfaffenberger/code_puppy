@@ -190,6 +190,30 @@ async def test_cancelled_waiter_does_not_cancel_shared_start(lifecycle_setup):
     lifecycle.start_server.assert_awaited_once()
 
 
+@pytest.mark.parametrize("entrypoint", ["sync", "async"])
+async def test_config_disable_blocks_implicit_not_manual_start(
+    lifecycle_setup, entrypoint
+):
+    manager, server, lifecycle = lifecycle_setup
+    server.config.enabled = False
+    if entrypoint == "sync":
+        assert not manager.start_server_sync("server", auto_start=True)
+    else:
+        assert not await manager.start_server("server", auto_start=True)
+    lifecycle.start_server.assert_not_called()
+    server.enable.assert_not_called()
+    manager.status_tracker.set_status.assert_not_called()
+
+    if entrypoint == "sync":
+        assert manager.start_server_sync("server")
+        assert await manager._pending_start_tasks["server"]
+    else:
+        assert await manager.start_server("server")
+    server.enable.assert_called_once()
+    lifecycle.start_server.assert_awaited_once()
+    assert server.config.enabled is False
+
+
 async def test_explicit_start_after_stop_can_restart(lifecycle_setup):
     manager, server, lifecycle = lifecycle_setup
     assert await manager.start_server("server")

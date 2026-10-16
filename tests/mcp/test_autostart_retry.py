@@ -3,6 +3,8 @@
 import asyncio
 import json
 import sys
+import threading
+from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -10,7 +12,7 @@ import pytest
 from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart, ToolReturnPart
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 
-from code_puppy.agents import _builder, _mcp, _runtime
+from code_puppy.agents import _builder, _key_listeners, _mcp, _runtime
 from code_puppy.agents.json_agent import JSONAgent
 from code_puppy.mcp_ import agent_bindings
 from code_puppy.mcp_.async_lifecycle import AsyncServerLifecycleManager
@@ -208,6 +210,51 @@ async def test_failed_bound_server_retries_on_next_invocation(
     assert case.lifecycle.is_running("retry")
 
 
+@pytest.mark.parametrize("entrypoint", ["main", "subagent"])
+@pytest.mark.parametrize("disable_at", ["config", "prehook"])
+async def test_config_disabled_blocks_autostart_but_manual_start_can_enable(
+    bound_server, offline_runtime, offline_subagent, monkeypatch, entrypoint, disable_at
+):
+    case = bound_server
+    case.ready.touch()
+    if disable_at == "config":
+        config = replace(case.managed.config, enabled=False)
+        case.manager.registry.get_by_name.return_value = config
+        case.managed = ManagedMCPServer(config)
+        case.manager._managed_servers["retry"] = case.managed
+    else:
+
+        async def disable(*args):
+            config = replace(case.managed.config, enabled=False)
+            assert case.manager.update_server("retry", config)
+
+        monkeypatch.setattr(_mcp, "on_pre_mcp_autostart", disable)
+
+    async def invoke():
+        case.agent.clear_message_history()
+        if entrypoint == "main":
+            await case.agent.run_with_mcp("Ping")
+        else:
+            await offline_subagent()
+
+    await invoke()
+    assert case.managed.config.enabled is False
+    assert not case.managed.is_enabled()
+    assert not case.lifecycle.is_running("retry")
+    case.lifecycle.start_server.assert_not_awaited()
+    assert case.manager.get_servers_for_agent(case.agent_name) == []
+    assert offline_runtime == [set()]
+
+    assert await case.manager.start_server("retry")
+    assert case.managed.config.enabled is False
+    assert case.managed.is_enabled()
+    assert case.lifecycle.is_running("retry")
+    offline_runtime.clear()
+    await invoke()
+    assert offline_runtime == [{"retry_ping"}, {"retry_ping"}]
+    case.lifecycle.start_server.assert_awaited_once()
+
+
 def test_no_loop_autostart_can_retry_when_loop_is_available(monkeypatch):
     config = ServerConfig(id="retry", name="retry", type="stdio")
     manager = MCPManager.__new__(MCPManager)
@@ -329,6 +376,153 @@ async def test_stop_during_preparation_does_not_cancel_agent_turn(
         assert offline_runtime == [set()]
     assert case.manager.is_autostart_suppressed("retry")
     assert not case.lifecycle.is_running("retry")
+
+
+@pytest.mark.parametrize("cancel_key", ["\x03", "\x0b"])
+@pytest.mark.parametrize("persistent_listener", [False, True])
+async def test_cancel_hotkey_during_preparation_respects_editor_and_cleans_up(
+    bound_server, offline_runtime, monkeypatch, cancel_key, persistent_listener
+):
+    from code_puppy.messaging import run_ui
+    from code_puppy.messaging.line_editor import RunningLineEditor
+    from code_puppy.tools import command_runner
+
+    case = bound_server
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    start = case.lifecycle.start_server._mock_wraps
+
+    async def delayed_start(*args):
+        entered.set()
+        await release.wait()
+        return await start(*args)
+
+    case.ready.touch()
+    case.lifecycle.start_server.side_effect = delayed_start
+    handle = _key_listeners.KeyListenerHandle(Mock(), threading.Event())
+    monkeypatch.setattr(_key_listeners, "_active_handle", None)
+    monkeypatch.setattr(_key_listeners, "_cancel_handler", None)
+    if persistent_listener:
+        _key_listeners.set_active_handle(handle)
+    spawn = Mock(return_value=handle)
+    monkeypatch.setattr(_key_listeners, "spawn_key_listener", spawn)
+    editor = RunningLineEditor(
+        bar=Mock(), history=Mock(), reverse_search=Mock(active=False)
+    )
+    monkeypatch.setattr(run_ui, "_editor", editor)
+    monkeypatch.setattr(_key_listeners, "_line_editor", editor)
+    editor.insert_paste_text("half-typed steer")
+
+    invocation = asyncio.create_task(case.agent.run_with_mcp("Ping"))
+    try:
+        await asyncio.wait_for(entered.wait(), timeout=2)
+        assert _key_listeners._resolve_cancel_handler(None) is not None
+        assert command_runner._AGENT_CANCEL_CB is not None
+        _key_listeners._dispatch_key(cancel_key, lambda: None, cancel_key, None)
+        if cancel_key == "\x03":
+            await asyncio.sleep(0)
+            assert not invocation.done()
+            assert invocation.cancelling() == 0
+            assert editor.buffer == ""
+            _key_listeners._dispatch_key(cancel_key, lambda: None, cancel_key, None)
+        else:
+            assert editor.buffer == "half-typed steer"
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(invocation, timeout=2)
+        assert offline_runtime == []
+        assert _key_listeners._resolve_cancel_handler(None) is None
+        assert command_runner._AGENT_CANCEL_CB is None
+        if persistent_listener:
+            spawn.assert_not_called()
+            assert _key_listeners.get_active_handle() is handle
+            assert not handle.stop_event.is_set()
+        else:
+            spawn.assert_called_once()
+            assert _key_listeners.get_active_handle() is None
+            assert handle.stop_event.is_set()
+            handle.thread.join.assert_called_once_with(timeout=1.0)
+        # Cancelling one turn must not cancel a shared server's lifecycle task.
+        release.set()
+        assert await case.manager.start_server("retry")
+        case.agent.clear_message_history()
+        await case.agent.run_with_mcp("Ping")
+        assert offline_runtime == [{"retry_ping"}, {"retry_ping"}]
+        assert _key_listeners._resolve_cancel_handler(None) is None
+    finally:
+        release.set()
+        if not invocation.done():
+            invocation.cancel()
+        await asyncio.gather(invocation, return_exceptions=True)
+
+
+async def test_pre_autostart_nested_run_preserves_outer_cancellation(
+    bound_server, offline_runtime, monkeypatch, tmp_path
+):
+    from code_puppy import callbacks
+    from code_puppy.tools import command_runner
+
+    case = bound_server
+    inner_path = tmp_path / "inner.json"
+    inner_path.write_text(
+        json.dumps(
+            {
+                "name": "inner",
+                "description": "Nested",
+                "system_prompt": "Hi",
+                "tools": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    inner = JSONAgent(inner_path)
+    monkeypatch.setattr(
+        agent_bindings,
+        "get_bound_servers",
+        lambda name: {"retry": {"auto_start": True}} if name == case.agent_name else {},
+    )
+    monkeypatch.setattr(_mcp, "on_pre_mcp_autostart", callbacks.on_pre_mcp_autostart)
+    monkeypatch.setitem(callbacks._callbacks, "pre_mcp_autostart", [])
+    ownership = []
+
+    async def nested_run(*args):
+        key_owner = _key_listeners._resolve_cancel_handler(None)
+        shell_owner = command_runner._AGENT_CANCEL_CB
+        await inner.run_with_mcp("Hi")
+        ownership.append(
+            (
+                _key_listeners._resolve_cancel_handler(None) is key_owner,
+                command_runner._AGENT_CANCEL_CB is shell_owner,
+            )
+        )
+
+    callbacks.register_callback("pre_mcp_autostart", nested_run)
+    handle = _key_listeners.KeyListenerHandle(Mock(), threading.Event())
+    monkeypatch.setattr(_key_listeners, "_active_handle", handle)
+    monkeypatch.setattr(_key_listeners, "_cancel_handler", None)
+    monkeypatch.setattr(command_runner, "_AGENT_CANCEL_CB", None)
+    entered = asyncio.Event()
+
+    async def block(*args):
+        entered.set()
+        await asyncio.Event().wait()
+
+    case.lifecycle.start_server.side_effect = block
+    invocation = asyncio.create_task(case.agent.run_with_mcp("Ping"))
+    try:
+        await asyncio.wait_for(entered.wait(), timeout=2)
+        assert ownership == [(True, True)]
+        assert offline_runtime == [set()]
+        _key_listeners._dispatch_key("\u000b", lambda: None, "\u000b", None)
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(invocation, timeout=2)
+        assert offline_runtime == [set()]
+        assert _key_listeners._resolve_cancel_handler(None) is None
+        assert command_runner._AGENT_CANCEL_CB is None
+        assert _runtime._active_run_depth == 0
+    finally:
+        invocation.cancel()
+        await asyncio.gather(invocation, return_exceptions=True)
+        await case.manager.stop_server("retry")
 
 
 async def test_pending_start_is_awaited_before_using_cached_client(
