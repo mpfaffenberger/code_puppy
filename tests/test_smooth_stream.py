@@ -1,6 +1,7 @@
 """Tests for the smooth-stream renderers (thinking + termflow typewriter)."""
 
 import asyncio
+import errno
 import io
 
 import pytest
@@ -13,6 +14,7 @@ from code_puppy.agents.smooth_stream import (
     make_smooth_termflow_writer,
     make_thinking_smoother,
 )
+from code_puppy.messaging.safe_stream import ensure_safe_text_stream
 
 
 class _TtyStringIO(io.StringIO):
@@ -274,3 +276,38 @@ def test_make_smooth_termflow_writer_skips_non_tty(monkeypatch):
     """Pipes/CI never see the typewriter, whatever the config toggle says."""
     monkeypatch.setattr("code_puppy.config.get_smooth_response_stream", lambda: True)
     assert make_smooth_termflow_writer(io.StringIO()) is None
+
+
+# ── Dead target handle ──────────────────────────────────────────────────
+
+
+class _DeadTty(_TtyStringIO):
+    def __init__(self):
+        super().__init__()
+        self.flush_calls = 0
+
+    def flush(self):
+        self.flush_calls += 1
+        raise OSError(errno.EINVAL, "Invalid argument")
+
+
+@pytest.mark.asyncio
+async def test_unwrapped_dead_target_surfaces_on_close():
+    w = SmoothTermflowWriter(_DeadTty(), tick_interval=0.002, catch_up_seconds=0.02)
+    w.start()
+    w.write("hello")
+    with pytest.raises(OSError):
+        await w.close()
+
+
+@pytest.mark.asyncio
+async def test_safe_wrapped_dead_target_does_not_raise_and_is_not_retried():
+    target = _DeadTty()
+    w = SmoothTermflowWriter(
+        ensure_safe_text_stream(target), tick_interval=0.002, catch_up_seconds=0.02
+    )
+    w.start()
+    w.write("hello")
+    w.write(" world")
+    await w.close()
+    assert target.flush_calls == 1

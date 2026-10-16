@@ -459,8 +459,11 @@ class TestMain:
             with ExitStack() as stack:
                 stack.enter_context(patch.dict(os.environ, {"NO_VERSION_UPDATE": "1"}))
                 stack.enter_context(patch("sys.argv", ["code-puppy", "-p", "hi"]))
-                stack.enter_context(
-                    patch("code_puppy.cli_runner.Console", return_value=console)
+                safe_console_cls = stack.enter_context(
+                    patch(
+                        "code_puppy.messaging.safe_console.SafeConsole",
+                        return_value=console,
+                    )
                 )
                 stack.enter_context(
                     patch(
@@ -497,6 +500,7 @@ class TestMain:
         finally:
             queue.stop()
 
+        safe_console_cls.assert_called_once_with()
         assert output.getvalue().count("Core plugins version: 0.0.2") == 1
 
     @pytest.mark.anyio
