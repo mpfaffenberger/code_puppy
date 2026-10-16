@@ -242,7 +242,7 @@ def test_main_agent_builder_passes_agent_model_settings():
             return_value=MagicMock(),
         ),
         patch(
-            "code_puppy.agents._builder.make_steer_history_processor",
+            "code_puppy.agents._builder.build_steer_injection",
             return_value=MagicMock(),
         ),
         patch("code_puppy.agents._builder.build_tool_output_limits", return_value=[]),
