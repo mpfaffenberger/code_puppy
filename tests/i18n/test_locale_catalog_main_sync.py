@@ -88,7 +88,10 @@ def test_main_sync_preserves_technical_identifiers(locale, key, tokens):
 
 def test_obsolete_banner_keys_and_callers_are_removed_together():
     obsolete = {"cli.banner.observability_pitch", "cli.banner.powered_by"}
-    source = Path(__file__).parents[2] / "code_puppy" / "cli_runner.py"
+    # Banner rendering (and any obsolete literal) now lives in cli_entry.py's
+    # main(); cli_runner.py is just the compatibility facade and never had
+    # this logic after the runner split.
+    source = Path(__file__).parents[2] / "code_puppy" / "cli_entry.py"
     literals = {
         node.value
         for node in ast.walk(ast.parse(source.read_text(encoding="utf-8")))
