@@ -263,13 +263,17 @@ class ManagedMCPServer:
             self._state = ServerState.ERROR
             self._error_message = str(e)
 
-    def get_pydantic_server(self) -> AbstractToolset[Any]:
+    def get_pydantic_server(
+        self, *, allow_disabled: bool = False
+    ) -> AbstractToolset[Any]:
         """
         Get the pydantic-ai toolset for this server.
 
         Returns the ``MCPToolset`` wrapped in a ``PrefixedToolset`` (the
         public replacement for the old ``tool_prefix=`` kwarg), ready to be
-        passed to ``Agent(toolsets=...)``.
+        passed to ``Agent(toolsets=...)``. Lifecycle startup uses
+        ``allow_disabled=True`` to retry without exposing an unready server
+        to agents. Quarantined servers remain unavailable.
 
         Raises:
             RuntimeError: If server creation failed or server is not available
@@ -277,7 +281,7 @@ class ManagedMCPServer:
         if self._pydantic_server is None:
             raise RuntimeError(f"Server {self.config.name} is not available")
 
-        if not self.is_enabled() or self.is_quarantined():
+        if self.is_quarantined() or (not allow_disabled and not self.is_enabled()):
             raise RuntimeError(f"Server {self.config.name} is disabled or quarantined")
 
         return self._pydantic_server

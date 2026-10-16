@@ -17,7 +17,7 @@ class ManagerLifecycleMixin:
     """Coordinate starts/stops without claiming readiness before startup succeeds."""
 
     def is_autostart_suppressed(self, server_id: str) -> bool:
-        """Whether stop/failure requires an explicit start before agent autostart."""
+        """Whether an explicit stop blocks agent autostart until an explicit start."""
         return server_id in getattr(self, "_autostart_suppressed", set())
 
     def _set_autostart_suppressed(self, server_id: str, suppressed: bool) -> None:
@@ -31,8 +31,6 @@ class ManagerLifecycleMixin:
     def _disable_for_lifecycle(self, server_id: str) -> None:
         from .agent_bindings import invalidate_agent_mcp_cache
 
-        # Suppress before disabling/invalidation: rebuilding must not restart it.
-        self._set_autostart_suppressed(server_id, True)
         self._managed_servers[server_id].disable()
         invalidate_agent_mcp_cache()
 
@@ -57,8 +55,10 @@ class ManagerLifecycleMixin:
         task.add_done_callback(cleanup)
         return task
 
-    def _request_start(self, server_id):
+    def _request_start(self, server_id: str, *, auto_start: bool = False):
         if server_id not in self._managed_servers:
+            return None
+        if auto_start and self.is_autostart_suppressed(server_id):
             return None
         stopping = self._lifecycle_tasks("stop").get(server_id)
         if stopping is not None and not stopping.done():
@@ -73,10 +73,23 @@ class ManagerLifecycleMixin:
             "start", server_id, self._start_server_process(server_id)
         )
 
-    async def start_server(self, server_id: str) -> bool:
-        """Start a process, returning True only once it is actually ready."""
-        task = self._request_start(server_id)
-        return await asyncio.shield(task) if task is not None else False
+    async def start_server(self, server_id: str, *, auto_start: bool = False) -> bool:
+        """Start when ready; implicit requests cannot override an explicit stop."""
+        task = self._request_start(server_id, auto_start=auto_start)
+        if task is None:
+            return False
+        try:
+            return await asyncio.shield(task)
+        except asyncio.CancelledError:
+            caller = asyncio.current_task()
+            if (
+                not task.cancelled()
+                or not self.is_autostart_suppressed(server_id)
+                or (caller is not None and caller.cancelling())
+            ):
+                raise
+            # Stopping the shared startup is not cancellation of its waiter.
+            return False
 
     async def _start_server_process(self, server_id):
         from .agent_bindings import invalidate_agent_mcp_cache
@@ -86,11 +99,13 @@ class ManagerLifecycleMixin:
 
         managed = self._managed_servers[server_id]
         try:
-            server = managed.get_pydantic_server()
+            server = managed.get_pydantic_server(allow_disabled=True)
             started = await get_lifecycle_manager().start_server(server_id, server)
             # A lifecycle implementation may suppress cancellation. Stop still wins.
             stopping = self._lifecycle_tasks("stop").get(server_id)
-            if stopping is not None and not stopping.done():
+            if self.is_autostart_suppressed(server_id) or (
+                stopping is not None and not stopping.done()
+            ):
                 return False
             if not started:
                 raise RuntimeError("Server process failed to start")
@@ -113,11 +128,11 @@ class ManagerLifecycleMixin:
             logger.warning("Failed to start server %s: %s", server_id, exc)
             return False
 
-    def start_server_sync(self, server_id: str) -> bool:
+    def start_server_sync(self, server_id: str, *, auto_start: bool = False) -> bool:
         """Schedule startup; True means accepted, not ready.
 
-        Without a running loop we cannot retain a live MCP context, so report
-        failure rather than pretend that enabling a config started a process.
+        Without a running loop, report failure without suppressing a later
+        agent autostart; no live MCP context can be retained yet.
         """
         try:
             asyncio.get_running_loop()
@@ -128,7 +143,7 @@ class ManagerLifecycleMixin:
                 "Cannot start MCP server without an event loop: %s", server_id
             )
             return False
-        return self._request_start(server_id) is not None
+        return self._request_start(server_id, auto_start=auto_start) is not None
 
     async def wait_for_pending_starts(self, timeout: float = 15.0) -> None:
         """Wait for readiness without cancelling startup on timeout."""
@@ -151,6 +166,7 @@ class ManagerLifecycleMixin:
             return pending
         # Synchronous invalidation is essential: a queued start must not get
         # its first execution between stop_server_sync and its background task.
+        self._set_autostart_suppressed(server_id, True)
         self._disable_for_lifecycle(server_id)
         self.status_tracker.set_status(server_id, ServerState.STOPPING)
         starting = self._lifecycle_tasks("start").get(server_id)
@@ -196,9 +212,14 @@ class ManagerLifecycleMixin:
             managed = self._managed_servers.get(server_id)
             if managed is None:
                 return False
+            self._set_autostart_suppressed(server_id, True)
             self._disable_for_lifecycle(server_id)
             self.status_tracker.set_status(server_id, ServerState.STOPPED)
             self.status_tracker.record_stop_time(server_id)
+            starting = self._lifecycle_tasks("start").get(server_id)
+            if starting is not None and not starting.get_loop().is_closed():
+                # Menu worker threads cannot cancel or drain a loop-owned task.
+                starting.get_loop().call_soon_threadsafe(self._request_stop, server_id)
             return True
         return self._request_stop(server_id) is not None
 
