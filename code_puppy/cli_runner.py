@@ -18,8 +18,6 @@ import sys
 import traceback
 from pathlib import Path
 
-from rich.console import Console
-
 from code_puppy import __version__, callbacks, get_core_plugins_version, plugins
 from code_puppy.agents import get_current_agent
 from code_puppy.asyncio_cleanup import install_httpcore2_shutdown_filter
@@ -278,9 +276,10 @@ async def main():
         get_global_queue,
         get_message_bus,
     )
+    from code_puppy.messaging.safe_console import SafeConsole
 
     # Create a shared console for both renderers
-    display_console = Console()
+    display_console = SafeConsole()
 
     # Legacy renderer for backward compatibility (emits via get_global_queue)
     message_queue = get_global_queue()
