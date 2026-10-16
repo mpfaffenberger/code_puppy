@@ -6,6 +6,7 @@ Depends on: MCPManager lifecycle, bindings, and pre-autostart callbacks.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -156,7 +157,12 @@ async def autostart_bound_servers_async(manager: Any, agent_name: str) -> None:
     targets = list(_iter_autostart_targets(manager, agent_name))
     if not targets:
         return
+    task = asyncio.current_task()
+    cancellations = task.cancelling() if task is not None else 0
     await on_pre_mcp_autostart(agent_name, [name for name, _ in targets])
+    # Nested runtimes can consume CancelledError; a cancelled hook must not start MCP.
+    if task is not None and task.cancelling() > cancellations:
+        raise asyncio.CancelledError
     for server_name, config in targets:
         try:
             if not await manager.start_server(config.id, auto_start=True):

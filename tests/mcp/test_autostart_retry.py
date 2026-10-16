@@ -455,8 +455,9 @@ async def test_cancel_hotkey_during_preparation_respects_editor_and_cleans_up(
         await asyncio.gather(invocation, return_exceptions=True)
 
 
+@pytest.mark.parametrize("cancel_during", ["inner", "startup"])
 async def test_pre_autostart_nested_run_preserves_outer_cancellation(
-    bound_server, offline_runtime, monkeypatch, tmp_path
+    bound_server, offline_runtime, monkeypatch, tmp_path, cancel_during
 ):
     from code_puppy import callbacks
     from code_puppy.tools import command_runner
@@ -475,6 +476,15 @@ async def test_pre_autostart_nested_run_preserves_outer_cancellation(
         encoding="utf-8",
     )
     inner = JSONAgent(inner_path)
+    entered = asyncio.Event()
+    if cancel_during == "inner":
+
+        class BlockedClient:
+            async def run(self, *args, **kwargs):
+                entered.set()
+                await asyncio.Event().wait()
+
+        inner._code_generation_agent = BlockedClient()
     monkeypatch.setattr(
         agent_bindings,
         "get_bound_servers",
@@ -500,7 +510,6 @@ async def test_pre_autostart_nested_run_preserves_outer_cancellation(
     monkeypatch.setattr(_key_listeners, "_active_handle", handle)
     monkeypatch.setattr(_key_listeners, "_cancel_handler", None)
     monkeypatch.setattr(command_runner, "_AGENT_CANCEL_CB", None)
-    entered = asyncio.Event()
 
     async def block(*args):
         entered.set()
@@ -510,12 +519,16 @@ async def test_pre_autostart_nested_run_preserves_outer_cancellation(
     invocation = asyncio.create_task(case.agent.run_with_mcp("Ping"))
     try:
         await asyncio.wait_for(entered.wait(), timeout=2)
-        assert ownership == [(True, True)]
-        assert offline_runtime == [set()]
+        if cancel_during == "startup":
+            assert ownership == [(True, True)]
         _key_listeners._dispatch_key("\u000b", lambda: None, "\u000b", None)
         with pytest.raises(asyncio.CancelledError):
             await asyncio.wait_for(invocation, timeout=2)
-        assert offline_runtime == [set()]
+        assert ownership == [(True, True)]
+        assert offline_runtime == ([set()] if cancel_during == "startup" else [])
+        assert case.lifecycle.start_server.await_count == int(
+            cancel_during == "startup"
+        )
         assert _key_listeners._resolve_cancel_handler(None) is None
         assert command_runner._AGENT_CANCEL_CB is None
         assert _runtime._active_run_depth == 0
