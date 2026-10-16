@@ -103,6 +103,8 @@ def _iter_autostart_targets(manager: Any, agent_name: str):
             state = status.get("state")
         except Exception:  # pragma: no cover - defensive
             continue
+        if status.get("enabled") is False and not config.enabled:
+            continue
         if state in (ServerState.RUNNING.value, ServerState.STARTING.value):
             continue
         yield server_name, config

@@ -277,10 +277,10 @@ def test_no_loop_autostart_can_retry_when_loop_is_available(monkeypatch):
     )
     monkeypatch.setattr(_mcp, "on_pre_mcp_autostart_sync", Mock())
     monkeypatch.setattr(_mcp, "on_pre_mcp_autostart", AsyncMock())
-    _builder._autostart_bound_servers(manager, "retry-agent")
+    _mcp._autostart_bound_servers(manager, "retry-agent")
     assert not manager.is_autostart_suppressed("retry")
     lifecycle.start_server.assert_not_called()
-    asyncio.run(_builder.autostart_bound_servers_async(manager, "retry-agent"))
+    asyncio.run(_mcp.autostart_bound_servers_async(manager, "retry-agent"))
     lifecycle.start_server.assert_awaited_once()
     managed.enable.assert_called_once()
 

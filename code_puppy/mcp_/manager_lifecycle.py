@@ -59,7 +59,8 @@ class ManagerLifecycleMixin:
         if server_id not in self._managed_servers:
             return None
         if auto_start and not self._managed_servers[server_id].config.enabled:
-            self._disable_for_lifecycle(server_id)
+            if self._managed_servers[server_id].is_enabled():
+                self._disable_for_lifecycle(server_id)
             return None
         if auto_start and self.is_autostart_suppressed(server_id):
             return None
@@ -140,7 +141,8 @@ class ManagerLifecycleMixin:
         try:
             asyncio.get_running_loop()
         except RuntimeError:
-            if server_id in self._managed_servers:
+            managed = self._managed_servers.get(server_id)
+            if managed is not None and managed.is_enabled():
                 self._disable_for_lifecycle(server_id)
             logger.warning(
                 "Cannot start MCP server without an event loop: %s", server_id
@@ -222,7 +224,16 @@ class ManagerLifecycleMixin:
             starting = self._lifecycle_tasks("start").get(server_id)
             if starting is not None and not starting.get_loop().is_closed():
                 # Menu worker threads cannot cancel or drain a loop-owned task.
-                starting.get_loop().call_soon_threadsafe(self._request_stop, server_id)
+                try:
+                    starting.get_loop().call_soon_threadsafe(
+                        self._request_stop, server_id
+                    )
+                except RuntimeError as exc:
+                    if not starting.get_loop().is_closed():
+                        raise
+                    logger.warning(
+                        "MCP stop cleanup dispatch failed for %s: %s", server_id, exc
+                    )
             return True
         return self._request_stop(server_id) is not None
 

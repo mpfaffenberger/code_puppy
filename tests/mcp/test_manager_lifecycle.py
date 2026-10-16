@@ -142,6 +142,63 @@ async def test_stop_cancels_and_drains_inflight_start(
     manager.status_tracker.record_start_time.assert_not_called()
 
 
+async def test_worker_stop_survives_loop_closing_during_dispatch(
+    lifecycle_setup, monkeypatch, caplog
+):
+    manager, server, lifecycle = lifecycle_setup
+    loop = asyncio.new_event_loop()
+    starting = Mock()
+    starting.get_loop.return_value = loop
+    manager._pending_start_tasks = {"server": starting}
+    dispatch = loop.call_soon_threadsafe
+
+    def close_before_dispatch(*args):
+        loop.close()
+        return dispatch(*args)
+
+    monkeypatch.setattr(loop, "call_soon_threadsafe", close_before_dispatch)
+    try:
+        assert await asyncio.to_thread(manager.stop_server_sync, "server")
+        assert loop.is_closed()
+        server.disable.assert_called_once()
+        assert manager.is_autostart_suppressed("server")
+        manager.status_tracker.set_status.assert_called_once_with(
+            "server", ServerState.STOPPED
+        )
+        lifecycle.stop_server.assert_not_awaited()
+        assert "MCP stop cleanup dispatch failed for server" in caplog.text
+        assert "Event loop is closed" in caplog.text
+    finally:
+        if not loop.is_closed():
+            loop.close()
+
+
+async def test_worker_stop_propagates_dispatch_error_while_loop_remains_open(
+    lifecycle_setup, monkeypatch, caplog
+):
+    manager, server, lifecycle = lifecycle_setup
+    owner_loop = Mock()
+    owner_loop.is_closed.return_value = False
+    failure = RuntimeError("dispatch tripwire")
+    owner_loop.call_soon_threadsafe.side_effect = failure
+    starting = Mock()
+    starting.get_loop.return_value = owner_loop
+    manager._pending_start_tasks = {"server": starting}
+
+    with pytest.raises(RuntimeError, match="dispatch tripwire") as caught:
+        await asyncio.to_thread(manager.stop_server_sync, "server")
+
+    assert caught.value is failure
+    assert not owner_loop.is_closed()
+    owner_loop.call_soon_threadsafe.assert_called_once_with(
+        manager._request_stop, "server"
+    )
+    server.disable.assert_called_once()
+    assert manager.is_autostart_suppressed("server")
+    lifecycle.stop_server.assert_not_awaited()
+    assert "MCP stop cleanup dispatch failed" not in caplog.text
+
+
 async def test_stop_exception_is_not_reported_as_success(lifecycle_setup):
     manager, _, lifecycle = lifecycle_setup
     lifecycle.stop_server.side_effect = RuntimeError("cannot stop")
