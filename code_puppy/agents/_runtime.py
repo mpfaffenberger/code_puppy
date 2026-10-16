@@ -28,7 +28,9 @@ import uuid
 from typing import Any, Callable, Iterator, List, Optional, Sequence, Type, Union
 
 import httpcore
+import httpcore2
 import httpx
+import httpx2
 
 try:  # pragma: no cover - mcp version dependent
     from mcp.shared.exceptions import McpError
@@ -137,6 +139,11 @@ _RETRYABLE_SNIPPETS = (
 # Transport failures worth a silent retry, by umbrella base class (not each
 # subclass) so any dropped-socket guise or timeout is covered. A flaky
 # VPN/WiFi blip is recoverable, never fatal.
+#
+# Both HTTP families are listed: ``httpx2`` / ``httpcore2`` exceptions do NOT
+# subclass their ``httpx`` / ``httpcore`` namesakes, and the OAuth clients and
+# pydantic-ai provider clients are built on httpx2, so a read timeout on an
+# established stream arrives as ``httpx2.ReadTimeout``.
 _RETRYABLE_EXCEPTIONS: tuple = (
     httpx.NetworkError,
     httpx.TimeoutException,
@@ -144,6 +151,12 @@ _RETRYABLE_EXCEPTIONS: tuple = (
     httpcore.NetworkError,
     httpcore.TimeoutException,
     httpcore.RemoteProtocolError,
+    httpx2.NetworkError,
+    httpx2.TimeoutException,
+    httpx2.RemoteProtocolError,
+    httpcore2.NetworkError,
+    httpcore2.TimeoutException,
+    httpcore2.RemoteProtocolError,
 )
 
 # AnyIO normally translates TLS failures through httpcore/httpx, but a failure
