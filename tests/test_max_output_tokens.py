@@ -136,6 +136,16 @@ def _copilot_opus5() -> ModelInfo:
     )
 
 
+def _anthropic(model_id: str, max_output: int) -> ModelInfo:
+    return ModelInfo(
+        provider_id="anthropic",
+        model_id=model_id,
+        name=model_id,
+        max_output=max_output,
+        context_length=200000,
+    )
+
+
 def _install_registry(monkeypatch, *models) -> None:
     """Point the resolver at a fake registry holding ``models``."""
     registry = SimpleNamespace(get_models=lambda: list(models))
@@ -202,6 +212,57 @@ class TestModelsDevFallback:
         _install_registry(monkeypatch, OPUS5)
         cfg = {"nobody-home": {"name": "unknown-9000", "context_length": 200000}}
         assert cp_config.get_model_max_output_tokens("nobody-home", cfg) == 30000
+
+    def test_unindexed_claude_borrows_the_newest_known_sibling(self, monkeypatch):
+        _install_registry(monkeypatch, _anthropic("claude-opus-4-5", 64000))
+        cfg = {
+            "claude-opus-5-5": {
+                "type": "custom_anthropic",
+                "name": "claude-opus-5-5",
+                "context_length": 200000,
+            }
+        }
+        assert cp_config.get_model_max_output_tokens("claude-opus-5-5", cfg) == 64000
+
+    def test_family_inference_ignores_non_anthropic_entries(self, monkeypatch):
+        _install_registry(monkeypatch, _anthropic("claude-opus-4-5", 64000))
+        cfg = {
+            "claude-opus-5-5": {
+                "type": "custom_openai",
+                "name": "claude-opus-5-5",
+                "context_length": 200000,
+            }
+        }
+        assert cp_config.get_model_max_output_tokens("claude-opus-5-5", cfg) == 30000
+
+    def test_family_inference_is_not_applied_to_ambiguous_matches(self, monkeypatch):
+        _install_registry(
+            monkeypatch,
+            OPUS5,
+            _copilot_opus5(),
+            _anthropic("claude-opus-4-5", 64000),
+        )
+        cfg = {"my-opus": {**self.ENTRY, "context_length": 200000}}
+        assert cp_config.get_model_max_output_tokens("my-opus", cfg) == 30000
+
+    def test_catalog_value_beats_family_inference(self, monkeypatch):
+        _install_registry(monkeypatch, _anthropic("claude-opus-4-5", 64000))
+        cfg = {
+            "claude-opus-5-5": {
+                "type": "custom_anthropic",
+                "name": "claude-opus-5-5",
+                "max_output_tokens": 128000,
+            }
+        }
+        assert cp_config.get_model_max_output_tokens("claude-opus-5-5", cfg) == 128000
+
+    def test_user_override_beats_family_inference(self, monkeypatch):
+        _install_registry(monkeypatch, _anthropic("claude-opus-4-5", 64000))
+        cp_config.set_model_setting("claude-opus-5-5", "max_output_tokens", 8192)
+        cfg = {
+            "claude-opus-5-5": {"type": "custom_anthropic", "name": "claude-opus-5-5"}
+        }
+        assert cp_config.get_model_max_output_tokens("claude-opus-5-5", cfg) == 8192
 
     def test_registry_failure_falls_through(self, monkeypatch):
         def boom():

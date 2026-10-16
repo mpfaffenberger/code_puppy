@@ -206,3 +206,58 @@ class TestHelpers:
             pytest.skip("Python 3.10 lacks BaseExceptionGroup")
         group = BaseExceptionGroup("bundle", [ValueError("x")])
         assert _needs_deep_diagnostics(group)
+
+
+class TestTokenLimitHint:
+    MESSAGE = (
+        "Model token limit (30000) exceeded before any response was generated. "
+        "Increase the `max_tokens` model setting"
+    )
+
+    def _run(self, exc, model_name="claude-opus-5-5"):
+        with patch("code_puppy.agents._diagnostics.emit_info") as mock_info:
+            with patch("code_puppy.agents._diagnostics.emit_warning") as mock_warn:
+                with patch("code_puppy.agents._diagnostics.log_error"):
+                    emit_exception_diagnostics(exc, group_id="g", model_name=model_name)
+        return mock_info, mock_warn
+
+    def test_generic_line_is_kept_and_hint_is_emitted_exactly_once(self):
+        info, warn = self._run(RuntimeError(self.MESSAGE))
+        assert "Unexpected error: Model token limit" in _rendered_lines(
+            info.call_args_list
+        )
+        warn.assert_called_once()
+        assert "claude-opus-5-5" in warn.call_args.args[0]
+        assert warn.call_args.kwargs["group_id"] == "g"
+
+    def test_tool_call_truncation_variant_gets_no_hint(self):
+        _, warn = self._run(
+            RuntimeError(
+                "Model token limit (30000) exceeded while generating a tool call"
+            )
+        )
+        warn.assert_not_called()
+
+    def test_hint_failure_does_not_propagate(self):
+        with patch("code_puppy.agents._diagnostics.emit_info"):
+            with patch("code_puppy.agents._diagnostics.log_error"):
+                with patch(
+                    "code_puppy.agents._diagnostics.token_limit_hint",
+                    side_effect=RuntimeError("hint blew up"),
+                ):
+                    emit_exception_diagnostics(RuntimeError(self.MESSAGE), group_id="g")
+
+    def test_warning_emit_failure_does_not_propagate(self):
+        with patch("code_puppy.agents._diagnostics.emit_info"):
+            with patch("code_puppy.agents._diagnostics.log_error"):
+                with patch(
+                    "code_puppy.agents._diagnostics.emit_warning",
+                    side_effect=RuntimeError("display dead"),
+                ):
+                    emit_exception_diagnostics(
+                        RuntimeError(self.MESSAGE), group_id="g", model_name="m"
+                    )
+
+    def test_model_name_is_optional(self):
+        _, warn = self._run(RuntimeError(self.MESSAGE), model_name=None)
+        warn.assert_called_once()
