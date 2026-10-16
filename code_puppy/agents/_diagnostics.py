@@ -13,12 +13,13 @@ guarded; diagnostic emit must never itself raise.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional
 
 from rich.text import Text
 
+from code_puppy.agents._token_limit_hint import token_limit_hint
 from code_puppy.error_logging import log_error
-from code_puppy.messaging import emit_info
+from code_puppy.messaging import emit_info, emit_warning
 
 # Python 3.11+ builtin; graceful fallback for 3.10
 try:
@@ -104,7 +105,9 @@ def _needs_deep_diagnostics(exc: BaseException) -> bool:
     return any(trigger in msg for trigger in DIAGNOSTIC_TRIGGERS)
 
 
-def emit_exception_diagnostics(exc: BaseException, group_id: str) -> None:
+def emit_exception_diagnostics(
+    exc: BaseException, group_id: str, model_name: Optional[str] = None
+) -> None:
     """Emit terminal diagnostics for ``exc``, bounded and defensive.
 
     Cheap path (always): one-line summary + log file write.
@@ -117,6 +120,13 @@ def emit_exception_diagnostics(exc: BaseException, group_id: str) -> None:
     try:
         emit_info(f"Unexpected error: {exc}", group_id=group_id)
     except Exception:  # pragma: no cover - emit should never fail
+        pass
+
+    try:
+        hint = token_limit_hint(exc, model_name)
+        if hint:
+            emit_warning(hint, group_id=group_id)
+    except Exception:  # pragma: no cover - a hint must never cascade
         pass
 
     # File logging is independent of terminal output and stays on the cheap path.

@@ -82,6 +82,7 @@ from code_puppy.agents._run_signals import (
     reset_pause_state_at_run_start,
     sigint_should_cancel,
 )
+from code_puppy.agents._token_limit_hint import resolve_model_name
 from code_puppy.agents.event_stream_handler import event_stream_handler
 from code_puppy.agents.run_invocation import ModelCall, run_with_exception_retry
 from code_puppy.callbacks import (
@@ -1006,7 +1007,9 @@ async def _run_with_mcp_impl(
                     group_id=group_id,
                 )
             for exc in unexpected:
-                emit_exception_diagnostics(exc, group_id=group_id)
+                emit_exception_diagnostics(
+                    exc, group_id=group_id, model_name=resolve_model_name(agent)
+                )
             # Re-raise, else the bare except* would silently mask all errors
             # and run_with_mcp() would look like success.
             if unexpected:
