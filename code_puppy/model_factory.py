@@ -319,7 +319,8 @@ def make_model_settings(
     - GPT-5 models: reasoning_effort and verbosity (non-codex only)
     - Claude/Anthropic models: extended_thinking and budget_tokens
     - ``max_tokens`` resolved via :func:`config.get_model_max_output_tokens`
-      (per-model override > catalog ``max_output_tokens`` > 15% heuristic)
+      (per-model override > catalog ``max_output_tokens`` > models.dev >
+      known-sibling inference > 15% heuristic)
 
     Args:
         model_name: The name of the model to create settings for.

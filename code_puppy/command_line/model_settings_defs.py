@@ -62,8 +62,9 @@ SETTING_DEFINITIONS: Dict[str, Dict] = {
         "name": "Max Output Tokens",
         "description": (
             "Output-token cap sent as max_tokens. Default comes from the model's "
-            "catalog entry (filled from models.dev by /add_model), else 15% of "
-            "context length clamped to 2048-65536."
+            "catalog entry (filled from models.dev by /add_model), else models.dev "
+            "or a known sibling model, else 15% of context length clamped to "
+            "2048-65536."
         ),
         "type": "numeric",
         "min": 256,
