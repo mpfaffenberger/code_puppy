@@ -11,6 +11,8 @@ import importlib
 import json
 import ssl
 
+import httpcore2
+import httpx2
 import pytest
 
 from code_puppy.agents._runtime import (
@@ -151,6 +153,84 @@ async def test_streaming_retry_recovers_from_provider_sse_extra_data(
         attempts += 1
         if attempts == 1:
             malformed_event.json()
+        return "recovered"
+
+    monkeypatch.setattr(
+        "code_puppy.error_logging.log_error", lambda *args, **kwargs: None
+    )
+    monkeypatch.setattr("code_puppy.agents._runtime.emit_warning", lambda *args: None)
+
+    run_with_retry = streaming_retry(max_attempts=2, delays=(0,))(run_once)
+
+    assert await run_with_retry() == "recovered"
+    assert attempts == 2
+
+
+# httpx2 / httpcore2 exceptions are a separate hierarchy from httpx / httpcore.
+# Streams from the OAuth clients and pydantic-ai provider clients raise them.
+_HTTPX2_TRANSIENT = [
+    pytest.param(lambda: httpx2.ReadTimeout("stream stalled"), id="httpx2-ReadTimeout"),
+    pytest.param(lambda: httpx2.ConnectTimeout("slow"), id="httpx2-ConnectTimeout"),
+    pytest.param(lambda: httpx2.ReadError("reset"), id="httpx2-ReadError"),
+    pytest.param(
+        lambda: httpx2.RemoteProtocolError("peer closed"),
+        id="httpx2-RemoteProtocolError",
+    ),
+    pytest.param(
+        lambda: httpcore2.ReadTimeout("stream stalled"), id="httpcore2-ReadTimeout"
+    ),
+    pytest.param(lambda: httpcore2.ReadError("reset"), id="httpcore2-ReadError"),
+    pytest.param(
+        lambda: httpcore2.RemoteProtocolError("peer closed"),
+        id="httpcore2-RemoteProtocolError",
+    ),
+]
+
+
+@pytest.mark.parametrize("make_exc", _HTTPX2_TRANSIENT)
+def test_is_retryable_one_recognizes_httpx2_transport_errors(make_exc) -> None:
+    assert _is_retryable_one(make_exc()) is True
+
+
+@pytest.mark.parametrize("make_exc", _HTTPX2_TRANSIENT)
+def test_should_retry_streaming_reaches_httpx2_error_inside_group(make_exc) -> None:
+    group = BaseExceptionGroup("stream failed", [make_exc()])
+
+    assert should_retry_streaming(group) is True
+
+
+def test_should_retry_streaming_reaches_httpx2_error_through_cause_chain() -> None:
+    """SDKs wrap the transport error; the real one sits on ``__cause__``."""
+    try:
+        try:
+            raise httpx2.ReadTimeout("stream stalled")
+        except httpx2.ReadTimeout as inner:
+            raise RuntimeError("provider wrapper") from inner
+    except RuntimeError as wrapped:
+        assert should_retry_streaming(wrapped) is True
+
+
+def test_httpx2_http_status_error_is_not_retryable() -> None:
+    """A 401 is a client error: surviving it is fine, retrying it is not."""
+    request = httpx2.Request("GET", "https://example.test/v1/stream")
+    response = httpx2.Response(401, request=request)
+    exc = httpx2.HTTPStatusError("unauthorized", request=request, response=response)
+
+    assert _is_retryable_one(exc) is False
+
+
+@pytest.mark.asyncio
+async def test_streaming_retry_recovers_from_httpx2_read_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The reported failure: ReadTimeout while consuming an established stream."""
+    attempts = 0
+
+    async def run_once() -> str:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise httpx2.ReadTimeout("stream stalled")
         return "recovered"
 
     monkeypatch.setattr(
