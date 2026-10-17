@@ -61,7 +61,10 @@ _NAMESPACES = {
     "tools.common.approval": (("tools.common.approval.",), 12),
     "renderer": (("renderer.",), 26),
     "model_factory": (("model_factory.",), 15),
-    "agent_menu": (("agent_menu.",), 10),
+    # agent_menu.* lost three reload messages when that path moved to the
+    # deferred queue; agent_reload.* carries the replacements, so the floor
+    # tracks both namespaces rather than counting retired keys.
+    "agent_menu": (("agent_menu.", "agent_reload."), 9),
 }
 
 _PREFIXES = [prefixes for prefixes, _ in _NAMESPACES.values()]

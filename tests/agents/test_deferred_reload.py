@@ -31,6 +31,25 @@ def _agent(name: str) -> MagicMock:
     return agent
 
 
+# Every wait below is bounded. An unbounded wait turns a queue regression that
+# never releases a worker into a hung pytest process with no diagnostic, which
+# is strictly less useful than a failure. Workers are daemons so a wedged one
+# cannot keep the interpreter alive after the assertion fires.
+_WORKER_TIMEOUT = 5
+
+
+def _spawn(target) -> threading.Thread:
+    thread = threading.Thread(target=target, daemon=True)
+    thread.start()
+    return thread
+
+
+def _join(*threads: threading.Thread) -> None:
+    for thread in threads:
+        thread.join(_WORKER_TIMEOUT)
+        assert not thread.is_alive(), "worker never finished; the queue left it blocked"
+
+
 def test_base_agent_refresh_config_is_a_noop():
     class StaticAgent(BaseAgent):
         name = "static"
@@ -192,11 +211,8 @@ def test_concurrent_requests_are_not_lost():
     names = [f"agent-{index}" for index in range(12)]
     agents = {name: _agent(name) for name in names}
 
-    threads = [threading.Thread(target=queue.request, args=(name,)) for name in names]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join()
+    threads = [_spawn(lambda name=name: queue.request(name)) for name in names]
+    _join(*threads)
 
     for name in names:
         queue.apply(lambda name=name: agents[name])
@@ -219,15 +235,14 @@ def test_requests_racing_with_drain_leave_nothing_pending():
         while not producers_done.is_set():
             queue.apply(lambda: agent)
 
-    producers = [threading.Thread(target=produce) for _ in range(8)]
-    drainer = threading.Thread(target=drain)
-    drainer.start()
-    for thread in producers:
-        thread.start()
-    for thread in producers:
-        thread.join()
-    producers_done.set()
-    drainer.join()
+    producers = [_spawn(produce) for _ in range(8)]
+    drainer = _spawn(drain)
+    try:
+        _join(*producers)
+    finally:
+        # Release the drainer even if a producer died mid-loop.
+        producers_done.set()
+    _join(drainer)
 
     queue.apply(lambda: agent)  # drain whatever arrived after the last pass
     settled = agent.reload_code_generation_agent.call_count
@@ -361,7 +376,7 @@ def test_threaded_request_during_failing_rebuild_is_not_orphaned():
     calls = []
 
     def producer():
-        started.wait()
+        assert started.wait(_WORKER_TIMEOUT)
         queue.request("helper")
         requested.set()
 
@@ -373,13 +388,16 @@ def test_threaded_request_during_failing_rebuild_is_not_orphaned():
         raise RuntimeError("failure")
 
     agent.reload_code_generation_agent.side_effect = rebuild
-    thread = threading.Thread(target=producer)
-    thread.start()
+    thread = _spawn(producer)
     queue.request("helper")
-    with patch("code_puppy.agents.deferred_reload.emit_warning"):
-        queue.apply(lambda: agent)
-        thread.join()
-        queue.apply(lambda: agent)
+    try:
+        with patch("code_puppy.agents.deferred_reload.emit_warning"):
+            queue.apply(lambda: agent)
+            _join(thread)
+            queue.apply(lambda: agent)
+    finally:
+        # If the drain never reached rebuild, the producer is still blocked.
+        started.set()
 
     assert len(calls) == 1 + 3
 
@@ -480,11 +498,14 @@ def test_request_between_retries_stops_the_obsolete_drain():
 
     queue.request("helper")
     queue._lock = PausingLock()
-    thread = threading.Thread(target=producer)
-    thread.start()
-    with patch("code_puppy.agents.deferred_reload.emit_warning") as warn:
-        queue.apply(lambda: agent)
-        thread.join()
+    thread = _spawn(producer)
+    try:
+        with patch("code_puppy.agents.deferred_reload.emit_warning") as warn:
+            queue.apply(lambda: agent)
+            _join(thread)
+    finally:
+        # If the paused drain never fired, the producer is still blocked.
+        release.set()
 
     assert agent.reload_code_generation_agent.call_count == 1
     warn.assert_not_called()
