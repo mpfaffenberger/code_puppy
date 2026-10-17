@@ -22,8 +22,9 @@ dependencies = [
     # the client extra is a first-party requirement rather than something to
     # inherit from pydantic-ai-slim[mcp]. Without it an environment can hold a
     # bare fastmcp-slim and fail at import with "FastMCP client support is not
-    # installed". Range matches pydantic-ai-slim's own published range so the
-    # two never disagree about which fastmcp-slim to resolve.
+    # installed". The range mirrors the one pydantic-ai-slim publishes for its
+    # own mcp extra so that a pydantic-ai upgrade moving the supported fastmcp
+    # range is a deliberate decision here, not a silent one.
     "fastmcp-slim[client]>=3.3.0,<5",
     # FastMCP's OAuth callback server explicitly uses Uvicorn websockets-sansio.
     "websockets>=14.0",
