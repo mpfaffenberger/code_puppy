@@ -18,6 +18,13 @@ dependencies = [
     "anyio>=4.7.0",
     "typer>=0.12.0",
     "mcp>=1.9.4",
+    # code_puppy.mcp_ imports fastmcp.client.* directly (transports, auth), so
+    # the client extra is a first-party requirement rather than something to
+    # inherit from pydantic-ai-slim[mcp]. Without it an environment can hold a
+    # bare fastmcp-slim and fail at import with "FastMCP client support is not
+    # installed". Range matches pydantic-ai-slim's own published range so the
+    # two never disagree about which fastmcp-slim to resolve.
+    "fastmcp-slim[client]>=3.3.0,<5",
     # FastMCP's OAuth callback server explicitly uses Uvicorn websockets-sansio.
     "websockets>=14.0",
     "httpx[http2]>=0.24.1",
