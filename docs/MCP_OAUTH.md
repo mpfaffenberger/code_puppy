@@ -43,7 +43,10 @@ binding. Already-running shared connections are not stopped by unbinding alone;
 use `/mcp stop <name>` to stop the server globally.
 
 Stop cancels pending startup, including browser authorization waits, as well as
-established connections. Stops and startup failures suppress automatic restart
-for this Puppy session. Use `/mcp start <name>` to explicitly retry; a new Puppy
-process again follows the saved auto-start settings. Closing the local callback
-listener does not close an already-open browser tab.
+established connections. Explicit stops suppress automatic restart for this
+Puppy session until `/mcp start <name>` is requested. Transient startup failures
+remain eligible for auto-start on the next bound-agent invocation, not repeatedly
+within the same invocation. A saved `enabled: false` blocks auto-start; an explicit
+`/mcp start <name>` can still enable the server for this session. A new Puppy
+process again follows the saved settings. Closing the local callback listener
+does not close an already-open browser tab.

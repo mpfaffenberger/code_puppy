@@ -30,6 +30,7 @@ from code_puppy.agents._history import (
     estimate_tokens_for_message,
     hash_message,
 )
+from code_puppy.agents._mcp import prepared_mcp_run
 from code_puppy.agents._runtime import run_with_mcp, should_retry_streaming
 from code_puppy.config import (
     get_agent_pinned_model,
@@ -82,6 +83,7 @@ class BaseAgent(ABC):
         self._auto_model_override: Optional[str] = None
         self._puppy_rules: Optional[str] = None
         self._mcp_servers: List[Any] = []
+        self._bound_mcp_toolsets: List[Any] = []
         self.cur_model: Optional[pydantic_ai.models.Model] = None
         self.pydantic_agent: Any = None
         # Cached probe agent for tool-overhead counting before the real build;
@@ -319,7 +321,8 @@ class BaseAgent(ABC):
         )
 
     async def run_with_mcp(self, prompt: str, **kwargs: Any) -> Any:
-        return await run_with_mcp(self, prompt, **kwargs)
+        async with prepared_mcp_run(self):
+            return await run_with_mcp(self, prompt, **kwargs)
 
     # ---- MCP integration shims --------------------------------------------
     def get_runtime_mcp_toolsets(self) -> List[Any]:
