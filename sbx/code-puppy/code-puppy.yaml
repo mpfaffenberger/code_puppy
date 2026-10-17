@@ -1,0 +1,38 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: workload
+displayName: Code Puppy
+description: Code Puppy coding agent on the Docker shell template, installed with uvx
+
+args:
+  version:
+    description: code-puppy version to install from PyPI
+    default: "0.0.930"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    buildArg: CODE_PUPPY_VERSION
+
+provides: ["code-puppy@${{ kit.args.version }}"]
+
+# Provider credentials and provider egress are intentionally NOT declared
+# here. Code Puppy's provider set is open-ended (OAuth plugins, API keys,
+# arbitrary custom endpoints), so static declarations would prompt every
+# user for keys they never use while still missing their actual provider.
+# `sbx/wizard.py` derives exactly the credentials your configured models
+# need (`code-puppy --setup sbx plan`) into a generated mixin
+# (sbx/.personal/code-puppy-creds). This workload keeps only the
+# infrastructure egress every setup needs.
+capabilities:
+  - type: com.docker.sandbox/sbx@1
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          - pypi.org:443
+          - files.pythonhosted.org:443
+          - models.dev:443
+          - github.com:443
+          - api.github.com:443
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      filename: AGENTS.md
+      contentFile: ./context.md
