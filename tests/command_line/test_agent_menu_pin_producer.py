@@ -121,6 +121,14 @@ def test_the_producer_never_rebuilds_on_the_calling_thread():
     with (
         patch("code_puppy.command_line.agent_menu.set_agent_pinned_model"),
         patch("code_puppy.command_line.agent_menu.emit_success"),
+        # agent_menu binds get_current_agent into its own namespace, so the
+        # consumer alias is the one an eager rebuild would reach. Patching only
+        # the defining module leaves these assertions vacuous; both are patched
+        # so either route trips them.
+        patch(
+            "code_puppy.command_line.agent_menu.get_current_agent",
+            return_value=agent,
+        ),
         patch("code_puppy.agents.agent_manager.get_current_agent", return_value=agent),
     ):
         _apply_pinned_model("helper", "gpt-5")
