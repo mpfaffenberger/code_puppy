@@ -6,7 +6,7 @@ governed network egress and proxy-managed API keys:
 
 | Kit | Kind | What it does |
 |---|---|---|
-| `code-puppy/` | workload | Starts from the Docker `shell` template image, installs Code Puppy with `uvx code-puppy` (version-pinned, cache pre-warmed at image build), declares provider credentials and egress |
+| `code-puppy/` | workload | Starts from the Docker `shell` template image, installs Code Puppy with `uvx code-puppy` (version-pinned, cache pre-warmed at image build). Deliberately declares **no** provider credentials — those are derived per user (see Wizard) |
 | `code-puppy-config/` | mixin | Injects Code Puppy's user configuration into `/home/agent/.code_puppy/`: `puppy.cfg`, MCP servers, extra models, global `AGENTS.md`, skills, agents, plugins |
 
 ## Prerequisites
@@ -48,13 +48,24 @@ uv pip install --python .venv\Scripts\python.exe -e ..\code_puppy_core_plugins
 
 (On Linux/macOS use `.venv/bin/python` and `../code_puppy_core_plugins`.)
 
-| Provider | How the sandbox authenticates |
+Credentials are **derived from your configured models**
+(`code-puppy --setup sbx plan`): the wizard generates a personal
+credentials mixin declaring exactly the keys and egress your catalog
+needs — a Meta-only user is asked for nothing else, and a ZAI Coding
+Plan or custom-endpoint user is covered automatically. Transports:
+
+| Credential kind | How the sandbox authenticates |
 |---|---|
-| `meta`, `anthropic`, `openai`, `gemini`, `openrouter` | Proxy-managed key (`sbx secret` + binding); guest sees a sentinel |
-| `copilot` | Device-flow login inside the sandbox (`/copilot-login`) |
-| `claude-code`, `codex`, `grok` | Experimental: `--sync-tokens` copies the host token file in; host owns refresh |
+| Static API keys (incl. Meta's minted key, ZAI, custom endpoints) | Proxy-managed key (`sbx secret` + binding); guest sees a sentinel |
+| Copilot (device flow) | Sign in inside the sandbox (`/copilot-login`) |
+| Claude Code / Codex / Grok OAuth | Experimental: `--sync-tokens` copies the host token file in; host owns refresh |
 
 ## Run
+
+> The stock kits carry no provider credentials, so a bare manual run
+> starts an agent that cannot call any model. Prefer the wizard above,
+> or compose a generated credentials mixin
+> (`--kit ./sbx/.personal/code-puppy-creds`) after running it once.
 
 Local, from this repository (your current directory becomes the
 workspace):
@@ -210,13 +221,13 @@ Two independent paths:
    web UI under **MCP** run outside the guest and need no in-sandbox
    configuration.
 
-## Providers beyond the core four
+## Providers beyond the derived set
 
-The workload declares optional credentials for Anthropic, OpenAI,
-Gemini, and OpenRouter. For another provider, add both blocks to
-`code-puppy/code-puppy.yaml` (network egress and credential injection
-are separate grants), then bind the key with `sbx secret set <service>`.
-Example for Groq:
+Anything in your model catalog is derived automatically (see Wizard),
+including `custom_openai` endpoints added via `/add_model`. To hand-add
+a credential to the generated mixin's descriptor instead, add both
+blocks (network egress and credential injection are separate grants),
+then bind the key with `sbx secret set <service>`. Example for Groq:
 
 ```yaml
 # under network-policy@1 allow:

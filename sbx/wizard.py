@@ -1,27 +1,22 @@
 #!/usr/bin/env python3
 """Host-side wizard: turn your local Code Puppy setup into a sandbox.
 
-Stdlib-only; run with any Python 3.11+ (``uvx`` not required)::
+Stdlib-only; run it with the project environment's Python (NOT
+``uv run``, which re-syncs .venv from uv.lock -- see sbx/README.md)::
 
-    python sbx/wizard.py --name my-pup --provider meta
-    python sbx/wizard.py --dry-run            # show every step, change nothing
+    .venv\\Scripts\\python.exe sbx\\wizard.py --name my-pup --smoke
+    .venv\\Scripts\\python.exe sbx\\wizard.py --dry-run
 
-What it does, per provider transport (see setup_cli providers.py):
-
-- ``proxy-managed-env`` (meta, API-key providers): makes sure the key
-  is in the sbx secret store (piped via stdin, never printed) and the
-  kit's use of it is approved in sbx's credentials.yaml. The minted
-  Meta key is read from ~/.code_puppy/meta_oauth.json when present.
-- ``auth-in-sandbox`` (copilot): nothing to prepare; you run the
-  device-flow login inside the sandbox after creation.
-- ``token-file-sync`` (claude-code, codex, grok; experimental): with
-  --sync-tokens, copies the host OAuth token file into the sandbox
-  after creation. The host stays the refresh owner; re-run with an
-  existing sandbox name and --sync-tokens to refresh.
-
-It then personalizes the config mixin from your real setup via
-``code-puppy --setup export --sbx`` (secret-free), creates the
-sandbox, and optionally smoke-tests it.
+The sandbox's credentials are *derived from your configured models*
+(``code-puppy --setup sbx plan``), never hand-enumerated: the wizard
+generates a personal credentials mixin declaring exactly the keys and
+egress your catalog needs (Meta, ZAI Coding Plan, custom endpoints,
+...), ensures each key is in the sbx secret store (piped via stdin,
+never printed) with an approved binding, exports your configuration
+secret-free into a personal config mixin, then creates the sandbox
+from workload + both mixins. OAuth token-file providers can opt into
+--sync-tokens (experimental); device-flow providers sign in inside
+the sandbox.
 """
 
 from __future__ import annotations
@@ -38,22 +33,21 @@ import tempfile
 from pathlib import Path
 
 SBX_DIR = Path(__file__).resolve().parent
-PERSONAL_DIR = SBX_DIR / ".personal" / "code-puppy-config"
+PERSONAL_CONFIG_DIR = SBX_DIR / ".personal" / "code-puppy-config"
+PERSONAL_CREDS_DIR = SBX_DIR / ".personal" / "code-puppy-creds"
 
-PROXY_PROVIDERS = {
-    # provider id -> (sbx service, env var, inject domain)
-    "meta": ("meta", "META_API_KEY", "api.meta.ai"),
-    "anthropic": ("anthropic", "ANTHROPIC_API_KEY", "api.anthropic.com"),
-    "openai": ("openai", "OPENAI_API_KEY", "api.openai.com"),
-    "gemini": ("gemini", "GEMINI_API_KEY", "generativelanguage.googleapis.com"),
-    "openrouter": ("openrouter", "OPENROUTER_API_KEY", "openrouter.ai"),
-}
-TOKEN_SYNC_PROVIDERS = {
+# OAuth providers whose token file can be synced into the guest.
+TOKEN_FILES = {
     "claude-code": "claude_code_oauth.json",
     "codex": "chatgpt_oauth.json",
     "grok": "grok_oauth.json",
 }
-IN_SANDBOX_PROVIDERS = {"copilot": "/copilot-login"}
+LOGIN_HINTS = {
+    "copilot": "/copilot-login",
+    "claude-code": "/claude-code-auth",
+    "codex": "/chatgpt-auth",
+    "grok": "/grok-auth",
+}
 
 
 class WizardError(Exception):
@@ -102,7 +96,7 @@ def check_prereqs(override: str | None = None) -> str:
     if exe:
         return exe
     if shutil.which("uvx"):
-        return "uvx code-puppy"  # split by caller via shlex-like split below
+        return "uvx code-puppy"  # split by caller via code_puppy_cmd
     raise WizardError("code-puppy (or uvx) not found on PATH")
 
 
@@ -136,11 +130,42 @@ def ensure_setup_cli(exe: str) -> None:
     )
     if (sibling / "code_puppy_core_plugins" / "setup_cli").is_dir():
         hint += (
-            f"\nFix (from the code_puppy repo root):\n"
+            "\nFix (from the code_puppy repo root):\n"
             f"  uv pip install --python {venv_python} -e {Path('..') / 'code_puppy_core_plugins'}\n"
             f"  {venv_python} {Path('sbx') / 'wizard.py'} ...   (not `uv run`, which re-syncs)"
         )
     raise WizardError(hint)
+
+
+def fetch_plan(exe: str, dry: bool) -> dict:
+    """Derive the credential/egress plan from the host model catalog."""
+    result = run(code_puppy_cmd(exe) + ["--setup", "sbx", "plan", "--json"], dry=dry)
+    if dry:
+        return {"credentials": [], "oauth": [], "egress": [], "unsupported": []}
+    if result.returncode != 0:
+        raise WizardError(
+            f"`code-puppy --setup sbx plan` failed: {result.stderr.strip()[:300]}"
+        )
+    text = result.stdout
+    try:
+        return json.loads(text[text.index("{") : text.rindex("}") + 1])
+    except (ValueError, json.JSONDecodeError) as exc:
+        raise WizardError(f"could not parse sbx plan output: {exc}") from exc
+
+
+def filter_plan(plan: dict, provider: str | None) -> dict:
+    if not provider:
+        return plan
+    plan = {
+        **plan,
+        "credentials": [c for c in plan["credentials"] if c["service"] == provider],
+        "oauth": [o for o in plan["oauth"] if o["id"] == provider],
+    }
+    plan["egress"] = sorted(
+        {c["domain"] for c in plan["credentials"]}
+        | {d for o in plan["oauth"] for d in o["domains"]}
+    )
+    return plan
 
 
 def secret_stored(service: str) -> bool:
@@ -163,22 +188,22 @@ def meta_key_from_disk() -> str | None:
         return None
 
 
-def ensure_secret(provider: str, dry: bool) -> None:
-    service, env_var, _domain = PROXY_PROVIDERS[provider]
+def ensure_secret(service: str, env_var: str, dry: bool) -> None:
     if secret_stored(service):
         print(f"sbx secret '{service}': already stored")
         return
-    if provider == "meta":
+    value: str | None = None
+    if service == "meta":
         value = meta_key_from_disk()
         if not value:
             raise WizardError(
                 "no Meta key found; run /meta-auth in a local Code Puppy "
                 "session first (creates ~/.code_puppy/meta_oauth.json)"
             )
-    else:
+    if not value:
         value = os.environ.get(env_var) or getpass.getpass(f"Enter {env_var}: ")
-        if not value:
-            raise WizardError(f"no value provided for {env_var}")
+    if not value:
+        raise WizardError(f"no value provided for {env_var}")
     result = run(["sbx", "secret", "set", service], dry=dry, input_text=value)
     if result.returncode != 0:
         raise WizardError(
@@ -193,18 +218,18 @@ def bindings_path() -> Path:
     return Path.home() / ".config" / "sbx" / "credentials.yaml"
 
 
-def ensure_binding(provider: str, dry: bool) -> None:
-    service, _env, domain = PROXY_PROVIDERS[provider]
+def ensure_binding(service: str, domain: str, dry: bool) -> None:
     path = bindings_path()
     text = path.read_text(encoding="utf-8") if path.is_file() else ""
     if re.search(rf"(?m)^\s{{2}}{re.escape(service)}:", text):
         print(f"binding for '{service}': already approved")
         return
     block = f"  {service}:\n    apiKey:\n      domains: [{domain}]\n"
-    if "bindings:" not in text:
-        text = "bindings:\n" + block
-    else:
-        text = text.rstrip() + "\n" + block
+    text = (
+        ("bindings:\n" + block)
+        if "bindings:" not in text
+        else text.rstrip() + "\n" + block
+    )
     if dry:
         print(f"[dry-run] would write binding for {service} -> {domain} in {path}")
         return
@@ -213,67 +238,126 @@ def ensure_binding(provider: str, dry: bool) -> None:
     print(f"binding for '{service}' -> {domain}: written to {path}")
 
 
+def build_creds_mixin(plan: dict, dry: bool) -> Path | None:
+    """Generate the personal credentials mixin from the derived plan."""
+    if not plan["credentials"] and not plan["egress"]:
+        return None
+    lines = [
+        "# syntax=docker/sandbox-kit:3",
+        'schemaVersion: "3"',
+        "kind: mixin",
+        "displayName: Code Puppy credentials (generated)",
+        (
+            "description: Generated by sbx/wizard.py from the host model "
+            "catalog; regenerated on every wizard run. Do not edit."
+        ),
+        "",
+        "capabilities:",
+    ]
+    if plan["egress"]:
+        lines.append("  - type: com.docker.sandbox/network-policy@1")
+        lines.append("    config:")
+        lines.append("      runtime:")
+        lines.append("        allow:")
+        lines += [f"          - {domain}:443" for domain in plan["egress"]]
+    for cred in plan["credentials"]:
+        fmt = cred["format"].replace('"', '\\"')
+        lines += [
+            "  - type: com.docker.sandbox/credential@1",
+            "    optional: true",
+            f"    description: {cred['service']} access (derived from host models)",
+            "    config:",
+            f"      service: {cred['service']}",
+            "      phase: runtime",
+            "      apiKey:",
+            f"        name: {cred['env_var']}",
+            "        proxyManaged: true",
+            "        inject:",
+            f"          - domain: {cred['domain']}",
+            f"            header: {cred['header']}",
+            f'            format: "{fmt}"',
+        ]
+    if dry:
+        print(f"[dry-run] would generate credentials mixin in {PERSONAL_CREDS_DIR}:")
+        print("\n".join(lines))
+        return PERSONAL_CREDS_DIR
+    PERSONAL_CREDS_DIR.mkdir(parents=True, exist_ok=True)
+    (PERSONAL_CREDS_DIR / "code-puppy-creds.yaml").write_text(
+        "\n".join(lines) + "\n", encoding="utf-8"
+    )
+    (PERSONAL_CREDS_DIR / "code-puppy-creds.dockerfile").write_text(
+        "# Capability-only mixin: credentials/egress, no files to overlay.\n"
+        "FROM scratch\n",
+        encoding="utf-8",
+    )
+    print(f"personal credentials mixin: {PERSONAL_CREDS_DIR}")
+    return PERSONAL_CREDS_DIR
+
+
 def build_personal_mixin(exe: str, dry: bool) -> Path:
-    """Export the host setup (secret-free) into a personal mixin dir."""
+    """Export the host setup (secret-free) into a personal config mixin."""
     with tempfile.TemporaryDirectory(prefix="pup-export-") as tmp:
         result = run(
             code_puppy_cmd(exe) + ["--setup", "export", tmp, "--sbx", "--json"],
             dry=dry,
         )
         if dry:
-            print(f"[dry-run] would copy export into {PERSONAL_DIR}")
-            return PERSONAL_DIR
+            print(f"[dry-run] would copy export into {PERSONAL_CONFIG_DIR}")
+            return PERSONAL_CONFIG_DIR
         if result.returncode != 0:
             raise WizardError(
                 "`code-puppy --setup export` failed; is the setup_cli plugin "
                 f"installed? {result.stderr.strip()[:300]}"
             )
-        PERSONAL_DIR.mkdir(parents=True, exist_ok=True)
+        PERSONAL_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         stock = SBX_DIR / "code-puppy-config"
         # Personal descriptor = stock minus the lifecycle puppy.cfg
         # generator (the exported sanitized puppy.cfg replaces it).
         descriptor = (stock / "code-puppy-config.yaml").read_text(encoding="utf-8")
         descriptor = descriptor.split("capabilities:")[0].rstrip() + "\n"
-        (PERSONAL_DIR / "code-puppy-config.yaml").write_text(
+        (PERSONAL_CONFIG_DIR / "code-puppy-config.yaml").write_text(
             descriptor, encoding="utf-8"
         )
         shutil.copy2(
             stock / "code-puppy-config.dockerfile",
-            PERSONAL_DIR / "code-puppy-config.dockerfile",
+            PERSONAL_CONFIG_DIR / "code-puppy-config.dockerfile",
         )
-        files_dest = PERSONAL_DIR / "files"
+        files_dest = PERSONAL_CONFIG_DIR / "files"
         if files_dest.exists():
             shutil.rmtree(files_dest)
         shutil.copytree(Path(tmp) / "files", files_dest)
-    print(f"personal mixin: {PERSONAL_DIR}")
-    return PERSONAL_DIR
+    print(f"personal config mixin: {PERSONAL_CONFIG_DIR}")
+    return PERSONAL_CONFIG_DIR
 
 
-def sync_tokens(name: str, provider: str, dry: bool) -> None:
-    filename = TOKEN_SYNC_PROVIDERS[provider]
-    source = Path.home() / ".code_puppy" / filename
-    if not source.is_file():
-        raise WizardError(
-            f"host token file {source} not found; authenticate on the host first"
+def sync_tokens(name: str, plan: dict, dry: bool) -> None:
+    for entry in plan["oauth"]:
+        filename = TOKEN_FILES.get(entry["id"])
+        if not filename or entry["transport"] != "token-file-sync":
+            continue
+        source = Path.home() / ".code_puppy" / filename
+        if not source.is_file():
+            print(f"warning: no host token file {source} for {entry['id']}; skipped")
+            continue
+        run(
+            ["sbx", "cp", str(source), f"{name}:/home/agent/.code_puppy/{filename}"],
+            dry=dry,
         )
-    run(
-        ["sbx", "cp", str(source), f"{name}:/home/agent/.code_puppy/{filename}"],
-        dry=dry,
-    )
-    print(
-        "note: token synced into the guest (experimental). The host stays "
-        "the refresh owner; re-sync if the sandbox reports an expired token."
-    )
+        print(
+            f"note: {entry['id']} token synced into the guest (experimental). "
+            "The host stays the refresh owner; re-sync on expiry."
+        )
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--name", default="code-puppy-sandbox")
-    providers_all = sorted(
-        set(PROXY_PROVIDERS) | set(TOKEN_SYNC_PROVIDERS) | set(IN_SANDBOX_PROVIDERS)
+    parser.add_argument(
+        "--provider",
+        help="only include this service/provider from the derived plan "
+        "(default: everything your configured models need)",
     )
-    parser.add_argument("--provider", default="meta", choices=providers_all)
-    parser.add_argument("--model", help="default model key (stock mixin only)")
+    parser.add_argument("--model", help="default model key (stock config mixin only)")
     parser.add_argument("--workspace", help="host directory to mount as workspace")
     parser.add_argument(
         "--stock-config",
@@ -281,9 +365,14 @@ def main(argv: list[str] | None = None) -> int:
         help="use the stock config mixin instead of a personal export",
     )
     parser.add_argument(
+        "--no-creds",
+        action="store_true",
+        help="skip the generated credentials mixin entirely",
+    )
+    parser.add_argument(
         "--sync-tokens",
         action="store_true",
-        help="copy the host OAuth token file into the sandbox (experimental)",
+        help="copy host OAuth token files into the sandbox (experimental)",
     )
     parser.add_argument(
         "--smoke",
@@ -294,27 +383,34 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--code-puppy",
         metavar="EXE",
-        help="code-puppy executable to drive (default: PATH, else uvx)",
+        help="code-puppy executable to drive (default: project .venv, else PATH/uvx)",
     )
     args = parser.parse_args(argv)
 
     try:
         exe = check_prereqs(args.code_puppy)
-        if not args.stock_config:
+        needs_setup_cli = not (args.stock_config and args.no_creds)
+        if needs_setup_cli:
             ensure_setup_cli(exe)
-        if args.provider in PROXY_PROVIDERS:
-            ensure_secret(args.provider, args.dry_run)
-            ensure_binding(args.provider, args.dry_run)
-        elif args.provider in TOKEN_SYNC_PROVIDERS and not args.sync_tokens:
-            print(
-                f"warning: {args.provider} uses token-file auth; without "
-                "--sync-tokens the sandbox starts unauthenticated"
-            )
 
-        if args.stock_config:
-            mixin = SBX_DIR / "code-puppy-config"
-        else:
-            mixin = build_personal_mixin(exe, args.dry_run)
+        plan: dict = {"credentials": [], "oauth": [], "egress": [], "unsupported": []}
+        creds_mixin: Path | None = None
+        if not args.no_creds:
+            plan = filter_plan(fetch_plan(exe, args.dry_run), args.provider)
+            for entry in plan["unsupported"]:
+                print(
+                    f"warning: no sandbox credential for {entry['model']} "
+                    f"[{entry['type']}]: {entry['reason']}"
+                )
+            for cred in plan["credentials"]:
+                ensure_secret(cred["service"], cred["env_var"], args.dry_run)
+                ensure_binding(cred["service"], cred["domain"], args.dry_run)
+            creds_mixin = build_creds_mixin(plan, args.dry_run)
+        mixin = (
+            SBX_DIR / "code-puppy-config"
+            if args.stock_config
+            else build_personal_mixin(exe, args.dry_run)
+        )
 
         create = [
             "sbx",
@@ -325,6 +421,8 @@ def main(argv: list[str] | None = None) -> int:
             "--kit",
             str(mixin),
         ]
+        if creds_mixin:
+            create += ["--kit", str(creds_mixin)]
         if args.model and args.stock_config:
             create += ["--kit-arg", f"code-puppy-config.model={args.model}"]
         if args.workspace:
@@ -333,8 +431,8 @@ def main(argv: list[str] | None = None) -> int:
         if result.returncode != 0:
             raise WizardError("sbx create failed")
 
-        if args.provider in TOKEN_SYNC_PROVIDERS and args.sync_tokens:
-            sync_tokens(args.name, args.provider, args.dry_run)
+        if args.sync_tokens:
+            sync_tokens(args.name, plan, args.dry_run)
         if args.smoke:
             run(
                 [
@@ -349,11 +447,15 @@ def main(argv: list[str] | None = None) -> int:
                 dry=args.dry_run,
                 capture=False,
             )
-        if args.provider in IN_SANDBOX_PROVIDERS:
-            print(
-                f"next: attach and run {IN_SANDBOX_PROVIDERS[args.provider]} "
-                "inside the sandbox to finish sign-in"
-            )
+        for entry in plan["oauth"]:
+            if entry["transport"] == "auth-in-sandbox":
+                hint = LOGIN_HINTS.get(entry["id"], "/login")
+                print(f"next: attach and run {hint} inside the sandbox to sign in")
+            elif entry["transport"] == "token-file-sync" and not args.sync_tokens:
+                print(
+                    f"note: {entry['id']} models start unauthenticated; rerun "
+                    "with --sync-tokens to copy the host token file in"
+                )
         print(f"done. Attach with: sbx run --name {args.name}")
         return 0
     except WizardError as exc:
