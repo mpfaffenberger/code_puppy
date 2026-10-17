@@ -95,8 +95,46 @@ def _block_reason(callback_result: dict) -> str:
         return _GENERIC_BLOCK_REASON
 
 
+def _handled_tool_result(callback_result: dict) -> str | None:
+    """Return the result a blocking hook supplies in place of the tool's.
+
+    A ``pre_tool_call`` hook that has *handled* the call itself -- e.g. an
+    editor client that shows ``ask_user_question`` as its own question UI --
+    blocks the tool and passes ``tool_result``: the text the model receives
+    as the tool's return value. Anything that is not a non-blank string is
+    ignored, so the block falls back to an ordinary deny.
+    """
+    try:
+        value = callback_result.get("tool_result")
+        if isinstance(value, str) and value.strip():
+            return value
+    except Exception:
+        pass
+    return None
+
+
+def _handled_result_for_blocks(callback_results: list) -> str | None:
+    """Return the handled result when every blocking hook supplied one.
+
+    ``None`` means "treat the blocks as an ordinary deny" -- including when
+    any one blocking hook gave no ``tool_result``, so a policy deny from one
+    hook is never overridden by another hook's handled result.
+    """
+    blocks = [
+        result
+        for result in callback_results
+        if result and isinstance(result, dict) and result.get("blocked")
+    ]
+    handled = [_handled_tool_result(block) for block in blocks]
+    if blocks and all(handled):
+        return handled[0]
+    return None
+
+
 __all__ = [
     "_block_reason",
+    "_handled_result_for_blocks",
+    "_handled_tool_result",
     "_normalize_claude_code_tool_name",
     "_tool_args_for_pre_tool_call",
     "_writeback_tool_args",

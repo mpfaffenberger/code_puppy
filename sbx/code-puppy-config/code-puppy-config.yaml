@@ -1,0 +1,30 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: mixin
+displayName: Code Puppy configuration
+description: Seeds ~/.code_puppy (puppy.cfg, MCP servers, skills, agents, plugins) for the Code Puppy workload
+
+args:
+  puppy_name:
+    description: Name written to puppy.cfg (required by Code Puppy first-run setup)
+    default: Pup
+  owner_name:
+    description: Owner name written to puppy.cfg (required by Code Puppy first-run setup)
+    default: Sandbox Owner
+  model:
+    description: Default model written to puppy.cfg; empty keeps Code Puppy's own default
+    default: ""
+
+capabilities:
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      files:
+        - path: /home/agent/.code_puppy/puppy.cfg
+          mode: "0600"
+          description: Main Code Puppy configuration (no secrets; keys are proxy-managed)
+          content: |
+            [puppy]
+            puppy_name = ${{ kit.args.puppy_name }}
+            owner_name = ${{ kit.args.owner_name }}
+            model = ${{ kit.args.model }}
+            auto_save_session = true

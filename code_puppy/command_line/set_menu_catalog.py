@@ -519,7 +519,7 @@ _OUTPUT = SettingsCategory(
                 "When True, tool-call result messages (directory listings, "
                 "grep results, diffs, shell output, etc.) render in the "
                 "transcript instead of collapsing to the one-line call "
-                "summary. Default off. On Windows, shell output stays "
+                "summary. Default on. On Windows, shell output stays "
                 "hidden regardless."
             ),
             type_hint="bool",

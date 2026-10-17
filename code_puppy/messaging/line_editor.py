@@ -13,7 +13,8 @@ Meta-b/f), Up/Down (menu > multiline line-move > history), Enter
 POSIX listener clears ICRNL so Ctrl+J = ``\\n`` = newline), Shift/Ctrl+
 Enter (CSI-u + modifyOtherKeys: Shift newline, Ctrl steer), Alt+Enter
 (queue-submit),
-Ctrl+D (EOF on empty), Ctrl+R (reverse search; Enter accepts WITHOUT
+Ctrl+Z / Cmd+Z undo + Ctrl+Y / Cmd+Shift+Z redo (editor_undo; Cmd via
+CSI-u), Ctrl+D (EOF on empty), Ctrl+R (reverse search; Enter accepts WITHOUT
 submitting), Ctrl+V (async smart paste — image or text), Ctrl+X chords
 (registry-driven: Ctrl+E $EDITOR, shell kill/background — see chords),
 Tab/Shift-Tab
@@ -34,7 +35,7 @@ from typing import Callable, List, Optional
 from . import editor_keys as ek
 from .bottom_bar import get_bottom_bar
 from .chords import clear_chord_hint
-from .editor_actions import apply_action, handle_chord
+from .editor_actions import apply_action, handle_chord, splice
 from .editor_history import (
     HistoryNavigator,
     ReverseSearch,
@@ -52,6 +53,7 @@ from .editor_submission import (
     submit_buffer,
     toggle_multiline,
 )
+from .editor_undo import UndoHistory
 from .pause_controller import get_pause_controller
 
 logger = logging.getLogger(__name__)
@@ -64,9 +66,7 @@ DEFAULT_ESC_TIMEOUT = 0.05
 # Raw control chars live in editor_keys (see the Ctrl+K / Ctrl+V notes there).
 _ENTER, _CTRL_J, _TAB, _ESC = ek.ENTER, ek.CTRL_J, ek.TAB, ek.ESC
 _BACKSPACE_KEYS = ek.BACKSPACE_KEYS
-_CTRL_A, _CTRL_C, _CTRL_D = ek.CTRL_A, ek.CTRL_C, ek.CTRL_D
-_CTRL_E, _CTRL_K = ek.CTRL_E, ek.CTRL_K
-_CTRL_R, _CTRL_U, _CTRL_V, _CTRL_W = ek.CTRL_R, ek.CTRL_U, ek.CTRL_V, ek.CTRL_W
+_CTRL_C, _CTRL_D, _CTRL_R, _CTRL_V = ek.CTRL_C, ek.CTRL_D, ek.CTRL_R, ek.CTRL_V
 
 #: Callback signature: ``(text, mode)`` where mode is "now" or "queue".
 SubmitListener = Callable[[str, str], None]
@@ -130,6 +130,7 @@ class RunningLineEditor:
         self._completion = None  # CompletionEngine, attached by run_ui
         self._help_overlay_handler: Optional[Callable[[], None]] = None
         self._multiline = False
+        self._undo = UndoHistory()  # prompt undo/redo; reset on submit
 
     # =========================================================================
     # Accessors / configuration
@@ -202,6 +203,7 @@ class RunningLineEditor:
     def replace_buffer_text(self, text: str) -> None:
         """Replace the whole buffer (external $EDITOR round-trip)."""
         with self._lock:
+            self._checkpoint("replace")
             self._buffer = text
             self._cursor = len(text)
             self._history.reset()
@@ -240,6 +242,7 @@ class RunningLineEditor:
                 self._set_completion_suppressed(False)
             self._queued_messages.cancel()
             if self._buffer or self._cursor:
+                self._checkpoint("clear")  # Ctrl+C wipe stays undoable
                 self._buffer = ""
                 self._cursor = 0
                 self._history.reset()
@@ -268,6 +271,7 @@ class RunningLineEditor:
         with self._lock:
             start = max(0, min(start, len(self._buffer)))
             end = max(start, min(end, len(self._buffer)))
+            self._checkpoint("complete")
             self._buffer = self._buffer[:start] + replacement + self._buffer[end:]
             self._cursor = start + len(replacement)
             self._history.reset()
@@ -348,7 +352,7 @@ class RunningLineEditor:
             elif ch == "f":
                 self._apply_action("word_right")  # Meta-f (macOS Option+Right)
             elif ch in _BACKSPACE_KEYS:
-                self._delete_word_back()  # Alt+Backspace
+                self._apply_action("kill_word_back")  # Alt+Backspace
             elif ch == _ESC:
                 # ESC ESC: first one was bare; keep the second pending.
                 self._esc_pending_at = self._now()
@@ -421,32 +425,9 @@ class RunningLineEditor:
             # Raw-\x16 / image-only clipboard fallback; handler is async.
             self._call_handler(self._clipboard_handler, "clipboard")
             return None
-        if ch in _BACKSPACE_KEYS:
-            if self._cursor > 0:
-                self._buffer = (
-                    self._buffer[: self._cursor - 1] + self._buffer[self._cursor :]
-                )
-                self._cursor -= 1
-                self._after_edit()
-            return None
-        if ch == _CTRL_U:
-            if self._buffer:
-                self._buffer = ""
-                self._cursor = 0
-                self._after_edit()
-            return None
-        if ch == _CTRL_A:
-            self._apply_action("home")
-            return None
-        if ch == _CTRL_E:
-            self._apply_action("end")
-            return None
-        if ch == _CTRL_K:
-            self._kill_to_line_end()
-            return None
-        if ch == _CTRL_W:
-            self._delete_word_back()
-            return None
+        action = ek.classify_control(ch)  # deletes/kills/home/end/undo/redo
+        if action is not None:
+            return self._apply_action(action)
         if ch == _CTRL_D:
             # EOF only on an EMPTY buffer (classic readline semantics).
             if not self._buffer:
@@ -478,6 +459,7 @@ class RunningLineEditor:
     def _history_recall(self, text: Optional[str]) -> None:
         if text is None:
             return
+        self._checkpoint("recall")
         self._buffer = text
         self._cursor = len(text)
         # Programmatic mutation: no menu; close() kills stale queries.
@@ -488,27 +470,13 @@ class RunningLineEditor:
         feed_reverse_search(self, ch)
         return None
 
-    def _delete_word_back(self) -> None:
-        """Ctrl+W / Alt+Backspace: delete to the previous word boundary."""
-        start = ek.word_left(self._buffer, self._cursor)
-        if start < self._cursor:
-            self._buffer = self._buffer[:start] + self._buffer[self._cursor :]
-            self._cursor = start
-            self._after_edit()
-
-    def _kill_to_line_end(self) -> None:
-        """Ctrl+K: kill from the cursor to the end of the logical line."""
-        _start, end = ek.line_bounds(self._buffer, self._cursor)
-        if end > self._cursor:
-            self._buffer = self._buffer[: self._cursor] + self._buffer[end:]
-            self._after_edit()
+    def _checkpoint(self, kind: str) -> None:
+        """Record the current state as an undo step before a rewrite."""
+        self._undo.record(kind, self._buffer, self._cursor)
 
     def _insert_text(self, text: str, typed: bool = True) -> None:
-        self._buffer = (
-            self._buffer[: self._cursor] + text + self._buffer[self._cursor :]
-        )
-        self._cursor += len(text)
-        self._after_edit(typed=typed)
+        kind = "type" if typed and len(text) == 1 else "insert"
+        splice(self, kind, self._cursor, self._cursor, text)
 
     def _insert_paste(self, payload: str) -> None:
         """Insert a completed bracketed paste (classic classification)."""
@@ -533,6 +501,7 @@ class RunningLineEditor:
         force-open works either way (it doesn't come through here).
         """
         self._history.reset()
+        self._undo.settle(self._buffer, self._cursor)
         if typed:
             self._notify_completion()
         else:

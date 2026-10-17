@@ -62,8 +62,9 @@ SETTING_DEFINITIONS: Dict[str, Dict] = {
         "name": "Max Output Tokens",
         "description": (
             "Output-token cap sent as max_tokens. Default comes from the model's "
-            "catalog entry (filled from models.dev by /add_model), else 15% of "
-            "context length clamped to 2048-65536."
+            "catalog entry (filled from models.dev by /add_model), else models.dev "
+            "or a known sibling model, else 15% of context length clamped to "
+            "2048-65536."
         ),
         "type": "numeric",
         "min": 256,
@@ -76,7 +77,7 @@ SETTING_DEFINITIONS: Dict[str, Dict] = {
         "name": "Reasoning Effort",
         "description": "Controls how much effort GPT-5 models spend on reasoning. Higher = more thorough but slower.",
         "type": "choice",
-        "choices": ["none", "low", "medium", "high", "xhigh", "max"],
+        "choices": ["none", "minimal", "low", "medium", "high", "xhigh", "max"],
         "default": "medium",
     },
     "reasoning_context": {

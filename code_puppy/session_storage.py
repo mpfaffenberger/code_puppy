@@ -44,6 +44,8 @@ class SessionPaths:
     pickle_path: Path
     metadata_path: Path
     json_path: Path
+    # Code-mode REPL dump (see agents/_code_mode_session.py).
+    repl_path: Path
 
 
 @dataclass(slots=True)
@@ -95,6 +97,7 @@ def build_session_paths(base_dir: Path, session_name: str) -> SessionPaths:
         pickle_path=base_dir / f"{session_name}.pkl",
         metadata_path=base_dir / f"{session_name}_meta.json",
         json_path=base_dir / f"{session_name}.json",
+        repl_path=base_dir / f"{session_name}_repl.bin",
     )
 
 
@@ -333,6 +336,7 @@ def cleanup_sessions(base_dir: Path, max_sessions: int) -> List[str]:
             paths.json_path.unlink(missing_ok=True)
             paths.pickle_path.unlink(missing_ok=True)
             paths.metadata_path.unlink(missing_ok=True)
+            paths.repl_path.unlink(missing_ok=True)
             removed_sessions.append(stem)
         except OSError:
             continue

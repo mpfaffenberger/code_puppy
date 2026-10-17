@@ -160,6 +160,41 @@ class TestDisplayResumedHistory:
 
         display_resumed_history([mock_msg])
 
+    def test_bracketed_user_content_does_not_raise_markup_error(self, capsys):
+        """Regression test: pasted content containing literal `[/...]`-shaped
+        text (e.g. a K8s command array like `[/bin/python, script.py]`) used
+        to crash resume with a rich MarkupError, because raw content was
+        f-string-interpolated straight into a markup literal instead of
+        being escaped first.
+        """
+        from code_puppy.command_line.autosave_menu import display_resumed_history
+
+        sys_msg = MagicMock()
+        sys_msg.kind = "request"
+        sys_msg.parts = []
+
+        user_msg = MagicMock()
+        user_msg.kind = "request"
+        user_part = MagicMock()
+        user_part.part_kind = "user-prompt"
+        user_part.content = "command: [/home/mlopsenv/bin/python, /app/run.py]"
+        user_msg.parts = [user_part]
+
+        tool_msg = MagicMock()
+        tool_msg.kind = "request"
+        tool_part = MagicMock()
+        tool_part.part_kind = "tool-return"
+        tool_part.tool_name = "shell"
+        tool_part.content = "[/usr/bin/env, bash, -c, echo hi]"
+        tool_msg.parts = [tool_part]
+
+        # Must not raise rich.errors.MarkupError.
+        display_resumed_history([sys_msg, user_msg, tool_msg], num_messages=10)
+
+        captured = capsys.readouterr()
+        assert "/home/mlopsenv/bin/python" in captured.out
+        assert "/usr/bin/env" in captured.out
+
 
 class TestEdgeCasesAndErrorHandling:
     """Listing tolerates missing dirs and permission errors."""

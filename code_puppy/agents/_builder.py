@@ -11,6 +11,7 @@ hook; see :func:`code_puppy.callbacks.on_wrap_pydantic_agent`.
 
 from __future__ import annotations
 
+import os
 import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple
@@ -21,6 +22,7 @@ from pydantic_ai.capabilities import ProcessHistory
 from code_puppy.agents._code_mode import (
     bind_declared_speculation,
     build_speculative_code_mode,
+    main_repl_path,
 )
 from code_puppy.agents._compaction import HistoryCompaction
 from code_puppy.agents._model_message_transform import build_model_message_transform
@@ -47,6 +49,7 @@ from code_puppy.config import (
 from code_puppy.mcp_ import get_mcp_manager
 from code_puppy.messaging import emit_error, emit_info, emit_warning
 from code_puppy.model_factory import ModelFactory, make_model_settings
+from code_puppy.model_utils import static_then_runtime
 
 if TYPE_CHECKING:
     from code_puppy.model_utils import PreparedPrompt
@@ -142,6 +145,23 @@ def _truncate_agents_md(content: str, source: str, max_chars: int) -> str:
     return content[:max_chars] + notice
 
 
+def _same_file(candidate: Path, other: Optional[Path]) -> bool:
+    """True when ``candidate`` is the very file ``other`` names.
+
+    Run from the home directory, ``.code_puppy/AGENTS.md`` *is* the global
+    ``~/.code_puppy/AGENTS.md``; loading it again as project rules puts the
+    same text into the system prompt twice. Compared by filesystem identity,
+    so symlinks and path aliases count as the same file, while a distinct
+    project file with identical text still loads.
+    """
+    if other is None:
+        return False
+    try:
+        return os.path.samefile(candidate, other)
+    except OSError:
+        return False
+
+
 def load_puppy_rules() -> Optional[str]:
     """Load AGENT(S).md from global config dir and/or the current project dir.
 
@@ -163,12 +183,14 @@ def load_puppy_rules() -> Optional[str]:
     max_chars = get_agents_md_max_chars()
 
     global_rules: Optional[str] = None
+    global_file: Optional[Path] = None
     for name in _AGENT_RULE_FILES:
         candidate = Path(CONFIG_DIR) / name
         if candidate.exists():
             text = _read_rules_text(candidate)
             if text is None:
                 continue
+            global_file = candidate
             global_rules = _truncate_agents_md(
                 text,
                 source=f"global {_friendly_path(candidate)}",
@@ -183,7 +205,7 @@ def load_puppy_rules() -> Optional[str]:
     if code_puppy_dir.is_dir():
         for name in _AGENT_RULE_FILES:
             candidate = code_puppy_dir / name
-            if candidate.exists():
+            if candidate.exists() and not _same_file(candidate, global_file):
                 text = _read_rules_text(candidate)
                 if text is None:
                     continue
@@ -198,7 +220,7 @@ def load_puppy_rules() -> Optional[str]:
     if project_rules is None:
         for name in _AGENT_RULE_FILES:
             candidate = Path(name)
-            if candidate.exists():
+            if candidate.exists() and not _same_file(candidate, global_file):
                 text = _read_rules_text(candidate)
                 if text is None:
                     continue
@@ -239,6 +261,21 @@ def load_mcp_servers(
     if agent_name:
         _autostart_bound_servers(manager, agent_name)
     return manager.get_servers_for_agent(agent_name=agent_name)
+
+
+def _with_runtime_mcp_toolsets(agent: Any, mcp_servers: List[Any]) -> List[Any]:
+    """Append the MCP toolsets injected for this agent instance.
+
+    Embedders (an ACP client's ``mcpServers``) attach these with
+    ``BaseAgent.set_runtime_mcp_toolsets``. ``--no-tools`` still means no MCP
+    toolsets at all.
+    """
+    from code_puppy.tools import tools_disabled
+
+    runtime = getattr(agent, "get_runtime_mcp_toolsets", lambda: [])()
+    if not runtime or tools_disabled():
+        return mcp_servers
+    return list(mcp_servers or []) + list(runtime)
 
 
 def _iter_autostart_targets(manager: Any, agent_name: str):
@@ -589,13 +626,15 @@ def _agent_exposes_tool(agent: Any, tool_name: str) -> bool:
 def _assemble_instructions(agent: Any, resolved_model_name: str) -> PreparedPrompt:
     """Compose full system prompt + puppy rules.
 
-    Returns the model-prepared prompt: ``instructions`` for the agent plus any
-    standing ``system_prompt`` a plugin wants emitted as its own
+    Returns the model-prepared prompt: the *static* ``instructions`` for the
+    agent plus any standing ``system_prompt`` a plugin wants emitted as its own
     ``SystemPromptPart`` ahead of them.
     """
     from code_puppy.model_utils import prepare_prompt_for_model
 
-    instructions = agent.get_full_system_prompt()
+    # Static part only: the per-run tail (identity, load_prompt fragments) is a
+    # separate dynamic instruction part, see build_pydantic_agent.
+    instructions = agent.get_system_prompt()
     puppy_rules = load_puppy_rules()
     if puppy_rules:
         instructions += f"\n{puppy_rules}"
@@ -649,7 +688,11 @@ def build_pydantic_agent(
         agent_name=getattr(agent, "name", None),
     )
     prepared = _assemble_instructions(agent, resolved_model_name)
+    instructions = static_then_runtime(
+        prepared.instructions, agent.get_runtime_system_prompt()
+    )
     mcp_servers = load_mcp_servers(agent_name=getattr(agent, "name", None))
+    mcp_servers = _with_runtime_mcp_toolsets(agent, mcp_servers)
     model_settings = make_model_settings(
         resolved_model_name,
         overrides=agent.get_model_settings_overrides(),
@@ -671,7 +714,7 @@ def build_pydantic_agent(
             # A standing system_prompt (if any) becomes its own SystemPromptPart
             # in the first request, rendered ahead of the instructions block.
             system_prompt=prepared.system_prompt_parts,
-            instructions=prepared.instructions,
+            instructions=instructions,
             output_type=output_type,
             retries=3,
             toolsets=toolsets,
@@ -690,7 +733,7 @@ def build_pydantic_agent(
                 history_compaction,
                 ProcessHistory(steer_processor),
                 build_response_clamp(),
-                build_model_message_transform(logical_agent_name),
+                build_model_message_transform(logical_agent_name, agent),
                 # Sub-agent recursion guards on the wrap_tool_execute seam
                 # (denies invoke_agent calls past the depth caps before the
                 # tool body runs). Sole wrap_tool_execute implementer, so
@@ -703,7 +746,7 @@ def build_pydantic_agent(
                 # declared outermost by the capability, so list position is
                 # inert; its speculation lifecycle leaves as typed
                 # code_mode.* CapabilityEvents for the bridge below.
-                *build_speculative_code_mode(agent_tools),
+                *build_speculative_code_mode(agent_tools, repl_path=main_repl_path),
                 # LAST: the app-side event bridge. Capabilities above emit
                 # typed CapabilityEvents; the bridge's @on_event listeners
                 # translate them into legacy callbacks/spinner/messaging.

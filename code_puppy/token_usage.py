@@ -3,36 +3,37 @@
 Kept separate from ``register_callbacks.py`` so this stays unit-testable in
 isolation and so callbacks file remains thin.
 
-Design note — *why* we re-implement the token counting locally:
+Design note — why the aggregate total is anchored, not independently estimated:
 
-``/context`` is supposed to be a *consistent*, model-agnostic view of how
-full the context window is. The core runtime has two layers that make
-token counts vary between models:
+``/context`` used to compute its own ``max(1, floor(len(text) / 2.5))``
+estimate over the whole history, deliberately kept separate from
+compaction's calibrated estimator so the two heuristics couldn't disagree
+in confusing ways. But two heuristics measuring the same conversation can
+still drift from each other *and* from what the provider actually billed
+-- especially once caching is involved (Anthropic cache read/write, OpenAI
+cached tokens) -- and neither was the ground truth.
 
-1. The ``token_ratio_learner`` plugin monkeypatches
-   ``_history.estimate_tokens`` to use *learned* chars-per-token ratios
-   per model. Great for compaction decisions — terrible for a
-   user-facing dashboard, because the same conversation reports
-   different token counts on different models.
+``code_puppy.context_accounting.context_tokens`` anchors the total to the
+latest completed response's own API-reported prompt-token count and only
+estimates the delta since then, falling back to a plain per-message
+estimate when there's no valid anchor (first request, a rewritten prefix,
+a model switch, or a failed/cancelled request). Compaction, the status bar,
+and this module's aggregate total now share that one function, so they
+can't disagree with each other -- and the number agrees with the account
+you're actually billed on.
 
-2. ``_history._apply_multiplier`` bumps some models (e.g. Opus 4.7 by
-   1.35×) to compensate for tokenizers that over-tokenize relative to
-   our heuristic. Again: useful for safety margins, lousy for
-   "consistency between models".
-
-To keep ``/context`` honest and stable across model switches, this
-module uses its OWN raw ``max(1, floor(len(text) / 2.5))`` estimator
-and applies NO multiplier. Other parts of the system (compaction,
-summarization triggers) still use the calibrated values — that's
-intentional.
+The per-bucket overhead breakdown below (system prompt, AGENTS.md, tool
+schemas, MCP, kennel memory) stays a separate, deliberately raw heuristic:
+it has no corresponding per-bucket figure in the API response to anchor
+to, so it remains an estimate, not a billed-token partition.
 """
 
 from __future__ import annotations
 
 import json
 import math
-from dataclasses import dataclass
-from typing import Any, List, Optional
+from dataclasses import dataclass, field
+from typing import Any, List, Optional, cast
 
 __all__ = [
     "ContextUsage",
@@ -56,8 +57,8 @@ GREEN_CIRCLE = "🟢"
 YELLOW_CIRCLE = "🟡"
 RED_CIRCLE = "🔴"
 
-# Classic char/token heuristic, kept private so /context's numbers don't drift
-# if the core estimator is patched at runtime (token_ratio_learner plugin).
+# Model-agnostic heuristic for approximate /context overhead buckets.
+# Aggregate totals use shared accounting rather than these raw estimates.
 _CHARS_PER_TOKEN = 2.5
 
 
@@ -68,6 +69,18 @@ class ContextUsage:
     ``overhead_tokens`` is the *sum* of the per-bucket breakdown fields. The
     breakdown fields are optional (default 0) so legacy call sites that only
     care about the aggregate keep working without changes.
+
+    ``total_tokens`` is the authoritative aggregate -- the same number
+    compaction used to decide whether to trim. It is intentionally *not*
+    derived from ``used_tokens + overhead_tokens``: the overhead breakdown
+    is an independent, approximate re-estimate (e.g. it re-queries live MCP
+    tool schemas rather than the agent's cached server list), so it can be
+    larger *or* smaller than the shared total. Deriving the displayed total
+    from the breakdown would let an approximate bucket sum silently
+    override the number compaction actually decided against. Pass the real
+    total explicitly via the private ``_total_tokens`` constructor field;
+    when omitted (legacy/test call sites), it falls back to
+    ``used_tokens + overhead_tokens`` so existing behavior is unchanged.
     """
 
     used_tokens: int
@@ -79,10 +92,17 @@ class ContextUsage:
     pydantic_tools_tokens: int = 0
     mcp_tokens: int = 0
     kennel_memory_tokens: int = 0
+    _total_tokens: Optional[int] = field(default=None, repr=False)
+
+    def __post_init__(self) -> None:
+        if self._total_tokens is None:
+            object.__setattr__(
+                self, "_total_tokens", self.used_tokens + self.overhead_tokens
+            )
 
     @property
     def total_tokens(self) -> int:
-        return self.used_tokens + self.overhead_tokens
+        return cast(int, self._total_tokens)  # always set in __post_init__
 
     @property
     def proportion(self) -> float:
@@ -114,26 +134,13 @@ def pick_indicator(proportion: float) -> str:
 def _raw_estimate_tokens(text: str) -> int:
     """Pure char/2.5 heuristic. Identical for every model, every time.
 
-    Mirrors the *original* ``_history.estimate_tokens`` before any plugin
-    patches it. We deliberately don't import it — the whole point of this
-    function is to stay immune to the token_ratio_learner monkeypatch.
+    Keeps detailed overhead buckets model-agnostic and independent of
+    calibrated message estimates. The authoritative aggregate is computed
+    separately through shared context accounting.
     """
     if not text:
         return 0
     return max(1, math.floor(len(text) / _CHARS_PER_TOKEN))
-
-
-def _raw_tokens_for_message(message: Any) -> int:
-    """Sum raw tokens across a message's parts via the canonical stringifier."""
-    # ``stringify_part`` is a pure formatter — safe to import directly.
-    from code_puppy.agents._history import stringify_part
-
-    total = 0
-    for part in getattr(message, "parts", []) or []:
-        part_str = stringify_part(part)
-        if part_str:
-            total += _raw_estimate_tokens(part_str)
-    return total
 
 
 def _raw_tokens_for_pydantic_tools(tools: Optional[dict]) -> int:
@@ -370,11 +377,12 @@ def get_current_usage() -> Optional[ContextUsage]:
     Returns ``None`` whenever any required piece of data is unavailable —
     missing agent, missing model config, or *any* exception while estimating
     history/overhead/capacity. We deliberately do **not** fall back to
-    zero on partial failures: a misleading 🟢 indicator is worse than no
+    zero on partial failures: a misleading green indicator is worse than no
     indicator at all (the prompt simply hides the badge).
 
-    All token counts are computed with the raw model-agnostic heuristic
-    so the badge stays stable when the user switches models mid-session.
+    Aggregate counting shares compaction's API anchor and fallback estimator
+    (see the module docstring). Detailed overhead buckets below are
+    estimates, not a billed-token partition.
     """
     try:
         from code_puppy.agents.agent_manager import get_current_agent
@@ -390,7 +398,6 @@ def get_current_usage() -> Optional[ContextUsage]:
 
     try:
         history = agent.get_message_history() or []
-        used = sum(_raw_tokens_for_message(m) for m in history)
         capacity = agent._get_model_context_length()
     except Exception:
         return None
@@ -403,8 +410,16 @@ def get_current_usage() -> Optional[ContextUsage]:
     except Exception:
         return None
 
+    try:
+        from code_puppy.context_accounting import active_model_name, context_tokens
+
+        overhead = agent._estimate_context_overhead()
+        total = context_tokens(history, active_model_name(agent), overhead)
+    except Exception:
+        return None
+
     return ContextUsage(
-        used_tokens=int(used),
+        used_tokens=max(0, int(total) - breakdown.total),
         overhead_tokens=breakdown.total,
         capacity=int(capacity),
         system_prompt_tokens=breakdown.system_prompt_tokens,
@@ -412,4 +427,8 @@ def get_current_usage() -> Optional[ContextUsage]:
         pydantic_tools_tokens=breakdown.pydantic_tools_tokens,
         mcp_tokens=breakdown.mcp_tokens,
         kennel_memory_tokens=breakdown.kennel_memory_tokens,
+        # Authoritative: must equal compaction's decision total exactly,
+        # even when the (approximate, independently-estimated) overhead
+        # breakdown is larger than it -- see ContextUsage's docstring.
+        _total_tokens=int(total),
     )

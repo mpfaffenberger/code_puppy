@@ -13,6 +13,49 @@ from typing import Optional
 
 from . import editor_keys as ek
 from .chords import clear_chord_hint, dispatch_chord, show_chord_hint
+from .editor_undo import apply_snapshot
+
+
+def splice(ed, kind: str, start: int, end: int, text: str = "") -> None:
+    """Replace ``buffer[start:end]`` with ``text`` as ONE undoable edit.
+
+    The single choke point for keystroke edits (typing, deletes, kills):
+    records the pre-edit state under ``kind`` (see ``editor_undo``),
+    leaves the cursor after the inserted text, then runs the editor's
+    post-edit bookkeeping. Empty no-op edits record nothing.
+    """
+    if start == end and not text:
+        return
+    buf = ed._buffer
+    # Typing coalesces per word: a non-space right after whitespace opens
+    # a new undo step.
+    boundary = kind == "type" and start > 0 and buf[start - 1].isspace()
+    ed._undo.record(kind, buf, ed._cursor, boundary=boundary and not text.isspace())
+    ed._buffer = buf[:start] + text + buf[end:]
+    ed._cursor = start + len(text)
+    ed._after_edit(typed=kind != "insert")
+
+
+def _edit_action(ed, action: str) -> bool:
+    """Buffer-editing actions (deletes, kills, undo/redo); True = handled."""
+    buf, cur = ed._buffer, ed._cursor
+    if action == "backspace":
+        splice(ed, "backspace", max(0, cur - 1), cur)
+    elif action == "delete":
+        splice(ed, "delete", cur, min(len(buf), cur + 1))
+    elif action == "kill_word_back":
+        splice(ed, "kill", ek.word_left(buf, cur), cur)
+    elif action == "kill_to_end":
+        splice(ed, "kill", cur, max(cur, ek.line_bounds(buf, cur)[1]))
+    elif action == "kill_all":
+        splice(ed, "kill", 0, len(buf))
+    elif action == "undo":
+        apply_snapshot(ed, ed._undo.undo(buf, cur))
+    elif action == "redo":
+        apply_snapshot(ed, ed._undo.redo(buf, cur))
+    else:
+        return False
+    return True
 
 
 def handle_chord(ed, ch: str) -> bool:
@@ -53,6 +96,8 @@ def apply_action(ed, action: Optional[str]) -> Optional[str]:
     if action == "submit_now":
         # Ctrl+Enter steers the in-flight run; idle routing starts a turn.
         return ed._submit(mode="now")
+    if _edit_action(ed, action):
+        return None
     menu_open = ed._completion_open()
     if action == "up":
         if menu_open:
@@ -99,10 +144,6 @@ def apply_action(ed, action: Optional[str]) -> Optional[str]:
     elif action == "end":
         ed._cursor = ek.line_bounds(ed._buffer, ed._cursor)[1]
         ed._repaint()
-    elif action == "delete":
-        if ed._cursor < len(ed._buffer):
-            ed._buffer = ed._buffer[: ed._cursor] + ed._buffer[ed._cursor + 1 :]
-            ed._after_edit()
     elif action == "word_left":
         ed._cursor = ek.word_left(ed._buffer, ed._cursor)
         ed._repaint()
@@ -111,4 +152,4 @@ def apply_action(ed, action: Optional[str]) -> Optional[str]:
         ed._repaint()
 
 
-__all__ = ["apply_action", "handle_chord"]
+__all__ = ["apply_action", "handle_chord", "splice"]

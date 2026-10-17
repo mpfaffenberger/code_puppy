@@ -12,6 +12,7 @@ Plugins can register:
 
 import re
 from dataclasses import dataclass
+from typing import Callable
 
 _GLM_VERSION_RE = re.compile(r"glm-(\d+(?:\.\d+)?)")
 _GPT_VERSION_RE = re.compile(r"gpt-(\d+)(?:\.(\d+))?")
@@ -51,6 +52,19 @@ class PreparedPrompt:
     def system_text(self) -> str:
         """Everything that lands in the model's system slot (for token estimates)."""
         return "\n\n".join(p for p in (self.system_prompt, self.instructions) if p)
+
+
+def static_then_runtime(static: str, runtime: str) -> list[str | Callable[[], str]]:
+    """Agent ``instructions``: the static prompt, then the per-run tail as a dynamic part.
+
+    pydantic-ai marks callables as dynamic instruction parts and places the
+    Anthropic cache breakpoint after the last static part (other providers get
+    the parts joined in that order). A per-session value such as the agent ID
+    inside the static text made every session and sub-agent re-write the whole
+    system prompt to the prompt cache. The runtime text is computed once by the
+    caller, so plugins behind it are not re-queried on every request.
+    """
+    return [static, lambda: runtime]
 
 
 def _prepared_from_hook_result(
@@ -493,7 +507,18 @@ def supports_glm_reasoning_effort(model_name: str) -> bool:
 
 # OpenAI effort choices, ordered most-specific first.
 # None means unrecognized; an empty tuple means fixed effort.
-_OPENAI_REASONING_EFFORT_ORDER = ("none", "low", "medium", "high", "xhigh", "max")
+# Full scale, shallow to deep. "minimal" sits between "none" and "low":
+# backends that support disabling reasoning call that "none", while Meta's
+# Muse API rejects "none" (HTTP 400) and supports "minimal" instead.
+_OPENAI_REASONING_EFFORT_ORDER = (
+    "none",
+    "minimal",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+)
 _OPENAI_REASONING_EFFORT_CHOICES: tuple[tuple[str, tuple[str, ...]], ...] = (
     # Non-reasoning chat variants: no reasoning_effort at all.
     ("gpt-5.6-chat-latest", ()),
@@ -566,6 +591,62 @@ def get_openai_reasoning_effort_choices(
                 choice for choice in _OPENAI_REASONING_EFFORT_ORDER if choice in allowed
             ]
     return None
+
+
+# Legacy spellings, normalized before matching against a model's choices.
+# "minimal" is NOT aliased to "none" here: some backends (Meta Muse) reject
+# "none" outright, so an unwanted "none" must clamp to their shallowest
+# supported pass ("minimal"), never be sent.
+_OPENAI_REASONING_EFFORT_ALIASES = {"ultra": "max"}
+
+
+def normalize_openai_reasoning_effort(
+    effort: str | None,
+    choices: list[str] | None,
+    *,
+    default: str | None = None,
+    clamp: bool = True,
+) -> str | None:
+    """Resolve a stored/default effort against a model's supported choices.
+
+    ``default`` (a catalog-declared default) applies only when no explicit
+    ``effort`` was given. Explicit values that are not in ``choices`` snap
+    to the nearest supported depth when ``clamp`` is on, so a stored
+    ``"none"`` on a backend that rejects it becomes ``"minimal"`` instead
+    of an HTTP 400, and ``"max"`` on a model without it becomes
+    ``"xhigh"``. Without ``clamp``, unsupported values return None (the
+    caller then omits the parameter entirely). Empty ``choices`` (fixed
+    effort) always returns None; None ``choices`` (unrecognized model)
+    passes the candidate through unchanged.
+    """
+    source = effort if effort is not None else default
+    if source is None:
+        return None
+    candidate = _OPENAI_REASONING_EFFORT_ALIASES.get(source, source)
+    if choices is None:
+        return candidate
+    if not choices:
+        return None
+    if candidate in choices:
+        return candidate
+    if not clamp or candidate not in _OPENAI_REASONING_EFFORT_ORDER:
+        return None
+    rank = _OPENAI_REASONING_EFFORT_ORDER.index(candidate)
+    return min(
+        choices,
+        key=lambda choice: abs(_OPENAI_REASONING_EFFORT_ORDER.index(choice) - rank),
+    )
+
+
+def get_default_reasoning_effort(model_config: dict | None) -> str | None:
+    """Return the catalog-declared default effort (``setting_defaults``)."""
+    if not model_config:
+        return None
+    defaults = model_config.get("setting_defaults")
+    if not isinstance(defaults, dict):
+        return None
+    value = defaults.get("reasoning_effort")
+    return value if isinstance(value, str) and value else None
 
 
 def resolve_openai_reasoning_effort_choices(

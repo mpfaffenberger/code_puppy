@@ -53,6 +53,7 @@ class QueuedMessageNavigator:
 
         working = self._working
         suppressions = list(self._originals)
+        self._record_edits()
         self._restore(self._drafts)
         return False, working, suppressions
 
@@ -66,6 +67,7 @@ class QueuedMessageNavigator:
             return True, self._drafts[self._index]
 
         working = self._working
+        self._record_edits()
         self._restore(self._drafts)
         return True, working
 
@@ -84,6 +86,7 @@ class QueuedMessageNavigator:
             return False
 
         self._drafts[self._index] = text
+        self._record_edits()
         if mode == "now":
             remaining = [
                 draft
@@ -95,6 +98,14 @@ class QueuedMessageNavigator:
 
         self._restore(self._drafts)
         return False
+
+    def _record_edits(self) -> None:
+        """Persist changed drafts when committed, not on unchanged recall."""
+        from code_puppy.config import save_command_to_history
+
+        for original, draft in zip(self._originals, self._drafts):
+            if draft != original:
+                save_command_to_history(draft)
 
     def cancel(self) -> None:
         """Abandon edits and put every reserved turn back unchanged."""
@@ -125,7 +136,9 @@ class QueuedMessageNavigator:
                     if controller is None:
                         controller = self._controller_provider()
                     for item in oldest_first:
-                        controller.request_steer(item, mode="queue")
+                        controller.request_steer(
+                            item, mode="queue", history_recorded=True
+                        )
                 except Exception:
                     logger.exception("queued messages could not be restored")
         self._originals = []

@@ -72,6 +72,9 @@ class BaseAgent(ABC):
         self._last_model_name: Optional[str] = None
         self._runtime_model_name_override: Optional[str] = None
         self._runtime_system_prompt_additions: List[str] = []
+        # MCP toolsets injected by an embedding client (e.g. ACP ``mcpServers``)
+        # for this agent instance only; merged on every build.
+        self._runtime_mcp_toolsets: List[Any] = []
         # Model chosen by a ``model_select`` hook for the current run. Slots
         # below an explicit runtime override but above pinned/JSON/global, and
         # is reset at the start of every run (see resolve_run_model_selection),
@@ -205,15 +208,27 @@ class BaseAgent(ABC):
         fresh every run and never get persisted into static agent definitions
         (e.g. when an agent is cloned to JSON). See ``clone_agent``.
         """
+        return self.get_system_prompt() + self.get_runtime_system_prompt()
+
+    def get_runtime_system_prompt(self) -> str:
+        """The per-run tail of the system prompt: ``load_prompt`` fragments,
+        runtime additions and this instance's identity.
+
+        Agent builders send it as a *dynamic* instruction part after the static
+        authored prompt. Anthropic prompt caching keys on the static prefix, so
+        a per-session value (the identity ID, a live timestamp) inside the static
+        text would make every session and sub-agent re-write the whole prompt to
+        the cache at a premium.
+        """
         from code_puppy import callbacks
 
-        prompt = self.get_system_prompt()
+        runtime = ""
         prompt_additions = callbacks.on_load_prompt()
         if prompt_additions:
-            prompt += "\n" + "\n".join(prompt_additions)
+            runtime += "\n" + "\n".join(prompt_additions)
         if self._runtime_system_prompt_additions:
-            prompt += "\n" + "\n".join(self._runtime_system_prompt_additions)
-        return prompt + self.get_identity_prompt()
+            runtime += "\n" + "\n".join(self._runtime_system_prompt_additions)
+        return runtime + self.get_identity_prompt()
 
     # ---- Message history (plain dict-level access) ------------------------
     def get_message_history(self) -> List[Any]:
@@ -296,13 +311,32 @@ class BaseAgent(ABC):
         """Refresh external configuration; static agents have nothing to do."""
         return None
 
-    def reload_code_generation_agent(self, message_group: Optional[str] = None) -> Any:
-        return build_pydantic_agent(self, output_type=str, message_group=message_group)
+    def reload_code_generation_agent(
+        self, message_group: Optional[str] = None, *, output_type: Any = str
+    ) -> Any:
+        return build_pydantic_agent(
+            self, output_type=output_type, message_group=message_group
+        )
 
     async def run_with_mcp(self, prompt: str, **kwargs: Any) -> Any:
         return await run_with_mcp(self, prompt, **kwargs)
 
     # ---- MCP integration shims --------------------------------------------
+    def get_runtime_mcp_toolsets(self) -> List[Any]:
+        """Return MCP toolsets injected for this agent instance."""
+        return list(self._runtime_mcp_toolsets)
+
+    def set_runtime_mcp_toolsets(self, toolsets: List[Any]) -> None:
+        """Replace this instance's injected MCP toolsets.
+
+        For embedders that bring their own MCP servers -- an ACP client's
+        ``mcpServers`` -- rather than ``mcp_servers.json``. They are merged
+        with the configured servers on every build, so a rebuild (a model
+        switch, a reload) keeps them, and they never touch global bindings or
+        other agent instances.
+        """
+        self._runtime_mcp_toolsets = list(toolsets)
+
     def transform_mcp_toolsets(self, toolsets: List[Any]) -> List[Any]:
         """Extension seam: post-process resolved MCP toolsets before build.
 

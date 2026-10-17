@@ -64,6 +64,7 @@ from code_puppy.config import (
     get_protected_token_count,
     get_summarization_model_name,
 )
+from code_puppy.context_accounting import context_tokens, model_names
 from code_puppy.messaging import emit_warning
 
 # Kept importable at module level for the context-indicator plugin, which
@@ -202,7 +203,12 @@ class CodePuppyCompactionStore:
         return self.agent._get_model_context_length()
 
     def context_overhead(self) -> int:
-        return self.agent._estimate_context_overhead()
+        overhead = self.agent._estimate_context_overhead()
+        # Cached so the outbound-request stamp (``_model_message_transform``)
+        # can report the exact overhead this measurement used, instead of
+        # re-deriving a possibly-different value moments later.
+        self.agent._context_overhead = overhead
+        return overhead
 
     def model_name(self) -> Optional[str]:
         if self.agent is None:
@@ -225,6 +231,17 @@ def _take_forced_compaction_request() -> bool:
     return get_pause_controller().take_compaction_request()
 
 
+def _total_tokens(messages, model, overhead) -> int:
+    """Anchor the whole-history total to the live request model's identity.
+
+    Wired as the capability's ``total_estimator`` -- see
+    ``code_puppy.context_accounting.context_tokens`` for the anchor/fallback
+    logic. Kept as a module-level function (not a lambda) so it shows up by
+    name in tracebacks and can be monkeypatched directly in tests.
+    """
+    return context_tokens(messages, model_names(model), overhead)
+
+
 def build_history_compaction(agent: Any) -> PureHistoryCompaction:
     """Build the pure ``HistoryCompaction`` capability wired to Code Puppy.
 
@@ -243,6 +260,7 @@ def build_history_compaction(agent: Any) -> PureHistoryCompaction:
         strategy_name=lambda: get_compaction_strategy(),
         compaction_threshold=lambda: get_compaction_threshold(),
         token_estimator=estimate_tokens_for_message,
+        total_estimator=_total_tokens,
         message_hasher=hash_message,
         history_sanitizer=sanitize_tool_call_ids,
         force_poll=_take_forced_compaction_request,

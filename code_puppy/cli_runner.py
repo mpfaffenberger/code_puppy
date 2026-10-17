@@ -18,8 +18,6 @@ import sys
 import traceback
 from pathlib import Path
 
-from rich.console import Console
-
 from code_puppy import __version__, callbacks, get_core_plugins_version, plugins
 from code_puppy.agents import apply_agent_reloads, get_current_agent
 from code_puppy.asyncio_cleanup import install_httpcore2_shutdown_filter
@@ -30,7 +28,6 @@ from code_puppy.command_line.attachments import (
 )
 from code_puppy.config import (
     AUTOSAVE_DIR,
-    COMMAND_HISTORY_FILE,
     ensure_config_exists,
     finalize_autosave_session,
     get_current_session_name,
@@ -43,6 +40,7 @@ from code_puppy.keymap import (
     KeymapError,
     validate_cancel_agent_key,
 )
+from code_puppy.malloc_noise_guard import install_malloc_noise_guard
 from code_puppy.messaging import emit_info
 from code_puppy.platform_utils import startup_banner_text
 from code_puppy.terminal_utils import (
@@ -54,6 +52,17 @@ from code_puppy.terminal_utils import (
 from code_puppy.version_checker import default_version_mismatch_behavior
 
 plugins.load_plugin_callbacks()
+
+
+def _save_autosave_snapshot() -> None:
+    """Persist the current autosave snapshot if autosave is enabled.
+
+    No caller needs the success/failure signal (yet) -- keep it YAGNI.
+    """
+    from code_puppy.config import auto_save_session_if_enabled
+
+    auto_save_session_if_enabled()
+
 
 _HEADLESS_AUTONOMY_PROMPT = """\
 This is an unattended, non-interactive run. Never ask for confirmation, approval,
@@ -267,9 +276,10 @@ async def main():
         get_global_queue,
         get_message_bus,
     )
+    from code_puppy.messaging.safe_console import SafeConsole
 
     # Create a shared console for both renderers
-    display_console = Console()
+    display_console = SafeConsole()
 
     # Legacy renderer for backward compatibility (emits via get_global_queue)
     message_queue = get_global_queue()
@@ -589,7 +599,16 @@ async def main():
             )
         else:
             # Default to interactive mode (no args = same as -i)
-            await interactive_mode(message_renderer, initial_command=initial_command)
+            try:
+                await interactive_mode(
+                    message_renderer, initial_command=initial_command
+                )
+            finally:
+                # Belt-and-braces: Ctrl-D, /exit, or a top-level interrupt must
+                # not lose history that a cancelled turn skipped saving.
+                # Headless `-p` runs persist themselves in execute_single_prompt's
+                # own finally, so this must not run for that branch too.
+                _save_autosave_snapshot()
     finally:
         # Tear down the persistent prompt first (restores scroll region, cursor,
         # key listener) so the renderer stops on a sane screen. Idempotent.
@@ -950,9 +969,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 # the CODE_PUPPY_CLASSIC_PROMPT escape hatch.
                 reset_windows_terminal_ansi()
                 task = input(">>> ")
-                from code_puppy.messaging.editor_history import HistoryStore
-
-                HistoryStore(COMMAND_HISTORY_FILE).append(task)
+                # Classic input has no editor: capture history here, even for
+                # shell/slash/exit commands that return before agent dispatch.
+                save_command_to_history(task)
 
         except (KeyboardInterrupt, asyncio.CancelledError) as cancel_exc:
             # Ctrl+C: cancel input and continue. Reset terminal state on Windows
@@ -1132,17 +1151,18 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                         emit_error(t("cli.autosave.load_failed", error=e))
                     continue
                 else:
-                    # Command returned a prompt to execute
+                    # The raw slash command was captured by the input owner;
+                    # its expansion is a distinct newly created prompt.
                     task = command_result
+                    save_command_to_history(task)
             elif command_result is False:
                 # Command not recognized, continue with normal processing
                 pass
 
         apply_agent_reloads(lambda: current_agent)
         if task.strip():
-            # Write to the secret file for permanent history with timestamp
-            save_command_to_history(task)
-
+            # History belongs to input capture (editor/classic/queue insertion),
+            # not dispatch: queued or deferred inputs may already be recorded.
             turn_result = None
             turn_success = False
             turn_error = None
@@ -1171,6 +1191,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                     from code_puppy.callbacks import on_interactive_turn_cancel
 
                     await on_interactive_turn_cancel(task, reason="cancellation")
+                    _save_autosave_snapshot()
                     continue
                 # Get the structured response
                 agent_response = result.output
@@ -1211,15 +1232,14 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
                 await on_interactive_turn_cancel(task, reason="Ctrl+C")
                 emit_warning("\n" + t("cli.turn.cancelled"))
+                _save_autosave_snapshot()
                 continue
             except Exception as e:
                 turn_error = e
                 _render_turn_exception(e)
 
             # Auto-save session if enabled (moved outside the try block to avoid being swallowed)
-            from code_puppy.config import auto_save_session_if_enabled
-
-            auto_save_session_if_enabled()
+            _save_autosave_snapshot()
 
             # ================================================================
             # CONTINUATION LOOP: plugins may request follow-up prompt runs.
@@ -1282,6 +1302,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                         await on_interactive_turn_cancel(
                             next_prompt, reason="cancellation"
                         )
+                        _save_autosave_snapshot()
                         break
 
                     agent_response = result.output
@@ -1298,17 +1319,18 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                         display_console.file.flush()
                     await asyncio.sleep(0.1)
 
-                    auto_save_session_if_enabled()
+                    _save_autosave_snapshot()
                     continuation_result = result
                     continuation_success = True
 
                 except KeyboardInterrupt:
                     await on_interactive_turn_cancel(next_prompt, reason="Ctrl+C")
+                    _save_autosave_snapshot()
                     break
                 except Exception as e:
                     continuation_error = e
                     _render_turn_exception(e)
-                    auto_save_session_if_enabled()
+                    _save_autosave_snapshot()
 
             # Windows: re-clamp raw-Ctrl+C mode after each iteration, as
             # various operations may restore console mode
@@ -1586,6 +1608,8 @@ def _initialize_locale():
 def main_entry():
     """Entry point for the installed CLI tool."""
     _force_utf8_stdio()
+    # Before anything spawns: fork children inherit fd 2 (see the module).
+    install_malloc_noise_guard()
     try:
         # Capture main()'s return so plugins / normal paths set the exit status
         # (None → 0 or an int exit code).

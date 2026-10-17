@@ -20,6 +20,7 @@ from code_puppy.messaging import (  # New structured messaging types
     GrepResultMessage,
     get_message_bus,
 )
+from code_puppy.config import get_speculative_code_mode_enabled
 from code_puppy.tools.common import resolve_path, _sanitize_string, read_text_sanitized
 from code_puppy.tools.ripgrep import find_ripgrep
 from code_puppy.tools import fs_access
@@ -39,16 +40,28 @@ class ListFileOutput(BaseModel):
     error: str | None = None
 
 
+# Whole-file reads above this many (approximate) tokens are refused so a single
+# read cannot flood the model's context. Code mode skips the guard: read_file is
+# then sandbox-only, the body lands in a Python variable rather than the context,
+# and run_code's own return is bounded by ToolOutputLimits. Refusing there just
+# hands the snippet `content=None`, which code silently treats as an empty file.
+READ_FILE_TOKEN_GUARD = 10_000
+
+
 class ReadFileOutput(BaseModel):
     content: str | None
-    num_tokens: conint(lt=10000)
+    num_tokens: conint(ge=0)
     error: str | None = None
 
 
 class MatchInfo(BaseModel):
-    file_path: str | None
-    line_number: int | None
-    line_content: str | None
+    # Never None: both grep paths only emit rows with a path, line and text.
+    # Declaring them optional made every code-mode snippet narrow them before
+    # sorting or reading, which models got wrong ~1x per task (sandbox type
+    # checker rejection, a wasted round trip).
+    file_path: str
+    line_number: int
+    line_content: str
     # True for -A/-B/-C context lines, which are displayed but excluded from
     # the 50-match budget and the reported match/file counts.
     is_context: bool = False
@@ -584,7 +597,7 @@ def _finalize_read_output(
 
     # Simple approximation: ~4 characters per token.
     num_tokens = len(content) // 4
-    if num_tokens > 10000:
+    if num_tokens > READ_FILE_TOKEN_GUARD and not get_speculative_code_mode_enabled():
         return ReadFileOutput(
             content=None,
             error="The file is massive, greater than 10,000 tokens which is dangerous to read entirely. Please read this file in chunks.",

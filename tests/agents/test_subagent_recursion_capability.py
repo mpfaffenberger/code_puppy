@@ -362,6 +362,25 @@ def test_subagent_site_wires_guard_from_tool_surface():
     )
 
 
+def test_subagent_site_bounds_outputs_like_the_main_builder():
+    """Source pin: sub-agents get the main builder's output bounds.
+
+    Without them a sub-agent's oversized tool or ``run_code`` return reaches
+    its context whole: the A/B saw single returns of ~295k characters.
+    """
+    import inspect
+
+    from code_puppy.agents import _builder
+
+    for src in (
+        inspect.getsource(si._invoke_agent_impl),
+        inspect.getsource(_builder.build_pydantic_agent),
+    ):
+        cap_block = src[src.find("capabilities=[") :]
+        assert "*build_tool_output_limits()" in cap_block
+        assert "build_response_clamp()" in cap_block
+
+
 def test_verdict_helper_allows_by_default(monkeypatch):
     monkeypatch.setattr(si, "get_subagent_recursion_limit", lambda: 10)
     monkeypatch.setattr(si, "get_subagent_model_name", lambda: None)

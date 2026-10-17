@@ -30,9 +30,17 @@ from code_puppy.agents._code_mode import (
     sandbox_mount_path,
 )
 from code_puppy.agents._code_mode_guidance import CODE_MODE_GUIDANCE, CodeModeGuidance
+
 from code_puppy.agents._wire_tool_names import StreamedToolNameNormalizer
 from code_puppy.agents.agent_code_puppy import CodePuppyAgent
 from code_puppy.capabilities.eager_timing import EagerTiming
+
+
+def _rendered(guidance: CodeModeGuidance) -> str:
+    """The instruction text the model sees: static parts plus rendered dynamic ones."""
+    return "".join(
+        part() if callable(part) else part for part in guidance.get_instructions()
+    )
 
 
 def _leaves(capability):
@@ -62,6 +70,10 @@ class TestBuildSpeculativeCodeMode:
             "create_file",
             "replace_in_file",
             "load_image_for_analysis",
+            "computer_get_app_state",
+            "computer_snapshot",
+            "computer_screenshot",
+            "computer_use_batch",
         }
         for name in NATIVE_TOOLS:
             assert not _sandbox_tool(ctx, ToolDefinition(name=name))
@@ -114,7 +126,7 @@ class TestBuildSpeculativeCodeMode:
 
         assert guidance.host_path == os.getcwd()
         assert guidance.mount_path == code_mode.mount.virtual_path
-        assert f"`{code_mode.mount.virtual_path}`" in guidance.get_instructions()
+        assert f"`{code_mode.mount.virtual_path}`" in _rendered(guidance)
 
 
 class TestSandboxMountPath:
@@ -199,12 +211,12 @@ async def _run_snippet(code: str) -> str:
 
 class TestCodeModeGuidance:
     def test_guidance_rides_as_capability_instructions(self):
-        text = CodeModeGuidance("/home/p", "/home/p").get_instructions()
+        text = _rendered(CodeModeGuidance("/home/p", "/home/p"))
         assert text.startswith(CODE_MODE_GUIDANCE)
         assert "`/home/p` (same as the host path)" in text
 
     def test_translated_mount_explains_both_spellings(self):
-        text = CodeModeGuidance(r"C:\p", "/c/p").get_instructions()
+        text = _rendered(CodeModeGuidance(r"C:\p", "/c/p"))
         assert "`/c/p` is the host directory `C:\\p`" in text
         assert "take host paths" in text
         assert "takes mount paths" in text
@@ -216,9 +228,11 @@ class TestCodeModeGuidance:
     def test_guidance_teaches_the_native_write_contract(self):
         assert "run_code" in CODE_MODE_GUIDANCE
         assert "literal" in CODE_MODE_GUIDANCE
-        for name in NATIVE_TOOLS:
+        for name in ("create_file", "replace_in_file", "load_image_for_analysis"):
             assert f"`{name}`" in CODE_MODE_GUIDANCE
-        assert "as native tools, outside `run_code`" in CODE_MODE_GUIDANCE
+        assert "Tools in your tool list are native" in CODE_MODE_GUIDANCE
+        assert "plugin tools declaring native routing" in CODE_MODE_GUIDANCE
+        assert "does not bypass consent" in CODE_MODE_GUIDANCE
         assert "Speculative Puppy" not in CODE_MODE_GUIDANCE
 
 

@@ -8,76 +8,62 @@ system prompt changes model behavior.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 from pydantic_ai.capabilities import AbstractCapability
 
+RUN_CODE_TOOL_NAME = "run_code"
+
 CODE_MODE_GUIDANCE = """\
-Speculation is on. Use `create_file`, `replace_in_file`, and
-`load_image_for_analysis` as native tools, outside `run_code`; they are not
-available as functions inside the sandbox. Every other tool is an async function inside `run_code`, a
-persistent sandboxed Python REPL. Call `run_code` with a Python snippet to
-use them; do not attempt to call those functions as native tools.
+Code mode is on. Tools in your tool list are native: call them directly, not
+inside `run_code`. These include `create_file`, `replace_in_file`,
+`load_image_for_analysis`, screenshot-returning Computer Use tools when
+registered, and plugin tools declaring native routing. Every other tool is an
+async function inside `run_code`. Native routing does not bypass consent or
+permissions and does not authorize speculative execution.
 
-The sandbox also has direct capabilities, no function call needed:
+## Write programs, not single calls
 
-- The workspace is mounted read-write (mount path at the end of these
-  instructions): use `pathlib.Path` with absolute paths under the mount to
-  read, write, glob, and stat project files directly. Relative paths do
-  not resolve inside the sandbox.
-- Environment variables (isolated), in-memory scratch files, and the real
-  clock (`time` module) work.
-- There is NO network in the sandbox: anything remote goes through a
-  function like `shell` (e.g. `curl`) or an agent.
+Each `run_code` call is a model round trip that resends the conversation; tool
+calls inside a snippet are nearly free. Spend ONE `run_code` per step of the
+work, with every tool call that step needs:
 
-Use raw Python strings for regex patterns so backslashes are not invalid escapes.
+- Batch: open with the listing PLUS a grep for every term in the task PLUS reads
+  of the files they point at. Read whole files once and slice in Python rather
+  than peeking at ranges. Run tests AND re-read the code you changed together.
+- Chain and loop: feed results into the next call; fan out with
+  `await asyncio.gather(...)` after `import asyncio` (modules are never
+  preloaded; positional awaitables only).
+- Filter in code: results are full Python values. Return compact facts, plus
+  the matched lines behind any count so a too-narrow regex cannot hide misses.
+- Absorb errors with `try`/`except` so one bad path does not cost a round trip.
 
-How to work. The runtime watches your code AS YOU WRITE IT and starts
-eligible calls before the snippet is finished, so the SHAPE of your code
-determines how fast it runs:
+    import asyncio
+    hits = await grep(search_string=r"class \\w+\\(.*BaseHandler")
+    files = sorted({f for m in hits["matches"] if (f := m["file_path"])})
+    srcs = await asyncio.gather(*[read_file(file_path=f) for f in files])
+    {f: (s["content"] or "")[:2000] for f, s in zip(files, srcs)}
 
-1. Emit small, flat statements, one per line. A read call (`list_files`,
-   `read_file`, `grep`) starts executing the moment its line is complete,
-   when its call has all-literal keyword arguments:
+## Sandbox facts
 
-       hits = await grep(search_string="SpeculationState")
-       src = await read_file(file_path="code_puppy/agents/_code_mode.py")
-
-   Each such line runs while you are still writing the lines below it.
-   Computing arguments forfeits that speculative head start. Literal
-   calls can also be detected inside expressions or across multiple lines.
-2. Go BIG in one `run_code` call. Do not split work across many small
-   snippets: every extra round trip to the model wastes the runway that
-   makes early execution pay. 60-100 lines with ten, twenty, thirty tool
-   calls in a single snippet is not just fine, it is the fast path --
-   every additional literal read line is another call already running
-   while you write the lines below it, and the longer the snippet, the
-   more of that work finishes before execution even starts.
-3. Front-load the reads: open every snippet with the literal read lines,
-   one per line, then process the results with plain Python below them.
-   Cast a wide net up front -- read the files you MIGHT need, not just
-   the one you are sure of; an unused result costs nothing you were not
-   already spending on generation.
-4. Never introduce a variable just to pass it: `q = "x"` followed by
-   `grep(search_string=q)` runs cold; `grep(search_string="x")` runs
-   early. Repeat the literal even if it feels less DRY -- here, DRY
-   loses to speed.
-5. Writes and shell commands never speculate, but eager execution can
-   execute them as soon as their statements close, before generation ends.
-   Obtain required approval BEFORE emitting a side-effectful statement;
-   later code cannot undo it. Run independent calls concurrently with
-   `await asyncio.gather(...)` (positional awaitables only; no other
-   task-creation APIs exist in the sandbox).
-6. Keep mutable state small and local: assign results to short fresh
-   names, keep processing blocks brief, and never rebind a name a
-   pending call's line already used. `print(...)` what matters and make
-   the snippet's final expression the value you want returned.
-7. State persists between snippets within a run -- variables and
-   functions carry over. Do not re-fetch what you already hold. Prefer
-   the read functions over `pathlib` for discovery (they start early);
-   use `pathlib` for surgical follow-ups on paths you already hold.
-8. Read before you write, and verify after you change: re-read the file
-   or run the tests in a follow-up snippet.
+- `run_code` state (variables, functions, imports) is saved with the session:
+  it carries over to your next turn and comes back on resume. `restart: true`
+  clears it.
+- The workspace is mounted read-write at the path given at the end of these
+  instructions; `pathlib` needs absolute paths under it (relative paths do not
+  resolve). NOT available: `Path.glob`/`rglob`, `os.walk`, `sys.path`,
+  `subprocess`, `importlib`, `ast`, third-party packages, network. Use
+  `list_files`/`grep`, and the shell function for processes and `curl`.
+- Snippets are type-checked. Narrow `str | None` result fields by binding them
+  once: `if (f := m["file_path"])` then use `f`, or `(r["content"] or "")`.
+  Filtering on `m.get("x")` but using `m["x"]` does not narrow. Check the
+  `error` field rather than letting `or ""` hide a failure.
+- Generator expressions are lists: `next(x for x in ...)` raises; use
+  `next(iter([...]), None)`. Use raw strings for regexes. Pass multi-line shell
+  input (heredocs) as ONE triple-quoted string.
+- Reads whose arguments are all literals start running while you write
+  (speculation); loops and computed arguments are still fine. Writes and shell commands can run as soon
+  as their statement closes: obtain approval BEFORE emitting them.
 """
 
 
@@ -99,5 +85,12 @@ class CodeModeGuidance(AbstractCapability[Any]):
     host_path: str
     mount_path: str
 
-    def get_instructions(self) -> str:
-        return CODE_MODE_GUIDANCE + mount_note(self.host_path, self.mount_path)
+    def get_instructions(self) -> list[str | Callable[[], str]]:
+        # The guidance is a static instruction part and the workspace path a dynamic one:
+        # pydantic-ai puts the Anthropic cache breakpoint after the last static part, so
+        # the guidance stays cached across sessions and directories (every new worktree
+        # or sub-agent would otherwise re-write it to the cache at a premium).
+        return [CODE_MODE_GUIDANCE, self._mount_note]
+
+    def _mount_note(self) -> str:
+        return mount_note(self.host_path, self.mount_path)

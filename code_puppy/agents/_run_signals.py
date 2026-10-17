@@ -230,7 +230,7 @@ def prepare_queued_steer_injection(agent: Any, result: Any) -> Optional[Any]:
         agent._message_history = list(result.all_messages())
     steer_text = pending[0]
     for leftover in pending[1:]:
-        pc.request_steer(leftover, mode="queue")
+        pc.request_steer(leftover, mode="queue", history_recorded=True)
     content, _ = resolve_steer_content(steer_text)
     return content
 

@@ -28,7 +28,9 @@ _NAMESPACES = {
     "cmd": (("cmd.",), 32),
     "cfg": (("cfg.",), 20),
     "mcp.wizard": (("mcp.wizard.",), 39),
+    "mcp.install": (("mcp.install.",), 10),
     "mcp.install_wizard": (("mcp.install_wizard.",), 31),
+    "mcp.edit": (("mcp.edit.",), 10),
     "oauth": (
         (
             "oauth.server.",

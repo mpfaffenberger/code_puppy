@@ -188,7 +188,10 @@ class CDCompleter(Completer):
                 name_prefix = os.path.basename(expanded_lookup)
 
             dirs, _ = list_directory(part)
-            dirnames = [d for d in dirs if d.startswith(name_prefix)]
+            # os.listdir order is arbitrary, and Enter accepts the first
+            # item. Sorting puts an exact match ("foo") ahead of longer
+            # siblings ("foobar") because a prefix always sorts first.
+            dirnames = sorted(d for d in dirs if d.startswith(name_prefix))
 
             # Preserve user's typed style (~, relative, absolute) in emitted
             # completion text instead of leaking expanded absolute paths.
