@@ -64,8 +64,10 @@ Plan or custom-endpoint user is covered automatically. Transports:
 
 > The stock kits carry no provider credentials, so a bare manual run
 > starts an agent that cannot call any model. Prefer the wizard above,
-> or compose a generated credentials mixin
-> (`--kit ./sbx/.personal/code-puppy-creds`) after running it once.
+> or export once (`code-puppy --setup export <dir> --sbx`) and compose
+> the bundle's generated credentials mixin — it is what makes sbx
+> create the credential env vars (e.g. `META_API_KEY`) in the guest:
+> `--kit <dir>/code-puppy-creds`.
 
 Local, from this repository (your current directory becomes the
 workspace):
