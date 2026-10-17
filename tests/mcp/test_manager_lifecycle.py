@@ -101,8 +101,9 @@ async def test_stop_before_start_task_runs_never_enables_server(lifecycle_setup)
 
 
 @pytest.mark.parametrize("suppress_cancellation", [False, True])
+@pytest.mark.parametrize("stop_from", ["loop", "thread"])
 async def test_stop_cancels_and_drains_inflight_start(
-    lifecycle_setup, suppress_cancellation
+    lifecycle_setup, suppress_cancellation, stop_from
 ):
     manager, server, lifecycle = lifecycle_setup
     entered, cancelled = asyncio.Event(), asyncio.Event()
@@ -125,15 +126,77 @@ async def test_stop_cancels_and_drains_inflight_start(
     lifecycle.stop_server.side_effect = stop
     waiter = asyncio.create_task(manager.start_server("server"))
     await entered.wait()
-    assert await manager.stop_server("server")
-    result = await asyncio.gather(waiter, return_exceptions=True)
-    if suppress_cancellation:
-        assert result == [False]
+    if stop_from == "thread":
+        assert await asyncio.to_thread(manager.stop_server_sync, "server")
     else:
-        assert isinstance(result[0], asyncio.CancelledError)
+        assert await manager.stop_server("server")
+    assert await asyncio.wait_for(waiter, timeout=1) is False
+    await manager.wait_for_pending_starts()
+    for stopping in list(manager._pending_stop_tasks.values()):
+        await stopping
+    assert cancelled.is_set()
+    assert manager.is_autostart_suppressed("server")
+    lifecycle.stop_server.assert_awaited_once()
     server.enable.assert_not_called()
     manager.status_tracker.set_status.assert_called_with("server", ServerState.STOPPED)
     manager.status_tracker.record_start_time.assert_not_called()
+
+
+async def test_worker_stop_survives_loop_closing_during_dispatch(
+    lifecycle_setup, monkeypatch, caplog
+):
+    manager, server, lifecycle = lifecycle_setup
+    loop = asyncio.new_event_loop()
+    starting = Mock()
+    starting.get_loop.return_value = loop
+    manager._pending_start_tasks = {"server": starting}
+    dispatch = loop.call_soon_threadsafe
+
+    def close_before_dispatch(*args):
+        loop.close()
+        return dispatch(*args)
+
+    monkeypatch.setattr(loop, "call_soon_threadsafe", close_before_dispatch)
+    try:
+        assert await asyncio.to_thread(manager.stop_server_sync, "server")
+        assert loop.is_closed()
+        server.disable.assert_called_once()
+        assert manager.is_autostart_suppressed("server")
+        manager.status_tracker.set_status.assert_called_once_with(
+            "server", ServerState.STOPPED
+        )
+        lifecycle.stop_server.assert_not_awaited()
+        assert "MCP stop cleanup dispatch failed for server" in caplog.text
+        assert "Event loop is closed" in caplog.text
+    finally:
+        if not loop.is_closed():
+            loop.close()
+
+
+async def test_worker_stop_propagates_dispatch_error_while_loop_remains_open(
+    lifecycle_setup, monkeypatch, caplog
+):
+    manager, server, lifecycle = lifecycle_setup
+    owner_loop = Mock()
+    owner_loop.is_closed.return_value = False
+    failure = RuntimeError("dispatch tripwire")
+    owner_loop.call_soon_threadsafe.side_effect = failure
+    starting = Mock()
+    starting.get_loop.return_value = owner_loop
+    manager._pending_start_tasks = {"server": starting}
+
+    with pytest.raises(RuntimeError, match="dispatch tripwire") as caught:
+        await asyncio.to_thread(manager.stop_server_sync, "server")
+
+    assert caught.value is failure
+    assert not owner_loop.is_closed()
+    owner_loop.call_soon_threadsafe.assert_called_once_with(
+        manager._request_stop, "server"
+    )
+    server.disable.assert_called_once()
+    assert manager.is_autostart_suppressed("server")
+    lifecycle.stop_server.assert_not_awaited()
+    assert "MCP stop cleanup dispatch failed" not in caplog.text
 
 
 async def test_stop_exception_is_not_reported_as_success(lifecycle_setup):
@@ -184,6 +247,30 @@ async def test_cancelled_waiter_does_not_cancel_shared_start(lifecycle_setup):
     lifecycle.start_server.assert_awaited_once()
 
 
+@pytest.mark.parametrize("entrypoint", ["sync", "async"])
+async def test_config_disable_blocks_implicit_not_manual_start(
+    lifecycle_setup, entrypoint
+):
+    manager, server, lifecycle = lifecycle_setup
+    server.config.enabled = False
+    if entrypoint == "sync":
+        assert not manager.start_server_sync("server", auto_start=True)
+    else:
+        assert not await manager.start_server("server", auto_start=True)
+    lifecycle.start_server.assert_not_called()
+    server.enable.assert_not_called()
+    manager.status_tracker.set_status.assert_not_called()
+
+    if entrypoint == "sync":
+        assert manager.start_server_sync("server")
+        assert await manager._pending_start_tasks["server"]
+    else:
+        assert await manager.start_server("server")
+    server.enable.assert_called_once()
+    lifecycle.start_server.assert_awaited_once()
+    assert server.config.enabled is False
+
+
 async def test_explicit_start_after_stop_can_restart(lifecycle_setup):
     manager, server, lifecycle = lifecycle_setup
     assert await manager.start_server("server")
@@ -206,7 +293,7 @@ def cache_invalidations(monkeypatch, lifecycle_setup):
 
 
 @pytest.mark.parametrize("failure", [False, RuntimeError("broken")])
-async def test_failed_start_suppresses_before_invalidating_cache(
+async def test_failed_start_disables_without_suppressing_autostart(
     lifecycle_setup, cache_invalidations, failure
 ):
     manager, server, lifecycle = lifecycle_setup
@@ -217,13 +304,10 @@ async def test_failed_start_suppresses_before_invalidating_cache(
     else:
         lifecycle.start_server.return_value = failure
 
-    def check_suppressed_before_disable():
-        assert manager.is_autostart_suppressed("server") is True
-
-    server.disable.side_effect = check_suppressed_before_disable
     assert not await manager.start_server("server")
-    assert manager.is_autostart_suppressed("server") is True
-    assert cache_invalidations == [True]
+    server.disable.assert_called_once()
+    assert manager.is_autostart_suppressed("server") is False
+    assert cache_invalidations == [False]
 
 
 async def test_stop_suppresses_immediately_and_explicit_restart_clears(
@@ -244,14 +328,43 @@ async def test_stop_suppresses_immediately_and_explicit_restart_clears(
 
 
 @pytest.mark.parametrize("operation", ["stop", "start"])
-def test_no_loop_stop_or_failed_start_suppresses_and_invalidates(
+def test_no_loop_only_stop_suppresses_autostart(
     lifecycle_setup, cache_invalidations, operation
 ):
     manager, _, _ = lifecycle_setup
     result = getattr(manager, f"{operation}_server_sync")("server")
     assert result is (operation == "stop")
+    assert manager.is_autostart_suppressed("server") is (operation == "stop")
+    assert cache_invalidations == [operation == "stop"]
+
+
+def test_no_loop_start_cannot_clear_explicit_stop(lifecycle_setup):
+    manager, _, _ = lifecycle_setup
+    assert manager.stop_server_sync("server")
+    assert not manager.start_server_sync("server")
     assert manager.is_autostart_suppressed("server") is True
-    assert cache_invalidations == [True]
+
+
+async def test_start_failure_after_stop_preserves_suppression(lifecycle_setup):
+    manager, _, lifecycle = lifecycle_setup
+    entered, cancelled = asyncio.Event(), asyncio.Event()
+
+    async def fail_on_cancel(*args):
+        entered.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise RuntimeError("startup cleanup failed")
+
+    lifecycle.start_server.side_effect = fail_on_cancel
+    waiter = asyncio.create_task(manager.start_server("server"))
+    await entered.wait()
+    assert await manager.stop_server("server")
+    assert not await waiter
+    assert cancelled.is_set()
+    assert manager.is_autostart_suppressed("server") is True
+    manager.status_tracker.set_status.assert_called_with("server", ServerState.STOPPED)
 
 
 async def test_successful_start_invalidates_real_cached_toolsets(

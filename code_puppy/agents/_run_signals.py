@@ -9,7 +9,10 @@ daemon thread.
 from __future__ import annotations
 
 import asyncio
+import threading
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any, Callable, Optional
 
 from code_puppy.command_line.attachments import resolve_steer_content
@@ -155,6 +158,50 @@ def make_schedule_cancel(
         loop.call_soon_threadsafe(agent_task.cancel)
 
     return schedule_agent_cancel
+
+
+@contextmanager
+def mcp_preparation_cancellation() -> Iterator[None]:
+    """Cover startup before runtime takes ownership of interactive cancellation.
+
+    Called by: _mcp :: prepared_mcp_run().
+    Depends on: _key_listeners ownership and make_schedule_cancel().
+    """
+    from code_puppy.agents import _key_listeners, _runtime
+    from code_puppy.tools import command_runner
+
+    # Nested runs inherit the outer run's cancel path, including preparation.
+    if _runtime._active_run_depth or _key_listeners._resolve_cancel_handler(None):
+        yield
+        return
+    task = asyncio.current_task()
+    if task is None:
+        yield
+        return
+
+    cancel = make_schedule_cancel(task, asyncio.get_running_loop())
+    stop_event = threading.Event()
+    handle = None
+    spawned = False
+    # Hooks can run agents: their complete runtimes must inherit this owner too.
+    _runtime._active_run_depth += 1
+    try:
+        _key_listeners.set_cancel_handler(cancel)
+        command_runner.register_agent_cancel(cancel)
+        handle, spawned = _key_listeners.acquire_listener(
+            stop_event, on_escape=lambda: None, on_cancel_agent=cancel
+        )
+        yield
+    finally:
+        _runtime._active_run_depth -= 1
+        command_runner.clear_agent_cancel()
+        _key_listeners.set_cancel_handler(None)
+        if spawned and handle is not None:
+            if _key_listeners.get_active_handle() is handle:
+                _key_listeners.set_active_handle(None)
+            handle.stop()
+            handle.thread.join(timeout=1.0)
+        stop_event.set()
 
 
 # =============================================================================
@@ -308,6 +355,7 @@ __all__ = [
     "inject_interrupted_subagent_notes",
     "install_detach_event",
     "make_schedule_cancel",
+    "mcp_preparation_cancellation",
     "prepare_queued_steer_injection",
     "request_run_detach",
     "reset_pause_state_at_run_start",
