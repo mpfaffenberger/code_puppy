@@ -41,7 +41,15 @@ capabilities:
           - api.meta.ai:443
           - auth.meta.com:443
           - api.anthropic.com:443
+          - claude.ai:443
+          - console.anthropic.com:443
           - api.openai.com:443
+          - chatgpt.com:443
+          - auth.openai.com:443
+          - api.x.ai:443
+          - auth.x.ai:443
+          - accounts.x.ai:443
+          - api.githubcopilot.com:443
           - generativelanguage.googleapis.com:443
           - openrouter.ai:443
           - pypi.org:443

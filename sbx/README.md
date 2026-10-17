@@ -23,6 +23,37 @@ sbx secret set anthropic    # or: openai, gemini, openrouter, meta
 No API credits? Use Meta Muse through Code Puppy's bundled
 `meta_oauth` core plugin instead — see [Meta Muse via OAuth](#meta-muse-via-oauth-no-api-credits).
 
+## Wizard: bring your own setup
+
+`wizard.py` (stdlib-only Python) turns your existing host setup into a
+sandbox: it stores/approves the provider credential, exports your real
+configuration secret-free via `code-puppy --setup export --sbx` (from
+the `setup_cli` core plugin) into a personal mixin under
+`sbx/.personal/` (git-ignored), creates the sandbox, and can
+smoke-test it.
+
+Run it with the project environment's Python — not `uv run`, which
+re-syncs `.venv` from `uv.lock` and would remove a local editable
+`code-puppy-core-plugins` install (needed for `--setup` until
+`setup_cli` ships in a core-plugins release):
+
+```console
+# one-time, from the code_puppy repo root, with both repos cloned side by side:
+uv pip install --python .venv\Scripts\python.exe -e ..\code_puppy_core_plugins
+
+.venv\Scripts\python.exe sbx\wizard.py --name my-pup --provider meta --smoke
+.venv\Scripts\python.exe sbx\wizard.py --provider anthropic --dry-run
+.venv\Scripts\python.exe sbx\wizard.py --provider codex --sync-tokens
+```
+
+(On Linux/macOS use `.venv/bin/python` and `../code_puppy_core_plugins`.)
+
+| Provider | How the sandbox authenticates |
+|---|---|
+| `meta`, `anthropic`, `openai`, `gemini`, `openrouter` | Proxy-managed key (`sbx secret` + binding); guest sees a sentinel |
+| `copilot` | Device-flow login inside the sandbox (`/copilot-login`) |
+| `claude-code`, `codex`, `grok` | Experimental: `--sync-tokens` copies the host token file in; host owns refresh |
+
 ## Run
 
 Local, from this repository (your current directory becomes the
