@@ -434,15 +434,34 @@ class TestCodeModeMount:
         assert code_mode.os_access is not None
         assert guidance.mount_mode == "none"
 
-    def test_default_guidance_is_unchanged(self):
-        text = _rendered(CodeModeGuidance("/home/p", "/home/p"))
-        assert text.endswith("\nWorkspace mount: `/home/p` (same as the host path).\n")
+    def test_default_prompt_is_byte_identical(self):
+        """read-write adds nothing: static guidance plus the plain mount note."""
+        same = _rendered(CodeModeGuidance("/home/p", "/home/p"))
+        assert same == (
+            CODE_MODE_GUIDANCE
+            + "\nWorkspace mount: `/home/p` (same as the host path).\n"
+        )
+        translated = _rendered(
+            CodeModeGuidance(r"C:\p", "/c/p", mount_mode="read-write")
+        )
+        assert translated == (
+            CODE_MODE_GUIDANCE
+            + "\nWorkspace mount: `/c/p` is the host directory `C:\\p`.\n"
+            "Tool functions (`read_file`, `grep`, shell, ...) take host paths;\n"
+            "`pathlib` inside the sandbox takes mount paths.\n"
+        )
+
+    @pytest.mark.parametrize("mode", ["overlay", "read-only", "none"])
+    def test_restricted_modes_leave_the_static_guidance_alone(self, mode):
+        parts = CodeModeGuidance("/home/p", "/home/p", mount_mode=mode)
+        assert parts.get_instructions()[0] is CODE_MODE_GUIDANCE
+        assert "overrides the read-write mount" in _rendered(parts)
 
     @pytest.mark.parametrize(
         ("mode", "phrase"),
         [
             ("overlay", "writes stay in memory"),
-            ("read-only", "writes raise `PermissionError`"),
+            ("read-only", "`PermissionError`"),
         ],
     )
     def test_guidance_names_a_restricted_mode(self, mode, phrase):

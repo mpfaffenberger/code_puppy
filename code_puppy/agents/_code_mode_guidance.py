@@ -49,10 +49,10 @@ work, with every tool call that step needs:
 - `run_code` state (variables, functions, imports) is saved with the session:
   it carries over to your next turn and comes back on resume. `restart: true`
   clears it.
-- The workspace is mounted read-write (unless noted otherwise) at the path
-  given at the end of these instructions; `pathlib` needs absolute paths under
-  it (relative paths do not resolve). NOT available: `Path.glob`/`rglob`,
-  `os.walk`, `sys.path`, `subprocess`, `importlib`, `ast`, third-party packages, network. Use
+- The workspace is mounted read-write at the path given at the end of these
+  instructions; `pathlib` needs absolute paths under it (relative paths do not
+  resolve). NOT available: `Path.glob`/`rglob`, `os.walk`, `sys.path`,
+  `subprocess`, `importlib`, `ast`, third-party packages, network. Use
   `list_files`/`grep`, and the shell function for processes and `curl`.
 - Snippets are type-checked. Narrow `str | None` result fields by binding them
   once: `if (f := m["file_path"])` then use `f`, or `(r["content"] or "")`.
@@ -68,18 +68,18 @@ work, with every tool call that step needs:
 
 
 _MOUNT_MODE_NOTES = {
-    "overlay": "Mount mode: overlay. `pathlib` reads the real files;\n"
-    "writes stay in memory and never reach the host. Use the file tools to\n"
-    "change project files.\n",
-    "read-only": "Mount mode: read-only. `pathlib` reads the real files;\n"
-    "writes raise `PermissionError`. Use the file tools to change project\n"
-    "files.\n",
+    "overlay": "Mount mode: overlay (this overrides the read-write mount described\n"
+    "above). `pathlib` reads the real files; writes stay in memory and never\n"
+    "reach the host. Use the file tools to change project files.\n",
+    "read-only": "Mount mode: read-only (this overrides the read-write mount\n"
+    "described above). `pathlib` reads the real files; writes raise\n"
+    "`PermissionError`. Use the file tools to change project files.\n",
 }
 
 _NO_MOUNT_NOTE = (
-    "\nNo workspace mount: `pathlib` sees only in-memory scratch files, not the\n"
-    "project. Use `read_file`, `grep`, `list_files` and the file tools for\n"
-    "project files.\n"
+    "\nNo workspace mount (this overrides the read-write mount described above):\n"
+    "`pathlib` sees only in-memory scratch files, not the project. Use\n"
+    "`read_file`, `grep`, `list_files` and the file tools for project files.\n"
 )
 
 
