@@ -10,8 +10,10 @@ the safety contract: an early launch may run for a branch the snippet never
 takes, so it is reserved for calls that are harmless to re-run or discard;
 everything else waits for real execution.
 
-The sandbox is not fully sealed either: the workspace mounts read-write so
-snippets can drive real project files through ``pathlib`` directly, and an
+The sandbox is not fully sealed either: by default the workspace mounts
+read-write so snippets can drive real project files through ``pathlib``
+directly (``code_mode_mount`` narrows that to ``overlay``, ``read-only`` or
+no mount at all), and an
 `OSAccess` handler provides isolated environment variables, the host clock,
 and in-memory scratch files. Network stays tool-shaped: there is no socket in
 the sandbox, so anything remote goes through a wrapped tool, which is also
@@ -42,7 +44,10 @@ from code_puppy.agents._code_mode_guidance import CodeModeGuidance
 from code_puppy.agents._code_mode_session import SessionCodeMode, repl_path_for
 from code_puppy.agents._wire_tool_names import StreamedToolNameNormalizer
 from code_puppy.capabilities.eager_timing import EagerTiming
-from code_puppy.config import get_speculative_code_mode_enabled
+from code_puppy.config import (
+    get_code_mode_mount,
+    get_speculative_code_mode_enabled,
+)
 
 # Code Puppy owns terminal output, including when observability is disabled.
 pydantic_ai.BANNER_ENABLED = False
@@ -237,6 +242,7 @@ def build_speculative_code_mode(
     )
     workspace = os.getcwd()
     mount_path = sandbox_mount_path(workspace)
+    mount_mode = get_code_mode_mount()
     return [
         SessionCodeMode(
             repl_path=repl_path,
@@ -250,8 +256,10 @@ def build_speculative_code_mode(
             # The workspace under its real path on POSIX, so absolute paths
             # need no translation; Windows needs a POSIX spelling, which
             # CodeModeGuidance spells out for the model.
-            mount=MountDir(
-                virtual_path=mount_path, host_path=workspace, mode="read-write"
+            mount=None
+            if mount_mode == "none"
+            else MountDir(
+                virtual_path=mount_path, host_path=workspace, mode=mount_mode
             ),
             # Isolated env + in-memory scratch files + host clock.
             os_access=OSAccess(),
@@ -259,5 +267,7 @@ def build_speculative_code_mode(
         SilenceToolOutput(),
         EagerTiming(),
         StreamedToolNameNormalizer(),
-        CodeModeGuidance(host_path=workspace, mount_path=mount_path),
+        CodeModeGuidance(
+            host_path=workspace, mount_path=mount_path, mount_mode=mount_mode
+        ),
     ]

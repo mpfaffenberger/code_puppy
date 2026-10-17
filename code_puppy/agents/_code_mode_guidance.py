@@ -49,10 +49,10 @@ work, with every tool call that step needs:
 - `run_code` state (variables, functions, imports) is saved with the session:
   it carries over to your next turn and comes back on resume. `restart: true`
   clears it.
-- The workspace is mounted read-write at the path given at the end of these
-  instructions; `pathlib` needs absolute paths under it (relative paths do not
-  resolve). NOT available: `Path.glob`/`rglob`, `os.walk`, `sys.path`,
-  `subprocess`, `importlib`, `ast`, third-party packages, network. Use
+- The workspace is mounted read-write (unless noted otherwise) at the path
+  given at the end of these instructions; `pathlib` needs absolute paths under
+  it (relative paths do not resolve). NOT available: `Path.glob`/`rglob`,
+  `os.walk`, `sys.path`, `subprocess`, `importlib`, `ast`, third-party packages, network. Use
   `list_files`/`grep`, and the shell function for processes and `curl`.
 - Snippets are type-checked. Narrow `str | None` result fields by binding them
   once: `if (f := m["file_path"])` then use `f`, or `(r["content"] or "")`.
@@ -67,15 +67,35 @@ work, with every tool call that step needs:
 """
 
 
-def mount_note(host_path: str, mount_path: str) -> str:
+_MOUNT_MODE_NOTES = {
+    "overlay": "Mount mode: overlay. `pathlib` reads the real files;\n"
+    "writes stay in memory and never reach the host. Use the file tools to\n"
+    "change project files.\n",
+    "read-only": "Mount mode: read-only. `pathlib` reads the real files;\n"
+    "writes raise `PermissionError`. Use the file tools to change project\n"
+    "files.\n",
+}
+
+_NO_MOUNT_NOTE = (
+    "\nNo workspace mount: `pathlib` sees only in-memory scratch files, not the\n"
+    "project. Use `read_file`, `grep`, `list_files` and the file tools for\n"
+    "project files.\n"
+)
+
+
+def mount_note(host_path: str, mount_path: str, mount_mode: str = "read-write") -> str:
     """Where the workspace lives in the sandbox, spelled out for the model."""
+    if mount_mode == "none":
+        return _NO_MOUNT_NOTE
     if mount_path == host_path:
-        return f"\nWorkspace mount: `{mount_path}` (same as the host path).\n"
-    return (
-        f"\nWorkspace mount: `{mount_path}` is the host directory `{host_path}`.\n"
-        "Tool functions (`read_file`, `grep`, shell, ...) take host paths;\n"
-        "`pathlib` inside the sandbox takes mount paths.\n"
-    )
+        note = f"\nWorkspace mount: `{mount_path}` (same as the host path).\n"
+    else:
+        note = (
+            f"\nWorkspace mount: `{mount_path}` is the host directory `{host_path}`.\n"
+            "Tool functions (`read_file`, `grep`, shell, ...) take host paths;\n"
+            "`pathlib` inside the sandbox takes mount paths.\n"
+        )
+    return note + _MOUNT_MODE_NOTES.get(mount_mode, "")
 
 
 @dataclass
@@ -84,6 +104,7 @@ class CodeModeGuidance(AbstractCapability[Any]):
 
     host_path: str
     mount_path: str
+    mount_mode: str = "read-write"
 
     def get_instructions(self) -> list[str | Callable[[], str]]:
         # The guidance is a static instruction part and the workspace path a dynamic one:
@@ -93,4 +114,4 @@ class CodeModeGuidance(AbstractCapability[Any]):
         return [CODE_MODE_GUIDANCE, self._mount_note]
 
     def _mount_note(self) -> str:
-        return mount_note(self.host_path, self.mount_path)
+        return mount_note(self.host_path, self.mount_path, self.mount_mode)
