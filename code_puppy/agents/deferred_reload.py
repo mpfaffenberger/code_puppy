@@ -45,6 +45,11 @@ class DeferredReloadQueue:
         ``MAX_RELOAD_ATTEMPTS`` times, stopping early if a newer request for
         the same agent arrives (that request starts again from scratch on the
         next drain).
+
+        Attempts run back-to-back with no backoff: a rebuild is local work
+        that fails fast, and this runs on the main loop with the user waiting
+        on their prompt. Sleeping here would trade a visible stall for a
+        retry that a slow MCP server is unlikely to satisfy anyway.
         """
         try:
             current = get_current_agent()

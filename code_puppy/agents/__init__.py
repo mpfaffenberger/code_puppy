@@ -22,6 +22,8 @@ from .deferred_reload import (
     clear_pending_agent_reloads,
     request_agent_reload,
 )
+
+# Import for its side effect: auto-registers the TTFT/TG run-stats hooks.
 from . import run_stats  # noqa: F401
 from .subagent_stream_handler import subagent_stream_handler
 
