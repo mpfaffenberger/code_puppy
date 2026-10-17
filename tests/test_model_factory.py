@@ -267,6 +267,62 @@ def test_custom_openai_multiple_system_messages_override(monkeypatch):
     assert model.profile.get("openai_chat_supports_multiple_system_messages") is True
 
 
+# SGLang grammar-constrains *every* tool call once any tool is strict, which
+# makes DeepSeek V4.1 emit bare ``{}`` arguments. custom_openai therefore
+# omits strict tool definitions unless the model config opts back in.
+
+
+def _custom_openai_config(**extra):
+    return {
+        "custom": {
+            "type": "custom_openai",
+            "name": "deepseek-sglang",
+            "custom_endpoint": {
+                "url": "https://fake.url",
+                "api_key": "$OPENAI_API_KEY",
+            },
+            **extra,
+        }
+    }
+
+
+def test_custom_openai_disables_strict_tools_by_default(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "ok")
+    model = ModelFactory.get_model("custom", _custom_openai_config())
+    assert model.profile.get("openai_supports_strict_tool_definition") is False
+    # The existing system-message default must survive the extra profile.
+    assert model.profile.get("openai_chat_supports_multiple_system_messages") is False
+
+
+def test_custom_openai_strict_tools_opt_in(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "ok")
+    config = _custom_openai_config(supports_strict_tool_definition=True)
+    model = ModelFactory.get_model("custom", config)
+    assert model.profile.get("openai_supports_strict_tool_definition") is True
+
+
+def test_custom_openai_strict_tools_rejects_non_bool(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "ok")
+    config = _custom_openai_config(supports_strict_tool_definition="false")
+    with pytest.raises(TypeError, match="supports_strict_tool_definition"):
+        ModelFactory.get_model("custom", config)
+
+
+def test_custom_openai_omits_strict_from_wire_payload(monkeypatch):
+    """A strict ToolDefinition must not put ``strict`` in the request body."""
+    from pydantic_ai.tools import ToolDefinition
+
+    monkeypatch.setenv("OPENAI_API_KEY", "ok")
+    model = ModelFactory.get_model("custom", _custom_openai_config())
+    tool = ToolDefinition(
+        name="delete_file",
+        parameters_json_schema={"type": "object", "properties": {}},
+        strict=True,
+    )
+    payload = model._map_tool_definition(tool, {})
+    assert "strict" not in payload["function"]
+
+
 def test_custom_openai_explicit_false_stays_false():
     """A JSON ``false`` (Python ``False``) correctly produces ``False``."""
     from code_puppy.model_factory import _strict_openai_profile

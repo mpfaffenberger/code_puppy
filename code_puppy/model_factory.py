@@ -273,18 +273,52 @@ def _strict_openai_profile(
     merged = OpenAIModelProfile(base)
     if extra:
         merged.update(extra)
-    # Config override trumps the safe default.  Fail fast on non-bool
-    # values: a JSON string "false" would silently invert the user's intent
-    # (it is truthy in Python, and we cannot ``bool()``-coerce because
-    # ``bool("false")`` is ``True``).
-    supports = model_config.get("supports_multiple_system_messages", False)
-    if not isinstance(supports, bool):
-        raise TypeError(
-            "supports_multiple_system_messages must be a JSON boolean "
-            f"(true/false), got {type(supports).__name__}: {supports!r}"
-        )
-    merged["openai_chat_supports_multiple_system_messages"] = supports
+    merged["openai_chat_supports_multiple_system_messages"] = _config_bool(
+        model_config, "supports_multiple_system_messages", default=False
+    )
     return merged
+
+
+def _config_bool(model_config: dict[str, Any], key: str, *, default: bool) -> bool:
+    """Read a boolean model-config flag, failing fast on non-bool values.
+
+    A JSON string ``"false"`` would silently invert the user's intent (it is
+    truthy in Python, and we cannot ``bool()``-coerce because
+    ``bool("false")`` is ``True``), so anything but a real bool is an error.
+    """
+    value = model_config.get(key, default)
+    if not isinstance(value, bool):
+        raise TypeError(
+            f"{key} must be a JSON boolean "
+            f"(true/false), got {type(value).__name__}: {value!r}"
+        )
+    return value
+
+
+def _custom_openai_chat_profile(
+    model_name: str, model_config: dict[str, Any]
+) -> OpenAIModelProfile:
+    """Profile for ``custom_openai`` chat endpoints (self-hosted SGLang, vLLM...).
+
+    Strict tool definitions are off by default. SGLang reacts to *any* tool
+    with ``strict: true`` (under ``tool_choice="auto"``) by grammar-
+    constraining every tool call, and for models whose native call format is
+    not JSON (DeepSeek V4.1's DSML parameter tags) the grammar forces a JSON
+    body instead -- under sampling the model frequently emits a bare ``{}``,
+    surfacing as "Field required" validation errors. Endpoints that honour
+    strict properly can opt back in with
+    ``"supports_strict_tool_definition": true``.
+    """
+    supports_strict = _config_bool(
+        model_config, "supports_strict_tool_definition", default=False
+    )
+    return _strict_openai_profile(
+        model_name,
+        model_config,
+        extra=OpenAIModelProfile(
+            openai_supports_strict_tool_definition=supports_strict
+        ),
+    )
 
 
 def _merge_dotted_key(target: dict, dotted_key: str, value: Any) -> None:
@@ -1157,7 +1191,7 @@ class ModelFactory:
             return OpenAIChatModel(
                 model_name=model_config["name"],
                 provider=provider,
-                profile=_strict_openai_profile(model_name, model_config),
+                profile=_custom_openai_chat_profile(model_name, model_config),
             )
         elif model_type == "zai_coding":
             api_key = get_api_key("ZAI_API_KEY")
