@@ -1,0 +1,107 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: workload
+displayName: Code Puppy
+description: Code Puppy coding agent on the Docker shell template, installed with uvx
+
+args:
+  version:
+    description: code-puppy version to install from PyPI
+    default: "0.0.930"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    buildArg: CODE_PUPPY_VERSION
+
+provides: ["code-puppy@${{ kit.args.version }}"]
+
+capabilities:
+  - type: com.docker.sandbox/sbx@1
+  # Meta Muse via the meta_oauth core plugin (bundled with Code Puppy).
+  # The plugin reads META_API_KEY first; the value here is the proxy
+  # sentinel, and the host injects the real minted key on api.meta.ai.
+  # Mint one on the host with /meta-auth in a local Code Puppy session
+  # (device-code flow against auth.meta.com), then store the api_key
+  # from ~/.code_puppy/meta_oauth.json with: sbx secret set meta
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Meta Muse model API access (meta_oauth plugin)
+    config:
+      service: meta
+      phase: runtime
+      apiKey:
+        name: META_API_KEY
+        proxyManaged: true
+        inject:
+          - domain: api.meta.ai
+            header: Authorization
+            format: "Bearer %s"
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          - api.meta.ai:443
+          - auth.meta.com:443
+          - api.anthropic.com:443
+          - api.openai.com:443
+          - generativelanguage.googleapis.com:443
+          - openrouter.ai:443
+          - pypi.org:443
+          - files.pythonhosted.org:443
+          - models.dev:443
+          - github.com:443
+          - api.github.com:443
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Anthropic API access
+    config:
+      service: anthropic
+      phase: runtime
+      apiKey:
+        name: ANTHROPIC_API_KEY
+        proxyManaged: true
+        inject:
+          - domain: api.anthropic.com
+            header: x-api-key
+            format: "%s"
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: OpenAI API access
+    config:
+      service: openai
+      phase: runtime
+      apiKey:
+        name: OPENAI_API_KEY
+        proxyManaged: true
+        inject:
+          - domain: api.openai.com
+            header: Authorization
+            format: "Bearer %s"
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: Google Gemini API access
+    config:
+      service: gemini
+      phase: runtime
+      apiKey:
+        name: GEMINI_API_KEY
+        proxyManaged: true
+        inject:
+          - domain: generativelanguage.googleapis.com
+            header: x-goog-api-key
+            format: "%s"
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: OpenRouter API access
+    config:
+      service: openrouter
+      phase: runtime
+      apiKey:
+        name: OPENROUTER_API_KEY
+        proxyManaged: true
+        inject:
+          - domain: openrouter.ai
+            header: Authorization
+            format: "Bearer %s"
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      filename: AGENTS.md
+      contentFile: ./context.md
