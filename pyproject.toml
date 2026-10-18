@@ -15,10 +15,7 @@ dependencies = [
     "pydantic-ai-harness[code-mode]==0.35.0",
     # Monty 1.0 removed max_duration_secs, still used by harness CodeMode.
     "pydantic-monty<1",
-    # 4.14.2 fixes CVE-2026-63374 (TLSStream encoded host names with IDNA 2003,
-    # so an internationalized domain could be matched by a certificate issued
-    # for a different name) and CVE-2026-64847 (process-pool workers block
-    # indefinitely on an undrained stderr pipe).
+    # Security floor: 4.14.2 fixes CVE-2026-63374 and CVE-2026-64847.
     "anyio>=4.14.2",
     "typer>=0.12.0",
     "mcp>=1.9.4",
