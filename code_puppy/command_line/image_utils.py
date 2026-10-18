@@ -10,6 +10,11 @@ raw bytes against the API limit is wrong by a factor of 4/3, and re-encoding a
 JPEG as lossless PNG can inflate a photo by an order of magnitude — so we
 measure the bytes we would actually send, and keep the source format.
 
+Separately from the API's hard limit, we target :data:`TARGET_IMAGE_ATTACHMENT_BYTES`
+(256 KiB encoded) for every attachment.  Images are replayed as part of the
+conversation history on every request, so a multi-megabyte photo is a
+per-turn upload tax the model largely throws away.
+
 Public functions fail gracefully (returning the input unchanged) unless the
 image cannot be made to fit at all, in which case :class:`ImageTooLargeError`
 is raised so callers can surface a clear message instead of sending a request
@@ -31,6 +36,10 @@ logger = logging.getLogger(__name__)
 #: API's hard cap on a base64-encoded image payload (Anthropic: 10 MiB).
 #: Leave headroom so other JSON fields can't push the request over the edge.
 MAX_IMAGE_B64_BYTES: int = 10 * 1024 * 1024 - 64 * 1024
+
+#: Product target for attachments: keep uploads (and history replays) light.
+#: This is *encoded* bytes — what `ls -l` reports — not base64.
+TARGET_IMAGE_ATTACHMENT_BYTES: int = 256 * 1024
 
 #: Hard cap on either dimension after any resize.
 MAX_IMAGE_DIMENSION: int = 4096
@@ -79,6 +88,12 @@ except ImportError:  # pragma: no cover
 def b64_len(num_bytes: int) -> int:
     """Return the length of the base64 encoding of *num_bytes* bytes."""
     return 4 * ((num_bytes + 2) // 3)
+
+
+#: Default payload budget, in the API's base64 unit, for the product target.
+DEFAULT_IMAGE_B64_BUDGET: int = min(
+    MAX_IMAGE_B64_BYTES, b64_len(TARGET_IMAGE_ATTACHMENT_BYTES)
+)
 
 
 def _safe_open_image(image_bytes: bytes) -> "Optional[Image.Image]":
@@ -202,15 +217,16 @@ def normalize_image_bytes(
     data: bytes,
     media_type: str,
     *,
-    max_bytes: int = MAX_IMAGE_B64_BYTES,
+    max_bytes: int = DEFAULT_IMAGE_B64_BUDGET,
 ) -> Tuple[bytes, str]:
-    """Verify and resize image bytes so the sent payload fits *max_bytes*.
+    """Verify and shrink image bytes so the sent payload fits *max_bytes*.
 
     Args:
         data: Raw image bytes.
         media_type: MIME type string (e.g. ``"image/png"``).
         max_bytes: Base64 payload budget; defaults to
-            :data:`MAX_IMAGE_B64_BYTES`.
+            :data:`DEFAULT_IMAGE_B64_BUDGET`, which keeps encoded
+            attachments at or under :data:`TARGET_IMAGE_ATTACHMENT_BYTES`.
 
     Returns:
         A ``(bytes, media_type)`` tuple.  The original bytes are returned
@@ -257,6 +273,8 @@ def normalize_image_bytes(
 __all__ = [
     "MAX_IMAGE_B64_BYTES",
     "MAX_IMAGE_DIMENSION",
+    "TARGET_IMAGE_ATTACHMENT_BYTES",
+    "DEFAULT_IMAGE_B64_BUDGET",
     "JPEG_QUALITY",
     "ImageTooLargeError",
     "b64_len",
