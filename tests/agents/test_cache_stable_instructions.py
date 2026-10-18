@@ -73,6 +73,11 @@ async def test_builder_sends_identity_as_a_dynamic_part_only():
     static_b = [p.content for p in parts_b if not p.dynamic]
     dynamic_a = "".join(p.content for p in parts_a if p.dynamic)
     assert first.get_identity() in dynamic_a
+    assert "Operating system:" in dynamic_a
+    assert "Command shell:" in dynamic_a
+    assert not any(
+        "Execution environment (local shell tool):" in text for text in static_a
+    )
     assert not any(first.get_identity() in text for text in static_a)
     # Two sessions share the cacheable static prefix byte for byte.
     assert static_a == static_b

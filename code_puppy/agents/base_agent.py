@@ -201,10 +201,10 @@ class BaseAgent(ABC):
     def get_full_system_prompt(self) -> str:
         """Assemble the runtime system prompt.
 
-        Layered as: authored prompt (``get_system_prompt``) + per-turn
-        ``load_prompt`` plugin fragments + this instance's identity.
+        Layered as: authored prompt (``get_system_prompt``) + execution
+        environment + ``load_prompt`` plugin fragments + this instance's identity.
 
-        The ``load_prompt`` fragments (live timestamp/CWD, file-permission
+        The execution environment, ``load_prompt`` fragments (file-permission
         rules, kennel memory, ...) and the identity ID are *runtime* concerns.
         They live here — not in ``get_system_prompt`` — so they're recomputed
         fresh every run and never get persisted into static agent definitions
@@ -213,7 +213,7 @@ class BaseAgent(ABC):
         return self.get_system_prompt() + self.get_runtime_system_prompt()
 
     def get_runtime_system_prompt(self) -> str:
-        """The per-run tail of the system prompt: ``load_prompt`` fragments,
+        """The per-run tail: execution environment, ``load_prompt`` fragments,
         runtime additions and this instance's identity.
 
         Agent builders send it as a *dynamic* instruction part after the static
@@ -223,8 +223,9 @@ class BaseAgent(ABC):
         the cache at a premium.
         """
         from code_puppy import callbacks
+        from code_puppy.agents._environment import get_execution_environment_prompt
 
-        runtime = ""
+        runtime = get_execution_environment_prompt()
         prompt_additions = callbacks.on_load_prompt()
         if prompt_additions:
             runtime += "\n" + "\n".join(prompt_additions)
