@@ -14,7 +14,10 @@ from urllib.parse import urlparse
 
 from pydantic_ai import BinaryContent, DocumentUrl, ImageUrl, VideoUrl
 
-from code_puppy.command_line.image_utils import normalize_image_bytes
+from code_puppy.command_line.image_utils import (
+    ImageTooLargeError,
+    normalize_image_bytes,
+)
 
 SUPPORTED_INLINE_SCHEMES = {"http", "https"}
 
@@ -479,6 +482,9 @@ def parse_prompt_attachments(prompt: str) -> ProcessedPrompt:
 
     detections, detection_warnings = _detect_path_tokens(prompt)
     warnings: list[str] = list(detection_warnings)
+    # Attachments we refused to send (e.g. image too large to fit the API
+    # budget).  Their path tokens stay in the prompt so the user sees them.
+    rejected: list[_DetectedPath] = []
 
     link_attachments = [d.link for d in detections if d.link is not None]
 
@@ -500,7 +506,12 @@ def parse_prompt_attachments(prompt: str) -> ProcessedPrompt:
         # Resize oversized images to match clipboard pastes. Videos skip this
         # path entirely so PIL never opens the container bytes.
         if media_type.startswith("image/"):
-            data, media_type = normalize_image_bytes(data, media_type)
+            try:
+                data, media_type = normalize_image_bytes(data, media_type)
+            except ImageTooLargeError as exc:
+                warnings.append(f"Cannot attach {detection.path.name}: {exc}")
+                rejected.append(detection)
+                continue
         attachments.append(
             PromptAttachment(
                 placeholder=detection.placeholder,
@@ -519,8 +530,11 @@ def parse_prompt_attachments(prompt: str) -> ProcessedPrompt:
     spans = [
         (d.start_index, d.consumed_until)
         for d in detections
-        if (d.path is not None and not d.unsupported)
-        or (d.link is not None and d.path is None)
+        if (
+            (d.path is not None and not d.unsupported)
+            or (d.link is not None and d.path is None)
+        )
+        and all(d is not r for r in rejected)
     ]
     cleaned_parts: list[str] = []
     i = 0
