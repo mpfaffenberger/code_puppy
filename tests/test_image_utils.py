@@ -10,8 +10,10 @@ from unittest.mock import patch
 import pytest
 
 from code_puppy.command_line.image_utils import (
+    DEFAULT_IMAGE_B64_BUDGET,
     MAX_IMAGE_B64_BYTES,
     MAX_IMAGE_DIMENSION,
+    TARGET_IMAGE_ATTACHMENT_BYTES,
     ImageTooLargeError,
     _safe_open_image,
     b64_len,
@@ -71,6 +73,11 @@ class TestB64Len:
     )
     def test_matches_base64_encoding(self, raw: int, expected: int) -> None:
         assert b64_len(raw) == expected == len(base64.b64encode(b"x" * raw))
+
+    def test_default_budget_matches_attachment_target(self) -> None:
+        """The default budget is the 256 KiB target in the API's unit."""
+        assert DEFAULT_IMAGE_B64_BUDGET == b64_len(TARGET_IMAGE_ATTACHMENT_BYTES)
+        assert DEFAULT_IMAGE_B64_BUDGET <= MAX_IMAGE_B64_BYTES
 
 
 # ---------------------------------------------------------------------------
@@ -148,13 +155,22 @@ class TestNormalizeImageBytes:
         assert mt == "image/jpeg"
         assert out == png
 
-    def test_oversized_photo_jpeg_is_sent_unchanged(self) -> None:
-        """Regression for #1050: a 12 MP photo must not be PNG-inflated.
+    def test_small_jpeg_is_sent_unchanged(self) -> None:
+        """A JPEG already under the target is never re-encoded."""
+        jpeg = _make_noisy_jpeg(300, 200, quality=85)
+        assert len(jpeg) <= TARGET_IMAGE_ATTACHMENT_BYTES
 
-        The old code probed with a lossless PNG encoding, which is larger than
-        the API's 10 MiB base64 budget for a photo like this, and then resent
-        the image as a *larger* PNG that the API rejected.  The JPEG itself is
-        comfortably under the limit, so it must be returned byte-for-byte.
+        out, mt = normalize_image_bytes(jpeg, "image/jpeg")
+
+        assert out is jpeg
+        assert mt == "image/jpeg"
+
+    def test_photo_over_target_is_downscaled_not_inflated(self) -> None:
+        """Regression for #1050: a 12 MP photo must not become a bigger PNG.
+
+        The old code probed with a lossless PNG encoding, then resent the image
+        as a *larger* PNG that the API rejected.  It now shrinks as JPEG and
+        respects the attachment target.
         """
         from PIL import Image
 
@@ -163,13 +179,14 @@ class TestNormalizeImageBytes:
         buf = io.BytesIO()
         photo.save(buf, format="JPEG", quality=85)
         jpeg = buf.getvalue()
-
-        assert _encoded_b64_len(jpeg) <= MAX_IMAGE_B64_BYTES
+        assert len(jpeg) > TARGET_IMAGE_ATTACHMENT_BYTES
 
         out, mt = normalize_image_bytes(jpeg, "image/jpeg")
 
-        assert out is jpeg
         assert mt == "image/jpeg"
+        assert out[:2] == b"\xff\xd8"  # still JPEG, not PNG
+        assert len(out) <= TARGET_IMAGE_ATTACHMENT_BYTES
+        assert max(_bytes_to_image(out).size) < 4032
 
     def test_oversized_jpeg_stays_jpeg_and_fits(self) -> None:
         """Forced resize must keep JPEG (not balloon into PNG) and fit."""
