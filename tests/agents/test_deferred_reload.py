@@ -31,10 +31,7 @@ def _agent(name: str) -> MagicMock:
     return agent
 
 
-# Every wait below is bounded. An unbounded wait turns a queue regression that
-# never releases a worker into a hung pytest process with no diagnostic, which
-# is strictly less useful than a failure. Workers are daemons so a wedged one
-# cannot keep the interpreter alive after the assertion fires.
+# Bounded waits and daemon workers: a regression fails instead of hanging pytest.
 _WORKER_TIMEOUT = 5
 
 

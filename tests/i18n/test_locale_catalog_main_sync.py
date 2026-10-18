@@ -17,8 +17,6 @@ _REAL_PARAMS = {
     "agent_menu.pin_apply_failed": {"error": "apply-failure"},
     "agent_menu.pin_cleared": {"agent": "agent-name"},
     "agent_menu.pin_set": {"model": "model-name", "agent": "agent-name"},
-    # Replaced agent_menu.agent_reloaded_* / pinned_reload_failed when the
-    # pin-reload path moved to the deferred queue.
     "agent_reload.gave_up": {
         "agent": "agent-name",
         "attempts": 3,

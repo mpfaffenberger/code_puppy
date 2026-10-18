@@ -1,13 +1,6 @@
-"""Regression coverage for the model-pin producer of the deferred reload queue.
+"""Tests for ``_apply_pinned_model``, the production producer of deferred reloads.
 
-``_apply_pinned_model`` is the only production caller that enqueues a deferred
-reload. Without these tests the whole producer can be deleted and every
-deferred-reload suite still passes, because those suites enqueue directly.
-
-The load-bearing guarantee is negative: the picker runs in a worker thread on a
-transient ``asyncio.run`` loop, so the producer must *persist and enqueue only*.
-Rebuilding here is what deadlocked MCP autostart against anyio teardown, so
-"no rebuild on the calling thread" is asserted explicitly, not implied.
+It runs on the picker's transient loop, so it must persist and enqueue only.
 """
 
 import json
@@ -121,15 +114,11 @@ def test_the_producer_never_rebuilds_on_the_calling_thread():
     with (
         patch("code_puppy.command_line.agent_menu.set_agent_pinned_model"),
         patch("code_puppy.command_line.agent_menu.emit_success"),
-        # agent_menu binds get_current_agent into its own namespace, so the
-        # consumer alias is the one an eager rebuild would reach. Patching only
-        # the defining module leaves these assertions vacuous; both are patched
-        # so either route trips them.
+        # Patch agent_menu's own alias; that is what an eager rebuild would call.
         patch(
             "code_puppy.command_line.agent_menu.get_current_agent",
             return_value=agent,
         ),
-        patch("code_puppy.agents.agent_manager.get_current_agent", return_value=agent),
     ):
         _apply_pinned_model("helper", "gpt-5")
 
