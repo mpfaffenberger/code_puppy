@@ -1781,6 +1781,29 @@ def get_grep_max_matches() -> int:
         return GREP_MAX_MATCHES_DEFAULT
 
 
+#: Default ceiling for a normalized image attachment, in KiB of encoded bytes.
+IMAGE_ATTACHMENT_MAX_KB_DEFAULT = 1024
+
+
+def get_image_attachment_max_kb() -> int:
+    """Return the attachment ceiling in KiB (``image_attachment_max_kb``).
+
+    Attachments are normalized down to this size before they go into the
+    conversation, so the value caps both the upload and every later replay of
+    the image. Defaults to ``IMAGE_ATTACHMENT_MAX_KB_DEFAULT`` (1 MiB) when
+    unset, non-numeric, or non-positive — a zero/negative ceiling has no
+    sensible meaning and would just make attaching impossible.
+    """
+    val = get_value("image_attachment_max_kb")
+    if val is None or not str(val).strip():
+        return IMAGE_ATTACHMENT_MAX_KB_DEFAULT
+    try:
+        kb = int(str(val).strip())
+    except (ValueError, TypeError):
+        return IMAGE_ATTACHMENT_MAX_KB_DEFAULT
+    return kb if kb > 0 else IMAGE_ATTACHMENT_MAX_KB_DEFAULT
+
+
 def get_disable_dangerous_command_guard() -> bool:
     """
     Checks puppy.cfg for 'disable_dangerous_command_guard' (case-insensitive in value only).

@@ -10,10 +10,10 @@ raw bytes against the API limit is wrong by a factor of 4/3, and re-encoding a
 JPEG as lossless PNG can inflate a photo by an order of magnitude — so we
 measure the bytes we would actually send, and keep the source format.
 
-Separately from the API's hard limit, we target :data:`TARGET_IMAGE_ATTACHMENT_BYTES`
-(256 KiB encoded) for every attachment.  Images are replayed as part of the
-conversation history on every request, so a multi-megabyte photo is a
-per-turn upload tax the model largely throws away.
+Separately from the API's hard limit, attachments are normalized to the
+``image_attachment_max_kb`` setting — 1 MiB encoded by default — because
+images are replayed as part of the conversation history on every request, so a
+multi-megabyte photo is a per-turn upload tax the model largely throws away.
 
 Public functions fail gracefully (returning the input unchanged) unless the
 image cannot be made to fit at all, in which case :class:`ImageTooLargeError`
@@ -37,9 +37,11 @@ logger = logging.getLogger(__name__)
 #: Leave headroom so other JSON fields can't push the request over the edge.
 MAX_IMAGE_B64_BYTES: int = 10 * 1024 * 1024 - 64 * 1024
 
-#: Product target for attachments: keep uploads (and history replays) light.
-#: This is *encoded* bytes — what `ls -l` reports — not base64.
-TARGET_IMAGE_ATTACHMENT_BYTES: int = 256 * 1024
+#: Fallback target for attachments: keep uploads (and history replays) light.
+#: This is *encoded* bytes — what `ls -l` reports — not base64. Overridden at
+#: runtime by the ``image_attachment_max_kb`` config key (see
+#: :func:`default_image_b64_budget`).
+TARGET_IMAGE_ATTACHMENT_BYTES: int = 1024 * 1024
 
 #: Hard cap on either dimension after any resize.
 MAX_IMAGE_DIMENSION: int = 4096
@@ -90,10 +92,18 @@ def b64_len(num_bytes: int) -> int:
     return 4 * ((num_bytes + 2) // 3)
 
 
-#: Default payload budget, in the API's base64 unit, for the product target.
-DEFAULT_IMAGE_B64_BUDGET: int = min(
-    MAX_IMAGE_B64_BYTES, b64_len(TARGET_IMAGE_ATTACHMENT_BYTES)
-)
+def default_image_b64_budget() -> int:
+    """Return the attachment budget in the API's base64 unit.
+
+    Derived from the user's ``image_attachment_max_kb`` setting (1 MiB by
+    default), clamped to the API's hard ceiling. Resolved per call rather than
+    frozen at import so ``/set image_attachment_max_kb`` takes effect on the
+    next attachment without a restart.
+    """
+    from code_puppy.config import get_image_attachment_max_kb
+
+    target_bytes = get_image_attachment_max_kb() * 1024
+    return min(MAX_IMAGE_B64_BYTES, b64_len(target_bytes))
 
 
 def _safe_open_image(image_bytes: bytes) -> "Optional[Image.Image]":
@@ -217,7 +227,7 @@ def normalize_image_bytes(
     data: bytes,
     media_type: str,
     *,
-    max_bytes: int = DEFAULT_IMAGE_B64_BUDGET,
+    max_bytes: Optional[int] = None,
 ) -> Tuple[bytes, str]:
     """Verify and shrink image bytes so the sent payload fits *max_bytes*.
 
@@ -225,8 +235,9 @@ def normalize_image_bytes(
         data: Raw image bytes.
         media_type: MIME type string (e.g. ``"image/png"``).
         max_bytes: Base64 payload budget; defaults to
-            :data:`DEFAULT_IMAGE_B64_BUDGET`, which keeps encoded
-            attachments at or under :data:`TARGET_IMAGE_ATTACHMENT_BYTES`.
+            :func:`default_image_b64_budget`, which keeps encoded attachments
+            at or under the configured ``image_attachment_max_kb`` (1 MiB by
+            default).
 
     Returns:
         A ``(bytes, media_type)`` tuple.  The original bytes are returned
@@ -248,6 +259,9 @@ def normalize_image_bytes(
     if not _PIL_AVAILABLE:
         logger.debug("PIL unavailable; skipping image normalization")
         return data, media_type
+
+    if max_bytes is None:
+        max_bytes = default_image_b64_budget()
 
     image = _safe_open_image(data)
     if image is None:
@@ -274,7 +288,7 @@ __all__ = [
     "MAX_IMAGE_B64_BYTES",
     "MAX_IMAGE_DIMENSION",
     "TARGET_IMAGE_ATTACHMENT_BYTES",
-    "DEFAULT_IMAGE_B64_BUDGET",
+    "default_image_b64_budget",
     "JPEG_QUALITY",
     "ImageTooLargeError",
     "b64_len",

@@ -37,6 +37,7 @@ from code_puppy.config import (
     get_grep_max_matches,
     get_grep_output_verbose,
     get_http2,
+    get_image_attachment_max_kb,
     get_max_hook_retries,
     get_max_saved_sessions,
     get_mcp_disabled,
@@ -571,6 +572,25 @@ _OUTPUT = SettingsCategory(
 )
 
 
+_IMAGES = SettingsCategory(
+    name="Images",
+    settings=(
+        Setting(
+            key="image_attachment_max_kb",
+            display_name="Max Image Attachment Size (KiB)",
+            description=(
+                "Ceiling for image attachments, in KiB of encoded bytes "
+                "(default 1024 = 1 MiB). Attached images are downscaled to fit, "
+                "preserving JPEG/PNG. Images are replayed with the conversation "
+                "history on every request, so smaller means faster turns."
+            ),
+            type_hint="int",
+            effective_getter=get_image_attachment_max_kb,
+        ),
+    ),
+)
+
+
 _MCP = SettingsCategory(
     name="MCP",
     settings=(
@@ -618,6 +638,7 @@ SETTINGS_CATEGORIES: Tuple[SettingsCategory, ...] = (
     _SESSION,
     _COMPACTION,
     _OUTPUT,
+    _IMAGES,
     _FEATURES,
     _MCP,
     _KEYBOARD,

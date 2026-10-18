@@ -10,13 +10,13 @@ from unittest.mock import patch
 import pytest
 
 from code_puppy.command_line.image_utils import (
-    DEFAULT_IMAGE_B64_BUDGET,
     MAX_IMAGE_B64_BYTES,
     MAX_IMAGE_DIMENSION,
     TARGET_IMAGE_ATTACHMENT_BYTES,
     ImageTooLargeError,
     _safe_open_image,
     b64_len,
+    default_image_b64_budget,
     normalize_image_bytes,
 )
 
@@ -75,9 +75,23 @@ class TestB64Len:
         assert b64_len(raw) == expected == len(base64.b64encode(b"x" * raw))
 
     def test_default_budget_matches_attachment_target(self) -> None:
-        """The default budget is the 256 KiB target in the API's unit."""
-        assert DEFAULT_IMAGE_B64_BUDGET == b64_len(TARGET_IMAGE_ATTACHMENT_BYTES)
-        assert DEFAULT_IMAGE_B64_BUDGET <= MAX_IMAGE_B64_BYTES
+        """The default budget is the configured target in the API's unit."""
+        assert default_image_b64_budget() == b64_len(TARGET_IMAGE_ATTACHMENT_BYTES)
+        assert default_image_b64_budget() <= MAX_IMAGE_B64_BYTES
+
+    def test_default_budget_follows_config(self, monkeypatch) -> None:
+        """Changing the setting changes the budget without a restart."""
+        from code_puppy import config
+
+        monkeypatch.setattr(config, "get_image_attachment_max_kb", lambda: 512)
+        assert default_image_b64_budget() == b64_len(512 * 1024)
+
+    def test_default_budget_clamped_to_api_ceiling(self, monkeypatch) -> None:
+        """A huge configured value cannot exceed the API's hard limit."""
+        from code_puppy import config
+
+        monkeypatch.setattr(config, "get_image_attachment_max_kb", lambda: 1024 * 1024)
+        assert default_image_b64_budget() == MAX_IMAGE_B64_BYTES
 
 
 # ---------------------------------------------------------------------------
