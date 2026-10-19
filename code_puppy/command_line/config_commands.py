@@ -34,6 +34,7 @@ def handle_show_command(command: str) -> bool:
     from code_puppy.agents import get_current_agent
     from code_puppy.command_line.model_picker_completion import get_active_model
     from code_puppy.config import (
+        get_agency_level,
         get_auto_save_session,
         get_compaction_strategy,
         get_compaction_threshold,
@@ -55,6 +56,7 @@ def handle_show_command(command: str) -> bool:
     puppy_name = get_puppy_name()
     owner_name = get_owner_name()
     model = get_active_model()
+    agency_level = get_agency_level()
     yolo_mode = get_yolo_mode()
     auto_save = get_auto_save_session()
     protected_tokens = get_protected_token_count()
@@ -75,6 +77,7 @@ def handle_show_command(command: str) -> bool:
 [bold]current_agent:[/bold]         [magenta]{current_agent.display_name}[/magenta]
 [bold]default_agent:[/bold]        [cyan]{default_agent}[/cyan]
 [bold]model:[/bold]                 [green]{model}[/green]
+[bold]{t("cfg.show.agency_level")}:[/bold]          [cyan]{agency_level}[/cyan]
 [bold]YOLO_MODE:[/bold]             {"[red]ON[/red]" if yolo_mode else "[yellow]off[/yellow]"}
 [bold]auto_save_session:[/bold]     {"[green]enabled[/green]" if auto_save else "[yellow]disabled[/yellow]"}
 [bold]protected_tokens:[/bold]      [cyan]{protected_tokens:,}[/cyan] recent tokens preserved
