@@ -653,7 +653,7 @@ def get_model_max_output_tokens(
 def get_config_keys():
     """
     Returns the list of all config keys currently in puppy.cfg,
-    plus certain preset expected keys (e.g. "yolo_mode", "model", "compaction_strategy", "message_limit", "allow_recursion").
+    plus core menu settings, preset expected keys, and plugin settings.
 
     Only core-owned keys belong in ``default_keys``: plugins declare theirs
     through the ``register_settings`` hook (see :func:`_plugin_setting_keys`).
@@ -719,9 +719,29 @@ def get_config_keys():
     default_keys.append("retry_subagent_strategy")
     default_keys.append("retry_subagent_max_attempts")
 
+    # Core-owned controls without curated menu entries. Plugin-owned controls
+    # must come from register_settings, not this fallback list.
+    default_keys.extend(
+        (
+            "classic_prompt",
+            "command_timeout_seconds",
+            "disabled_plugins",
+            "enable_speculative_code_mode",
+            "osc_palette_json",
+            "port_base",
+        )
+    )
+
+    # Import lazily: the catalog imports config getters while it is built.
+    # Reuse the catalog rather than maintaining a second list of its keys.
+    from code_puppy.command_line.set_menu_catalog import SETTINGS_CATEGORIES
+
     config = _load_config()
     keys = set(config[DEFAULT_SECTION].keys()) if DEFAULT_SECTION in config else set()
     keys.update(default_keys)
+    keys.update(
+        setting.key for category in SETTINGS_CATEGORIES for setting in category.settings
+    )
     keys.update(_plugin_setting_keys())
     return sorted(keys)
 
