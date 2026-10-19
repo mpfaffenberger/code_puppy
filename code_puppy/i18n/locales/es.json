@@ -74,6 +74,7 @@
   "cfg.set.reload_failed": "Configuración guardada, pero no se pudo recargar el agente: {error}",
   "cfg.set.success": "Se estableció {key} = \"{value}\" en puppy.cfg.",
   "cfg.set.yolo_config_unchanged": "Se usa el modo YOLO de puppy.cfg; la configuración no ha cambiado.",
+  "cfg.show.agency_level": "agency_level",
   "cfg.unpin.agent_reloaded": "Agente activo recargado con el modelo predeterminado",
   "cfg.unpin.failed": "No se pudo quitar la fijación del modelo del agente '{agent}': {error}",
   "cfg.unpin.reload_failed": "Se quitó la fijación del modelo, pero no se pudo recargar: {error}",

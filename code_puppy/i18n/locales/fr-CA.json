@@ -74,6 +74,7 @@
   "cfg.set.reload_failed": "Configuration enregistrée, mais échec du rechargement de l’agent : {error}",
   "cfg.set.success": "{key} = \"{value}\" a été défini dans puppy.cfg.",
   "cfg.set.yolo_config_unchanged": "Utilisation du mode YOLO de puppy.cfg; la configuration reste inchangée.",
+  "cfg.show.agency_level": "agency_level",
   "cfg.unpin.agent_reloaded": "Agent actif rechargé avec le modèle par défaut",
   "cfg.unpin.failed": "Impossible de retirer le modèle épinglé de l’agent '{agent}' : {error}",
   "cfg.unpin.reload_failed": "Le modèle n’est plus épinglé, mais le rechargement a échoué : {error}",
