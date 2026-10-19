@@ -719,18 +719,14 @@ def get_config_keys():
     default_keys.append("retry_subagent_strategy")
     default_keys.append("retry_subagent_max_attempts")
 
-    # Configuration-backed controls without curated menu entries. Internal
-    # controls are included too: discovery must not depend on a prior write.
+    # Core-owned controls without curated menu entries. Plugin-owned controls
+    # must come from register_settings, not this fallback list.
     default_keys.extend(
         (
-            "auto_continue_model",
             "classic_prompt",
             "command_timeout_seconds",
             "disabled_plugins",
             "enable_speculative_code_mode",
-            "frontend_emitter_enabled",
-            "frontend_emitter_max_recent_events",
-            "frontend_emitter_queue_size",
             "osc_palette_json",
             "port_base",
         )
