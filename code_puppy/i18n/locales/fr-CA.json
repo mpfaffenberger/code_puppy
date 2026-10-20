@@ -244,6 +244,8 @@
   "help.keybinding.newline.label": "Ctrl+J ou Shift+Enter",
   "help.keybinding.up.description": "Modifier les tours en attente avant de parcourir l’historique des instructions",
   "help.keybinding.up.label": "Flèche vers le haut",
+  "http_utils.cert_bundle_missing": "{name} pointe vers un fichier inexistant ({path}); le magasin de confiance par defaut sera utilise.",
+  "http_utils.insecure_skip_verify": "La verification des certificats TLS est DESACTIVEE (CODE_PUPPY_INSECURE_SKIP_VERIFY). Chaque requete HTTPS -- y vos cles API -- n'est pas verifie.",
   "locale.current": "Langue actuelle : {locale}",
   "locale.set": "Langue réglée à {locale}.",
   "logfire.configure_failed": "Impossible de configurer Logfire : {error}",
