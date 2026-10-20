@@ -760,6 +760,7 @@
   "stream.thinking": "● Pensando",
   "subagent.gpt_5_6_recursion_blocked": "No se puede invocar '{agent}' a la profundidad de subagente {depth}: quienes llaman desde GPT-5.6 están limitados a la profundidad {limit}.",
   "subagent.recursion_limit_reached": "Se alcanzó el límite de recursión de subagentes ({limit}); no se puede invocar '{agent}'.",
+  "tools.command_runner.background_notice": "Este comando se ejecutará en segundo plano y seguirá ejecutándose cuando termine este turno.",
   "tools.common.approval.approve": "Aprobar",
   "tools.common.approval.approved": "¡Aprobado!",
   "tools.common.approval.cancelled": "Cancelado por el usuario",
