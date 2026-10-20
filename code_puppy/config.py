@@ -8,7 +8,7 @@ import pathlib
 from typing import Any, Optional
 
 from code_puppy import atomic_io
-from code_puppy.config_file import load_config, mutate_config
+from code_puppy.config_file import load_config, mutate_config, sanitize_config_text
 from code_puppy.session_storage import compute_scope_key, save_session
 
 logger = logging.getLogger(__name__)
@@ -386,13 +386,15 @@ def ensure_config_exists():
         sys.stdout.flush()
         for key in missing:
             if key == "puppy_name":
-                val = input("What should we name the puppy? ").strip()
+                prompt = "What should we name the puppy? "
             elif key == "owner_name":
-                val = input(
-                    "What's your name (so Code Puppy knows its owner)? "
-                ).strip()
+                prompt = "What's your name (so Code Puppy knows its owner)? "
             else:
-                val = input(f"Enter {key}: ").strip()
+                prompt = f"Enter {key}: "
+            # Sanitize here, not just on write: a name pasted from a non-UTF-8
+            # source carries a lone surrogate, which is not encodable as
+            # UTF-8 and would be echoed straight back to the terminal.
+            val = sanitize_config_text(input(prompt).strip())
             prompted_values[key] = val
             config[DEFAULT_SECTION][key] = val
 
