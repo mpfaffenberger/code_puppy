@@ -616,6 +616,7 @@
   "stream.thinking": "● Réflexion en cours",
   "subagent.gpt_5_6_recursion_blocked": "Impossible d’invoquer '{agent}' à la profondeur de sous-agent {depth} : les appelants GPT-5.6 sont limités à la profondeur {limit}.",
   "subagent.recursion_limit_reached": "La limite de récursion des sous-agents ({limit}) est atteinte; impossible d’invoquer '{agent}'.",
+  "tools.command_runner.background_notice": "Cette commande s'exécutera en arrière-plan et continuera de s'exécuter après la fin de ce tour.",
   "tools.common.approval.approve": "Approuver",
   "tools.common.approval.approved": "Approuvé!",
   "tools.common.approval.cancelled": "Annulé par l’utilisateur",
