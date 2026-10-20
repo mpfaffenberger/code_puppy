@@ -42,14 +42,6 @@ dependencies = [
     "keyring>=24.0.0",
     "agent-client-protocol>=0.11.0,<0.12",
 ]
-dev-dependencies = [
-    "cryptography>=44.0.0",
-    "pytest>=8.3.4",
-    "pytest-cov>=6.1.1",
-    "pytest-asyncio>=0.23.1",
-    "ruff>=0.15,<0.16",
-    "pexpect>=4.9.0",
-]
 authors = [
     {name = "Michael Pfaffenberger"}
 ]
@@ -86,9 +78,11 @@ ignore_no_config = true
 [tool.hatch.build]
 packages = ["code_puppy"]
 
-[tool.hatch.build.targets.wheel.shared-data]
-"code_puppy/models.json" = "code_puppy/models.json"
-"code_puppy/models_dev_api.json" = "code_puppy/models_dev_api.json"
+# The model catalogs ship inside the package (``packages = ["code_puppy"]``
+# already includes them), and that is where the code reads them from
+# (``Path(__file__).parent``). Mapping them into shared-data as well shipped
+# every byte twice -- 548 KB of duplicated JSON per wheel -- for a location
+# nothing reads.
 
 [[tool.hatch.build.targets.sdist.include]]
 path = "code_puppy/models.json"
