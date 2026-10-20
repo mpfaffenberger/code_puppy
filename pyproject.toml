@@ -18,6 +18,8 @@ dependencies = [
     "anyio>=4.7.0",
     "typer>=0.12.0",
     "mcp>=1.9.4",
+    # Imported directly by code_puppy.mcp_; range mirrors pydantic-ai-slim[mcp].
+    "fastmcp-slim[client]>=3.3.0,<5",
     # FastMCP's OAuth callback server explicitly uses Uvicorn websockets-sansio.
     "websockets>=14.0",
     "httpx[http2]>=0.24.1",
