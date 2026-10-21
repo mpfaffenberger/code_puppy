@@ -227,8 +227,8 @@
   "confirm.no": "Non",
   "confirm.yes": "Oui",
   "credentials.empty": "Un identifiant d’API partagé ne peut pas être vide.",
-  "credentials.migration_conflict": "L’identifiant hérité '{key}' est en conflit. Résolvez le conflit pour cette clé dans puppy.cfg et les configurations de profil existantes avant de changer de profil; aucune valeur en conflit n’a été écrasée.",
   "credentials.migration_failed": "Impossible de vérifier le stockage des identifiants partagés. Les identifiants hérités ont été conservés.",
+  "credentials.migration_skipped": "L’identifiant '{key}' n’a pas été migré : sa valeur dans {paths} ne correspond pas au stockage sécurisé ou à un autre profil. Rien n’a été écrasé; la valeur stockée est utilisée lorsqu’elle existe. Supprimez '{key}' de ces fichiers pour faire disparaître cet avertissement (copiez d’abord la valeur si vous en avez encore besoin).",
   "error.generic": "Une erreur s'est produite : {detail}",
   "files.deleted": {
     "one": "{count} fichier supprimé.",
