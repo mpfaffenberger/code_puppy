@@ -244,6 +244,8 @@
   "help.keybinding.newline.label": "Ctrl+J or Shift+Enter",
   "help.keybinding.up.description": "Edit queued turns before browsing prompt history",
   "help.keybinding.up.label": "Up Arrow",
+  "http_utils.cert_bundle_missing": "{name} points to a missing file ({path}); falling back to the default trust store.",
+  "http_utils.insecure_skip_verify": "TLS certificate verification is DISABLED (CODE_PUPPY_INSECURE_SKIP_VERIFY). Every HTTPS request -- including your API keys -- is unverified.",
   "locale.current": "Current locale: {locale}",
   "locale.set": "Locale set to {locale}.",
   "logfire.configure_failed": "Failed to configure Logfire: {error}",
