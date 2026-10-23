@@ -33,7 +33,7 @@ _REAL_PARAMS = {
     "cmd.refresh_models.summary": {"updated": 42, "unchanged": 999},
     "cmd.refresh_models.updated": {"model_key": "model-name"},
     "codex.imagegen.request_failed": {"detail": ": failure"},
-    "credentials.migration_conflict": {"key": "API_KEY"},
+    "credentials.migration_skipped": {"key": "API_KEY", "paths": "/tmp/puppy.cfg"},
     "mcp.http_form.auth_value": {"auth": "oauth"},
     "mcp.http_form.name": {"name": "server-name"},
     "oauth.meta.auth.code": {"code": "ABCD-1234"},

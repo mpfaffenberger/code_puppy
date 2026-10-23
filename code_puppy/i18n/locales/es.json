@@ -228,8 +228,8 @@
   "confirm.no": "No",
   "confirm.yes": "Sí",
   "credentials.empty": "Una credencial de API compartida no puede estar vacía.",
-  "credentials.migration_conflict": "La credencial heredada '{key}' está en conflicto. Resuelve el conflicto de esa clave en puppy.cfg y en las configuraciones de perfil existentes antes de cambiar de perfil; no se sobrescribió ningún valor en conflicto.",
   "credentials.migration_failed": "No se pudo verificar el almacenamiento de credenciales compartidas. Se conservaron las credenciales heredadas.",
+  "credentials.migration_skipped": "No se migró la credencial '{key}': su valor en {paths} no coincide con el almacenamiento seguro o con otro perfil. No se sobrescribió nada; se usa el valor almacenado cuando existe. Elimina '{key}' de esos archivos para que deje de aparecer esta advertencia (copia antes el valor si aún lo necesitas).",
   "error.generic": "Algo salió mal: {detail}",
   "files.deleted": {
     "one": "Se eliminó {count} archivo.",

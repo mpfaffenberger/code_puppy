@@ -228,8 +228,8 @@
   "confirm.no": "No",
   "confirm.yes": "Yes",
   "credentials.empty": "A shared API credential cannot be empty.",
-  "credentials.migration_conflict": "Conflicting legacy credential '{key}'. Reconcile that key in puppy.cfg and existing profile configs before switching profiles; no conflicting value was overwritten.",
   "credentials.migration_failed": "Could not verify shared credential storage. Legacy credentials were retained.",
+  "credentials.migration_skipped": "Did not migrate credential '{key}': its value in {paths} differs from secure storage or another profile. Nothing was overwritten; the stored value is used when present. Delete '{key}' from those files to stop this warning (copy the value first if you still need it).",
   "error.generic": "Something went wrong: {detail}",
   "files.deleted": {
     "one": "Deleted {count} file.",
