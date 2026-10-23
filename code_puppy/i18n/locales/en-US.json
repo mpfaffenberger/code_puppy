@@ -74,6 +74,7 @@
   "cfg.set.reload_failed": "Config saved but agent reload failed: {error}",
   "cfg.set.success": "Set {key} = \"{value}\" in puppy.cfg!",
   "cfg.set.yolo_config_unchanged": "Using YOLO mode from puppy.cfg; configuration unchanged.",
+  "cfg.show.agency_level": "agency_level",
   "cfg.unpin.agent_reloaded": "Active agent reloaded with default model",
   "cfg.unpin.failed": "Failed to unpin model from agent '{agent}': {error}",
   "cfg.unpin.reload_failed": "Model unpinned but reload failed: {error}",
