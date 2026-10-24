@@ -9,6 +9,7 @@ import pytest
 from code_puppy.agents._diagnostics import emit_exception_diagnostics
 from code_puppy.agents._multimodal_error_hint import multimodal_error_hint
 from code_puppy.agents._runtime import should_retry_streaming
+from code_puppy.i18n import get_locale, load_catalog, set_locale
 
 MESSAGE = "failed to process mtmd chunk"
 
@@ -29,6 +30,26 @@ def test_bare_sse_error_has_actionable_hint(message):
     assert "projector" in hint
     assert "DFlash" in hint
     assert "does not remove images" in hint
+
+
+@pytest.mark.parametrize("locale", ["es", "fr-CA"])
+def test_hint_uses_translated_catalog_without_english_fallback(locale):
+    key = "agent.error.multimodal_processing_hint"
+    previous_locale = get_locale()
+    try:
+        set_locale(locale)
+        hint = multimodal_error_hint(api_error())
+        assert hint == load_catalog(locale)[key]
+        assert hint != load_catalog("en-US")[key]
+        for literal in (
+            "mtmd",
+            "llama-server",
+            "DFlash",
+            "~/.code_puppy/logs/errors.log",
+        ):
+            assert literal in hint
+    finally:
+        set_locale(previous_locale)
 
 
 def test_nested_provider_body():
