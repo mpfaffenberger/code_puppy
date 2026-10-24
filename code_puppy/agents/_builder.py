@@ -329,6 +329,24 @@ database or production mutations, or other actions without a clear rollback.
 """
 
 
+_GEMINI_FLASH_LOOKUP_STOP_TEXT = """
+
+## Check The Lookup The Code Actually Makes
+Before you query a config store, database or API to confirm a setting, find in the code the exact lookup it performs (which qualifier or namespace, org, key and environment) and state it. Then check that exact lookup and answer from its result. A matching value under a different qualifier, org or environment does not apply to this code. If the exact lookup returns nothing, the answer is "not set where the code reads it", even if that is not what the user hoped for: say so instead of searching elsewhere for a match.
+Stop rule: once the exact lookup has come back empty, that is your answer. Stop querying and answer now: say it is not set where the code reads it and what the code falls back to (from the code you already read). If a doc, note or another row claims otherwise, mention it in one line as a conflict for the user to resolve; do not investigate it first.
+"""
+
+
+def _is_gemini_flash(model_name: Optional[str]) -> bool:
+    """Gemini Flash models get the lookup-first stop rule.
+
+    When a config lookup comes back empty they tend to keep querying other
+    places for a matching value instead of reporting that it is not set.
+    """
+    name = (model_name or "").lower()
+    return "gemini" in name and "flash" in name
+
+
 def _is_gpt_5_6_family(model_name: Optional[str]) -> bool:
     """GPT-5.6 and newer (incl. GPT-6) get the shell-safety guard."""
     from code_puppy.model_utils import supports_gpt_responses_controls
@@ -364,6 +382,9 @@ def _assemble_instructions(agent: Any, resolved_model_name: str) -> PreparedProm
             instructions += _build_gpt_5_6_invoke_agent_guard_text()
         if _agent_exposes_tool(agent, "shell"):
             instructions += _GPT_5_6_RUN_SHELL_COMMAND_GUARD_TEXT
+
+    if _is_gemini_flash(resolved_model_name):
+        instructions += _GEMINI_FLASH_LOOKUP_STOP_TEXT
 
     return prepare_prompt_for_model(
         agent.get_model_name(), instructions, "", prepend_system_to_user=False
