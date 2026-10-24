@@ -285,16 +285,6 @@ def handle_agent_command(command: str) -> bool:
                 )
                 selected_agent = future.result(timeout=300)  # 5 min timeout
 
-            # Drain deferred pin-reloads — must run on the main loop, not the
-            # worker's transient one (see agent_menu._PENDING_PIN_RELOADS).
-            from code_puppy.command_line.agent_menu import (
-                apply_pending_pin_reload,
-                consume_pending_pin_reloads,
-            )
-
-            for pin_agent, pin_model in consume_pending_pin_reloads():
-                apply_pending_pin_reload(pin_agent, pin_model)
-
             if selected_agent:
                 current_agent = get_current_agent()
                 # Check if we're already using this agent

@@ -13,12 +13,16 @@ _CATALOG_DIR = Path(__file__).parents[2] / "code_puppy" / "i18n" / "locales"
 _LOCALES = tuple(path.stem for path in _CATALOG_DIR.glob("*.json"))
 # Parameter names match the upstream callers, not fields inferred from catalogs.
 _REAL_PARAMS = {
-    "agent_menu.agent_reloaded_pinned": {"model": "model-name"},
     "agent_menu.models_load_failed": {"error": "load-failure"},
     "agent_menu.pin_apply_failed": {"error": "apply-failure"},
     "agent_menu.pin_cleared": {"agent": "agent-name"},
     "agent_menu.pin_set": {"model": "model-name", "agent": "agent-name"},
-    "agent_menu.pinned_reload_failed": {"error": "reload-failure"},
+    "agent_reload.gave_up": {
+        "agent": "agent-name",
+        "attempts": 3,
+        "error": "reload-failure",
+    },
+    "agent_reload.success": {"agent": "agent-name"},
     "browser.chromium.install_failed": {
         "exit_code": 17,
         "command": "python -m playwright install chromium",
