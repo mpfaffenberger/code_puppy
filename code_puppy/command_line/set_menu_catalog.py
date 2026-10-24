@@ -22,9 +22,11 @@ from code_puppy.command_line.set_menu_shims import (
 )
 from code_puppy.config import (
     AGENCY_LEVELS,
+    CODE_MODE_MOUNT_CHOICES,
     get_agency_level,
     get_allow_recursion,
     get_auto_save_session,
+    get_code_mode_mount,
     get_compaction_strategy,
     get_compaction_threshold,
     get_default_agent,
@@ -328,6 +330,15 @@ _FEATURES = SettingsCategory(
             description="Allow agents to dynamically create custom tools at runtime.",
             type_hint="bool",
             effective_getter=get_universal_constructor_enabled,
+        ),
+        Setting(
+            key="code_mode_mount",
+            display_name="Code Mode Mount",
+            description="How speculative code mode mounts the workspace for run_code "
+            "snippets (overlay/read-only/none keep pathlib from writing host files).",
+            type_hint="choice",
+            valid_values=CODE_MODE_MOUNT_CHOICES,
+            effective_getter=get_code_mode_mount,
         ),
         # Plugin-owned features (DBOS, frontend emitter, ...) merge in here
         # via the register_settings hook.
