@@ -1,9 +1,12 @@
 """Comprehensive test coverage for terminal_utils.py."""
 
+import copy
 import io
 import subprocess
 import sys
 from unittest.mock import MagicMock
+
+import pyte
 
 from code_puppy import terminal_utils
 
@@ -120,6 +123,35 @@ class _FakeTty(io.StringIO):
         return True
 
 
+class _XtermScreen(pyte.Screen):
+    """pyte ignores DECSET 1049; xterm's reset restores the DECSC cursor."""
+
+    def restore_cursor(self):
+        # xterm keeps one saved cursor; restoring it doesn't consume it. Copy:
+        # pyte adopts the popped cursor object as the live one.
+        if self.savepoints:
+            self.savepoints.append(copy.deepcopy(self.savepoints[-1]))
+        super().restore_cursor()
+
+    def reset_mode(self, *modes, **kwargs):
+        if kwargs.get("private") and 1049 in modes:
+            self.restore_cursor()
+        super().reset_mode(*modes, **kwargs)
+
+
+def _render_exit(reset_bytes: str) -> str:
+    """Screen after an interactive exit: transcript, final output, reset, prompt."""
+    screen = _XtermScreen(60, 12)
+    stream = pyte.Stream(screen)
+    # The persistent bottom bar's teardown saves the cursor (DECSC) and
+    # restores it right away; the saved position outlives the teardown.
+    stream.feed("transcript\r\n\x1b7\x1b8")
+    stream.feed("Goodbye!\r\n\r\nResume this session with:\r\n  pup --resume demo\r\n")
+    stream.feed(reset_bytes.replace("\x1b[!p", ""))  # pyte prints DECSTR's "p"
+    stream.feed("$ \x1b[J")  # a shell prompt clears below the cursor
+    return "\n".join(screen.display)
+
+
 class TestResetUnixTerminal:
     def _on_tty(self, monkeypatch):
         """Route the reset at a fake tty on stderr; return the stream."""
@@ -155,6 +187,24 @@ class TestResetUnixTerminal:
         assert terminal_utils._UNIX_TERMINAL_RESET in written
         assert terminal_utils._MOUSE_TRACKING_OFF in written
         assert "\x1bc" not in written  # never full RIS: it clears the screen
+
+    def test_output_printed_after_the_last_cursor_save_survives(self, monkeypatch):
+        fake = self._on_tty(monkeypatch)
+        monkeypatch.setattr(terminal_utils.subprocess, "run", MagicMock())
+        terminal_utils.reset_unix_terminal()
+
+        rendered = _render_exit(fake.getvalue())
+
+        assert "Goodbye!" in rendered
+        assert "  pup --resume demo" in rendered
+
+    def test_screen_model_erases_output_when_1049_is_reset(self):
+        # Control: proves the model can see the bug the test above guards --
+        # the cursor returns to the saved row (not home), erasing below it.
+        rendered = _render_exit("\x1b[?1049l")
+
+        assert "transcript" in rendered
+        assert "pup --resume demo" not in rendered
 
     def test_handles_called_process_error(self, monkeypatch):
         fake = self._on_tty(monkeypatch)
