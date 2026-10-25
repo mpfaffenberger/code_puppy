@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "code-puppy"
-version = "0.0.939"
+version = "0.0.944"
 description = "Code generation agent"
 readme = "README.md"
 requires-python = ">=3.11,<3.15"
@@ -15,7 +15,8 @@ dependencies = [
     "pydantic-ai-harness[code-mode]==0.35.0",
     # Monty 1.0 removed max_duration_secs, still used by harness CodeMode.
     "pydantic-monty<1",
-    "anyio>=4.7.0",
+    # Security floor: 4.14.2 fixes CVE-2026-63374 and CVE-2026-64847.
+    "anyio>=4.14.2",
     "typer>=0.12.0",
     "mcp>=1.9.4",
     # Imported directly by code_puppy.mcp_; range mirrors pydantic-ai-slim[mcp].

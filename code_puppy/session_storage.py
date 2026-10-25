@@ -16,6 +16,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, List, Tuple
 
+from code_puppy.atomic_io import atomic_write_bytes
+
 _LEGACY_SIGNED_HEADER = b"CPSESSION\x01"
 _LEGACY_SIGNATURE_SIZE = (
     32  # legacy signature bytes, retained only for backward-compat parsing
@@ -171,18 +173,27 @@ def build_envelope_from_messages(
     }
 
 
+def _write_json_atomically(path: Path, data: Any) -> None:
+    # A unique temp file per write: a shared fixed ``.tmp`` name let two
+    # concurrent writers splice each other's bytes into one session file.
+    atomic_write_bytes(str(path), json.dumps(data, indent=2).encode("utf-8"))
+
+
 def write_envelope_file(json_path: Path, envelope: dict[str, Any]) -> None:
-    """Atomically write an envelope: temp file in-place then ``replace``."""
-    tmp_path = json_path.with_suffix(".tmp")
-    with tmp_path.open("w", encoding="utf-8") as json_file:
-        json.dump(envelope, json_file, indent=2)
-    tmp_path.replace(json_path)
+    """Atomically write an envelope via a unique temp file + ``replace``."""
+    _write_json_atomically(json_path, envelope)
 
 
 def read_envelope_file(json_path: Path) -> dict[str, Any]:
     """Read + shape-check a session envelope. Raises ``ValueError`` if bad."""
     with json_path.open("r", encoding="utf-8") as json_file:
-        envelope = json.load(json_file)
+        try:
+            envelope = json.load(json_file)
+        except json.JSONDecodeError as exc:
+            # Name the file so a damaged session can be found and kept.
+            raise ValueError(
+                f"Session file {json_path} is not valid JSON: {exc}"
+            ) from exc
     if not isinstance(envelope, dict):
         raise ValueError(f"Session file {json_path} is not a JSON object")
     format_version = envelope.get("format")
@@ -240,11 +251,7 @@ def save_session(
         scope_key=scope_key,
     )
 
-    tmp_metadata = paths.metadata_path.with_suffix(".tmp")
-    with tmp_metadata.open("w", encoding="utf-8") as metadata_file:
-        json.dump(metadata.as_serialisable(), metadata_file, indent=2)
-    tmp_metadata.replace(paths.metadata_path)
-
+    _write_json_atomically(paths.metadata_path, metadata.as_serialisable())
     return metadata
 
 
