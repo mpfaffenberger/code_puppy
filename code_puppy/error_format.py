@@ -85,6 +85,8 @@ _ELIDED_MARKER = "…[truncated, repr elided]"
 # per reference), so a tiny exception can fan out to millions of repr calls. The budget
 # counts every value visited, bounding the traversal itself rather than only its text.
 _MAX_ARGS_NODES = 256
+# Total string characters redacted whole per render; beyond it a string keeps only its head.
+_MAX_ARGS_SCAN_CHARS = 1 << 20
 
 
 def _elide(text: str, limit: int) -> str:
@@ -114,6 +116,7 @@ class _BudgetedRepr(reprlib.Repr):
         self.maxstring = _MAX_ARGS_CHARS
         self.maxother = sys.maxsize  # repr_instance elides after redacting
         self._nodes_left = _MAX_ARGS_NODES
+        self._scan_left = _MAX_ARGS_SCAN_CHARS
 
     def repr1(self, x: object, level: int) -> str:
         if self._nodes_left <= 0:
@@ -122,16 +125,15 @@ class _BudgetedRepr(reprlib.Repr):
         return super().repr1(x, level)
 
     def repr_str(self, x: str, level: int) -> str:
-        if len(x) <= self.maxstring:
+        if len(x) <= self._scan_left:
+            # Redact the whole string, then elide: a key-named secret whose key falls in
+            # the discarded middle would be unrecognisable if only the kept tail were scanned.
+            self._scan_left -= len(x)
             return _elide(repr(redact(x)), self.maxstring)
+        # Too much text left to scan whole: keep only a head (its context is intact) and
+        # drop the tail, whose discarded context could not be checked.
         head = max(0, (self.maxstring - 3) // 2)
-        tail = max(0, self.maxstring - 3 - head)
-        # Only the two kept ends are scanned, so a huge string stays cheap; the lookahead
-        # lets a token that straddles an end still be seen whole before it is clipped.
-        kept_head = redact(x[: head + _REDACTION_LOOKAHEAD])[:head]
-        kept_tail = redact(x[-(tail + _REDACTION_LOOKAHEAD) :])[-tail:] if tail else ""
-        text = repr(kept_head + kept_tail)
-        return text[: len(kept_head)] + _ELIDED + text[len(text) - len(kept_tail) :]
+        return repr(redact(x[: head + _REDACTION_LOOKAHEAD])[:head]) + _ELIDED
 
     def repr_instance(self, x: object, level: int) -> str:
         return _elide(redact(super().repr_instance(x, level)), _MAX_ARGS_CHARS)

@@ -183,3 +183,52 @@ def test_a_token_in_a_custom_repr_cut_by_the_elision_leaves_no_fragment():
 
     assert "SSSSSSSS" not in text
     assert text.endswith(EL._ELIDED_MARKER)
+
+
+def _key_in_the_discarded_middle() -> dict[str, str]:
+    filler = (
+        "ordinary startup diagnostic " * 70
+    )  # 1960 chars: key lands between the kept ends
+    return {
+        "bare": filler + "password=" + "A" * 5000,
+        "single-quoted": filler + "password='" + "A" * 5000 + "'",
+        "double-quoted": filler + 'password="' + "A" * 5000 + '"',
+        # Past the whole-string scan budget only a head is kept, so the middle never shows.
+        "beyond-the-scan-budget": "x" * (2 * EL._MAX_ARGS_SCAN_CHARS)
+        + " password="
+        + "A" * 5000,
+    }
+
+
+@pytest.mark.parametrize("case", _key_in_the_discarded_middle())
+@pytest.mark.parametrize(
+    "nest", [lambda s: (s,), lambda s: ({"k": [s]},)], ids=["flat", "nested"]
+)
+def test_a_secret_whose_key_was_elided_leaves_no_tail_in_args(case, nest):
+    payload = _key_in_the_discarded_middle()[case]
+
+    entry = EL.render_error_entry(ValueError(*nest(payload)), None, True)
+
+    assert "AAAAAAAA" not in entry
+    assert len(entry) <= EL._MAX_ENTRY_CHARS
+
+
+BYTES_PASSWORDS = {
+    "double-quote-inside-single-quoted": b"""password='alpha"beta'""",
+    "single-quote-inside-double-quoted": b"""password="alpha'beta" """,
+}
+
+
+@pytest.mark.parametrize("case", BYTES_PASSWORDS)
+def test_a_credential_in_a_bytes_repr_is_redacted_despite_escaped_delimiters(case):
+    payload = BYTES_PASSWORDS[case]
+
+    rendered = [
+        redact(str(payload)),
+        EL._args_text((payload,)),
+        EL.render_error_entry(ValueError(payload), None, True),
+    ]
+
+    for text in rendered:
+        assert "alpha" not in text
+        assert "beta" not in text

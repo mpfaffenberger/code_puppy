@@ -15,13 +15,15 @@ REDACTED = "[REDACTED]"
 
 # ``key: value`` / ``key=value`` / ``'key': 'value'`` where the key names a credential. A quoted
 # value is consumed whole (spaces, commas, escaped quotes; an unterminated one runs to the
-# end); a bare one may carry an auth scheme, which is dropped. ``(?!\[REDACTED\])`` keeps
-# a second pass over already-redacted text from adding a stray bracket.
+# end), including one whose delimiters repr() escaped (``b'password=\'x\''``); a bare one
+# may carry an auth scheme, which is dropped. ``(?!\[REDACTED\])`` keeps a second pass
+# over already-redacted text from adding a stray bracket.
 _CREDENTIAL_PAIR = re.compile(
     r"(api[_-]?key|secret|password|passwd|authorization|token)([\w.-]*['\"]?\s*[:=]\s*)"
-    r"(?:(?P<quoted>\"(?:[^\"\\]|\\.)*\"?|'(?:[^'\\]|\\.)*'?)"
+    r"(?:(?P<quoted>\\(?P<esc>['\"]).*?(?:\\(?P=esc)|$)"
+    r"|\"(?:[^\"\\]|\\.)*\"?|'(?:[^'\\]|\\.)*'?)"
     r"|(?:(?:bearer|basic|token)\s+)?(?!\[REDACTED\])[^\s'\",;&)}\]]+)",
-    re.IGNORECASE,
+    re.IGNORECASE | re.DOTALL,
 )
 _BEARER = re.compile(r"\b(bearer)\s+[A-Za-z0-9._~+/=-]{8,}", re.IGNORECASE)
 _URL_CREDENTIALS = re.compile(r"(://[^/\s:@]+:)[^@\s/]+(@)")
@@ -51,7 +53,8 @@ def _current_home(home: str) -> re.Pattern[str] | None:
 
 
 def _redact_pair(match: re.Match[str]) -> str:
-    quote = match["quoted"][:1] if match["quoted"] else ""
+    quoted = match["quoted"] or ""
+    quote = quoted[:2] if match["esc"] else quoted[:1]
     return f"{match[1]}{match[2]}{quote}{REDACTED}{quote}"
 
 
