@@ -12,6 +12,7 @@ import argparse
 import asyncio
 import time
 import json
+import logging
 import os
 import signal
 import sys
@@ -35,6 +36,8 @@ from code_puppy.config import (
     record_terminal_session,
     save_command_to_history,
 )
+from code_puppy.error_hooks import install_error_hooks
+from code_puppy.error_logging import log_error
 from code_puppy.http_utils import find_available_port
 from code_puppy.keymap import (
     KeymapError,
@@ -50,6 +53,8 @@ from code_puppy.terminal_utils import (
     reset_windows_terminal_full,
 )
 from code_puppy.version_checker import default_version_mismatch_behavior
+
+logger = logging.getLogger(__name__)
 
 plugins.load_plugin_callbacks()
 
@@ -402,6 +407,10 @@ async def main():
             # Model is valid, show confirmation (already set earlier)
             emit_system_message(t("cli.model.using", model=model_name))
         except Exception as e:
+            log_error(
+                e,
+                context="code_puppy.cli_runner::main: startup/model: validate the --model value against models.json",
+            )
             emit_error(t("cli.model.validate_error", error=str(e)))
             sys.exit(1)
 
@@ -427,6 +436,10 @@ async def main():
             set_current_agent(agent_name)
             emit_system_message(t("cli.agent.using", agent=agent_name))
         except Exception as e:
+            log_error(
+                e,
+                context="code_puppy.cli_runner::main: startup/agent: resolve and set the --agent value",
+            )
             emit_error(t("cli.agent.set_error", error=str(e)))
             sys.exit(1)
 
@@ -463,9 +476,12 @@ async def main():
         from code_puppy.session_migration import sweep_contexts_to_autosaves
 
         sweep_contexts_to_autosaves()
-    except Exception:
+    except Exception as exc:
         # Sweep failure must never block startup -- it logs internally.
-        pass
+        log_error(
+            exc,
+            context="code_puppy.cli_runner::main: startup/session-migration: sweep legacy contexts into autosaves",
+        )
 
     # One-time format migration: legacy pickle sessions -> versioned JSON
     # envelopes (idempotent via marker file). Runs after the location sweep so
@@ -474,9 +490,12 @@ async def main():
         from code_puppy.session_format_migration import sweep_legacy_pickle_sessions
 
         sweep_legacy_pickle_sessions()
-    except Exception:
+    except Exception as exc:
         # Never block startup; failures are logged/warned internally.
-        pass
+        log_error(
+            exc,
+            context="code_puppy.cli_runner::main: startup/session-migration: migrate legacy pickle sessions to versioned JSON",
+        )
 
     await callbacks.on_startup()
 
@@ -566,9 +585,16 @@ async def main():
                         )
 
                         display_resumed_history(history)
-                    except Exception:
-                        pass
+                    except Exception as render_exc:
+                        log_error(
+                            render_exc,
+                            context="code_puppy.cli_runner::main: startup/resume: re-render resumed session history",
+                        )
         except Exception as e:
+            log_error(
+                e,
+                context="code_puppy.cli_runner::main: startup/resume: load and apply the resumed session history",
+            )
             emit_error(t("cli.resume.failed", target=resume_target, error=e))
             sys.exit(1)
 
@@ -890,7 +916,10 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     try:
         signal.signal(signal.SIGINT, _interactive_sigint_guard)
     except (ValueError, OSError):
-        pass
+        logger.debug(
+            "code_puppy.cli_runner::interactive_mode: startup/interactive-init: install the baseline SIGINT guard",
+            exc_info=True,
+        )
 
     # Field diagnostics: `kill -USR2 <pid>` dumps thread + asyncio-task
     # stacks to ~/.code_puppy/stackdumps/ — the conviction kit for wedged
@@ -900,7 +929,11 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
         install_stack_dump_handler(asyncio.get_running_loop())
     except Exception:
-        pass  # diagnostics must never block the REPL
+        # diagnostics must never block the REPL
+        logger.debug(
+            "code_puppy.cli_runner::interactive_mode: startup/interactive-init: install the SIGUSR2 stack-dump handler",
+            exc_info=True,
+        )
 
     # ------------------------------------------------------------------
     # Persistent-prompt mode: the bottom-bar editor is THE prompt (idle AND
@@ -917,6 +950,10 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 prompt_prefix=_prefix, prefix_sgrs=_prefix_sgrs
             )
         except Exception:
+            logger.debug(
+                "code_puppy.cli_runner::interactive_mode: startup/interactive-init: start the persistent bottom-bar prompt UI",
+                exc_info=True,
+            )
             persistent_prompt = False  # degrade to classic on any failure
 
     while True:
@@ -1591,7 +1628,10 @@ def _force_utf8_stdio():
         try:
             stream.reconfigure(encoding="utf-8", errors="replace")
         except Exception:
-            pass
+            logger.debug(
+                "code_puppy.cli_runner::_force_utf8_stdio: startup/stdio: reconfigure stdout/stderr to UTF-8",
+                exc_info=True,
+            )
 
 
 def _initialize_locale():
@@ -1603,6 +1643,11 @@ def _initialize_locale():
 
 def main_entry():
     """Entry point for the installed CLI tool."""
+    # Idempotent; covers callers that bypass main.py. Never block startup.
+    try:
+        install_error_hooks()
+    except Exception:
+        logger.debug("installing the uncaught-exception hooks failed", exc_info=True)
     _force_utf8_stdio()
     # Before anything spawns: fork children inherit fd 2 (see the module).
     install_malloc_noise_guard()
