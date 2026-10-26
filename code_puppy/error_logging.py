@@ -8,12 +8,14 @@ Because even good puppies make mistakes sometimes! 🐶
 import logging
 import os
 import threading
-import traceback
-from datetime import datetime
+from collections import OrderedDict
 from pathlib import Path
 from typing import Optional
 
 from code_puppy.config import STATE_DIR
+from code_puppy.error_format import cap_entry, render_error_entry, render_message_entry
+
+logger = logging.getLogger(__name__)
 
 # Logs directory within the state directory (per XDG spec, logs are state data)
 LOGS_DIR = os.path.join(STATE_DIR, "logs")
@@ -21,15 +23,17 @@ ERROR_LOG_FILE = os.path.join(LOGS_DIR, "errors.log")
 MAX_LOG_SIZE = 5 * 1024 * 1024  # 5MB
 
 
-def _rotate_log_if_needed() -> None:
-    """Rotate the error log file if it exceeds MAX_LOG_SIZE."""
+def _rotate_log_if_needed(incoming: int = 0) -> None:
+    """Rotate the error log when it plus *incoming* bytes would pass MAX_LOG_SIZE.
+
+    With no argument it rotates a file that is already over the limit. Two
+    processes rotating at once is tolerated: ``os.replace`` is atomic and a late
+    write simply lands in the backup.
+    """
     try:
-        if (
-            os.path.exists(ERROR_LOG_FILE)
-            and os.path.getsize(ERROR_LOG_FILE) > MAX_LOG_SIZE
-        ):
-            rotated = ERROR_LOG_FILE + ".1"
-            os.replace(ERROR_LOG_FILE, rotated)
+        size = os.path.getsize(ERROR_LOG_FILE)
+        if size > 0 and size + incoming > MAX_LOG_SIZE:
+            os.replace(ERROR_LOG_FILE, ERROR_LOG_FILE + ".1")
     except OSError:
         pass
 
@@ -39,40 +43,59 @@ def _ensure_logs_dir() -> None:
     Path(LOGS_DIR).mkdir(parents=True, exist_ok=True, mode=0o700)
 
 
-def _build_error_log_entry(
-    error: Exception,
-    context: Optional[str],
-    include_traceback: bool,
-) -> str:
-    """Render the ``errors.log`` entry for *error*.
+def _append_entry(entry: str) -> None:
+    """Cap *entry*, rotate if it would pass MAX_LOG_SIZE, append it.
 
-    Split out of :func:`log_error` so the local-file sink and the observation
-    hook can fail independently. The output format is unchanged.
+    The one path every write takes, so even the bare fallback entries are capped.
+    Lone surrogates are written as backslash escapes: they cannot be encoded.
     """
-    timestamp = datetime.now().isoformat()
-    error_type = type(error).__name__
-    error_msg = str(error)
+    data = cap_entry(entry).encode("utf-8", "backslashreplace")
+    _ensure_logs_dir()
+    _rotate_log_if_needed(len(data))
+    with open(ERROR_LOG_FILE, "a", encoding="utf-8") as f:
+        f.write(data.decode("utf-8"))
 
-    log_entry_parts = [
-        f"\n{'=' * 80}",
-        f"Timestamp: {timestamp}",
-        f"Error Type: {error_type}",
-        f"Error Message: {error_msg}",
-    ]
 
-    if context:
-        log_entry_parts.append(f"Context: {context}")
+# Dedupe stamp: an exception object is written to errors.log once, so the
+# innermost handler's context wins and an outer handler's repeat is a no-op.
+# The stamp lives on the exception because builtin exceptions cannot be weakly
+# referenced. Exceptions that refuse ``setattr`` fall back to a bounded table
+# that holds a strong reference, which keeps ``id()`` unique while it is there.
+_STAMP = "__code_puppy_logged__"
+_FALLBACK_MAX = 128
+_fallback: "OrderedDict[int, BaseException]" = OrderedDict()
+_fallback_lock = threading.Lock()
 
-    if include_traceback:
-        tb = traceback.format_exception(type(error), error, error.__traceback__)
-        log_entry_parts.append(f"Traceback:\n{''.join(tb)}")
 
-    if hasattr(error, "args") and error.args:
-        log_entry_parts.append(f"Args: {error.args}")
+def was_logged(error: BaseException) -> bool:
+    """Return True when *error* was already passed to :func:`log_error`.
 
-    log_entry_parts.append(f"{'=' * 80}\n")
+    Never raises: any failure is logged at DEBUG and reads as "not logged".
+    """
+    try:
+        if getattr(error, _STAMP, False) is True:
+            return True
+        with _fallback_lock:
+            return _fallback.get(id(error)) is error
+    except Exception:
+        logger.debug("was_logged failed", exc_info=True)
+        return False
 
-    return "\n".join(log_entry_parts)
+
+def _mark_logged(error: BaseException) -> None:
+    """Stamp *error* as logged; never raises."""
+    try:
+        setattr(error, _STAMP, True)
+        return
+    except Exception:
+        logger.debug("stamping an exception failed; using the fallback", exc_info=True)
+    try:
+        with _fallback_lock:
+            _fallback[id(error)] = error
+            while len(_fallback) > _FALLBACK_MAX:
+                _fallback.popitem(last=False)
+    except Exception:
+        logger.debug("recording an exception in the fallback failed", exc_info=True)
 
 
 # Guards against a subscriber that calls ``log_error()`` from inside the
@@ -86,7 +109,7 @@ _notify_state = threading.local()
 
 
 def _notify_error_logged(
-    error: Exception,
+    error: BaseException,
     context: Optional[str],
     include_traceback: bool,
 ) -> None:
@@ -125,15 +148,13 @@ def _notify_error_logged(
         # install, so a debug record is discarded and the "breadcrumb" this
         # comment promises would not exist. This branch is unreachable in
         # normal operation, so it cannot become noise.
-        logging.getLogger(__name__).warning(
-            "error_logged dispatch failed", exc_info=True
-        )
+        logger.warning("error_logged dispatch failed", exc_info=True)
     finally:
         _notify_state.active = False
 
 
 def log_error(
-    error: Exception,
+    error: BaseException,
     context: Optional[str] = None,
     include_traceback: bool = True,
 ) -> None:
@@ -147,20 +168,22 @@ def log_error(
         error: The exception to log
         context: Optional context string describing where the error occurred
         include_traceback: Whether to include the full traceback (default True)
+
+    A second call for the same exception object is a no-op (see ``was_logged``):
+    it writes nothing and does not fire the ``error_logged`` phase.
     """
+    if was_logged(error):
+        return
+
     try:
-        _ensure_logs_dir()
-        _rotate_log_if_needed()
-
-        log_entry = _build_error_log_entry(error, context, include_traceback)
-
-        with open(ERROR_LOG_FILE, "a", encoding="utf-8") as f:
-            f.write(log_entry)
-
+        _append_entry(render_error_entry(error, context, include_traceback))
     except Exception:
         # If we can't log, we silently fail - don't want logging errors
         # to cause more problems than they solve!
         pass
+
+    # Stamp even when the write failed: never retry a failing sink.
+    _mark_logged(error)
 
     _notify_error_logged(error, context, include_traceback)
 
@@ -168,38 +191,23 @@ def log_error(
 def log_error_message(
     message: str,
     context: Optional[str] = None,
-) -> None:
+) -> bool:
     """Log a simple error message without an exception object.
 
     Args:
         message: The error message to log
         context: Optional context string describing where the error occurred
+
+    Returns:
+        True after a successful write, False when the write raised. Never
+        raises and never fires the ``error_logged`` phase.
     """
     try:
-        _ensure_logs_dir()
-        _rotate_log_if_needed()
-
-        timestamp = datetime.now().isoformat()
-
-        log_entry_parts = [
-            f"\n{'=' * 80}",
-            f"Timestamp: {timestamp}",
-            f"Message: {message}",
-        ]
-
-        if context:
-            log_entry_parts.append(f"Context: {context}")
-
-        log_entry_parts.append(f"{'=' * 80}\n")
-
-        log_entry = "\n".join(log_entry_parts)
-
-        with open(ERROR_LOG_FILE, "a", encoding="utf-8") as f:
-            f.write(log_entry)
-
+        _append_entry(render_message_entry(message, context))
+        return True
     except Exception:
         # Silent fail - same reasoning as above
-        pass
+        return False
 
 
 def get_log_file_path() -> str:
