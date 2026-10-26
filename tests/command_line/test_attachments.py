@@ -7,9 +7,11 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from pydantic_ai import VideoUrl
 
 from code_puppy.command_line.attachments import (
     MAX_PATH_LENGTH,
+    VIDEO_EXTENSION_MEDIA_TYPES,
     AttachmentParsingError,
     PromptLinkAttachment,
     _candidate_paths,
@@ -24,6 +26,7 @@ from code_puppy.command_line.attachments import (
     _strip_attachment_token,
     _tokenise,
     _unescape_dragged_path,
+    _video_media_type_from_url,
     parse_prompt_attachments,
 )
 
@@ -32,39 +35,37 @@ from code_puppy.command_line.attachments import (
 # _is_probable_path
 # ---------------------------------------------------------------------------
 class TestIsProbablePath:
-    def test_empty(self):
-        assert _is_probable_path("") is False
-
-    def test_too_long(self):
-        assert _is_probable_path("a" * (MAX_PATH_LENGTH + 1)) is False
-
-    def test_hash_prefix(self):
-        assert _is_probable_path("#comment") is False
-
-    def test_absolute_unix(self):
-        assert _is_probable_path("/tmp/foo.png") is True
-
-    def test_tilde(self):
-        assert _is_probable_path("~/pic.png") is True
-
-    def test_dot_slash(self):
-        assert _is_probable_path("./pic.png") is True
-
-    def test_dot_dot_slash(self):
-        assert _is_probable_path("../pic.png") is True
-
-    def test_windows_drive(self):
-        assert _is_probable_path("C:foo") is True
-
-    def test_contains_sep(self):
-        assert _is_probable_path(f"a{os.sep}b") is True
-
-    def test_contains_quote(self):
-        assert _is_probable_path('a"b') is True
-
-    def test_plain_word(self):
-        # No sep, no quote, no special prefix
-        assert _is_probable_path("hello") is False
+    @pytest.mark.parametrize(
+        ("text", "expected"),
+        [
+            ("", False),
+            ("a" * (MAX_PATH_LENGTH + 1), False),
+            ("#comment", False),
+            ("/tmp/foo.png", True),
+            ("~/pic.png", True),
+            ("./pic.png", True),
+            ("../pic.png", True),
+            ("C:foo", True),
+            (f"a{os.sep}b", True),
+            ('a"b', True),
+            ("hello", False),
+        ],
+        ids=[
+            "empty",
+            "too_long",
+            "hash_prefix",
+            "absolute_unix",
+            "tilde",
+            "dot_slash",
+            "dot_dot_slash",
+            "windows_drive",
+            "contains_sep",
+            "contains_quote",
+            "plain_word",
+        ],
+    )
+    def test_is_probable_path(self, text, expected):
+        assert _is_probable_path(text) is expected
 
 
 # ---------------------------------------------------------------------------
@@ -85,12 +86,14 @@ def test_normalise_path_expands_user():
 
 
 def test_normalise_path_invalid():
-    with patch(
-        "code_puppy.command_line.attachments.Path.absolute",
-        side_effect=ValueError("bad"),
+    with (
+        patch(
+            "code_puppy.command_line.attachments.Path.absolute",
+            side_effect=ValueError("bad"),
+        ),
+        pytest.raises(AttachmentParsingError, match="Invalid path"),
     ):
-        with pytest.raises(AttachmentParsingError, match="Invalid path"):
-            _normalise_path("some_token")
+        _normalise_path("some_token")
 
 
 # ---------------------------------------------------------------------------
@@ -100,23 +103,32 @@ def test_determine_media_type_known():
     assert "image" in _determine_media_type(Path("pic.png"))
 
 
-def test_determine_media_type_unknown_image_ext():
-    # .webp might not be in mimetypes on all systems, but is in our set
-    # Use a definitely-unknown extension that's also in our accepted set
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    sorted(VIDEO_EXTENSION_MEDIA_TYPES.items()),
+)
+def test_determine_media_type_video_extensions(name, expected):
+    with patch(
+        "code_puppy.command_line.attachments.mimetypes.guess_type",
+        return_value=("image/png", None),
+    ):
+        assert _determine_media_type(Path(f"clip{name}")) == expected
+
+
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        ("pic.bmp", "image/png"),
+        ("file.xyz123", "application/octet-stream"),
+    ],
+    ids=["unknown_image_ext", "totally_unknown"],
+)
+def test_determine_media_type_unknown_ext(name, expected):
     with patch(
         "code_puppy.command_line.attachments.mimetypes.guess_type",
         return_value=(None, None),
     ):
-        # suffix in DEFAULT_ACCEPTED_IMAGE_EXTENSIONS -> "image/png"
-        assert _determine_media_type(Path("pic.bmp")) == "image/png"
-
-
-def test_determine_media_type_totally_unknown():
-    with patch(
-        "code_puppy.command_line.attachments.mimetypes.guess_type",
-        return_value=(None, None),
-    ):
-        assert _determine_media_type(Path("file.xyz123")) == "application/octet-stream"
+        assert _determine_media_type(Path(name)) == expected
 
 
 # ---------------------------------------------------------------------------
@@ -229,14 +241,39 @@ def test_candidate_paths():
 def test_is_supported_extension():
     assert _is_supported_extension(Path("a.png")) is True
     assert _is_supported_extension(Path("a.PNG")) is True
+    assert _is_supported_extension(Path("a.mp4")) is True
+    assert _is_supported_extension(Path("a.MOV")) is True
     assert _is_supported_extension(Path("a.txt")) is False
 
 
 # ---------------------------------------------------------------------------
 # _parse_link
 # ---------------------------------------------------------------------------
-def test_parse_link_always_none():
+def test_parse_link_ignores_non_video_urls():
     assert _parse_link("https://example.com/pic.png") is None
+    assert _parse_link("https://www.youtube.com/watch?v=abc") is None
+    assert _parse_link("ftp://example.com/clip.mp4") is None
+    assert _parse_link("not a url") is None
+    assert _video_media_type_from_url("http://") is None
+
+
+def test_parse_link_video_url():
+    parsed = _parse_link("https://cdn.example.com/clip.mov,")
+    assert parsed is not None
+    assert isinstance(parsed.url_part, VideoUrl)
+    assert parsed.url_part.url == "https://cdn.example.com/clip.mov"
+    assert parsed.url_part.media_type == "video/quicktime"
+
+
+def test_parse_link_strips_trailing_sentence_period():
+    parsed = _parse_link("https://cdn.example.com/clip.mkv.")
+    assert parsed is not None
+    assert parsed.url_part.url == "https://cdn.example.com/clip.mkv"
+    assert parsed.url_part.media_type == "video/x-matroska"
+
+
+def test_parse_link_keeps_period_when_not_a_video_url():
+    assert _parse_link("https://example.com/readme.txt.") is None
 
 
 # ---------------------------------------------------------------------------

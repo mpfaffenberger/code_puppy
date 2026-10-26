@@ -36,7 +36,7 @@ Create `.claude/settings.json` in your project root:
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash|agent_run_shell_command",
+        "matcher": "Bash|shell",
         "hooks": [
           {
             "type": "command",
@@ -79,7 +79,7 @@ Every hook script receives a JSON object on **stdin**:
 {
   "session_id": "codepuppy-session",
   "hook_event_name": "PreToolUse",
-  "tool_name": "agent_run_shell_command",
+  "tool_name": "shell",
   "tool_input": {
     "command": "echo hello"
   },
@@ -135,7 +135,7 @@ For `PostToolUse`, the payload also includes `tool_result` and `tool_duration_ms
 ## Matcher Syntax
 
 ```text
-"Bash|agent_run_shell_command"   regex OR — matches either tool name
+"Bash|shell"   regex OR — matches either tool name
 "Edit && .py"                     AND — tool is Edit AND file ends in .py
 "*"                               wildcard — matches everything
 "replace_in_file"                 exact internal tool name
@@ -145,12 +145,12 @@ For `PostToolUse`, the payload also includes `tool_result` and `tool_duration_ms
 
 | Claude Code Name | Code Puppy Internal Name |
 |-----------------|--------------------------|
-| `Bash` | `agent_run_shell_command` |
+| `Bash` | `shell` |
 | `Edit` | `replace_in_file` |
 | `Write` | `create_file` |
 | `Delete` | `delete_file` |
 
-Use `Bash|agent_run_shell_command` to catch shell commands with either name.
+Use `Bash|shell` to catch shell commands with either name.
 
 ---
 
@@ -161,7 +161,7 @@ Use `Bash|agent_run_shell_command` to catch shell commands with either name.
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash|agent_run_shell_command",
+        "matcher": "Bash|shell",
         "hooks": [
           {
             "type": "command",        // "command" or "prompt"

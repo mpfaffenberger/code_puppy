@@ -112,6 +112,19 @@ async def test_stop_persistent_ui_full_teardown():
     assert bottom_bar_mod.get_bottom_bar().is_active() is False
 
 
+async def test_ui_lifetime_chords_bound_then_dropped():
+    from code_puppy.messaging import chords
+
+    install_tty_bar()
+    run_ui_mod.start_persistent_ui()
+    assert chords.get_chord("\x05") is not None  # Ctrl+E edit in $EDITOR
+    assert chords.get_chord("\x13") is not None  # Ctrl+S toggle speculation
+    assert "Ctrl+S toggle speculation" in chords.chord_hint()
+    run_ui_mod.stop_persistent_ui()
+    assert chords.get_chord("\x05") is None
+    assert chords.get_chord("\x13") is None
+
+
 # =========================================================================
 # Submission routing: idle -> new turn, running -> steer / slash drain
 # =========================================================================
@@ -322,4 +335,8 @@ def test_tty_without_flags_selects_new_path(monkeypatch):
     monkeypatch.setattr("sys.stdout", FakeTTY())
     monkeypatch.delenv("CODE_PUPPY_CLASSIC_PROMPT", raising=False)
     monkeypatch.delenv("CODE_PUPPY_NO_TUI", raising=False)
+    monkeypatch.setattr("code_puppy.config.get_value", lambda key: None)
+    monkeypatch.setattr(
+        "code_puppy.terminal_utils.ensure_windows_vt_processing", lambda: True
+    )
     assert _use_persistent_prompt() is True

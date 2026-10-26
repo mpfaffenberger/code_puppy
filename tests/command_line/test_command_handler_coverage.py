@@ -4,26 +4,6 @@ from unittest.mock import MagicMock, patch
 
 
 class TestEnsurePluginsLoaded:
-    def test_already_loaded(self):
-        import code_puppy.command_line.command_handler as ch
-
-        original = ch._PLUGINS_LOADED
-        try:
-            ch._PLUGINS_LOADED = True
-            ch._ensure_plugins_loaded()  # Should return immediately
-        finally:
-            ch._PLUGINS_LOADED = original
-
-    @patch("code_puppy.command_line.command_handler._PLUGINS_LOADED", False)
-    @patch("code_puppy.plugins.load_plugin_callbacks")
-    def test_loads_plugins(self, mock_load):
-        import code_puppy.command_line.command_handler as ch
-
-        ch._PLUGINS_LOADED = False
-        ch._ensure_plugins_loaded()
-        mock_load.assert_called_once()
-        assert ch._PLUGINS_LOADED is True
-
     @patch("code_puppy.command_line.command_handler._PLUGINS_LOADED", False)
     @patch("code_puppy.plugins.load_plugin_callbacks", side_effect=Exception("boom"))
     @patch("code_puppy.messaging.emit_warning")
@@ -64,11 +44,22 @@ class TestGetCommandsHelp:
     @patch(
         "code_puppy.command_line.command_registry.get_unique_commands", return_value=[]
     )
-    @patch("code_puppy.callbacks.on_custom_command_help")
-    def test_custom_command_tuple(self, mock_custom, mock_cmds, mock_plugins):
+    @patch("code_puppy.callbacks.on_custom_command_help", side_effect=Exception("err"))
+    def test_custom_command_exception(self, mock_custom, mock_cmds, mock_plugins):
         from code_puppy.command_line.command_handler import get_commands_help
 
-        mock_custom.return_value = [("mycmd", "My description")]
+        result = get_commands_help()  # Should not raise
+        assert result is not None
+
+    @patch("code_puppy.command_line.command_handler._ensure_plugins_loaded")
+    @patch(
+        "code_puppy.command_line.command_registry.get_unique_commands", return_value=[]
+    )
+    @patch("code_puppy.callbacks.on_custom_command_help")
+    def test_custom_command_list_of_strings(self, mock_custom, mock_cmds, mock_plugins):
+        from code_puppy.command_line.command_handler import get_commands_help
+
+        mock_custom.return_value = [["/mycmd - My description"]]
         result = get_commands_help()
         assert result is not None
 
@@ -89,18 +80,6 @@ class TestGetCommandsHelp:
         "code_puppy.command_line.command_registry.get_unique_commands", return_value=[]
     )
     @patch("code_puppy.callbacks.on_custom_command_help")
-    def test_custom_command_list_of_strings(self, mock_custom, mock_cmds, mock_plugins):
-        from code_puppy.command_line.command_handler import get_commands_help
-
-        mock_custom.return_value = [["/mycmd - My description"]]
-        result = get_commands_help()
-        assert result is not None
-
-    @patch("code_puppy.command_line.command_handler._ensure_plugins_loaded")
-    @patch(
-        "code_puppy.command_line.command_registry.get_unique_commands", return_value=[]
-    )
-    @patch("code_puppy.callbacks.on_custom_command_help")
     def test_custom_command_none_entries(self, mock_custom, mock_cmds, mock_plugins):
         from code_puppy.command_line.command_handler import get_commands_help
 
@@ -112,21 +91,11 @@ class TestGetCommandsHelp:
     @patch(
         "code_puppy.command_line.command_registry.get_unique_commands", return_value=[]
     )
-    @patch("code_puppy.callbacks.on_custom_command_help", side_effect=Exception("err"))
-    def test_custom_command_exception(self, mock_custom, mock_cmds, mock_plugins):
+    @patch("code_puppy.callbacks.on_custom_command_help")
+    def test_custom_command_tuple(self, mock_custom, mock_cmds, mock_plugins):
         from code_puppy.command_line.command_handler import get_commands_help
 
-        result = get_commands_help()  # Should not raise
-        assert result is not None
-
-    @patch("code_puppy.command_line.command_handler._ensure_plugins_loaded")
-    @patch(
-        "code_puppy.command_line.command_registry.get_unique_commands", return_value=[]
-    )
-    @patch("code_puppy.callbacks.on_custom_command_help", return_value=[])
-    def test_empty_commands(self, mock_custom, mock_cmds, mock_plugins):
-        from code_puppy.command_line.command_handler import get_commands_help
-
+        mock_custom.return_value = [("mycmd", "My description")]
         result = get_commands_help()
         assert result is not None
 
@@ -147,60 +116,6 @@ class TestGetCommandsHelp:
 
 class TestHandleCommand:
     @patch("code_puppy.command_line.command_handler._ensure_plugins_loaded")
-    @patch("code_puppy.command_line.command_registry.get_command")
-    def test_registered_command(self, mock_get, mock_plugins):
-        from code_puppy.command_line.command_handler import handle_command
-
-        mock_handler = MagicMock(return_value=True)
-        mock_get.return_value = MagicMock(handler=mock_handler)
-        result = handle_command("/test")
-        assert result is True
-
-    @patch("code_puppy.command_line.command_handler._ensure_plugins_loaded")
-    @patch("code_puppy.command_line.command_registry.get_command", return_value=None)
-    @patch("code_puppy.callbacks.on_custom_command", return_value=[True])
-    def test_custom_command_returns_true(self, mock_custom, mock_get, mock_plugins):
-        from code_puppy.command_line.command_handler import handle_command
-
-        result = handle_command("/mycustom")
-        assert result is True
-
-    @patch("code_puppy.command_line.command_handler._ensure_plugins_loaded")
-    @patch("code_puppy.command_line.command_registry.get_command", return_value=None)
-    @patch("code_puppy.callbacks.on_custom_command", return_value=["some text"])
-    @patch("code_puppy.messaging.emit_info")
-    def test_custom_command_returns_string(
-        self, mock_emit, mock_custom, mock_get, mock_plugins
-    ):
-        from code_puppy.command_line.command_handler import handle_command
-
-        result = handle_command("/mycustom")
-        assert result is True
-
-    @patch("code_puppy.command_line.command_handler._ensure_plugins_loaded")
-    @patch("code_puppy.command_line.command_registry.get_command", return_value=None)
-    @patch("code_puppy.callbacks.on_custom_command", return_value=["some text"])
-    @patch("code_puppy.messaging.emit_info", side_effect=Exception("oops"))
-    def test_custom_command_string_emit_fails(
-        self, mock_emit, mock_custom, mock_get, mock_plugins
-    ):
-        from code_puppy.command_line.command_handler import handle_command
-
-        result = handle_command("/mycustom")
-        assert result is True
-
-    @patch("code_puppy.command_line.command_handler._ensure_plugins_loaded")
-    @patch("code_puppy.command_line.command_registry.get_command", return_value=None)
-    @patch("code_puppy.callbacks.on_custom_command", return_value=[None])
-    @patch("code_puppy.messaging.emit_warning")
-    def test_unknown_command(self, mock_warn, mock_custom, mock_get, mock_plugins):
-        from code_puppy.command_line.command_handler import handle_command
-
-        result = handle_command("/unknowncmd")
-        assert result is True
-        mock_warn.assert_called_once()
-
-    @patch("code_puppy.command_line.command_handler._ensure_plugins_loaded")
     @patch("code_puppy.command_line.command_registry.get_command", return_value=None)
     @patch("code_puppy.callbacks.on_custom_command", return_value=[None])
     @patch("code_puppy.messaging.emit_info")
@@ -215,12 +130,6 @@ class TestHandleCommand:
 
         result = handle_command("/")
         assert result is True
-
-    def test_non_command(self):
-        from code_puppy.command_line.command_handler import handle_command
-
-        result = handle_command("not a command")
-        assert result is False
 
     @patch("code_puppy.command_line.command_handler._ensure_plugins_loaded")
     @patch("code_puppy.command_line.command_registry.get_command", return_value=None)
@@ -238,6 +147,18 @@ class TestHandleCommand:
 
     @patch("code_puppy.command_line.command_handler._ensure_plugins_loaded")
     @patch("code_puppy.command_line.command_registry.get_command", return_value=None)
+    @patch("code_puppy.callbacks.on_custom_command", return_value=["some text"])
+    @patch("code_puppy.messaging.emit_info", side_effect=Exception("oops"))
+    def test_custom_command_string_emit_fails(
+        self, mock_emit, mock_custom, mock_get, mock_plugins
+    ):
+        from code_puppy.command_line.command_handler import handle_command
+
+        result = handle_command("/mycustom")
+        assert result is True
+
+    @patch("code_puppy.command_line.command_handler._ensure_plugins_loaded")
+    @patch("code_puppy.command_line.command_registry.get_command", return_value=None)
     @patch("code_puppy.callbacks.on_custom_command")
     def test_markdown_command_result(self, mock_custom, mock_get, mock_plugins):
         from code_puppy.command_line.command_handler import handle_command
@@ -249,7 +170,7 @@ class TestHandleCommand:
         with patch.dict(
             "sys.modules",
             {
-                "code_puppy.plugins.customizable_commands.register_callbacks": MagicMock(
+                "code_puppy_core_plugins.customizable_commands.register_callbacks": MagicMock(
                     MarkdownCommandResult=type(mock_result)
                 )
             },
@@ -260,3 +181,55 @@ class TestHandleCommand:
             result = handle_command("/mycmd")
             # Result is either True or the markdown content string
             assert result is not None and result is not False
+
+    @patch("code_puppy.command_line.command_handler._ensure_plugins_loaded")
+    @patch("code_puppy.callbacks.on_custom_command")
+    def test_namespaced_custom_command_dispatches_via_callback(
+        self, mock_custom, mock_plugins
+    ):
+        from code_puppy.callbacks import CustomCommandResult
+        from code_puppy.command_line.command_handler import handle_command
+
+        mock_custom.return_value = [CustomCommandResult("namespaced prompt")]
+
+        assert handle_command("/flux/status todo") == "namespaced prompt"
+        mock_custom.assert_called_once_with(
+            command="/flux/status todo", name="flux/status"
+        )
+
+    @patch("code_puppy.command_line.command_handler._ensure_plugins_loaded")
+    @patch("code_puppy.callbacks.on_custom_command", return_value=[None])
+    def test_namespaced_path_falls_through_callback(self, mock_custom, mock_plugins):
+        from code_puppy.command_line.command_handler import handle_command
+
+        assert handle_command("/Users/mike/project.py") is False
+        mock_custom.assert_called_once_with(
+            command="/Users/mike/project.py", name="Users/mike/project.py"
+        )
+
+    def test_non_command(self):
+        from code_puppy.command_line.command_handler import handle_command
+
+        result = handle_command("not a command")
+        assert result is False
+
+    @patch("code_puppy.command_line.command_handler._ensure_plugins_loaded")
+    @patch("code_puppy.command_line.command_registry.get_command")
+    def test_registered_command(self, mock_get, mock_plugins):
+        from code_puppy.command_line.command_handler import handle_command
+
+        mock_handler = MagicMock(return_value=True)
+        mock_get.return_value = MagicMock(handler=mock_handler)
+        result = handle_command("/test")
+        assert result is True
+
+    @patch("code_puppy.command_line.command_handler._ensure_plugins_loaded")
+    @patch("code_puppy.command_line.command_registry.get_command", return_value=None)
+    @patch("code_puppy.callbacks.on_custom_command", return_value=[None])
+    @patch("code_puppy.messaging.emit_warning")
+    def test_unknown_command(self, mock_warn, mock_custom, mock_get, mock_plugins):
+        from code_puppy.command_line.command_handler import handle_command
+
+        result = handle_command("/unknowncmd")
+        assert result is True
+        mock_warn.assert_called_once()

@@ -13,6 +13,7 @@ import io
 import logging
 import mimetypes
 import time
+import unicodedata
 from pathlib import Path
 from typing import Any, Dict, Union
 
@@ -24,9 +25,41 @@ from code_puppy.tools.common import generate_group_id
 
 logger = logging.getLogger(__name__)
 
-# Bigger than this on either edge and we resize to save tokens.
-MAX_IMAGE_EDGE = 2048
-DEFAULT_MAX_HEIGHT = 768  # kept for backward-compat in tool signature
+# Largest edge is always clamped to this (aspect ratio preserved) to save tokens.
+MAX_IMAGE_EDGE = 1024
+
+
+def _normalized_filename(value: str) -> str:
+    """Normalize visually interchangeable filename characters.
+
+    macOS screenshot names can contain a narrow no-break space before AM/PM.
+    That character is visually indistinguishable from an ordinary space when a
+    path is copied into a prompt, but filesystems correctly treat them as
+    different names.
+    """
+    compatible = unicodedata.normalize("NFKC", value)
+    return "".join(
+        " " if character.isspace() else character for character in compatible
+    )
+
+
+def _resolve_image_path(image_path: str) -> Path:
+    """Resolve harmless Unicode filename differences without fuzzy guessing.
+
+    The exact path always wins. A fallback is accepted only when exactly one
+    file in the requested parent has the same normalized filename.
+    """
+    requested = Path(image_path)
+    if requested.exists() or not requested.parent.is_dir():
+        return requested
+
+    normalized_name = _normalized_filename(requested.name)
+    matches = [
+        candidate
+        for candidate in requested.parent.iterdir()
+        if _normalized_filename(candidate.name) == normalized_name
+    ]
+    return matches[0] if len(matches) == 1 else requested
 
 
 def _validate_and_prepare_image(
@@ -99,14 +132,13 @@ def _validate_and_prepare_image(
 
 async def load_image(
     image_path: str,
-    max_height: int = DEFAULT_MAX_HEIGHT,
 ) -> Union[ToolReturn, Dict[str, Any]]:
     """Load an image from the filesystem for visual analysis."""
     group_id = generate_group_id("load_image", image_path)
     emit_info(f"LOAD IMAGE {image_path}", message_group=group_id)
 
     try:
-        image_file = Path(image_path)
+        image_file = _resolve_image_path(image_path)
 
         if not image_file.exists():
             error_msg = f"Image file not found: {image_path}"
@@ -125,10 +157,12 @@ async def load_image(
             max_edge=MAX_IMAGE_EDGE,
         )
 
-        emit_success(f"Loaded image: {image_path}", message_group=group_id)
+        resolved_image_path = str(image_file)
+        path_was_resolved = resolved_image_path != image_path
+        emit_success(f"Loaded image: {resolved_image_path}", message_group=group_id)
 
         return ToolReturn(
-            return_value=f"Image loaded from: {image_path}",
+            return_value=f"Image loaded from: {resolved_image_path}",
             content=[
                 f"Here's the image from {image_file.name}:",
                 BinaryContent(
@@ -139,7 +173,9 @@ async def load_image(
             ],
             metadata={
                 "success": True,
-                "image_path": image_path,
+                "image_path": resolved_image_path,
+                "requested_image_path": image_path,
+                "path_was_resolved": path_was_resolved,
                 "media_type": prepared_image["media_type"],
                 "actual_media_type": prepared_image["actual_media_type"],
                 "guessed_media_type": prepared_image["guessed_media_type"],
@@ -155,7 +191,6 @@ async def load_image(
                     prepared_image["output_width"],
                     prepared_image["output_height"],
                 ],
-                "max_height": max_height,
                 "max_edge": MAX_IMAGE_EDGE,
                 "timestamp": time.time(),
             },
@@ -171,7 +206,7 @@ async def load_image(
 def register_load_image(agent):
     """Register the image loading tool."""
 
-    @agent.tool
+    @agent.tool(metadata={"speculatable": True})
     async def load_image_for_analysis(
         context: RunContext,
         image_path: str,

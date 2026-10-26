@@ -15,6 +15,8 @@ from unittest.mock import Mock, patch
 
 import pytest
 
+import json
+
 from code_puppy.mcp_.config_wizard import (
     MCPConfigWizard,
     confirm_ask,
@@ -343,17 +345,38 @@ class TestPromptServerType:
         result = wizard.prompt_server_type()
         assert result == "stdio"
 
-    @patch("code_puppy.mcp_.config_wizard.emit_info")
     @patch("code_puppy.mcp_.config_wizard.emit_error")
+    @patch("code_puppy.mcp_.config_wizard.emit_info")
     @patch("code_puppy.mcp_.config_wizard.prompt_ask")
     def test_prompt_server_type_invalid(
-        self, mock_prompt, mock_error, mock_info, wizard
+        self, mock_prompt, mock_info, mock_error, wizard
     ):
-        """Test invalid type selection."""
-        mock_prompt.side_effect = ["invalid", "stdio"]
+        """Regression: a bad choice must RE-PROMPT, not cancel the wizard.
+
+        ``prompt_server_type`` calls ``prompt_ask`` WITHOUT ``choices=`` and
+        does its own validation, so a typo comes back as the raw string.
+        The wizard must emit the invalid-choice error and loop until it gets
+        a valid type (or ``None`` -> EOF -> real cancel).
+        """
+        mock_prompt.side_effect = ["not-a-real-type", "stdio"]
         result = wizard.prompt_server_type()
         assert result == "stdio"
-        mock_error.assert_called()
+        # Wizard must have re-prompted once past the typo.
+        assert mock_prompt.call_count == 2
+        # And it must have surfaced the invalid-choice error to the user.
+        mock_error.assert_called_once()
+
+    @patch("code_puppy.mcp_.config_wizard.emit_info")
+    @patch("code_puppy.mcp_.config_wizard.prompt_ask")
+    def test_prompt_server_type_eof_cancels(self, mock_prompt, mock_info, wizard):
+        """``prompt_ask`` returning ``None`` still tears the wizard down.
+
+        That's the EOF / Ctrl-D path -- the ONLY case that should propagate
+        as a cancel now that invalid choices loop instead of returning None.
+        """
+        mock_prompt.return_value = None
+        result = wizard.prompt_server_type()
+        assert result is None
 
 
 class TestPromptSSEConfig:
@@ -883,21 +906,20 @@ class TestRunAddWizard:
     @patch("code_puppy.mcp_.config_wizard.get_mcp_manager")
     @patch("code_puppy.mcp_.config_wizard.emit_success")
     @patch("code_puppy.mcp_.config_wizard.emit_info")
-    @patch("builtins.open", create=True)
-    @patch("os.path.exists", return_value=False)
-    @patch("os.makedirs")
-    @patch("json.dump")
     def test_run_add_wizard_success(
         self,
-        mock_json_dump,
-        mock_makedirs,
-        mock_exists,
-        mock_open,
         mock_info,
         mock_success,
         mock_get_manager,
+        tmp_path,
     ):
-        """Test successful wizard completion and registration."""
+        """Test successful wizard completion and registration.
+
+        Persists via the shared, locked mcp_servers_store rather than the
+        wizard's old hand-rolled open/json.dump -- uses a real tmp_path file
+        instead of mocking open()/os.path.exists()/json.dump so the test
+        actually exercises that write path (and any regression in it).
+        """
         config = ServerConfig(
             id="test-1",
             name="test-server",
@@ -909,14 +931,17 @@ class TestRunAddWizard:
         mock_manager.register_server.return_value = "test-1"
         mock_get_manager.return_value = mock_manager
 
+        mcp_servers_file = tmp_path / "mcp_servers.json"
         with patch.object(MCPConfigWizard, "run_wizard", return_value=config):
-            with patch("code_puppy.config.MCP_SERVERS_FILE", "/tmp/mcp_servers.json"):
-                with patch("pathlib.Path.replace"):
-                    result = run_add_wizard()
+            with patch("code_puppy.config.MCP_SERVERS_FILE", str(mcp_servers_file)):
+                result = run_add_wizard()
 
         assert result is True
         mock_manager.register_server.assert_called_once_with(config)
         mock_success.assert_called()
+
+        saved = json.loads(mcp_servers_file.read_text())
+        assert saved["mcp_servers"]["test-server"] == {"command": "python"}
 
     @patch("code_puppy.mcp_.config_wizard.get_mcp_manager")
     @patch("code_puppy.mcp_.config_wizard.emit_error")

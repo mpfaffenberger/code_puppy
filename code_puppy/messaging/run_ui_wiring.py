@@ -83,4 +83,49 @@ async def _clipboard_paste(editor: RunningLineEditor) -> None:
         editor.insert_paste_text(text)
 
 
-__all__ = ["attach_completion", "make_clipboard_handler"]
+def make_help_overlay_handler(get_loop: LoopGetter) -> Callable[[], None]:
+    """Tab-on-empty-buffer: hop the fullscreen help overlay onto the loop's
+    executor -- never block (or read stdin from) the key-listener thread.
+
+    Mirrors ``make_external_edit_handler`` (external_editor.py): the actual
+    ``suspended_run_ui()`` call happens on a pool thread, never the listener
+    thread itself or the main loop thread, so releasing the listener can't
+    deadlock against the very thread asking for the release.
+    """
+
+    def _handler() -> None:
+        loop = get_loop()
+        if loop is None or loop.is_closed():
+            return
+        try:
+            asyncio.run_coroutine_threadsafe(_help_overlay_session(), loop)
+        except RuntimeError:
+            pass  # loop shut down between check and call
+
+    return _handler
+
+
+async def _help_overlay_session() -> None:
+    try:
+        await asyncio.get_running_loop().run_in_executor(
+            None, _show_help_overlay_with_suspended_ui
+        )
+    except Exception:
+        logger.debug("help overlay session crashed", exc_info=True)
+
+
+def _show_help_overlay_with_suspended_ui() -> None:
+    """Release stdin + scroll region for the overlay's lifetime."""
+    from code_puppy.command_line.help_overlay import show_help_overlay
+
+    from .run_ui import suspended_run_ui
+
+    with suspended_run_ui():
+        show_help_overlay()
+
+
+__all__ = [
+    "attach_completion",
+    "make_clipboard_handler",
+    "make_help_overlay_handler",
+]

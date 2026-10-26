@@ -235,6 +235,7 @@ def test_sync_renderer_render_messages(mq):
         (MessageType.WARNING, "warn"),
         (MessageType.SUCCESS, "ok"),
         (MessageType.QUEUED, "for next turn: later"),
+        (MessageType.STEER, "injecting now"),
         (MessageType.TOOL_OUTPUT, "tool"),
         (MessageType.AGENT_REASONING, "think"),
         (MessageType.AGENT_RESPONSE, "**bold**"),
@@ -256,28 +257,33 @@ def test_sync_renderer_queued_banner(mq):
     )
 
     output = console.file.getvalue()
-    assert output.startswith("\n QUEUED  for next turn: fix the tests")
-    assert chr(0x23ED) not in output
+    assert output == ""  # The status badge is the only queued acknowledgement.
 
 
-def test_sync_renderer_queued_style_includes_trailing_padding(mq):
+@pytest.mark.parametrize(
+    ("message_type", "badge"),
+    [(MessageType.STEER, " STEER ")],
+)
+def test_sync_renderer_steer_banner_is_bright_and_themed(mq, message_type, badge):
     console = make_console()
     renderer = SynchronousInteractiveRenderer(mq, console=console)
 
-    with patch.object(console, "print") as mock_print:
-        renderer._render_message(
-            UIMessage(type=MessageType.QUEUED, content="for next turn: later")
-        )
+    with (
+        patch("code_puppy.config.get_banner_color", return_value="deep_pink3"),
+        patch.object(console, "print") as mock_print,
+    ):
+        renderer._render_message(UIMessage(type=message_type, content="later"))
 
     mock_print.assert_any_call()
-    queued = mock_print.call_args_list[1].args[0]
-    assert isinstance(queued, Text)
-    assert queued.plain == " QUEUED  for next turn: later"
-    assert queued.spans[0].start == 0
-    assert queued.spans[0].end == len(" QUEUED ")
-    assert str(queued.spans[0].style).startswith("bold white on ")
-    assert queued.spans[1].start == len(" QUEUED  ")
-    assert queued.spans[1].style == "dim"
+    banner = mock_print.call_args_list[1].args[0]
+    assert isinstance(banner, Text)
+    assert banner.plain == f"{badge} later"
+    assert banner.spans[0].start == 0
+    assert banner.spans[0].end == len(badge)
+    assert str(banner.spans[0].style) == "bold white on deep_pink3"
+    assert banner.spans[1].start == len(badge) + 1
+    # Bright, not dim: the user typed this and must be able to spot the ack.
+    assert banner.spans[1].style == "bold"
 
 
 def test_sync_renderer_version_dim(mq):
@@ -351,27 +357,14 @@ async def test_message_renderer_stop_cancelled_error(mq):
     assert not r._running
 
 
-def test_sync_renderer_human_input_request_no_prompt_id(mq):
+@pytest.mark.parametrize("metadata", [{}, None], ids=["no_prompt_id", "no_metadata"])
+def test_sync_renderer_human_input_request_missing_prompt_id(mq, metadata):
     console = make_console()
     r = SynchronousInteractiveRenderer(mq, console=console)
-    msg = UIMessage(
-        type=MessageType.HUMAN_INPUT_REQUEST,
-        content="prompt",
-        metadata={},
-    )
-    r._render_message(msg)
-    output = console.file.getvalue()
-    assert "Error" in output
-
-
-def test_sync_renderer_human_input_request_no_metadata(mq):
-    console = make_console()
-    r = SynchronousInteractiveRenderer(mq, console=console)
-    msg = UIMessage(
-        type=MessageType.HUMAN_INPUT_REQUEST,
-        content="prompt",
-    )
-    msg.metadata = None
+    # Post-assignment on purpose: UIMessage.__post_init__ would otherwise
+    # normalize a None metadata to {} before the renderer can see it.
+    msg = UIMessage(type=MessageType.HUMAN_INPUT_REQUEST, content="prompt")
+    msg.metadata = metadata
     r._render_message(msg)
     output = console.file.getvalue()
     assert "Error" in output
@@ -389,8 +382,12 @@ def test_sync_renderer_human_input_request_success(mock_input, mq):
     r._render_message(msg)
 
 
-@patch("builtins.input", side_effect=EOFError)
-def test_sync_renderer_human_input_eof(mock_input, mq):
+@pytest.mark.parametrize(
+    "input_exc", [EOFError, KeyboardInterrupt], ids=["eof", "keyboard_interrupt"]
+)
+@patch("builtins.input")
+def test_sync_renderer_human_input_abort_exceptions(mock_input, mq, input_exc):
+    mock_input.side_effect = input_exc
     console = make_console()
     r = SynchronousInteractiveRenderer(mq, console=console)
     msg = UIMessage(
@@ -398,24 +395,8 @@ def test_sync_renderer_human_input_eof(mock_input, mq):
         content="prompt",
         metadata={"prompt_id": "p1"},
     )
-    # Bug in source: provide_prompt_response imported inside try, used in except
-    # This will raise UnboundLocalError which is caught by the outer handler
-    # We just verify it doesn't crash the renderer
-    try:
-        r._render_message(msg)
-    except UnboundLocalError:
-        pass  # Known bug in source
-
-
-@patch("builtins.input", side_effect=KeyboardInterrupt)
-def test_sync_renderer_human_input_keyboard_interrupt(mock_input, mq):
-    console = make_console()
-    r = SynchronousInteractiveRenderer(mq, console=console)
-    msg = UIMessage(
-        type=MessageType.HUMAN_INPUT_REQUEST,
-        content="prompt",
-        metadata={"prompt_id": "p1"},
-    )
+    # Source bug: provide_prompt_response imported in try, used in except → raises
+    # UnboundLocalError (caught outside); just verify the renderer doesn't crash.
     try:
         r._render_message(msg)
     except UnboundLocalError:

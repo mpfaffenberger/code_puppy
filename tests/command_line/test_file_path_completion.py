@@ -4,7 +4,7 @@ import os
 import tempfile
 from unittest.mock import MagicMock
 
-from prompt_toolkit.document import Document
+from termflow.tui.completion import Document
 
 from code_puppy.command_line.file_path_completion import FilePathCompleter
 

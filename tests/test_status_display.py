@@ -67,9 +67,8 @@ class TestStatusDisplay:
 
         rate = status_display._calculate_rate()
 
-        # Should calculate new rate and apply smoothing
-        # Expected: ~10 tokens / 1 sec = 10 t/s raw, smoothed with existing 5.0
-        # Smoothing: 5.0 * 0.7 + 10.0 * 0.3 = 3.5 + 3.0 = 6.5 t/s
+        # Smoothing expectation: 10 t/s raw blended 70/30 with the existing 5.0:
+        # 5.0 * 0.7 + 10.0 * 0.3 = 3.5 + 3.0 = 6.5 t/s.
         assert rate > 0
         assert rate > 5.0  # Should be higher than the previous rate component
         # Global rate should be updated - check from module namespace

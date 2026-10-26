@@ -24,6 +24,7 @@ import json
 import logging
 import os
 import re
+import shlex
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -257,18 +258,198 @@ def _substitute_variables(
             substitutions["duration_ms"] = str(event_data.context["duration_ms"])
     substitutions.update(env_vars)
 
-    result = command
-    for var, value in substitutions.items():
-        result = result.replace(f"${{{var}}}", str(value))
-        result = re.sub(rf"\${re.escape(var)}(?=\W|$)", lambda m: str(value), result)
-    return result
+    return _interpolate_placeholders(command, substitutions)
+
+
+_PLACEHOLDER_RE = re.compile(r"\$\{(\w+)\}|\$(\w+)")
+
+
+def _interpolate_placeholders(template: str, values: Dict[str, str]) -> str:
+    """Splice ``$var``/``${var}`` values into ``template`` as literal text.
+
+    The shell must never re-interpret a substituted value: each splice is
+    made safe in the quoting context the template itself established
+    (tracked by scanning only the template's literal segments), and
+    substituted values are not re-scanned, so a value containing ``$`` or
+    quote characters cannot inject further placeholders, close the author's
+    quotes, or run commands in the hook's own shell. Unknown ``$``
+    sequences pass through for the shell to expand as the hook author wrote
+    them.
+
+    A template that itself invokes a nested interpreter — ``sh -c
+    '...${file}...'`` — hands the value to that interpreter as code; no
+    quoting at this level can prevent that. Hooks that need untrusted
+    values inside evaluation should read them from the provided environment
+    (``CLAUDE_FILE_PATH`` et al.) or stdin JSON instead of interpolation.
+    """
+    if os.name == "nt":
+        # Hooks run via cmd /c, where only " groups arguments; POSIX
+        # single-quoting is literal text.
+        pieces: List[str] = []
+        position = 0
+        in_quotes = False
+        for match in _PLACEHOLDER_RE.finditer(template):
+            literal = template[position : match.start()]
+            pieces.append(literal)
+            in_quotes = _cmd_quote_state(literal, in_quotes)
+            position = match.end()
+
+            name = match.group(1) or match.group(2)
+            if name not in values:
+                pieces.append(match.group(0))
+                continue
+            value = str(values[name])
+            if in_quotes:
+                # Already inside the author's double quotes: emit only the
+                # inner-quote-escaped value. Adding another "..." here would
+                # give a metacharacter even quote parity and re-arm cmd.exe.
+                pieces.append(value.replace('"', '""'))
+            else:
+                pieces.append(_cmd_quote(value))
+        pieces.append(template[position:])
+        return "".join(pieces)
+
+    pieces = []
+    position = 0
+    # Stack of shell contexts, each [closer, quote]. The base command sits at
+    # the bottom; a $( or backtick pushes a nested command-substitution
+    # context (see _scan_quote_stack).
+    stack: List[List[Optional[str]]] = [[None, None]]
+    for match in _PLACEHOLDER_RE.finditer(template):
+        literal = template[position : match.start()]
+        pieces.append(literal)
+        _scan_quote_stack(literal, stack)
+        position = match.end()
+
+        name = match.group(1) or match.group(2)
+        if name not in values:
+            pieces.append(match.group(0))
+            continue
+        value = str(values[name])
+        quote = stack[-1][1]
+        if quote is None:
+            piece = shlex.quote(value)
+        elif quote == "'":
+            # Inside the author's single quotes only a single quote is
+            # special: splice each one as close-quote + escaped quote +
+            # reopen (''' idiom) so the value stays literal text.
+            piece = value.replace("'", "'\\''")
+        else:
+            piece = _double_quote_escape(value)
+        # A raw backtick closes an enclosing `...` command substitution even
+        # from inside quotes -- the shell scans for the closer before quote
+        # removal, and shlex.quote never escapes it. Escape for every open
+        # backtick layer so the value cannot terminate the substitution.
+        if any(frame[0] == "`" for frame in stack):
+            piece = piece.replace("\\", "\\\\").replace("`", "\\`")
+        pieces.append(piece)
+    pieces.append(template[position:])
+    return "".join(pieces)
+
+
+def _cmd_quote_state(text: str, in_quotes: bool) -> bool:
+    """Track whether a cmd.exe double-quoted string is open across a literal.
+
+    Only ``"`` groups arguments for cmd.exe, so it alone toggles the state.
+    """
+    for char in text:
+        if char == '"':
+            in_quotes = not in_quotes
+    return in_quotes
+
+
+# A ``#`` starts a comment only at a word boundary in an unquoted context;
+# after an ordinary word character it is a literal ``#``. These are the chars
+# that leave the shell expecting a fresh word.
+_COMMENT_BOUNDARY = frozenset({" ", "\t", "\n", ";", "&", "|", "(", ")", "<", ">"})
+
+
+def _scan_quote_stack(text: str, stack: List[List[Optional[str]]]) -> None:
+    """Advance the shell context stack across a literal template segment.
+
+    Each frame is ``[closer, quote]``: ``quote`` is the frame's active quote
+    (``None``, ``'``, or ``"``) and ``closer`` is the char that ends the frame
+    (``)`` for ``$(``, a backtick for ``` `...` ```, or ``None`` for the base
+    command). A ``$(`` or backtick opens a command substitution — a fresh
+    command context where the value is re-parsed — so it pushes a frame whose
+    quote is ``None``. An interpolated value there is therefore quoted as
+    unquoted (``shlex.quote``) even though an outer ``"`` is still open, which
+    keeps the value an inert argument instead of a live command.
+    """
+    i = 0
+    prev: Optional[str] = None
+    while i < len(text):
+        char = text[i]
+        top = stack[-1]
+        quote = top[1]
+        if quote is None:
+            if char == top[0]:  # matching closer ends this substitution frame
+                stack.pop()
+            elif char == "#" and (prev is None or prev in _COMMENT_BOUNDARY):
+                # A comment runs to end of line; its body -- quote chars
+                # included -- is inert, so skip it without disturbing the
+                # tracked quote state (an apostrophe in a comment must not flip
+                # the scanner into single-quote mode and mis-quote a later
+                # placeholder).
+                while i < len(text) and text[i] != "\n":
+                    i += 1
+                prev = "\n"
+                continue
+            elif char in ("'", '"'):
+                top[1] = char
+            elif char == "\\":
+                i += 1  # escaped character cannot open a quote or substitution
+            elif char == "$" and i + 1 < len(text) and text[i + 1] == "(":
+                stack.append([")", None])
+                i += 1
+            elif char == "`":
+                stack.append(["`", None])
+        elif quote == "'":
+            if char == "'":
+                top[1] = None
+        else:  # inside double quotes: $( and backtick still open substitutions
+            if char == "\\":
+                i += 1
+            elif char == '"':
+                top[1] = None
+            elif char == "$" and i + 1 < len(text) and text[i + 1] == "(":
+                stack.append([")", None])
+                i += 1
+            elif char == "`":
+                stack.append(["`", None])
+        prev = char
+        i += 1
+
+
+def _double_quote_escape(value: str) -> str:
+    """Escape a value for splicing inside an open double-quoted string."""
+    for char, escaped in (("\\", "\\\\"), ('"', '\\"'), ("$", "\\$"), ("`", "\\`")):
+        value = value.replace(char, escaped)
+    return value
+
+
+def _cmd_quote(value: str) -> str:
+    """Quote a value for cmd.exe.
+
+    Double quotes group and make ``& | < > ( ) ^`` inert; inner quotes are
+    doubled. ``%`` cannot be escaped outside batch files, so a value naming
+    an existing ``%VAR%`` still expands — text substitution only, never
+    command execution, since expansion cannot introduce a closing quote.
+    """
+    return '"' + value.replace('"', '""') + '"'
 
 
 def _build_environment(
     event_data: EventData,
     env_vars: Optional[Dict[str, str]] = None,
 ) -> Dict[str, str]:
-    env = os.environ.copy()
+    # Hooks are user-authored config, not model-authored commands, so they
+    # inherit the full environment, provider credentials included. A hook may
+    # legitimately call an LLM (``claude -p '...'``, ``llm -m ...``, an
+    # OpenAI-SDK script) and needs ANTHROPIC_API_KEY/OPENAI_API_KEY to
+    # authenticate. The credential scrub stays on the model's own
+    # run_shell_command (command_runner._child_process_env).
+    env = dict(os.environ)
     env["CLAUDE_PROJECT_DIR"] = os.getcwd()
     env["CLAUDE_TOOL_INPUT"] = json.dumps(event_data.tool_args)
     env["CLAUDE_TOOL_NAME"] = event_data.tool_name

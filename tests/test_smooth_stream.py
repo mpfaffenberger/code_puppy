@@ -1,6 +1,7 @@
 """Tests for the smooth-stream renderers (thinking + termflow typewriter)."""
 
 import asyncio
+import errno
 import io
 
 import pytest
@@ -13,10 +14,18 @@ from code_puppy.agents.smooth_stream import (
     make_smooth_termflow_writer,
     make_thinking_smoother,
 )
+from code_puppy.messaging.safe_stream import ensure_safe_text_stream
+
+
+class _TtyStringIO(io.StringIO):
+    """A capture buffer that claims to be a terminal (smoothing is TTY-gated)."""
+
+    def isatty(self) -> bool:
+        return True
 
 
 def _plain_console() -> tuple[Console, io.StringIO]:
-    buf = io.StringIO()
+    buf = _TtyStringIO()
     console = Console(file=buf, force_terminal=False, width=200, no_color=True)
     return console, buf
 
@@ -192,6 +201,13 @@ def test_make_thinking_smoother_enabled_by_default(monkeypatch):
     assert isinstance(make_thinking_smoother(console), ThinkingStreamSmoother)
 
 
+def test_make_thinking_smoother_skips_non_tty(monkeypatch):
+    """Pipes/CI never see the typewriter, whatever the config toggle says."""
+    monkeypatch.setattr("code_puppy.config.get_smooth_thinking_stream", lambda: True)
+    console = Console(file=io.StringIO(), force_terminal=False, width=200)
+    assert make_thinking_smoother(console) is None
+
+
 # ── SmoothTermflowWriter ────────────────────────────────────────────────
 
 ESC = "\x1b"
@@ -253,4 +269,45 @@ def test_make_smooth_termflow_writer_respects_disabled(monkeypatch):
 
 def test_make_smooth_termflow_writer_enabled_by_default(monkeypatch):
     monkeypatch.setattr("code_puppy.config.get_smooth_response_stream", lambda: True)
-    assert isinstance(make_smooth_termflow_writer(io.StringIO()), SmoothTermflowWriter)
+    assert isinstance(make_smooth_termflow_writer(_TtyStringIO()), SmoothTermflowWriter)
+
+
+def test_make_smooth_termflow_writer_skips_non_tty(monkeypatch):
+    """Pipes/CI never see the typewriter, whatever the config toggle says."""
+    monkeypatch.setattr("code_puppy.config.get_smooth_response_stream", lambda: True)
+    assert make_smooth_termflow_writer(io.StringIO()) is None
+
+
+# ── Dead target handle ──────────────────────────────────────────────────
+
+
+class _DeadTty(_TtyStringIO):
+    def __init__(self):
+        super().__init__()
+        self.flush_calls = 0
+
+    def flush(self):
+        self.flush_calls += 1
+        raise OSError(errno.EINVAL, "Invalid argument")
+
+
+@pytest.mark.asyncio
+async def test_unwrapped_dead_target_surfaces_on_close():
+    w = SmoothTermflowWriter(_DeadTty(), tick_interval=0.002, catch_up_seconds=0.02)
+    w.start()
+    w.write("hello")
+    with pytest.raises(OSError):
+        await w.close()
+
+
+@pytest.mark.asyncio
+async def test_safe_wrapped_dead_target_does_not_raise_and_is_not_retried():
+    target = _DeadTty()
+    w = SmoothTermflowWriter(
+        ensure_safe_text_stream(target), tick_interval=0.002, catch_up_seconds=0.02
+    )
+    w.start()
+    w.write("hello")
+    w.write(" world")
+    await w.close()
+    assert target.flush_calls == 1

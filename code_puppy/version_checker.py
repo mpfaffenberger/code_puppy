@@ -1,7 +1,10 @@
 """Version checking utilities for Code Puppy."""
 
+import threading
+
 import httpx
 
+from code_puppy.i18n import t
 from code_puppy.messaging import emit_info, emit_success, emit_warning, get_message_bus
 from code_puppy.messaging.messages import VersionCheckMessage
 
@@ -49,18 +52,34 @@ def fetch_latest_version(package_name):
         data = response.json()
         return data["info"]["version"]
     except Exception as e:
-        emit_warning(f"Error fetching version: {e}")
+        emit_warning(t("version.fetch_failed", error=e))
         return None
 
 
-def default_version_mismatch_behavior(current_version):
+def default_version_mismatch_behavior(current_version) -> threading.Thread:
+    """Kick off the PyPI version check without blocking startup.
+
+    The fetch is a blocking HTTPS round-trip (up to ``timeout`` seconds on a
+    bad network) that used to sit on the critical path before the first
+    model request. It now runs on a daemon thread, so the result lands on
+    the message bus whenever it arrives and process exit never waits for
+    it. Returns the thread so callers (tests) can ``join()`` if they must.
+    """
     # Defensive: ensure current_version is never None
     if current_version is None:
         current_version = "0.0.0-unknown"
-        emit_warning("Could not detect current version, using fallback")
+        emit_warning(t("version.undetected"))
 
-    latest_version = fetch_latest_version("code-puppy")
+    def _check() -> None:
+        report_version_status(current_version, fetch_latest_version("code-puppy"))
 
+    thread = threading.Thread(target=_check, name="version-check", daemon=True)
+    thread.start()
+    return thread
+
+
+def report_version_status(current_version, latest_version) -> None:
+    """Emit the version-check messages for an already-fetched ``latest_version``."""
     update_available = bool(
         latest_version and version_is_newer(latest_version, current_version)
     )
@@ -74,9 +93,9 @@ def default_version_mismatch_behavior(current_version):
     get_message_bus().emit(version_msg)
 
     # Also emit plain text for legacy renderer
-    emit_info(f"Current version: {current_version}")
+    emit_info(t("version.current", version=current_version))
 
     if update_available:
-        emit_info(f"Latest version: {latest_version}")
-        emit_warning(f"A new version of code puppy is available: {latest_version}")
-        emit_success("Please consider updating!")
+        emit_info(t("version.latest", version=latest_version))
+        emit_warning(t("version.update_available", version=latest_version))
+        emit_success(t("version.please_update"))

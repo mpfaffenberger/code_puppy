@@ -11,8 +11,10 @@ kills, Ctrl+A/E + Left/Right/Home/End + word jumps (Ctrl/Alt+arrows,
 Meta-b/f), Up/Down (menu > multiline line-move > history), Enter
 (accept-completion / newline-in-multiline / submit; ``\\r`` only — the
 POSIX listener clears ICRNL so Ctrl+J = ``\\n`` = newline), Shift/Ctrl+
-Enter (CSI-u + modifyOtherKeys → newline), Alt+Enter (queue-submit),
-Ctrl+D (EOF on empty), Ctrl+R (reverse search; Enter accepts WITHOUT
+Enter (CSI-u + modifyOtherKeys: Shift newline, Ctrl steer), Alt+Enter
+(queue-submit),
+Ctrl+Z / Cmd+Z undo + Ctrl+Y / Cmd+Shift+Z redo (editor_undo; Cmd via
+CSI-u), Ctrl+D (EOF on empty), Ctrl+R (reverse search; Enter accepts WITHOUT
 submitting), Ctrl+V (async smart paste — image or text), Ctrl+X chords
 (registry-driven: Ctrl+E $EDITOR, shell kill/background — see chords),
 Tab/Shift-Tab
@@ -33,8 +35,7 @@ from typing import Callable, List, Optional
 from . import editor_keys as ek
 from .bottom_bar import get_bottom_bar
 from .chords import clear_chord_hint
-from .editor_actions import apply_action, handle_chord
-from .editor_display import to_display
+from .editor_actions import apply_action, handle_chord, splice
 from .editor_history import (
     HistoryNavigator,
     ReverseSearch,
@@ -43,6 +44,16 @@ from .editor_history import (
     safe_reverse_search,
 )
 from .editor_paste import PasteBuffer, classify_paste
+from .editor_queue import QueuedMessageNavigator
+from .editor_submission import (
+    emit_feedback,
+    repaint,
+    resolve_esc_timeout,
+    route_default,
+    submit_buffer,
+    toggle_multiline,
+)
+from .editor_undo import UndoHistory
 from .pause_controller import get_pause_controller
 
 logger = logging.getLogger(__name__)
@@ -55,9 +66,7 @@ DEFAULT_ESC_TIMEOUT = 0.05
 # Raw control chars live in editor_keys (see the Ctrl+K / Ctrl+V notes there).
 _ENTER, _CTRL_J, _TAB, _ESC = ek.ENTER, ek.CTRL_J, ek.TAB, ek.ESC
 _BACKSPACE_KEYS = ek.BACKSPACE_KEYS
-_CTRL_A, _CTRL_C, _CTRL_D = ek.CTRL_A, ek.CTRL_C, ek.CTRL_D
-_CTRL_E, _CTRL_K = ek.CTRL_E, ek.CTRL_K
-_CTRL_R, _CTRL_U, _CTRL_V, _CTRL_W = ek.CTRL_R, ek.CTRL_U, ek.CTRL_V, ek.CTRL_W
+_CTRL_C, _CTRL_D, _CTRL_R, _CTRL_V = ek.CTRL_C, ek.CTRL_D, ek.CTRL_R, ek.CTRL_V
 
 #: Callback signature: ``(text, mode)`` where mode is "now" or "queue".
 SubmitListener = Callable[[str, str], None]
@@ -66,10 +75,6 @@ SubmitListener = Callable[[str, str], None]
 #: it REPLACES the built-in routing (steer queues / slash-command queue);
 #: the run_ui layer uses this to centralize idle-vs-running dispatch.
 SubmitRouter = Callable[[str, str], Optional[str]]
-
-
-class _QueuedFeedback(str):
-    """Marker for feedback that belongs in the dedicated queued renderer."""
 
 
 class RunningLineEditor:
@@ -112,16 +117,20 @@ class RunningLineEditor:
         # Optional overrides installed by run_ui.
         self._router: Optional[SubmitRouter] = None
         self._eof_handler: Optional[Callable[[], None]] = None
+        self._ctrl_c_handler: Optional[Callable[[], None]] = None
         self._clipboard_handler: Optional[Callable[[], None]] = None
         self._ctrl_x_pending = False  # Ctrl+X chord prefix armed (see chords)
         # Phase B feature state.
         self._history = history if history is not None else safe_navigator()
+        self._queued_messages = QueuedMessageNavigator(self._resolve_controller)
         self._rsearch = (
             reverse_search if reverse_search is not None else safe_reverse_search()
         )
         self._paste = PasteBuffer()
         self._completion = None  # CompletionEngine, attached by run_ui
+        self._help_overlay_handler: Optional[Callable[[], None]] = None
         self._multiline = False
+        self._undo = UndoHistory()  # prompt undo/redo; reset on submit
 
     # =========================================================================
     # Accessors / configuration
@@ -158,9 +167,22 @@ class RunningLineEditor:
         with self._lock:  # Ctrl+D-on-empty-buffer handler (run_ui)
             self._eof_handler = handler
 
+    def set_ctrl_c_handler(self, handler: Optional[Callable[[], None]]) -> None:
+        with self._lock:  # raw-\x03 handler (run_ui double-tap policy)
+            self._ctrl_c_handler = handler
+
     def set_clipboard_handler(self, handler: Optional[Callable[[], None]]) -> None:
         with self._lock:  # async Ctrl+V clipboard handler (run_ui)
             self._clipboard_handler = handler
+
+    def set_help_overlay_handler(self, handler: Optional[Callable[[], None]]) -> None:
+        """Install (or clear) the Tab-on-empty-buffer help overlay handler.
+
+        Kept as an injected callback (mirrors ``set_clipboard_handler``) so
+        ``messaging/`` never has to import CLI/overlay code directly.
+        """
+        with self._lock:  # invoked from the key-listener thread (run_ui)
+            self._help_overlay_handler = handler
 
     @property
     def paste_active(self) -> bool:
@@ -181,6 +203,7 @@ class RunningLineEditor:
     def replace_buffer_text(self, text: str) -> None:
         """Replace the whole buffer (external $EDITOR round-trip)."""
         with self._lock:
+            self._checkpoint("replace")
             self._buffer = text
             self._cursor = len(text)
             self._history.reset()
@@ -217,7 +240,9 @@ class RunningLineEditor:
             if self._rsearch.active:
                 self._rsearch.cancel()
                 self._set_completion_suppressed(False)
+            self._queued_messages.cancel()
             if self._buffer or self._cursor:
+                self._checkpoint("clear")  # Ctrl+C wipe stays undoable
                 self._buffer = ""
                 self._cursor = 0
                 self._history.reset()
@@ -246,6 +271,7 @@ class RunningLineEditor:
         with self._lock:
             start = max(0, min(start, len(self._buffer)))
             end = max(start, min(end, len(self._buffer)))
+            self._checkpoint("complete")
             self._buffer = self._buffer[:start] + replacement + self._buffer[end:]
             self._cursor = start + len(replacement)
             self._history.reset()
@@ -302,16 +328,14 @@ class RunningLineEditor:
             if "\x40" <= ch <= "\x7e":
                 seq = self._csi_buf + ch
                 self._csi_buf = None
-                self._apply_action(ek.classify_csi(seq))
-            else:
-                self._csi_buf += ch
+                return self._apply_action(ek.classify_csi(seq))
+            self._csi_buf += ch
             return None
 
         # Mid-SS3 (ESC O <final>): exactly one byte.
         if self._ss3_pending:
             self._ss3_pending = False
-            self._apply_action(ek.classify_ss3(ch))
-            return None
+            return self._apply_action(ek.classify_ss3(ch))
 
         if self._esc_pending_at is not None:
             self._esc_pending_at = None
@@ -328,7 +352,7 @@ class RunningLineEditor:
             elif ch == "f":
                 self._apply_action("word_right")  # Meta-f (macOS Option+Right)
             elif ch in _BACKSPACE_KEYS:
-                self._delete_word_back()  # Alt+Backspace
+                self._apply_action("kill_word_back")  # Alt+Backspace
             elif ch == _ESC:
                 # ESC ESC: first one was bare; keep the second pending.
                 self._esc_pending_at = self._now()
@@ -349,13 +373,15 @@ class RunningLineEditor:
             return None
 
         if ch == _CTRL_C:
-            # Raw ^C only reaches the editor when the console can't turn
-            # it into SIGINT (Windows clamps ENABLE_PROCESSED_INPUT for
-            # the whole session — see cli_runner startup).
-            # Mirror the SIGINT path: discard composed input / cancel
-            # reverse search, never submit or kill anything — cancel
-            # semantics stay with the hotkey/signal layers.
-            self.clear_buffer()
+            # Raw ^C reaches the editor only when the console can't turn it into
+            # SIGINT (Windows clamp); mirror the SIGINT path — discard input,
+            # never submit/kill (cancel stays with the hotkey/signal layers).
+            # run_ui installs a handler that adds the idle double-tap-to-quit
+            # policy; without one, fall back to the plain buffer wipe.
+            if self._ctrl_c_handler is not None:
+                self._call_handler(self._ctrl_c_handler, "ctrl-c")
+            else:
+                self.clear_buffer()
             return None
 
         if self._rsearch.active:
@@ -366,8 +392,13 @@ class RunningLineEditor:
 
         if ch == _ENTER:
             if self._completion_open():
-                self._completion.accept()  # accept, do NOT submit (classic)
-                return None
+                before = self._buffer
+                self._completion.accept()  # apply the highlighted item
+                # A real pick changed the buffer -> close menu, don't submit.
+                # A no-op accept (word already fully typed) must NOT swallow Enter,
+                # or a fully-typed command would need two presses.
+                if self._buffer != before:
+                    return None
             if self._multiline:
                 self._insert_text("\n")
                 return None
@@ -378,10 +409,14 @@ class RunningLineEditor:
             self._insert_text("\n")  # Ctrl+J: always a newline
             return None
         if ch == _TAB:
+            if not self._buffer and self._help_overlay_handler is not None:
+                self._call_handler(self._help_overlay_handler, "help_overlay")
+                return None
             if self._completion is not None:
                 self._completion.on_tab(self._buffer, self._cursor)
             return None
         if ch == _CTRL_R:
+            self._queued_messages.cancel()
             self._rsearch.start()
             self._set_completion_suppressed(True)
             self._repaint()
@@ -390,32 +425,9 @@ class RunningLineEditor:
             # Raw-\x16 / image-only clipboard fallback; handler is async.
             self._call_handler(self._clipboard_handler, "clipboard")
             return None
-        if ch in _BACKSPACE_KEYS:
-            if self._cursor > 0:
-                self._buffer = (
-                    self._buffer[: self._cursor - 1] + self._buffer[self._cursor :]
-                )
-                self._cursor -= 1
-                self._after_edit()
-            return None
-        if ch == _CTRL_U:
-            if self._buffer:
-                self._buffer = ""
-                self._cursor = 0
-                self._after_edit()
-            return None
-        if ch == _CTRL_A:
-            self._apply_action("home")
-            return None
-        if ch == _CTRL_E:
-            self._apply_action("end")
-            return None
-        if ch == _CTRL_K:
-            self._kill_to_line_end()
-            return None
-        if ch == _CTRL_W:
-            self._delete_word_back()
-            return None
+        action = ek.classify_control(ch)  # deletes/kills/home/end/undo/redo
+        if action is not None:
+            return self._apply_action(action)
         if ch == _CTRL_D:
             # EOF only on an EMPTY buffer (classic readline semantics).
             if not self._buffer:
@@ -426,9 +438,9 @@ class RunningLineEditor:
             return None
         return None  # any other control character: ignore safely
 
-    def _apply_action(self, action: Optional[str]) -> None:
+    def _apply_action(self, action: Optional[str]) -> Optional[str]:
         """Dispatch a classified CSI/SS3 action (see editor_actions)."""
-        apply_action(self, action)
+        return apply_action(self, action)
 
     @staticmethod
     def _call_handler(handler: Optional[Callable[[], None]], name: str) -> None:
@@ -447,6 +459,7 @@ class RunningLineEditor:
     def _history_recall(self, text: Optional[str]) -> None:
         if text is None:
             return
+        self._checkpoint("recall")
         self._buffer = text
         self._cursor = len(text)
         # Programmatic mutation: no menu; close() kills stale queries.
@@ -457,27 +470,13 @@ class RunningLineEditor:
         feed_reverse_search(self, ch)
         return None
 
-    def _delete_word_back(self) -> None:
-        """Ctrl+W / Alt+Backspace: delete to the previous word boundary."""
-        start = ek.word_left(self._buffer, self._cursor)
-        if start < self._cursor:
-            self._buffer = self._buffer[:start] + self._buffer[self._cursor :]
-            self._cursor = start
-            self._after_edit()
-
-    def _kill_to_line_end(self) -> None:
-        """Ctrl+K: kill from the cursor to the end of the logical line."""
-        _start, end = ek.line_bounds(self._buffer, self._cursor)
-        if end > self._cursor:
-            self._buffer = self._buffer[: self._cursor] + self._buffer[end:]
-            self._after_edit()
+    def _checkpoint(self, kind: str) -> None:
+        """Record the current state as an undo step before a rewrite."""
+        self._undo.record(kind, self._buffer, self._cursor)
 
     def _insert_text(self, text: str, typed: bool = True) -> None:
-        self._buffer = (
-            self._buffer[: self._cursor] + text + self._buffer[self._cursor :]
-        )
-        self._cursor += len(text)
-        self._after_edit(typed=typed)
+        kind = "type" if typed and len(text) == 1 else "insert"
+        splice(self, kind, self._cursor, self._cursor, text)
 
     def _insert_paste(self, payload: str) -> None:
         """Insert a completed bracketed paste (classic classification)."""
@@ -502,6 +501,7 @@ class RunningLineEditor:
         force-open works either way (it doesn't come through here).
         """
         self._history.reset()
+        self._undo.settle(self._buffer, self._cursor)
         if typed:
             self._notify_completion()
         else:
@@ -533,131 +533,21 @@ class RunningLineEditor:
                 logger.debug("completion suppress failed", exc_info=True)
 
     def _toggle_multiline(self) -> None:
-        self._multiline = not self._multiline
-        self._repaint()
+        toggle_multiline(self)
 
     def _resolve_esc_timeout(self) -> None:
-        """Bare-ESC resolution: close menu / cancel search, clear pending."""
-        if self._esc_pending_at is None:
-            return
-        if self._now() - self._esc_pending_at > self._esc_timeout:
-            self._esc_pending_at = None
-            if self._rsearch.active:
-                self._rsearch.cancel()
-                self._set_completion_suppressed(False)
-                self._repaint()
-            elif self._completion_open():
-                self._close_completion()
-
-    # =========================================================================
-    # Internals — submission + repaint
-    # =========================================================================
+        resolve_esc_timeout(self)
 
     def _submit(self, mode: str) -> Optional[str]:
-        """Route the buffer; returns a transcript feedback line, if any."""
-        text = self._buffer
-        self._buffer = ""
-        self._cursor = 0
-        self._close_completion()
-        self._repaint()
-
-        stripped = text.strip()
-        if not stripped:
-            return None
-
-        try:
-            self._history.record_submit(text)
-        except Exception:
-            logger.debug("history record failed", exc_info=True)
-
-        router = self._router
-        if router is not None:
-            try:
-                feedback = router(text, mode)
-            except Exception:
-                logger.debug("submit router failed", exc_info=True)
-                feedback = None
-        else:
-            feedback = self.route_default(text, mode)
-
-        for listener in list(self._submit_listeners):
-            try:
-                listener(stripped, mode)
-            except Exception:
-                logger.debug("submit listener failed", exc_info=True)
-        return feedback
+        return submit_buffer(self, mode)
 
     def route_default(self, text: str, mode: str) -> Optional[str]:
-        """Built-in mid-run routing: slash → command queue, else steer."""
-        stripped = text.strip()
-        if not stripped:
-            return None
-        if stripped.startswith("/"):
-            # Fast path: /steer hands its text straight to the now-queue.
-            # Routing it through the command drain would PAUSE the agent
-            # just to request a steer (plus pause/resume transcript noise)
-            # — the exact opposite of "interrupt ASAP".
-            steer_text = _parse_steer_command(stripped)
-            if steer_text is not None:
-                if not steer_text:
-                    return "Usage: /steer <message>"
-                try:
-                    self._resolve_controller().request_steer(steer_text, mode="now")
-                except Exception:
-                    logger.debug("steer fast path failed", exc_info=True)
-                # No ack: the steer history processor announces the
-                # injection when the text actually reaches the model.
-                return None
-            # Other slash commands are runtime concerns (drained by
-            # run_ui) — they must NOT reach the PauseController queues.
-            self._command_queue.put(stripped)
-            return None
-        try:
-            self._resolve_controller().request_steer(text, mode=mode)
-        except Exception:
-            # Never let a broken controller kill the listener thread.
-            logger.debug("request_steer failed", exc_info=True)
-            return None
-        if mode == "queue":
-            # Queued steers get no later confirmation, so ack at submit time.
-            return _QueuedFeedback(f"for next turn: {stripped[:60]}")
-        # "now" steers: stay quiet here. The steer history processor emits
-        # "Injecting steer mid-turn — model will see: ..." when the text
-        # actually reaches the model; acking at submit time too was a lie
-        # (nothing has been injected yet) and doubled up the transcript.
-        return None
+        return route_default(self, text, mode)
 
-    @staticmethod
-    def _emit_feedback(note: str) -> None:
-        """Best-effort transcript line for a successful steer submission."""
-        try:
-            from code_puppy.messaging.message_queue import emit_info, emit_queued
-
-            if isinstance(note, _QueuedFeedback):
-                emit_queued(str(note))
-            else:
-                emit_info(note)
-        except Exception:
-            logger.debug("feedback emit failed", exc_info=True)
+    _emit_feedback = staticmethod(emit_feedback)
 
     def _repaint(self) -> None:
-        try:
-            bar = self._resolve_bar()
-            if self._rsearch.active:
-                text = self._rsearch.prompt_text()
-                bar.set_prompt_text("", text, len(text))
-                return
-            # "[multiline] " suffix has no SGR entries: extra chars paint plain.
-            prefix = self._prompt_prefix + ("[multiline] " if self._multiline else "")
-            # Attachment paths render as friendly tags ([png image]) —
-            # display only; the buffer keeps the real path for submit.
-            display_text, display_cursor = to_display(self._buffer, self._cursor)
-            bar.set_prompt_text(
-                prefix, display_text, display_cursor, self._prompt_prefix_sgrs
-            )
-        except Exception:
-            # Painting is best-effort; the buffer state is the truth.
-            pass
+        repaint(self)
 
     def _resolve_bar(self):
         return self._bar if self._bar is not None else get_bottom_bar()
@@ -666,15 +556,6 @@ class RunningLineEditor:
         if self._pause_controller is not None:
             return self._pause_controller
         return get_pause_controller()
-
-
-def _parse_steer_command(stripped: str) -> Optional[str]:
-    """'/steer fix it' -> 'fix it'; bare '/steer' -> ''; not steer -> None."""
-    if stripped == "/steer":
-        return ""
-    if stripped.startswith("/steer "):
-        return stripped[len("/steer ") :].strip()
-    return None
 
 
 __all__ = [

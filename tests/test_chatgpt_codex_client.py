@@ -8,7 +8,7 @@ Codex API.
 import json
 from unittest.mock import AsyncMock, Mock, patch
 
-import httpx
+import httpx2 as httpx
 import pytest
 
 from code_puppy.chatgpt_codex_client import (
@@ -180,6 +180,21 @@ class TestInjectCodexFields:
         assert result is not None
         data = json.loads(result)
         assert "reasoning" in data
+        assert data["reasoning"] == {
+            "effort": "medium",
+            "summary": "auto",
+        }
+
+    def test_preserve_explicit_reasoning_summary(self):
+        body = json.dumps(
+            {
+                "model": "gpt-5",
+                "reasoning": {"effort": "low", "summary": "auto"},
+            }
+        ).encode()
+        result, _ = ChatGPTCodexAsyncClient._inject_codex_fields(body)
+        data = json.loads(result)
+        assert data["reasoning"] == {"effort": "low", "summary": "auto"}
 
     def test_no_reasoning_for_gpt4(self):
         """Test that reasoning is NOT added for GPT-4 models."""
@@ -202,32 +217,15 @@ class TestInjectCodexFields:
         assert data["reasoning"]["effort"] == "high"  # Preserved
         assert data["reasoning"]["summary"] == "detailed"  # Preserved
 
-    def test_remove_max_output_tokens(self):
-        """Test that max_output_tokens is removed."""
-        body = json.dumps({"model": "gpt-4", "max_output_tokens": 1000}).encode()
+    @pytest.mark.parametrize("field", ["max_output_tokens", "max_tokens", "verbosity"])
+    def test_remove_unsupported_params(self, field):
+        """Test that unsupported params (max_output_tokens/max_tokens/verbosity) are removed."""
+        body = json.dumps({"model": "gpt-4", field: 1000}).encode()
         result, _ = ChatGPTCodexAsyncClient._inject_codex_fields(body)
 
         assert result is not None
         data = json.loads(result)
-        assert "max_output_tokens" not in data
-
-    def test_remove_max_tokens(self):
-        """Test that max_tokens is removed."""
-        body = json.dumps({"model": "gpt-4", "max_tokens": 2000}).encode()
-        result, _ = ChatGPTCodexAsyncClient._inject_codex_fields(body)
-
-        assert result is not None
-        data = json.loads(result)
-        assert "max_tokens" not in data
-
-    def test_remove_verbosity(self):
-        """Test that verbosity is removed."""
-        body = json.dumps({"model": "gpt-4", "verbosity": "detailed"}).encode()
-        result, _ = ChatGPTCodexAsyncClient._inject_codex_fields(body)
-
-        assert result is not None
-        data = json.loads(result)
-        assert "verbosity" not in data
+        assert field not in data
 
     def test_remove_all_unsupported_params(self):
         """Test that all unsupported params are removed together."""
@@ -249,17 +247,9 @@ class TestInjectCodexFields:
         assert "verbosity" not in data
         assert data["temperature"] == 0.7  # Preserved
 
-    def test_invalid_json_returns_none(self):
-        """Test that invalid JSON returns (None, False)."""
-        body = b"not valid json"
-        result, forced_stream = ChatGPTCodexAsyncClient._inject_codex_fields(body)
-
-        assert result is None
-        assert forced_stream is False
-
-    def test_non_dict_json_returns_none(self):
-        """Test that non-dict JSON returns (None, False)."""
-        body = b'["an", "array"]'
+    @pytest.mark.parametrize("body", [b"not valid json", b'["an", "array"]'])
+    def test_invalid_or_non_dict_json_returns_none(self, body):
+        """Test that invalid/non-dict JSON returns (None, False)."""
         result, forced_stream = ChatGPTCodexAsyncClient._inject_codex_fields(body)
 
         assert result is None
@@ -351,6 +341,46 @@ class TestConvertStreamToResponse:
         assert body["output"][0]["call_id"] == "call_123"
 
     @pytest.mark.asyncio
+    async def test_preserve_complete_reasoning_output_over_partial_envelope(self):
+        """Retain encrypted reasoning when response.completed is incomplete."""
+        reasoning = {
+            "type": "reasoning",
+            "id": "rs_123",
+            "encrypted_content": "opaque-reasoning-token",
+            "summary": [],
+        }
+        message = {
+            "type": "message",
+            "id": "msg_123",
+            "role": "assistant",
+            "content": [{"type": "output_text", "text": "Hello"}],
+        }
+        sse_lines = [
+            f"data: {json.dumps({'type': 'response.output_item.done', 'item': reasoning})}",
+            f"data: {json.dumps({'type': 'response.output_item.done', 'item': message})}",
+            f"data: {json.dumps({'type': 'response.completed', 'response': {'id': 'resp_123', 'output': [message]}})}",
+            "data: [DONE]",
+        ]
+
+        async def mock_aiter_lines():
+            for line in sse_lines:
+                yield line
+
+        mock_response = Mock(spec=httpx.Response)
+        mock_response.status_code = 200
+        mock_response.headers = {}
+        mock_response.aiter_lines = mock_aiter_lines
+        mock_response.request = Mock()
+
+        result = await ChatGPTCodexAsyncClient()._convert_stream_to_response(
+            mock_response
+        )
+        output = json.loads(result.content)["output"]
+
+        assert output == [reasoning, message]
+        assert output[0]["encrypted_content"] == "opaque-reasoning-token"
+
+    @pytest.mark.asyncio
     async def test_use_response_completed_data(self):
         """Test that response.completed event data is used when available."""
         final_response = {
@@ -382,15 +412,33 @@ class TestConvertStreamToResponse:
         assert body["id"] == "resp_abc123"
 
     @pytest.mark.asyncio
-    async def test_skip_empty_lines(self):
-        """Test that empty lines are skipped."""
-        sse_lines = [
-            "",
-            "   ",
-            'data: {"type": "response.output_text.delta", "delta": "Hi"}',
-            "",
-            "data: [DONE]",
-        ]
+    @pytest.mark.parametrize(
+        ("sse_lines", "expected_text"),
+        [
+            (
+                [
+                    "",
+                    "   ",
+                    'data: {"type": "response.output_text.delta", "delta": "Hi"}',
+                    "",
+                    "data: [DONE]",
+                ],
+                "Hi",
+            ),
+            (
+                [
+                    "event: message",
+                    "id: 123",
+                    'data: {"type": "response.output_text.delta", "delta": "Test"}',
+                    ": comment line",
+                    "data: [DONE]",
+                ],
+                "Test",
+            ),
+        ],
+    )
+    async def test_skip_noise_lines(self, sse_lines, expected_text):
+        """Test that empty and non-data lines are skipped."""
 
         async def mock_aiter_lines():
             for line in sse_lines:
@@ -406,34 +454,7 @@ class TestConvertStreamToResponse:
         result = await client._convert_stream_to_response(mock_response)
 
         body = json.loads(result.content)
-        assert body["output"][0]["content"][0]["text"] == "Hi"
-
-    @pytest.mark.asyncio
-    async def test_skip_non_data_lines(self):
-        """Test that non-data lines (like event: or id:) are skipped."""
-        sse_lines = [
-            "event: message",
-            "id: 123",
-            'data: {"type": "response.output_text.delta", "delta": "Test"}',
-            ": comment line",
-            "data: [DONE]",
-        ]
-
-        async def mock_aiter_lines():
-            for line in sse_lines:
-                yield line
-
-        mock_response = Mock(spec=httpx.Response)
-        mock_response.status_code = 200
-        mock_response.headers = {}
-        mock_response.aiter_lines = mock_aiter_lines
-        mock_response.request = Mock()
-
-        client = ChatGPTCodexAsyncClient()
-        result = await client._convert_stream_to_response(mock_response)
-
-        body = json.loads(result.content)
-        assert body["output"][0]["content"][0]["text"] == "Test"
+        assert body["output"][0]["content"][0]["text"] == expected_text
 
     @pytest.mark.asyncio
     async def test_handle_json_decode_errors(self):
@@ -787,9 +808,8 @@ class TestCreateCodexAsyncClient:
 
     def test_creates_client_with_custom_verify_path(self):
         """Test that factory accepts verify as string (cert path)."""
-        # Just verify the function accepts the parameter without error
-        # The actual SSL context creation happens on first request
-        # Using verify=False to avoid file not found errors
+        # Only verify the param is accepted — SSL context builds on first request
+        # (verify=False avoids file-not-found errors).
         client = create_codex_async_client(verify=False)
 
         assert isinstance(client, ChatGPTCodexAsyncClient)
@@ -808,27 +828,10 @@ class TestCreateCodexAsyncClient:
 class TestEdgeCases:
     """Test edge cases and error handling."""
 
-    def test_inject_fields_with_empty_bytes(self):
-        """Test injection with empty bytes."""
-        result, forced = ChatGPTCodexAsyncClient._inject_codex_fields(b"")
-        assert result is None
-        assert forced is False
-
-    def test_inject_fields_with_null_json(self):
-        """Test injection with JSON null."""
-        result, forced = ChatGPTCodexAsyncClient._inject_codex_fields(b"null")
-        assert result is None
-        assert forced is False
-
-    def test_inject_fields_with_number_json(self):
-        """Test injection with JSON number."""
-        result, forced = ChatGPTCodexAsyncClient._inject_codex_fields(b"42")
-        assert result is None
-        assert forced is False
-
-    def test_inject_fields_with_string_json(self):
-        """Test injection with JSON string."""
-        result, forced = ChatGPTCodexAsyncClient._inject_codex_fields(b'"hello"')
+    @pytest.mark.parametrize("payload", [b"", b"null", b"42", b'"hello"'])
+    def test_inject_fields_with_invalid_or_scalar_json(self, payload):
+        """Injection with empty/scalar JSON payloads is a no-op."""
+        result, forced = ChatGPTCodexAsyncClient._inject_codex_fields(payload)
         assert result is None
         assert forced is False
 
@@ -890,3 +893,45 @@ class TestEdgeCases:
         body = json.loads(result.content)
         # Only "Hello" should be collected (empty strings are falsy)
         assert body["output"][0]["content"][0]["text"] == "Hello"
+
+
+class TestMergeOutputItems:
+    """Merge semantics for envelope output vs streamed output_item.done."""
+
+    def _items(self):
+        reasoning = {"type": "reasoning", "id": "rs_1", "encrypted_content": "enc"}
+        message = {"type": "message", "id": "msg_1", "role": "assistant"}
+        return reasoning, message
+
+    def test_stream_wins_when_envelope_is_subset(self):
+        from code_puppy.chatgpt_codex_client import _merge_output_items
+
+        reasoning, message = self._items()
+        merged = _merge_output_items([message], [reasoning, message])
+        assert merged == [reasoning, message]
+
+    def test_empty_envelope_returns_stream(self):
+        from code_puppy.chatgpt_codex_client import _merge_output_items
+
+        reasoning, message = self._items()
+        merged = _merge_output_items([], [reasoning, message])
+        assert merged == [reasoning, message]
+
+    def test_dropped_stream_event_recovered_from_envelope(self):
+        from code_puppy.chatgpt_codex_client import _merge_output_items
+
+        reasoning, message = self._items()
+        extra = {"type": "function_call", "id": "fc_1", "call_id": "call_1"}
+        # The stream missed the function_call item; the envelope has it.
+        merged = _merge_output_items([message, extra], [reasoning, message])
+        assert merged == [reasoning, message, extra]
+
+    def test_streamed_twin_replaces_envelope_copy(self):
+        from code_puppy.chatgpt_codex_client import _merge_output_items
+
+        reasoning, message = self._items()
+        stale = {"type": "message", "id": "msg_1", "role": "assistant", "old": True}
+        extra = {"type": "function_call", "id": "fc_1", "call_id": "call_1"}
+        merged = _merge_output_items([stale, extra], [reasoning, message])
+        assert merged == [reasoning, message, extra]
+        assert "old" not in merged[1]

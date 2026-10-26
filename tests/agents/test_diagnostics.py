@@ -14,7 +14,6 @@ import pytest
 from code_puppy.agents._diagnostics import (
     _emit_exception_chain,
     _emit_useful_attrs,
-    _is_mcp_teardown_noise,
     _needs_deep_diagnostics,
     emit_exception_diagnostics,
 )
@@ -152,66 +151,6 @@ class TestDeepPath:
         assert "5 more sub-exception(s) omitted" in rendered
 
 
-class TestMcpTeardownNoise:
-    """AnyIO/MCP cleanup ``RuntimeError``s must not scream at the user."""
-
-    _CANCEL_SCOPE_MSG = (
-        "Attempted to exit a cancel scope that isn't the current "
-        "tasks's current cancel scope"
-    )
-
-    def test_classifier_flags_cancel_scope_runtime_error(self):
-        assert _is_mcp_teardown_noise(RuntimeError(self._CANCEL_SCOPE_MSG))
-
-    def test_classifier_flags_cross_task_cancel_scope(self):
-        assert _is_mcp_teardown_noise(
-            RuntimeError(
-                "Attempted to exit cancel scope in a different task than it "
-                "was entered in"
-            )
-        )
-
-    def test_classifier_flags_async_generator_gc(self):
-        assert _is_mcp_teardown_noise(
-            RuntimeError("async generator ignored GeneratorExit")
-        )
-
-    def test_classifier_ignores_non_runtime_errors(self):
-        assert not _is_mcp_teardown_noise(ValueError(self._CANCEL_SCOPE_MSG))
-
-    def test_classifier_ignores_real_runtime_errors(self):
-        assert not _is_mcp_teardown_noise(RuntimeError("database is on fire"))
-
-    def test_teardown_noise_suppresses_terminal_emit(self):
-        with patch("code_puppy.agents._diagnostics.emit_info") as mock_emit:
-            with patch("code_puppy.agents._diagnostics.log_error") as mock_log:
-                emit_exception_diagnostics(
-                    RuntimeError(self._CANCEL_SCOPE_MSG), group_id="g"
-                )
-
-        # Nothing user-visible — the actual agent result was fine.
-        mock_emit.assert_not_called()
-        # Still logged to file with the teardown-context hint.
-        mock_log.assert_called_once()
-        ctx = mock_log.call_args.kwargs.get("context") or mock_log.call_args.args[1]
-        assert "teardown noise" in ctx
-
-    def test_real_error_alongside_teardown_noise_still_surfaces(self):
-        """Per-leaf classification: real errors still emit even if noise exists."""
-        with patch("code_puppy.agents._diagnostics.emit_info") as mock_emit:
-            with patch("code_puppy.agents._diagnostics.log_error"):
-                emit_exception_diagnostics(
-                    RuntimeError(self._CANCEL_SCOPE_MSG), group_id="g"
-                )
-                emit_exception_diagnostics(
-                    RuntimeError("database is on fire"), group_id="g"
-                )
-
-        rendered = _rendered_lines(mock_emit.call_args_list)
-        assert "database is on fire" in rendered
-        assert "cancel scope" not in rendered.lower()
-
-
 class TestHelpers:
     def test_emit_useful_attrs_skips_missing_and_empty(self):
         exc = _FakeAPIError("msg", body=None)
@@ -267,3 +206,58 @@ class TestHelpers:
             pytest.skip("Python 3.10 lacks BaseExceptionGroup")
         group = BaseExceptionGroup("bundle", [ValueError("x")])
         assert _needs_deep_diagnostics(group)
+
+
+class TestTokenLimitHint:
+    MESSAGE = (
+        "Model token limit (30000) exceeded before any response was generated. "
+        "Increase the `max_tokens` model setting"
+    )
+
+    def _run(self, exc, model_name="claude-opus-5-5"):
+        with patch("code_puppy.agents._diagnostics.emit_info") as mock_info:
+            with patch("code_puppy.agents._diagnostics.emit_warning") as mock_warn:
+                with patch("code_puppy.agents._diagnostics.log_error"):
+                    emit_exception_diagnostics(exc, group_id="g", model_name=model_name)
+        return mock_info, mock_warn
+
+    def test_generic_line_is_kept_and_hint_is_emitted_exactly_once(self):
+        info, warn = self._run(RuntimeError(self.MESSAGE))
+        assert "Unexpected error: Model token limit" in _rendered_lines(
+            info.call_args_list
+        )
+        warn.assert_called_once()
+        assert "claude-opus-5-5" in warn.call_args.args[0]
+        assert warn.call_args.kwargs["group_id"] == "g"
+
+    def test_tool_call_truncation_variant_gets_no_hint(self):
+        _, warn = self._run(
+            RuntimeError(
+                "Model token limit (30000) exceeded while generating a tool call"
+            )
+        )
+        warn.assert_not_called()
+
+    def test_hint_failure_does_not_propagate(self):
+        with patch("code_puppy.agents._diagnostics.emit_info"):
+            with patch("code_puppy.agents._diagnostics.log_error"):
+                with patch(
+                    "code_puppy.agents._diagnostics.token_limit_hint",
+                    side_effect=RuntimeError("hint blew up"),
+                ):
+                    emit_exception_diagnostics(RuntimeError(self.MESSAGE), group_id="g")
+
+    def test_warning_emit_failure_does_not_propagate(self):
+        with patch("code_puppy.agents._diagnostics.emit_info"):
+            with patch("code_puppy.agents._diagnostics.log_error"):
+                with patch(
+                    "code_puppy.agents._diagnostics.emit_warning",
+                    side_effect=RuntimeError("display dead"),
+                ):
+                    emit_exception_diagnostics(
+                        RuntimeError(self.MESSAGE), group_id="g", model_name="m"
+                    )
+
+    def test_model_name_is_optional(self):
+        _, warn = self._run(RuntimeError(self.MESSAGE), model_name=None)
+        warn.assert_called_once()

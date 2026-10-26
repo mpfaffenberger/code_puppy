@@ -25,7 +25,7 @@ from typing import Dict, FrozenSet, Optional
 # ---------------------------------------------------------------------------
 CLAUDE_CODE_ALIASES: Dict[str, str] = {
     # Shell execution
-    "Bash": "agent_run_shell_command",
+    "Bash": "shell",
     # File system — read
     "Glob": "list_files",
     "Read": "read_file",
@@ -109,8 +109,8 @@ def _build_lookup() -> Dict[str, FrozenSet[str]]:
     full set of equivalent names, including itself.
 
     Example result entry:
-        "Bash" -> frozenset({"Bash", "agent_run_shell_command"})
-        "agent_run_shell_command" -> frozenset({"Bash", "agent_run_shell_command"})
+        "Bash" -> frozenset({"Bash", "shell"})
+        "shell" -> frozenset({"Bash", "shell"})
     """
     groups: Dict[str, set] = {}
 

@@ -35,10 +35,7 @@ from code_puppy.messaging.message_queue import (
 
 
 class TestMessageQueueStartStop:
-    """Test queue start/stop lifecycle."""
-
     def test_start_when_already_running(self):
-        """Test that start() returns early when already running."""
         queue = MessageQueue()
         queue.start()
         assert queue._running is True
@@ -52,7 +49,6 @@ class TestMessageQueueStartStop:
         queue.stop()
 
     def test_stop_running_queue(self):
-        """Test stopping a running queue."""
         queue = MessageQueue()
         queue.start()
         assert queue._running is True
@@ -66,7 +62,6 @@ class TestMessageQueueStartStop:
         assert not queue._thread.is_alive()
 
     def test_stop_not_running_queue(self):
-        """Test stopping a queue that was never started."""
         queue = MessageQueue()
         assert queue._running is False
         assert queue._thread is None
@@ -77,10 +72,7 @@ class TestMessageQueueStartStop:
 
 
 class TestMessageQueueListeners:
-    """Test listener add/remove and notification."""
-
     def test_add_listener(self):
-        """Test adding a listener."""
         queue = MessageQueue()
         callback = MagicMock()
 
@@ -90,7 +82,6 @@ class TestMessageQueueListeners:
         assert queue._has_active_renderer is True
 
     def test_remove_listener(self):
-        """Test removing a listener."""
         queue = MessageQueue()
         callback = MagicMock()
 
@@ -102,7 +93,6 @@ class TestMessageQueueListeners:
         assert queue._has_active_renderer is False
 
     def test_remove_nonexistent_listener(self):
-        """Test removing a listener that doesn't exist."""
         queue = MessageQueue()
         callback = MagicMock()
 
@@ -111,7 +101,6 @@ class TestMessageQueueListeners:
         assert queue._has_active_renderer is False
 
     def test_remove_one_of_multiple_listeners(self):
-        """Test removing one listener keeps renderer active."""
         queue = MessageQueue()
         callback1 = MagicMock()
         callback2 = MagicMock()
@@ -126,7 +115,6 @@ class TestMessageQueueListeners:
         assert queue._has_active_renderer is True
 
     def test_listener_receives_messages(self):
-        """Test that listeners receive messages from the processing thread."""
         queue = MessageQueue()
         received_messages = []
 
@@ -136,11 +124,9 @@ class TestMessageQueueListeners:
         queue.add_listener(callback)
         queue.start()
 
-        # Emit a message - it should go through the queue
         msg = UIMessage(type=MessageType.INFO, content="Test listener")
         queue.emit(msg)
 
-        # Wait for the processing thread to handle it
         time.sleep(0.3)
 
         queue.stop()
@@ -149,7 +135,6 @@ class TestMessageQueueListeners:
         assert received_messages[0].content == "Test listener"
 
     def test_listener_exception_doesnt_break_processing(self):
-        """Test that listener exceptions don't break message processing."""
         queue = MessageQueue()
         received_messages = []
 
@@ -169,27 +154,21 @@ class TestMessageQueueListeners:
         time.sleep(0.3)
         queue.stop()
 
-        # Good callback should still receive the message
         assert len(received_messages) == 1
 
 
 class TestMessageQueueAsyncOperations:
-    """Test async queue operations."""
-
     @pytest.mark.asyncio
     async def test_get_async_initializes_queue(self):
-        """Test that get_async lazy-initializes the async queue."""
         queue = MessageQueue()
         queue.mark_renderer_active()
         queue.start()
 
         assert queue._async_queue is None
 
-        # Put a message in the queue
         msg = UIMessage(type=MessageType.INFO, content="Async test")
         queue.emit(msg)
 
-        # Start waiting for async message (with timeout)
         async def get_with_timeout():
             try:
                 return await asyncio.wait_for(queue.get_async(), timeout=0.5)
@@ -200,7 +179,6 @@ class TestMessageQueueAsyncOperations:
         # Note: The message might not arrive in time due to thread timing
         await get_with_timeout()
 
-        # Async queue should now be initialized
         assert queue._async_queue is not None
         assert queue._event_loop is not None
 
@@ -208,28 +186,20 @@ class TestMessageQueueAsyncOperations:
 
     @pytest.mark.asyncio
     async def test_async_queue_receives_messages(self):
-        """Test that async queue receives messages from the sync queue."""
         queue = MessageQueue()
         queue.mark_renderer_active()
 
         # Initialize async queue first by calling get_async
         async def init_and_wait():
             # Start the background thread after async queue is initialized
-            asyncio.get_event_loop().call_soon(
-                lambda: None
-            )  # Ensure event loop is running
-
-            # Create a task to wait for message
             async def wait_for_message():
                 return await asyncio.wait_for(queue.get_async(), timeout=1.0)
 
             task = asyncio.create_task(wait_for_message())
 
-            # Start the queue processing after a small delay
             await asyncio.sleep(0.05)
             queue.start()
 
-            # Emit message after queue is started
             await asyncio.sleep(0.05)
             msg = UIMessage(type=MessageType.INFO, content="Async delivery")
             queue.emit(msg)
@@ -250,22 +220,17 @@ class TestMessageQueueAsyncOperations:
 
 
 class TestPromptRequestResponse:
-    """Test human input prompt request/response system."""
-
     def test_create_prompt_request(self):
-        """Test creating a prompt request."""
         queue = MessageQueue()
         queue.mark_renderer_active()
 
         prompt_id = queue.create_prompt_request("Enter your name:")
 
         assert prompt_id == "prompt_1"
-        # Second prompt should have incremented ID
         prompt_id2 = queue.create_prompt_request("Enter age:")
         assert prompt_id2 == "prompt_2"
 
     def test_create_prompt_request_emits_message(self):
-        """Test that create_prompt_request emits a HUMAN_INPUT_REQUEST message."""
         queue = MessageQueue()
         queue.mark_renderer_active()
 
@@ -278,7 +243,6 @@ class TestPromptRequestResponse:
         assert "prompt_id" in msg.metadata
 
     def test_provide_prompt_response(self):
-        """Test providing a response to a prompt."""
         queue = MessageQueue()
 
         queue.provide_prompt_response("prompt_1", "The Holy Grail")
@@ -287,20 +251,16 @@ class TestPromptRequestResponse:
         assert queue._prompt_responses["prompt_1"] == "The Holy Grail"
 
     def test_wait_for_prompt_response_immediate(self):
-        """Test waiting for a prompt response that's already available."""
         queue = MessageQueue()
 
-        # Pre-populate the response
         queue._prompt_responses["prompt_1"] = "immediate response"
 
-        # Should return immediately
         response = queue.wait_for_prompt_response("prompt_1", timeout=1.0)
         assert response == "immediate response"
         # Response should be consumed
         assert "prompt_1" not in queue._prompt_responses
 
     def test_wait_for_prompt_response_with_delay(self):
-        """Test waiting for a prompt response that arrives after a delay."""
         queue = MessageQueue()
 
         def delayed_response():
@@ -316,7 +276,6 @@ class TestPromptRequestResponse:
         assert response == "delayed response"
 
     def test_wait_for_prompt_response_timeout(self):
-        """Test that wait_for_prompt_response raises TimeoutError."""
         queue = MessageQueue()
 
         with pytest.raises(TimeoutError) as exc_info:
@@ -326,10 +285,7 @@ class TestPromptRequestResponse:
 
 
 class TestGlobalQueueFunctions:
-    """Test global queue helper functions."""
-
     def test_get_global_queue_creates_queue(self):
-        """Test that get_global_queue creates and starts a queue."""
         # Reset global state for test
         import code_puppy.messaging.message_queue as mq_module
 
@@ -348,13 +304,11 @@ class TestGlobalQueueFunctions:
             mq_module._global_queue = original_queue
 
     def test_get_global_queue_returns_same_instance(self):
-        """Test that get_global_queue returns the same instance."""
         queue1 = get_global_queue()
         queue2 = get_global_queue()
         assert queue1 is queue2
 
     def test_get_buffered_startup_messages(self):
-        """Test getting buffered startup messages."""
         import code_puppy.messaging.message_queue as mq_module
 
         original_queue = mq_module._global_queue
@@ -377,11 +331,9 @@ class TestGlobalQueueFunctions:
             mq_module._global_queue = original_queue
 
     def test_get_buffered_messages_includes_queued_messages(self):
-        """Test that get_buffered_messages also retrieves from internal queue."""
         queue = MessageQueue()
         queue.mark_renderer_active()
 
-        # Put messages directly in the internal queue
         msg1 = UIMessage(type=MessageType.INFO, content="from startup")
         msg2 = UIMessage(type=MessageType.INFO, content="from queue")
 
@@ -396,7 +348,6 @@ class TestGlobalQueueFunctions:
         assert messages[1].content == "from queue"
 
     def test_provide_prompt_response_global(self):
-        """Test the global provide_prompt_response function."""
         queue = get_global_queue()
 
         provide_prompt_response("test_prompt_global", "global response")
@@ -404,23 +355,17 @@ class TestGlobalQueueFunctions:
         assert "test_prompt_global" in queue._prompt_responses
         assert queue._prompt_responses["test_prompt_global"] == "global response"
 
-        # Clean up
         queue._prompt_responses.pop("test_prompt_global", None)
 
 
 class TestEmitHelperFunctions:
-    """Test all emit_* helper functions."""
-
     def setup_method(self):
-        """Set up for each test."""
         self.queue = get_global_queue()
         self.queue.mark_renderer_active()
-        # Clear any existing messages
         while self.queue.get_nowait():
             pass
 
     def test_emit_message(self):
-        """Test emit_message function."""
         emit_message(MessageType.DEBUG, "debug content", extra="data")
 
         msg = self.queue.get_nowait()
@@ -429,40 +374,34 @@ class TestEmitHelperFunctions:
         assert msg.content == "debug content"
         assert msg.metadata.get("extra") == "data"
 
-    def test_emit_info(self):
-        """Test emit_info function."""
-        emit_info("info message", key="value")
-
+    @pytest.mark.parametrize(
+        ("emitter", "expected_type", "content"),
+        [
+            (emit_info, MessageType.INFO, "info message"),
+            (emit_success, MessageType.SUCCESS, "success message"),
+            (emit_warning, MessageType.WARNING, "warning message"),
+            (emit_error, MessageType.ERROR, "error message"),
+            (emit_agent_reasoning, MessageType.AGENT_REASONING, "thinking about stuff"),
+            (emit_agent_response, MessageType.AGENT_RESPONSE, "Here is my response"),
+            (emit_system_message, MessageType.SYSTEM, "system notification"),
+        ],
+        ids=[
+            "info",
+            "success",
+            "warning",
+            "error",
+            "agent_reasoning",
+            "agent_response",
+            "system_message",
+        ],
+    )
+    def test_emit_simple(self, emitter, expected_type, content):
+        emitter(content)
         msg = self.queue.get_nowait()
-        assert msg.type == MessageType.INFO
-        assert msg.content == "info message"
-
-    def test_emit_success(self):
-        """Test emit_success function."""
-        emit_success("success message")
-
-        msg = self.queue.get_nowait()
-        assert msg.type == MessageType.SUCCESS
-        assert msg.content == "success message"
-
-    def test_emit_warning(self):
-        """Test emit_warning function."""
-        emit_warning("warning message")
-
-        msg = self.queue.get_nowait()
-        assert msg.type == MessageType.WARNING
-        assert msg.content == "warning message"
-
-    def test_emit_error(self):
-        """Test emit_error function."""
-        emit_error("error message")
-
-        msg = self.queue.get_nowait()
-        assert msg.type == MessageType.ERROR
-        assert msg.content == "error message"
+        assert msg.type == expected_type
+        assert msg.content == content
 
     def test_emit_tool_output_without_tool_name(self):
-        """Test emit_tool_output without tool_name."""
         emit_tool_output("tool output")
 
         msg = self.queue.get_nowait()
@@ -471,7 +410,6 @@ class TestEmitHelperFunctions:
         assert "tool_name" not in msg.metadata
 
     def test_emit_tool_output_with_tool_name(self):
-        """Test emit_tool_output with tool_name."""
         emit_tool_output("tool output", tool_name="my_tool")
 
         msg = self.queue.get_nowait()
@@ -479,7 +417,6 @@ class TestEmitHelperFunctions:
         assert msg.metadata["tool_name"] == "my_tool"
 
     def test_emit_command_output_without_command(self):
-        """Test emit_command_output without command."""
         emit_command_output("command output")
 
         msg = self.queue.get_nowait()
@@ -488,47 +425,20 @@ class TestEmitHelperFunctions:
         assert "command" not in msg.metadata
 
     def test_emit_command_output_with_command(self):
-        """Test emit_command_output with command."""
         emit_command_output("output", command="ls -la")
 
         msg = self.queue.get_nowait()
         assert msg.type == MessageType.COMMAND_OUTPUT
         assert msg.metadata["command"] == "ls -la"
 
-    def test_emit_agent_reasoning(self):
-        """Test emit_agent_reasoning function."""
-        emit_agent_reasoning("thinking about stuff")
-
-        msg = self.queue.get_nowait()
-        assert msg.type == MessageType.AGENT_REASONING
-        assert msg.content == "thinking about stuff"
-
     def test_emit_planned_next_steps(self):
-        """Test emit_planned_next_steps function."""
         emit_planned_next_steps(["step 1", "step 2"])
 
         msg = self.queue.get_nowait()
         assert msg.type == MessageType.PLANNED_NEXT_STEPS
         assert msg.content == ["step 1", "step 2"]
 
-    def test_emit_agent_response(self):
-        """Test emit_agent_response function."""
-        emit_agent_response("Here is my response")
-
-        msg = self.queue.get_nowait()
-        assert msg.type == MessageType.AGENT_RESPONSE
-        assert msg.content == "Here is my response"
-
-    def test_emit_system_message(self):
-        """Test emit_system_message function."""
-        emit_system_message("system notification")
-
-        msg = self.queue.get_nowait()
-        assert msg.type == MessageType.SYSTEM
-        assert msg.content == "system notification"
-
     def test_emit_divider_default(self):
-        """Test emit_divider with default content."""
         emit_divider()
 
         msg = self.queue.get_nowait()
@@ -536,7 +446,6 @@ class TestEmitHelperFunctions:
         assert "─" in msg.content  # Default divider character
 
     def test_emit_divider_custom(self):
-        """Test emit_divider with custom content."""
         emit_divider("====")
 
         msg = self.queue.get_nowait()
@@ -545,10 +454,7 @@ class TestEmitHelperFunctions:
 
 
 class TestEmitPrompt:
-    """Test emit_prompt function."""
-
     def test_emit_prompt(self):
-        """Test emit_prompt calls safe_input and returns response."""
         with patch(
             "code_puppy.command_line.utils.safe_input", return_value="user input"
         ) as mock_input:
@@ -561,10 +467,7 @@ class TestEmitPrompt:
 
 
 class TestProcessMessagesEdgeCases:
-    """Test edge cases in _process_messages."""
-
     def test_process_messages_with_async_queue_error(self):
-        """Test that async queue errors don't break processing."""
         queue = MessageQueue()
         received = []
 
@@ -592,47 +495,19 @@ class TestProcessMessagesEdgeCases:
         assert received[0].content == "Test error handling"
 
     def test_process_messages_queue_empty_timeout(self):
-        """Test that _process_messages handles queue.Empty gracefully."""
         queue = MessageQueue()
         queue.start()
 
         # Let it run with no messages for a bit
         time.sleep(0.3)
 
-        # Should still be running
         assert queue._running is True
         assert queue._thread.is_alive()
 
         queue.stop()
 
 
-class TestEmitQueueFullEdgeCase:
-    """Test edge case when queue is full and get_nowait fails."""
-
-    def test_emit_queue_full_get_also_fails(self):
-        """Test emit when queue is full and get_nowait also fails (race condition)."""
-        import queue as queue_module
-
-        mq = MessageQueue(maxsize=1)
-        mq.mark_renderer_active()
-
-        # Fill the queue
-        msg1 = UIMessage(type=MessageType.INFO, content="Msg1")
-        mq.emit(msg1)
-
-        # This tests the except queue.Empty: pass branch on line 126-127
-        # We simulate the race condition where queue.Full is raised, then
-        # when we try to get_nowait to make room, it's already empty
-        with patch.object(mq._queue, "put_nowait", side_effect=queue_module.Full):
-            with patch.object(mq._queue, "get_nowait", side_effect=queue_module.Empty):
-                # This should not raise - it catches the exception
-                msg2 = UIMessage(type=MessageType.INFO, content="Msg2")
-                mq.emit(msg2)  # Should handle gracefully
-
-
 class TestStartupBuffer:
-    """Tests for startup buffer and clear_startup_buffer."""
-
     def test_clear_startup_buffer(self):
         mq = MessageQueue()
         msg = UIMessage(type=MessageType.INFO, content="buffered")
@@ -649,7 +524,6 @@ class TestStartupBuffer:
         assert mq._startup_buffer[0].content == "buf"
 
     def test_emit_overflow_drop_and_retry(self):
-        """Queue Full → drop oldest → retry put succeeds (line 129)."""
         import queue as queue_module
 
         mq = MessageQueue()
@@ -670,7 +544,6 @@ class TestStartupBuffer:
         assert call_count[0] == 2  # put_nowait called twice
 
     def test_emit_overflow_race_empty(self):
-        """Queue Full then Empty race condition (line 130-131)."""
         import queue as queue_module
 
         mq = MessageQueue()
@@ -682,8 +555,6 @@ class TestStartupBuffer:
 
 
 class TestDrain:
-    """Tests for MessageQueue.drain (used to flush before stdin reads)."""
-
     def test_drain_returns_true_when_already_empty(self):
         mq = MessageQueue()
         assert mq.drain(timeout=0.5) is True
@@ -702,7 +573,6 @@ class TestDrain:
             mq.stop()
 
     def test_drain_returns_false_when_timeout_exceeded(self):
-        """If nothing pulls from the queue, drain should give up gracefully."""
         mq = MessageQueue()
         mq._has_active_renderer = True
         mq.emit_simple(MessageType.INFO, "stuck")

@@ -37,8 +37,7 @@ KEY_CODES: dict[str, str] = {
 }
 
 # Valid keys for cancel_agent_key configuration
-# NOTE: "escape" is excluded because it conflicts with ANSI escape sequences
-# (arrow keys, F-keys, etc. all start with \x1b)
+# NOTE: "escape" excluded — conflicts with ANSI escapes (arrow/F-keys start with \x1b).
 VALID_CANCEL_KEYS: set[str] = {
     "ctrl+c",
     "ctrl+k",

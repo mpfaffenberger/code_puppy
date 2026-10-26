@@ -11,10 +11,12 @@ from rich.control import Control
 from rich.segment import ControlType
 
 from code_puppy.config import get_banner_color, get_output_level, get_subagent_verbose
+from code_puppy.messaging.safe_stream import is_dead_handle_error
 from code_puppy.tools.subagent_context import is_subagent
 
-#: EL2 (erase entire line) + CR. Rich drops control segments on
-#: non-terminal output, so headless/piped runs stay byte-identical.
+#: EL2 (erase entire line) + CR. Only POSIX Rich drops control segments on
+#: non-terminal output; its legacy-Windows renderer writes the CR regardless,
+#: so ``erase_progress_line`` checks ``is_terminal`` itself.
 _ERASE_LINE_CONTROL = Control(
     (ControlType.ERASE_IN_LINE, 2), ControlType.CARRIAGE_RETURN
 )
@@ -25,11 +27,17 @@ def erase_progress_line(console: Console) -> None:
 
     Replaces the old ``console.print(" " * 50, end="\\r")`` idiom, which
     assumed progress lines never exceed 50 cells. Longer lines (e.g.
-    ``  \U0001f527 Calling agent_run_shell_command... 348 token(s)`` = 52+
+    ``  \U0001f527 Calling shell... 348 token(s)`` = 52+
     cells) left right-edge ghost tails like ``s)`` in the transcript.
     Erase-in-line clears the whole row regardless of length.
     """
-    console.control(_ERASE_LINE_CONTROL)
+    if not console.is_terminal:
+        return
+    try:
+        console.control(_ERASE_LINE_CONTROL)
+    except OSError as exc:
+        if not is_dead_handle_error(exc):
+            raise
 
 
 def render_markdown(content: str, console: Console) -> None:
@@ -76,9 +84,8 @@ def display_non_streamed_result(
         >>> display_non_streamed_result("# Hello\n\nThis is **bold** text.")
         # Renders with AGENT RESPONSE banner and formatted markdown
     """
-    # Skip display for sub-agents unless verbose mode or high output level.
-    # In ``high`` mode the user has asked for maximum visibility, so sub-agent
-    # responses must render regardless of the legacy ``subagent_verbose`` toggle.
+    # Skip sub-agent display unless verbose or high output level — high mode
+    # overrides the legacy ``subagent_verbose`` toggle (max visibility requested).
     if is_subagent() and not get_subagent_verbose() and get_output_level() != "high":
         return
 

@@ -29,6 +29,7 @@ from .start_command import StartCommand
 from .status_command import StatusCommand
 from .stop_all_command import StopAllCommand
 from .stop_command import StopCommand
+from .trust_command import TrustCommand
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -68,6 +69,7 @@ class MCPCommandHandler(MCPCommandBase):
             "install": InstallCommand(),
             "silence-warning": SilenceWarningCommand(),
             "unsilence-warning": UnsilenceWarningCommand(),
+            "trust": TrustCommand(),
             "help": HelpCommand(),
         }
 

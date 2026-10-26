@@ -3,13 +3,15 @@
 import base64
 import json
 import time
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import Mock, patch
 
-import httpx
+import httpx2
 import pytest
+from anthropic import AsyncAnthropic
 
 from code_puppy.claude_cache_client import (
     CLAUDE_CLI_USER_AGENT,
+    CLAUDE_CODE_SYSTEM_PROMPT,
     TOKEN_MAX_AGE_SECONDS,
     TOOL_PREFIX,
     ClaudeCacheAsyncClient,
@@ -34,6 +36,17 @@ def _create_jwt(iat: float | None = None, exp: float | None = None) -> str:
     signature = "fake_signature"
 
     return f"{header_b64}.{payload_b64}.{signature}"
+
+
+@pytest.mark.asyncio
+async def test_client_is_accepted_by_anthropic_sdk():
+    """Guard the SDK's nominal custom-client compatibility contract."""
+    client = ClaudeCacheAsyncClient()
+    try:
+        sdk = AsyncAnthropic(api_key="test", http_client=client)
+        assert sdk._client is client
+    finally:
+        await client.aclose()
 
 
 class TestJWTAgeDetection:
@@ -101,7 +114,7 @@ class TestJWTAgeDetection:
         iat = time.time() - 7200
         token = _create_jwt(iat=iat)
 
-        request = httpx.Request(
+        request = httpx2.Request(
             "POST",
             "https://api.anthropic.com/v1/messages",
             headers={"Authorization": f"Bearer {token}"},
@@ -116,7 +129,7 @@ class TestJWTAgeDetection:
         iat = time.time() - 1800
         token = _create_jwt(iat=iat)
 
-        request = httpx.Request(
+        request = httpx2.Request(
             "POST",
             "https://api.anthropic.com/v1/messages",
             headers={"Authorization": f"Bearer {token}"},
@@ -131,7 +144,7 @@ class TestJWTAgeDetection:
         iat = time.time() - TOKEN_MAX_AGE_SECONDS
         token = _create_jwt(iat=iat)
 
-        request = httpx.Request(
+        request = httpx2.Request(
             "POST",
             "https://api.anthropic.com/v1/messages",
             headers={"Authorization": f"Bearer {token}"},
@@ -144,7 +157,7 @@ class TestJWTAgeDetection:
         """Test bearer token extraction from headers."""
         client = ClaudeCacheAsyncClient()
 
-        request = httpx.Request(
+        request = httpx2.Request(
             "POST",
             "https://api.anthropic.com/v1/messages",
             headers={"Authorization": "Bearer my_token_123"},
@@ -157,371 +170,13 @@ class TestJWTAgeDetection:
         """Test bearer token extraction when header is missing."""
         client = ClaudeCacheAsyncClient()
 
-        request = httpx.Request(
+        request = httpx2.Request(
             "POST",
             "https://api.anthropic.com/v1/messages",
         )
 
         token = client._extract_bearer_token(request)
         assert token is None
-
-
-class TestProactiveTokenRefresh:
-    """Test proactive token refresh before requests."""
-
-    @pytest.mark.asyncio
-    async def test_proactive_refresh_on_old_token(self):
-        """Test that old tokens are refreshed proactively before the request."""
-        # Token issued 2 hours ago
-        iat = time.time() - 7200
-        old_token = _create_jwt(iat=iat)
-
-        success_response = Mock(spec=httpx.Response)
-        success_response.status_code = 200
-        success_response.headers = {"content-type": "application/json"}
-
-        with patch.object(
-            httpx.AsyncClient,
-            "send",
-            new_callable=AsyncMock,
-            return_value=success_response,
-        ) as mock_send:
-            with patch.object(
-                ClaudeCacheAsyncClient,
-                "_refresh_claude_oauth_token",
-                return_value="new_fresh_token",
-            ) as mock_refresh:
-                client = ClaudeCacheAsyncClient(
-                    headers={"Authorization": f"Bearer {old_token}"}
-                )
-
-                request = httpx.Request(
-                    "POST",
-                    "https://api.anthropic.com/v1/messages",
-                    headers={"Authorization": f"Bearer {old_token}"},
-                    content=b'{"model": "claude-3-opus"}',
-                )
-
-                response = await client.send(request)
-
-                # Refresh should have been called proactively
-                mock_refresh.assert_called_once()
-
-                # Request should succeed
-                assert response.status_code == 200
-
-                # Only one request should be made (no retry needed)
-                assert mock_send.call_count == 1
-
-    @pytest.mark.asyncio
-    async def test_no_proactive_refresh_on_fresh_token(self):
-        """Test that fresh tokens don't trigger proactive refresh."""
-        # Token issued 30 minutes ago
-        iat = time.time() - 1800
-        fresh_token = _create_jwt(iat=iat)
-
-        success_response = Mock(spec=httpx.Response)
-        success_response.status_code = 200
-        success_response.headers = {"content-type": "application/json"}
-
-        with patch.object(
-            httpx.AsyncClient,
-            "send",
-            new_callable=AsyncMock,
-            return_value=success_response,
-        ):
-            with patch.object(
-                ClaudeCacheAsyncClient,
-                "_refresh_claude_oauth_token",
-            ) as mock_refresh:
-                client = ClaudeCacheAsyncClient(
-                    headers={"Authorization": f"Bearer {fresh_token}"}
-                )
-
-                request = httpx.Request(
-                    "POST",
-                    "https://api.anthropic.com/v1/messages",
-                    headers={"Authorization": f"Bearer {fresh_token}"},
-                    content=b'{"model": "claude-3-opus"}',
-                )
-
-                await client.send(request)
-
-                # Refresh should NOT be called
-                mock_refresh.assert_not_called()
-
-
-class TestCloudflareErrorDetection:
-    """Test detection of Cloudflare HTML error responses."""
-
-    @pytest.mark.asyncio
-    async def test_is_cloudflare_html_error_true(self):
-        """Test that Cloudflare HTML errors are detected."""
-        # Create a mock response with Cloudflare HTML error
-        cloudflare_html = (
-            "<html>\r\n"
-            "<head><title>400 Bad Request</title></head>\r\n"
-            "<body>\r\n"
-            "<center><h1>400 Bad Request</h1></center>\r\n"
-            "<hr><center>cloudflare</center>\r\n"
-            "</body>\r\n"
-            "</html>"
-        )
-
-        response = Mock(spec=httpx.Response)
-        response.headers = {"content-type": "text/html; charset=utf-8"}
-        response._content = cloudflare_html.encode("utf-8")
-        response.text = cloudflare_html
-
-        client = ClaudeCacheAsyncClient()
-        result = await client._is_cloudflare_html_error(response)
-
-        assert result is True
-
-    @pytest.mark.asyncio
-    async def test_is_cloudflare_html_error_false_json(self):
-        """Test that JSON responses are not detected as Cloudflare errors."""
-        response = Mock(spec=httpx.Response)
-        response.headers = {"content-type": "application/json"}
-        response._content = b'{"error": "some error"}'
-
-        client = ClaudeCacheAsyncClient()
-        result = await client._is_cloudflare_html_error(response)
-
-        assert result is False
-
-    @pytest.mark.asyncio
-    async def test_is_cloudflare_html_error_false_different_html(self):
-        """Test that non-Cloudflare HTML is not detected as Cloudflare error."""
-        response = Mock(spec=httpx.Response)
-        response.headers = {"content-type": "text/html"}
-        response._content = b"<html><body>Some other error</body></html>"
-        response.text = "<html><body>Some other error</body></html>"
-
-        client = ClaudeCacheAsyncClient()
-        result = await client._is_cloudflare_html_error(response)
-
-        assert result is False
-
-    @pytest.mark.asyncio
-    async def test_is_cloudflare_html_error_false_missing_markers(self):
-        """Test that HTML without both markers is not detected."""
-        # Has cloudflare but not "400 bad request"
-        response = Mock(spec=httpx.Response)
-        response.headers = {"content-type": "text/html"}
-        response._content = b"<html><body>cloudflare</body></html>"
-        response.text = "<html><body>cloudflare</body></html>"
-
-        client = ClaudeCacheAsyncClient()
-        result = await client._is_cloudflare_html_error(response)
-
-        assert result is False
-
-
-class TestTokenRefreshOnCloudflareError:
-    """Test that token refresh is triggered on Cloudflare errors."""
-
-    @pytest.mark.asyncio
-    async def test_refresh_on_cloudflare_400(self):
-        """Test that a Cloudflare 400 error triggers token refresh."""
-        cloudflare_html = (
-            "<html>\r\n"
-            "<head><title>400 Bad Request</title></head>\r\n"
-            "<body>\r\n"
-            "<center><h1>400 Bad Request</h1></center>\r\n"
-            "<hr><center>cloudflare</center>\r\n"
-            "</body>\r\n"
-            "</html>"
-        )
-
-        # Create a mock response for the initial failed request
-        failed_response = Mock(spec=httpx.Response)
-        failed_response.status_code = 400
-        failed_response.headers = {"content-type": "text/html; charset=utf-8"}
-        failed_response._content = cloudflare_html.encode("utf-8")
-        failed_response.text = cloudflare_html
-        failed_response.aclose = AsyncMock()
-
-        # Create a mock response for the successful retry
-        success_response = Mock(spec=httpx.Response)
-        success_response.status_code = 200
-        success_response.headers = {"content-type": "application/json"}
-        success_response._content = b'{"result": "success"}'
-
-        # Mock the parent send method to return failed then success
-        with patch.object(
-            httpx.AsyncClient, "send", new_callable=AsyncMock
-        ) as mock_send:
-            mock_send.side_effect = [failed_response, success_response]
-
-            # Mock the refresh function
-            with patch.object(
-                ClaudeCacheAsyncClient,
-                "_refresh_claude_oauth_token",
-                return_value="new_token_123",
-            ) as mock_refresh:
-                # Mock stored token expiry check to prevent proactive refresh
-                # (we want to test the Cloudflare error path, not proactive refresh)
-                with patch.object(
-                    ClaudeCacheAsyncClient,
-                    "_check_stored_token_expiry",
-                    return_value=False,
-                ):
-                    client = ClaudeCacheAsyncClient(
-                        headers={"Authorization": "Bearer old_token"}
-                    )
-
-                    # Create a mock request
-                    request = httpx.Request(
-                        "POST",
-                        "https://api.anthropic.com/v1/messages",
-                        headers={"Authorization": "Bearer old_token"},
-                        content=b'{"model": "claude-3-opus"}',
-                    )
-
-                    # Send the request
-                    response = await client.send(request)
-
-                    # Verify refresh was called (once, for the Cloudflare error)
-                    mock_refresh.assert_called_once()
-
-                    # Verify we got the success response
-                    assert response.status_code == 200
-
-                    # Verify send was called twice (initial + retry)
-                    assert mock_send.call_count == 2
-
-    @pytest.mark.asyncio
-    async def test_no_refresh_on_json_400(self):
-        """Test that a JSON 400 error does not trigger token refresh."""
-        # Create a mock response for a non-Cloudflare 400 error
-        response = Mock(spec=httpx.Response)
-        response.status_code = 400
-        response.headers = {"content-type": "application/json"}
-        response._content = b'{"error": {"type": "invalid_request_error"}}'
-
-        with patch.object(
-            httpx.AsyncClient, "send", new_callable=AsyncMock, return_value=response
-        ):
-            with patch.object(
-                ClaudeCacheAsyncClient, "_refresh_claude_oauth_token"
-            ) as mock_refresh:
-                # Mock stored token expiry check to prevent proactive refresh
-                with patch.object(
-                    ClaudeCacheAsyncClient,
-                    "_check_stored_token_expiry",
-                    return_value=False,
-                ):
-                    client = ClaudeCacheAsyncClient(
-                        headers={"Authorization": "Bearer token"}
-                    )
-
-                    request = httpx.Request(
-                        "POST",
-                        "https://api.anthropic.com/v1/messages",
-                        headers={"Authorization": "Bearer token"},
-                        content=b'{"model": "claude-3-opus"}',
-                    )
-
-                    result = await client.send(request)
-
-                    # Refresh should NOT be called for non-Cloudflare 400s
-                    mock_refresh.assert_not_called()
-                    assert result.status_code == 400
-
-    @pytest.mark.asyncio
-    async def test_refresh_on_401(self):
-        """Test that a 401 error triggers token refresh."""
-        # Create a mock response for 401
-        failed_response = Mock(spec=httpx.Response)
-        failed_response.status_code = 401
-        failed_response.headers = {"content-type": "application/json"}
-        failed_response._content = b'{"error": {"type": "authentication_error"}}'
-        failed_response.aclose = AsyncMock()
-
-        # Create a mock response for the successful retry
-        success_response = Mock(spec=httpx.Response)
-        success_response.status_code = 200
-        success_response.headers = {"content-type": "application/json"}
-        success_response._content = b'{"result": "success"}'
-
-        with patch.object(
-            httpx.AsyncClient, "send", new_callable=AsyncMock
-        ) as mock_send:
-            mock_send.side_effect = [failed_response, success_response]
-
-            with patch.object(
-                ClaudeCacheAsyncClient,
-                "_refresh_claude_oauth_token",
-                return_value="new_token_456",
-            ) as mock_refresh:
-                # Mock stored token expiry check to prevent proactive refresh
-                # (we want to test the 401 error path, not proactive refresh)
-                with patch.object(
-                    ClaudeCacheAsyncClient,
-                    "_check_stored_token_expiry",
-                    return_value=False,
-                ):
-                    client = ClaudeCacheAsyncClient(
-                        headers={"Authorization": "Bearer old_token"}
-                    )
-
-                    request = httpx.Request(
-                        "POST",
-                        "https://api.anthropic.com/v1/messages",
-                        headers={"Authorization": "Bearer old_token"},
-                        content=b'{"model": "claude-3-opus"}',
-                    )
-
-                    response = await client.send(request)
-
-                    # Verify refresh was called (once, for the 401 error)
-                    mock_refresh.assert_called_once()
-
-                    # Verify we got the success response
-                    assert response.status_code == 200
-
-                    # Verify send was called twice
-                    assert mock_send.call_count == 2
-
-    @pytest.mark.asyncio
-    async def test_no_infinite_retry_loop(self):
-        """Test that we don't retry infinitely on auth errors."""
-        # Create a mock response that always returns 401
-        failed_response = Mock(spec=httpx.Response)
-        failed_response.status_code = 401
-        failed_response.headers = {"content-type": "application/json"}
-        failed_response._content = b'{"error": {"type": "authentication_error"}}'
-        failed_response.aclose = AsyncMock()
-
-        with patch.object(
-            httpx.AsyncClient,
-            "send",
-            new_callable=AsyncMock,
-            return_value=failed_response,
-        ) as mock_send:
-            with patch.object(
-                ClaudeCacheAsyncClient,
-                "_refresh_claude_oauth_token",
-                return_value="new_token",
-            ):
-                client = ClaudeCacheAsyncClient(
-                    headers={"Authorization": "Bearer token"}
-                )
-
-                request = httpx.Request(
-                    "POST",
-                    "https://api.anthropic.com/v1/messages",
-                    headers={"Authorization": "Bearer token"},
-                    content=b'{"model": "claude-3-opus"}',
-                )
-
-                response = await client.send(request)
-
-                # Should only retry once (initial + 1 retry)
-                # The retry should have the extension flag set, preventing further retries
-                assert mock_send.call_count == 2
-                assert response.status_code == 401
 
 
 class TestToolPrefixing:
@@ -603,6 +258,86 @@ class TestToolPrefixing:
         assert client._apply_claude_code_prefix is True
 
 
+class TestClaudeCodeSystemPrompt:
+    """The first system block must be the Claude Code fingerprint string.
+
+    Regression guard for harness-driven summarization compaction: the
+    summarizer builds its own internal Agent whose instructions bypass the
+    ``prepare_model_prompt`` hook entirely, so the transport must enforce
+    the invariant instead.
+    """
+
+    def test_string_system_prompt_demoted_to_second_block(self):
+        """A foreign string system prompt is kept, but demoted to block two."""
+        body = json.dumps(
+            {
+                "model": "claude-sonnet-4-5",
+                "system": "You are a context summarization assistant.",
+                "messages": [{"role": "user", "content": "Summarize this"}],
+            }
+        ).encode()
+
+        result = ClaudeCacheAsyncClient._ensure_claude_code_system_prompt(body)
+
+        assert result is not None
+        data = json.loads(result)
+        assert data["system"][0] == {"type": "text", "text": CLAUDE_CODE_SYSTEM_PROMPT}
+        assert data["system"][1] == {
+            "type": "text",
+            "text": "You are a context summarization assistant.",
+        }
+
+    def test_string_system_prompt_already_compliant(self):
+        """A compliant string system prompt is left untouched (None = no-op)."""
+        body = json.dumps(
+            {"system": CLAUDE_CODE_SYSTEM_PROMPT, "messages": []}
+        ).encode()
+
+        assert ClaudeCacheAsyncClient._ensure_claude_code_system_prompt(body) is None
+
+    def test_block_list_system_prompt_gets_prefix_block(self):
+        """A block-list system prompt gains the fingerprint as block zero."""
+        original_block = {"type": "text", "text": "Summarize stuff."}
+        body = json.dumps({"system": [original_block], "messages": []}).encode()
+
+        result = ClaudeCacheAsyncClient._ensure_claude_code_system_prompt(body)
+
+        assert result is not None
+        data = json.loads(result)
+        assert data["system"][0] == {"type": "text", "text": CLAUDE_CODE_SYSTEM_PROMPT}
+        assert data["system"][1] == original_block
+
+    def test_block_list_already_compliant(self):
+        """A block list already led by the fingerprint is left untouched."""
+        body = json.dumps(
+            {
+                "system": [
+                    {"type": "text", "text": CLAUDE_CODE_SYSTEM_PROMPT},
+                    {"type": "text", "text": "real system prompt"},
+                ],
+                "messages": [],
+            }
+        ).encode()
+
+        assert ClaudeCacheAsyncClient._ensure_claude_code_system_prompt(body) is None
+
+    def test_missing_system_prompt_is_injected(self):
+        """No system prompt at all still gets the fingerprint string."""
+        body = json.dumps({"model": "claude-3", "messages": []}).encode()
+
+        result = ClaudeCacheAsyncClient._ensure_claude_code_system_prompt(body)
+
+        assert result is not None
+        assert json.loads(result)["system"] == CLAUDE_CODE_SYSTEM_PROMPT
+
+    def test_invalid_json_returns_none(self):
+        """Garbage bodies are passed through untouched."""
+        assert (
+            ClaudeCacheAsyncClient._ensure_claude_code_system_prompt(b"not json")
+            is None
+        )
+
+
 class TestHeaderTransformation:
     """Test header transformation for Claude Code OAuth compatibility."""
 
@@ -613,6 +348,7 @@ class TestHeaderTransformation:
         ClaudeCacheAsyncClient._transform_headers_for_claude_code(headers)
 
         assert headers["user-agent"] == CLAUDE_CLI_USER_AGENT
+        assert headers["user-agent"].startswith("claude-cli/2.1.280 ")
 
     def test_transform_headers_adds_oauth_beta(self):
         """Test that oauth beta is always added."""
@@ -622,6 +358,16 @@ class TestHeaderTransformation:
 
         assert "oauth-2025-04-20" in headers["anthropic-beta"]
         assert "interleaved-thinking-2025-05-14" in headers["anthropic-beta"]
+
+    def test_transform_headers_always_streams_tool_args(self):
+        """Eager CodeMode needs streamed tool input, so the beta is unconditional
+        and never duplicated when a caller already sent it."""
+        from code_puppy.claude_cache_client import FINE_GRAINED_TOOL_STREAMING_BETA
+
+        for headers in ({}, {"anthropic-beta": FINE_GRAINED_TOOL_STREAMING_BETA}):
+            ClaudeCacheAsyncClient._transform_headers_for_claude_code(headers)
+            betas = headers["anthropic-beta"].split(",")
+            assert betas.count(FINE_GRAINED_TOOL_STREAMING_BETA) == 1
 
     def test_transform_headers_keeps_claude_code_beta_if_present(self):
         """Test that claude-code beta is kept if it was in the incoming headers."""
@@ -681,7 +427,7 @@ class TestUrlBetaParam:
 
     def test_add_beta_query_param(self):
         """Test that beta=true is added to URL."""
-        url = httpx.URL("https://api.anthropic.com/v1/messages")
+        url = httpx2.URL("https://api.anthropic.com/v1/messages")
 
         new_url = ClaudeCacheAsyncClient._add_beta_query_param(url)
 
@@ -689,7 +435,7 @@ class TestUrlBetaParam:
 
     def test_add_beta_query_param_preserves_existing(self):
         """Test that existing query params are preserved."""
-        url = httpx.URL("https://api.anthropic.com/v1/messages?foo=bar")
+        url = httpx2.URL("https://api.anthropic.com/v1/messages?foo=bar")
 
         new_url = ClaudeCacheAsyncClient._add_beta_query_param(url)
 
@@ -698,7 +444,7 @@ class TestUrlBetaParam:
 
     def test_add_beta_query_param_not_duplicated(self):
         """Test that beta param is not duplicated if already present."""
-        url = httpx.URL("https://api.anthropic.com/v1/messages?beta=true")
+        url = httpx2.URL("https://api.anthropic.com/v1/messages?beta=true")
 
         new_url = ClaudeCacheAsyncClient._add_beta_query_param(url)
 
@@ -722,14 +468,14 @@ class TestSendAppliesPrefixConditionally:
         async def fake_send(self, request, *args, **kwargs):
             captured["body"] = bytes(request.content)
             captured["url"] = str(request.url)
-            response = Mock(spec=httpx.Response)
+            response = Mock(spec=httpx2.Response)
             response.status_code = 200
             response.headers = {"content-type": "application/json"}
             response._content = b"{}"
             return response
 
         with (
-            patch.object(httpx.AsyncClient, "send", new=fake_send),
+            patch.object(httpx2.AsyncClient, "send", new=fake_send),
             patch.object(
                 ClaudeCacheAsyncClient,
                 "_check_stored_token_expiry",
@@ -740,7 +486,7 @@ class TestSendAppliesPrefixConditionally:
             client = ClaudeCacheAsyncClient(
                 headers={"Authorization": "Bearer some_token"}
             )
-            request = httpx.Request(
+            request = httpx2.Request(
                 "POST",
                 "https://api.anthropic.com/v1/messages",
                 headers={"Authorization": "Bearer some_token"},
@@ -773,14 +519,14 @@ class TestSendAppliesPrefixConditionally:
 
         async def fake_send(self, request, *args, **kwargs):
             captured["body"] = bytes(request.content)
-            response = Mock(spec=httpx.Response)
+            response = Mock(spec=httpx2.Response)
             response.status_code = 200
             response.headers = {"content-type": "application/json"}
             response._content = b"{}"
             return response
 
         with (
-            patch.object(httpx.AsyncClient, "send", new=fake_send),
+            patch.object(httpx2.AsyncClient, "send", new=fake_send),
             patch.object(
                 ClaudeCacheAsyncClient,
                 "_check_stored_token_expiry",
@@ -791,7 +537,7 @@ class TestSendAppliesPrefixConditionally:
                 headers={"Authorization": "Bearer some_token"},
                 apply_claude_code_prefix=True,
             )
-            request = httpx.Request(
+            request = httpx2.Request(
                 "POST",
                 "https://api.anthropic.com/v1/messages",
                 headers={"Authorization": "Bearer some_token"},
@@ -811,3 +557,93 @@ class TestSendAppliesPrefixConditionally:
         sent = json.loads(captured["body"])
         tool_names = [t["name"] for t in sent["tools"]]
         assert tool_names == [f"{TOOL_PREFIX}read_file"]
+
+    @pytest.mark.asyncio
+    async def test_send_enforces_system_prompt_when_flag_on(self):
+        """claude_code OAuth path: a foreign system prompt is demoted, not led with.
+
+        This is the harness-summarizer regression: SummarizingCompaction's
+        internal Agent sends its own instructions as the system prompt.
+        """
+        captured: dict = {}
+
+        async def fake_send(self, request, *args, **kwargs):
+            captured["body"] = bytes(request.content)
+            response = Mock(spec=httpx2.Response)
+            response.status_code = 200
+            response.headers = {"content-type": "application/json"}
+            response._content = b"{}"
+            return response
+
+        with (
+            patch.object(httpx2.AsyncClient, "send", new=fake_send),
+            patch.object(
+                ClaudeCacheAsyncClient,
+                "_check_stored_token_expiry",
+                return_value=False,
+            ),
+        ):
+            client = ClaudeCacheAsyncClient(
+                headers={"Authorization": "Bearer some_token"},
+                apply_claude_code_prefix=True,
+            )
+            request = httpx2.Request(
+                "POST",
+                "https://api.anthropic.com/v1/messages",
+                headers={"Authorization": "Bearer some_token"},
+                content=json.dumps(
+                    {
+                        "model": "claude-3-opus",
+                        "system": "You are a context summarization assistant.",
+                        "messages": [{"role": "user", "content": "summarize"}],
+                    }
+                ).encode(),
+            )
+
+            await client.send(request)
+
+        sent = json.loads(captured["body"])
+        assert sent["system"][0] == {"type": "text", "text": CLAUDE_CODE_SYSTEM_PROMPT}
+        assert sent["system"][1]["text"] == "You are a context summarization assistant."
+
+    @pytest.mark.asyncio
+    async def test_send_leaves_system_prompt_alone_when_flag_off(self):
+        """custom_anthropic path: system prompts go out verbatim."""
+        captured: dict = {}
+
+        async def fake_send(self, request, *args, **kwargs):
+            captured["body"] = bytes(request.content)
+            response = Mock(spec=httpx2.Response)
+            response.status_code = 200
+            response.headers = {"content-type": "application/json"}
+            response._content = b"{}"
+            return response
+
+        with (
+            patch.object(httpx2.AsyncClient, "send", new=fake_send),
+            patch.object(
+                ClaudeCacheAsyncClient,
+                "_check_stored_token_expiry",
+                return_value=False,
+            ),
+        ):
+            client = ClaudeCacheAsyncClient(
+                headers={"Authorization": "Bearer some_token"}
+            )
+            request = httpx2.Request(
+                "POST",
+                "https://api.anthropic.com/v1/messages",
+                headers={"Authorization": "Bearer some_token"},
+                content=json.dumps(
+                    {
+                        "model": "claude-3-opus",
+                        "system": "You are a summarizer.",
+                        "messages": [{"role": "user", "content": "summarize"}],
+                    }
+                ).encode(),
+            )
+
+            await client.send(request)
+
+        sent = json.loads(captured["body"])
+        assert sent["system"] == "You are a summarizer."

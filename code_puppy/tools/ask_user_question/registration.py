@@ -24,9 +24,8 @@ if TYPE_CHECKING:
     from pydantic_ai import Agent
 
 
-# Inline JSON schemas to avoid $defs/$ref that many LLM providers misinterpret.
-# This matches the approach used by replace_in_file for complex nested types.
-# Include maxLength constraints so LLMs know the limits upfront.
+# Inline JSON schema (matches replace_in_file's approach) to avoid $defs/$ref
+# LLM providers misinterpret; maxLength constraints surface limits up front.
 _OPTION_SCHEMA: Dict[str, Any] = {
     "type": "object",
     "properties": {
@@ -106,9 +105,8 @@ def _coerce_questions_json_string(v: Any) -> Any:
     return v
 
 
-# Type alias with explicit JSON schema override so LLMs see the full structure.
-# The BeforeValidator handles JSON-string coercion before validation.
-# The WithJsonSchema tells pydantic to emit our inline schema instead of inferring.
+# Type alias with explicit schema so LLMs see the full structure: BeforeValidator
+# coerces JSON strings; WithJsonSchema emits the inline schema instead of inferring.
 QuestionsListWithSchema = Annotated[
     List[Dict[str, Any]],
     BeforeValidator(_coerce_questions_json_string),
@@ -133,10 +131,8 @@ def register_ask_user_question(agent: Agent) -> None:
         questions: QuestionsListWithSchema,
     ) -> AskUserQuestionOutput:
         """Ask the user multiple related questions in an interactive TUI."""
-        # Keep the external tool schema simple for provider compatibility.
-        # The handler performs the real nested validation and normalization.
-        # Fire a Claude Code-style notification so plugins can react when the
-        # agent is awaiting user input.
+        # Simple external schema (handler does real validation). Fire a Claude
+        # Code-style notification so plugins can react when awaiting input.
         try:
             import asyncio as _asyncio
 

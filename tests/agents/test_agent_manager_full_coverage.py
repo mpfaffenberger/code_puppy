@@ -60,6 +60,9 @@ class FakeAgentWithExtras(BaseAgent):
     def get_tools_config(self):
         return {"key": "value"}
 
+    def get_model_settings_overrides(self):
+        return {"reasoning_effort": "high"}
+
 
 @pytest.fixture(autouse=True)
 def reset_module_state():
@@ -585,6 +588,7 @@ class TestCloneAgent:
         assert config.get("model") == "pinned-model"
         assert config.get("user_prompt") == "custom user prompt"
         assert config.get("tools_config") == {"key": "value"}
+        assert config.get("model_settings") == {"reasoning_effort": "high"}
 
     @patch("code_puppy.agents.agent_manager._discover_agents")
     @patch("code_puppy.config.get_user_agents_directory")

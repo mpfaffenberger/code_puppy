@@ -25,7 +25,7 @@ from code_puppy.hook_engine import HookEngine, EventData
 
 config = {
     "PreToolUse": [{
-        "matcher": "Bash|agent_run_shell_command",
+        "matcher": "Bash|shell",
         "hooks": [{
             "type": "command",
             "command": "bash .claude/hooks/my-check.sh",
@@ -39,7 +39,7 @@ import asyncio
 engine = HookEngine(config)
 event_data = EventData(
     event_type="PreToolUse",
-    tool_name="agent_run_shell_command",
+    tool_name="shell",
     tool_args={"command": "git status"}
 )
 
@@ -59,7 +59,7 @@ Scripts receive JSON on stdin (Claude Code compatible):
 {
     "session_id": "codepuppy-session",
     "hook_event_name": "PreToolUse",
-    "tool_name": "agent_run_shell_command",
+    "tool_name": "shell",
     "tool_input": {"command": "git status"},
     "cwd": "/path/to/project",
     "permission_mode": "default"
@@ -86,7 +86,7 @@ internal tool name — the matcher treats them as equivalent.
 
 | Claude Code (`matcher`) | code_puppy internal | Notes |
 |-------------------------|---------------------|-------|
-| `Bash`            | `agent_run_shell_command` | Shell execution |
+| `Bash`            | `shell` | Shell execution |
 | `Glob`            | `list_files`              | File glob / directory listing |
 | `Read`            | `read_file`               | Read file contents |
 | `Grep`            | `grep`                    | Text search |
@@ -101,5 +101,5 @@ internal tool name — the matcher treats them as equivalent.
 Provider aliases for **Gemini**, **Codex**, and **Swarm** are reserved in
 `aliases.py` and will be populated once their MCP tool vocabularies are verified.
 
-Both directions work — `"matcher": "Bash"` and `"matcher": "agent_run_shell_command"`
+Both directions work — `"matcher": "Bash"` and `"matcher": "shell"`
 are identical at match time.

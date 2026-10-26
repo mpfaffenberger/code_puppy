@@ -6,13 +6,22 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from pydantic_ai import BinaryContent
+from pydantic_ai import BinaryContent, VideoUrl
 
 from code_puppy.cli_runner import run_prompt_with_attachments
 from code_puppy.command_line.attachments import (
     DEFAULT_ACCEPTED_IMAGE_EXTENSIONS,
+    VIDEO_EXTENSION_MEDIA_TYPES,
     parse_prompt_attachments,
 )
+
+
+@pytest.fixture(autouse=True)
+def restore_streaming_console(monkeypatch):
+    # run_prompt_with_attachments installs a process-global console.
+    monkeypatch.setattr(
+        "code_puppy.agents.event_stream_handler._streaming_console", None
+    )
 
 
 @pytest.mark.parametrize("extension", sorted(DEFAULT_ACCEPTED_IMAGE_EXTENSIONS))
@@ -28,6 +37,100 @@ def test_parse_prompt_attachments_handles_images(
     assert processed.attachments
     assert processed.attachments[0].content.media_type.startswith("image/")
     assert processed.warnings == []
+
+
+@pytest.mark.parametrize(
+    "extension",
+    sorted(VIDEO_EXTENSION_MEDIA_TYPES),
+)
+def test_parse_prompt_attachments_handles_videos(
+    tmp_path: Path, extension: str
+) -> None:
+    attachment_path = tmp_path / f"clip{extension}"
+    payload = b"not-a-real-container"
+    attachment_path.write_bytes(payload)
+
+    with patch(
+        "code_puppy.command_line.attachments.normalize_image_bytes",
+        side_effect=AssertionError("videos must not be image-normalized"),
+    ):
+        processed = parse_prompt_attachments(f"watch {attachment_path}")
+
+    assert processed.prompt == "watch"
+    assert len(processed.attachments) == 1
+    content = processed.attachments[0].content
+    assert isinstance(content, BinaryContent)
+    assert content.data == payload
+    assert content.media_type == VIDEO_EXTENSION_MEDIA_TYPES[extension]
+    assert content.media_type.startswith("video/")
+    assert processed.link_attachments == []
+    assert processed.warnings == []
+
+
+def test_video_media_type_ignores_image_mime_guess(tmp_path: Path) -> None:
+    """A host mime database must not relabel a video as an image."""
+    clip = tmp_path / "clip.mp4"
+    clip.write_bytes(b"mp4-bytes")
+
+    with (
+        patch(
+            "code_puppy.command_line.attachments.mimetypes.guess_type",
+            return_value=("image/png", None),
+        ),
+        patch(
+            "code_puppy.command_line.attachments.normalize_image_bytes",
+            side_effect=AssertionError("videos must not be image-normalized"),
+        ),
+    ):
+        processed = parse_prompt_attachments(str(clip))
+
+    assert processed.attachments[0].content.media_type == "video/mp4"
+    assert processed.attachments[0].content.data == b"mp4-bytes"
+
+
+def test_parse_prompt_attachments_video_url() -> None:
+    url = "https://cdn.example.com/clips/demo.mp4?token=abc"
+    processed = parse_prompt_attachments(f"watch {url} please")
+
+    assert processed.prompt == "watch please"
+    assert processed.attachments == []
+    assert len(processed.link_attachments) == 1
+    part = processed.link_attachments[0].url_part
+    assert isinstance(part, VideoUrl)
+    assert part.url == url
+    assert part.media_type == "video/mp4"
+
+
+def test_parse_prompt_quoted_video_url_keeps_fragment() -> None:
+    url = "https://cdn.example.com/clip.mp4#t=10"
+    processed = parse_prompt_attachments(f'watch "{url}"')
+
+    assert processed.prompt == "watch"
+    part = processed.link_attachments[0].url_part
+    assert isinstance(part, VideoUrl)
+    assert part.url == url
+
+
+def test_parse_prompt_video_url_only_gets_default_prompt() -> None:
+    url = "http://cdn.example.com/a.webm"
+    processed = parse_prompt_attachments(url)
+
+    assert processed.prompt == "Describe the attached files in detail."
+    assert isinstance(processed.link_attachments[0].url_part, VideoUrl)
+    assert processed.link_attachments[0].url_part.media_type == "video/webm"
+
+
+def test_parse_prompt_leaves_non_video_urls_untouched() -> None:
+    for url in (
+        "https://example.com/cute-puppy.png",
+        "https://example.com/file.pdf",
+        "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        "ftp://example.com/clip.mp4",
+    ):
+        processed = parse_prompt_attachments(f"describe {url}")
+        assert processed.prompt == f"describe {url}"
+        assert processed.attachments == []
+        assert processed.link_attachments == []
 
 
 def test_parse_prompt_attachments_handles_unquoted_spaces(tmp_path: Path) -> None:
@@ -81,6 +184,65 @@ def test_parse_prompt_skips_unsupported_types(tmp_path: Path) -> None:
 
     assert processed.prompt == str(unsupported)
     assert processed.attachments == []
+
+
+# ---------------------------------------------------------------------------
+# Image normalization integration
+# ---------------------------------------------------------------------------
+
+
+def test_image_attachment_calls_normalize(tmp_path: Path) -> None:
+    """parse_prompt_attachments must pass image bytes through normalize_image_bytes."""
+    png_path = tmp_path / "photo.png"
+    png_path.write_bytes(b"fake-png-bytes")
+
+    sentinel_bytes = b"normalized!"
+    sentinel_mime = "image/png"
+
+    with patch(
+        "code_puppy.command_line.attachments.normalize_image_bytes",
+        return_value=(sentinel_bytes, sentinel_mime),
+    ) as mock_norm:
+        processed = parse_prompt_attachments(str(png_path))
+
+    mock_norm.assert_called_once_with(b"fake-png-bytes", "image/png")
+    assert len(processed.attachments) == 1
+    assert processed.attachments[0].content.data == sentinel_bytes
+    assert processed.attachments[0].content.media_type == sentinel_mime
+
+
+def test_image_attachment_normalize_updates_media_type(tmp_path: Path) -> None:
+    """When normalize returns image/png the attachment media_type is updated."""
+    jpeg_path = tmp_path / "photo.jpg"
+    jpeg_path.write_bytes(b"raw-jpeg-bytes")
+
+    with patch(
+        "code_puppy.command_line.attachments.normalize_image_bytes",
+        return_value=(b"png-reencoded", "image/png"),
+    ):
+        processed = parse_prompt_attachments(str(jpeg_path))
+
+    assert processed.attachments[0].content.media_type == "image/png"
+
+
+def test_non_image_attachment_normalize_not_applied(tmp_path: Path) -> None:
+    """normalize_image_bytes must not mutate non-image attachments."""
+    # .gif is in the accepted set but the test verifies passthrough behaviour
+    # by ensuring whatever normalize returns is what ends up in the attachment.
+    gif_path = tmp_path / "anim.gif"
+    gif_path.write_bytes(b"GIF89a")
+
+    # Return unchanged (mime starts with image/ so normalize IS called, but
+    # for a file-that-PIL-can't-parse it returns the original bytes untouched).
+    with patch(
+        "code_puppy.command_line.attachments.normalize_image_bytes",
+        side_effect=lambda data, mt, **kw: (data, mt),  # identity
+    ) as mock_norm:
+        processed = parse_prompt_attachments(str(gif_path))
+
+    mock_norm.assert_called_once()
+    assert processed.attachments[0].content.data == b"GIF89a"
+
     assert processed.warnings == []
 
 
@@ -91,6 +253,57 @@ def test_parse_prompt_leaves_urls_untouched() -> None:
     assert processed.prompt == f"describe {url}"
     assert processed.attachments == []
     assert processed.link_attachments == []
+
+
+@pytest.mark.asyncio
+async def test_run_prompt_with_attachments_passes_video_binary(
+    tmp_path: Path,
+) -> None:
+    clip = tmp_path / "demo.mov"
+    clip.write_bytes(b"mov-bytes")
+
+    fake_agent = AsyncMock()
+    fake_agent.run_with_mcp.return_value = AsyncMock()
+
+    with (
+        patch("code_puppy.messaging.emit_warning"),
+        patch("code_puppy.messaging.emit_system_message"),
+    ):
+        await run_prompt_with_attachments(
+            fake_agent,
+            f"review {clip}",
+            display_console=None,
+        )
+
+    _, kwargs = fake_agent.run_with_mcp.await_args
+    assert isinstance(kwargs["attachments"][0], BinaryContent)
+    assert kwargs["attachments"][0].data == b"mov-bytes"
+    assert kwargs["attachments"][0].media_type == "video/quicktime"
+    assert kwargs["link_attachments"] == []
+
+
+@pytest.mark.asyncio
+async def test_run_prompt_with_attachments_passes_video_url() -> None:
+    fake_agent = AsyncMock()
+    fake_agent.run_with_mcp.return_value = AsyncMock()
+    url = "https://cdn.example.com/demo.webm"
+
+    with (
+        patch("code_puppy.messaging.emit_warning"),
+        patch("code_puppy.messaging.emit_system_message"),
+    ):
+        await run_prompt_with_attachments(
+            fake_agent,
+            f"review {url}",
+            display_console=None,
+        )
+
+    _, kwargs = fake_agent.run_with_mcp.await_args
+    assert kwargs["attachments"] == []
+    assert len(kwargs["link_attachments"]) == 1
+    assert isinstance(kwargs["link_attachments"][0], VideoUrl)
+    assert kwargs["link_attachments"][0].url == url
+    assert kwargs["link_attachments"][0].media_type == "video/webm"
 
 
 @pytest.mark.asyncio
@@ -121,7 +334,8 @@ async def test_run_prompt_with_attachments_passes_binary(tmp_path: Path) -> None
     assert isinstance(kwargs["attachments"][0], BinaryContent)
     assert kwargs["link_attachments"] == []
     mock_warn.assert_not_called()
-    mock_system.assert_called_once()
+    # Attachment summaries no longer add transcript chatter.
+    mock_system.assert_not_called()
 
 
 @pytest.mark.asyncio

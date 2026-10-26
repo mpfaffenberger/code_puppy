@@ -2,10 +2,38 @@
 
 import os
 import socket
+import threading
+from contextlib import contextmanager
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
+
+from code_puppy.http_utils import (
+    create_async_client as create_httpx_async_client,
+    create_reopenable_async_client,
+)
+from code_puppy.httpx2_utils import create_async_client as create_httpx2_async_client
+
+CLIENT_FACTORIES = [
+    pytest.param(lambda: create_httpx_async_client(verify=False), id="httpx"),
+    pytest.param(lambda: create_httpx2_async_client(verify=False), id="httpx2"),
+    pytest.param(lambda: create_reopenable_async_client(verify=False), id="reopenable"),
+]
+
+
+@contextmanager
+def _serve_http(handler_class):
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler_class)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield server.server_port
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
 
 
 class TestResolveProxyConfig:
@@ -19,11 +47,24 @@ class TestResolveProxyConfig:
 
             config = _resolve_proxy_config()
             assert config.trust_env is False
-            assert config.proxy_url is None
             assert config.disable_retry is False
 
-    def test_with_https_proxy(self):
-        env = {"HTTPS_PROXY": "http://proxy:8080"}
+    @pytest.mark.parametrize(
+        ("env", "expected_routes"),
+        [
+            ({"HTTP_PROXY": "http://proxy:3128"}, {"http://": "http://proxy:3128"}),
+            ({"HTTPS_PROXY": "http://upper:8080"}, {"https://": "http://upper:8080"}),
+            (
+                {
+                    "HTTPS_PROXY": "http://upper:8080",
+                    "https_proxy": "http://lower:8080",
+                },
+                {"https://": "http://lower:8080"},
+            ),
+        ],
+    )
+    def test_environment_proxy_routing_is_scheme_specific(self, env, expected_routes):
+        """Proxy variables follow httpx's per-scheme and casing rules."""
         with (
             patch.dict(os.environ, env, clear=True),
             patch("code_puppy.http_utils.get_cert_bundle_path", return_value=None),
@@ -33,31 +74,7 @@ class TestResolveProxyConfig:
 
             config = _resolve_proxy_config()
             assert config.trust_env is True
-            assert config.proxy_url == "http://proxy:8080"
-
-    def test_with_http_proxy_only(self):
-        env = {"HTTP_PROXY": "http://proxy:3128"}
-        with (
-            patch.dict(os.environ, env, clear=True),
-            patch("code_puppy.http_utils.get_cert_bundle_path", return_value=None),
-            patch("code_puppy.http_utils.get_http2", return_value=False),
-        ):
-            from code_puppy.http_utils import _resolve_proxy_config
-
-            config = _resolve_proxy_config()
-            assert config.proxy_url == "http://proxy:3128"
-
-    def test_with_lowercase_proxy(self):
-        env = {"https_proxy": "http://lower:8080"}
-        with (
-            patch.dict(os.environ, env, clear=True),
-            patch("code_puppy.http_utils.get_cert_bundle_path", return_value=None),
-            patch("code_puppy.http_utils.get_http2", return_value=False),
-        ):
-            from code_puppy.http_utils import _resolve_proxy_config
-
-            config = _resolve_proxy_config()
-            assert config.proxy_url == "http://lower:8080"
+            assert httpx._utils.get_environment_proxies() == expected_routes
 
     def test_disable_retry_transport(self):
         env = {"CODE_PUPPY_DISABLE_RETRY_TRANSPORT": "true"}
@@ -70,8 +87,26 @@ class TestResolveProxyConfig:
 
             config = _resolve_proxy_config()
             assert config.disable_retry is True
+            # The retry switch says nothing about TLS: verification stays as
+            # configured (None here = httpx's default trust store).
+            assert config.verify is None
+            assert config.trust_env is True
+
+    def test_insecure_skip_verify_disables_tls_explicitly(self):
+        env = {"CODE_PUPPY_INSECURE_SKIP_VERIFY": "true"}
+        with (
+            patch.dict(os.environ, env, clear=True),
+            patch("code_puppy.http_utils.get_cert_bundle_path", return_value=None),
+            patch("code_puppy.http_utils.get_http2", return_value=False),
+            patch("code_puppy.http_utils.emit_warning"),
+            patch("code_puppy.http_utils._INSECURE_SKIP_VERIFY_WARNED", False),
+        ):
+            from code_puppy.http_utils import _resolve_proxy_config
+
+            config = _resolve_proxy_config()
             assert config.verify is False
             assert config.trust_env is True
+            assert config.disable_retry is False
 
     def test_explicit_verify_passed(self):
         with (
@@ -129,67 +164,19 @@ class TestRetryingAsyncClient:
             result = await client.send(MagicMock(spec=httpx.Request))
             assert result.status_code == 200
 
+    @pytest.mark.parametrize(
+        "retry_after",
+        ["2", "Thu, 01 Jan 2099 00:00:00 GMT", "not-a-number-or-date"],
+    )
     @pytest.mark.anyio
-    async def test_retry_with_retry_after_header(self):
+    async def test_retry_respects_retry_after_header(self, retry_after):
         from code_puppy.http_utils import RetryingAsyncClient
 
         client = RetryingAsyncClient(max_retries=1)
 
         resp_429 = MagicMock(spec=httpx.Response)
         resp_429.status_code = 429
-        resp_429.headers = {"Retry-After": "2"}
-        resp_429.aclose = AsyncMock()
-
-        resp_200 = MagicMock(spec=httpx.Response)
-        resp_200.status_code = 200
-
-        with (
-            patch.object(
-                httpx.AsyncClient,
-                "send",
-                new_callable=AsyncMock,
-                side_effect=[resp_429, resp_200],
-            ),
-            patch("asyncio.sleep", new_callable=AsyncMock),
-        ):
-            result = await client.send(MagicMock(spec=httpx.Request))
-            assert result.status_code == 200
-
-    @pytest.mark.anyio
-    async def test_retry_with_http_date_retry_after(self):
-        from code_puppy.http_utils import RetryingAsyncClient
-
-        client = RetryingAsyncClient(max_retries=1)
-
-        resp_429 = MagicMock(spec=httpx.Response)
-        resp_429.status_code = 429
-        resp_429.headers = {"Retry-After": "Thu, 01 Jan 2099 00:00:00 GMT"}
-        resp_429.aclose = AsyncMock()
-
-        resp_200 = MagicMock(spec=httpx.Response)
-        resp_200.status_code = 200
-
-        with (
-            patch.object(
-                httpx.AsyncClient,
-                "send",
-                new_callable=AsyncMock,
-                side_effect=[resp_429, resp_200],
-            ),
-            patch("asyncio.sleep", new_callable=AsyncMock),
-        ):
-            result = await client.send(MagicMock(spec=httpx.Request))
-            assert result.status_code == 200
-
-    @pytest.mark.anyio
-    async def test_retry_with_invalid_retry_after(self):
-        from code_puppy.http_utils import RetryingAsyncClient
-
-        client = RetryingAsyncClient(max_retries=1)
-
-        resp_429 = MagicMock(spec=httpx.Response)
-        resp_429.status_code = 429
-        resp_429.headers = {"Retry-After": "not-a-number-or-date"}
+        resp_429.headers = {"Retry-After": retry_after}
         resp_429.aclose = AsyncMock()
 
         resp_200 = MagicMock(spec=httpx.Response)
@@ -319,16 +306,46 @@ class TestGetCertBundlePath:
 
             assert get_cert_bundle_path() is None
 
-    def test_returns_path_when_env_exists(self, tmp_path):
+    def test_returns_combined_path_when_env_exists(self, tmp_path):
         cert_file = tmp_path / "cert.pem"
         cert_file.write_text("cert")
-        with patch.dict(os.environ, {"SSL_CERT_FILE": str(cert_file)}):
+        combined = tmp_path / "combined.pem"
+        with (
+            patch.dict(os.environ, {"SSL_CERT_FILE": str(cert_file)}, clear=True),
+            patch(
+                "code_puppy.http_utils.write_public_and_corporate_bundle",
+                return_value=str(combined),
+            ) as write_bundle,
+            patch("code_puppy.http_utils.DATA_DIR", str(tmp_path)),
+        ):
+            from code_puppy.http_utils import get_cert_bundle_path
+
+            assert get_cert_bundle_path() == str(combined)
+        write_bundle.assert_called_once_with(
+            str(cert_file),
+            str(tmp_path / "certs" / "public-and-corporate-ca-bundle.pem"),
+        )
+
+    def test_falls_back_to_configured_path_when_combining_fails(self, tmp_path):
+        cert_file = tmp_path / "cert.pem"
+        cert_file.write_text("cert")
+        with (
+            patch.dict(os.environ, {"SSL_CERT_FILE": str(cert_file)}, clear=True),
+            patch(
+                "code_puppy.http_utils.write_public_and_corporate_bundle",
+                side_effect=OSError("read only"),
+            ),
+            patch("code_puppy.http_utils.emit_warning") as warning,
+        ):
             from code_puppy.http_utils import get_cert_bundle_path
 
             assert get_cert_bundle_path() == str(cert_file)
+        warning.assert_called_once()
 
     def test_returns_none_when_env_path_missing(self):
-        with patch.dict(os.environ, {"SSL_CERT_FILE": "/nonexistent/cert.pem"}):
+        with patch.dict(
+            os.environ, {"SSL_CERT_FILE": "/nonexistent/cert.pem"}, clear=True
+        ):
             from code_puppy.http_utils import get_cert_bundle_path
 
             assert get_cert_bundle_path() is None
@@ -359,6 +376,75 @@ class TestCreateClient:
 
 
 class TestCreateAsyncClient:
+    @pytest.mark.anyio
+    @pytest.mark.parametrize("client_factory", CLIENT_FACTORIES)
+    async def test_respects_no_proxy_for_local_endpoint(
+        self, monkeypatch, client_factory
+    ):
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b"ok")
+
+            def log_message(self, *_args):
+                pass
+
+        with _serve_http(Handler) as port:
+            for key in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
+                monkeypatch.setenv(key, "http://127.0.0.1:1")
+            monkeypatch.setenv("NO_PROXY", "127.0.0.1,localhost")
+            monkeypatch.setenv("no_proxy", "127.0.0.1,localhost")
+
+            client = client_factory()
+            try:
+                with patch(
+                    "code_puppy.http_retry.asyncio.sleep", new_callable=AsyncMock
+                ):
+                    response = await client.get(
+                        f"http://127.0.0.1:{port}/probe", timeout=3
+                    )
+            finally:
+                await client.aclose()
+
+            assert response.status_code == 200
+            assert response.text == "ok"
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize("client_factory", CLIENT_FACTORIES)
+    async def test_uses_environment_proxy_for_non_exempt_host(
+        self, monkeypatch, client_factory
+    ):
+        class ProxyHandler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(self.path.encode("utf-8"))
+
+            def log_message(self, *_args):
+                pass
+
+        with _serve_http(ProxyHandler) as port:
+            proxy_url = f"http://127.0.0.1:{port}"
+            for key in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
+                monkeypatch.setenv(key, proxy_url)
+            monkeypatch.setenv("NO_PROXY", "127.0.0.1,localhost")
+            monkeypatch.setenv("no_proxy", "127.0.0.1,localhost")
+
+            client = client_factory()
+            try:
+                with patch(
+                    "code_puppy.http_retry.asyncio.sleep", new_callable=AsyncMock
+                ):
+                    response = await client.get(
+                        "http://not-exempt.invalid/proxy-check", timeout=3
+                    )
+            finally:
+                await client.aclose()
+
+            assert response.status_code == 200
+            assert response.text == "http://not-exempt.invalid/proxy-check"
+
     def test_creates_retrying_by_default(self):
         with (
             patch.dict(os.environ, {}, clear=True),
@@ -435,6 +521,37 @@ class TestResolveEnvVarInHeader:
 
 
 class TestCreateReopenableAsyncClient:
+    @pytest.mark.anyio
+    async def test_respects_no_proxy(self, monkeypatch):
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b"ok")
+
+            def log_message(self, *_args):
+                pass
+
+        with _serve_http(Handler) as port:
+            for key in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
+                monkeypatch.setenv(key, "http://127.0.0.1:1")
+            monkeypatch.setenv("NO_PROXY", "127.0.0.1,localhost")
+            monkeypatch.setenv("no_proxy", "127.0.0.1,localhost")
+
+            client = create_reopenable_async_client(verify=False)
+            try:
+                with patch(
+                    "code_puppy.http_retry.asyncio.sleep", new_callable=AsyncMock
+                ):
+                    response = await client.get(
+                        f"http://127.0.0.1:{port}/probe", timeout=3
+                    )
+            finally:
+                await client.aclose()
+
+            assert response.status_code == 200
+            assert response.text == "ok"
+
     def test_with_reopenable_available(self):
         with (
             patch.dict(os.environ, {}, clear=True),
@@ -534,16 +651,12 @@ class TestFindAvailablePort:
     def test_returns_none_when_all_busy(self):
         from code_puppy.http_utils import find_available_port
 
-        # Use a very narrow range and bind to all ports
-        socks = []
+        occupied = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
-            for p in range(49900, 49903):
-                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                s.bind(("127.0.0.1", p))
-                socks.append(s)
-            result = find_available_port(start_port=49900, end_port=49902)
+            occupied.bind(("127.0.0.1", 0))
+            occupied.listen(1)
+            port = occupied.getsockname()[1]
+            result = find_available_port(start_port=port, end_port=port)
             assert result is None
         finally:
-            for s in socks:
-                s.close()
+            occupied.close()

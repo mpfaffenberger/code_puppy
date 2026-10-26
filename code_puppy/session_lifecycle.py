@@ -23,19 +23,21 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
-from code_puppy.session_storage import SessionMetadata, save_session
+from code_puppy.session_storage import SessionMetadata, compute_scope_key, save_session
 
 if TYPE_CHECKING:
     from code_puppy.agents.base_agent import BaseAgent
 
-# Write-side validator. Read-side path resolution stays permissive so users
-# can keep passing absolute paths to existing ``.pkl`` files -- the lazy-create
-# path is the only place we create files from user-supplied strings.
+# Write-side validator. Read-side stays permissive (absolute paths to existing
+# session files); lazy-create is the only place we create files from user input.
 _SESSION_NAME_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 
-# Reserved prefix for system-generated auto-flavored names. User input matching
-# this is rejected so users can never squat on the auto-generated namespace and
-# confuse the autosave-menu UX or break TTY-keyed resume.
+# Session-file suffixes accepted on the read side. ``.json`` is canonical;
+# ``.pkl`` stays accepted so legacy files lazy-migrate on load.
+_SESSION_FILE_SUFFIXES = (".json", ".pkl")
+
+# Reserved prefix for system-generated names. User input matching it is
+# rejected so users can't squat on the namespace or break TTY-keyed resume.
 _RESERVED_PREFIX = "auto_session_"
 
 # Matches the headroom used by ``config.auto_save_session_if_enabled`` so
@@ -47,8 +49,8 @@ def is_valid_session_name(name: str, *, allow_reserved_prefix: bool = False) -> 
     """Return True if ``name`` is a safe slug.
 
     Bare-slug regex + an explicit reject of all-dot names. All-dot names
-    would not actually escape the sessions dir (the ``.pkl`` suffix is
-    appended, so ``.`` becomes ``.pkl`` rather than ``.``), but they still
+    would not actually escape the sessions dir (the ``.json`` suffix is
+    appended, so ``.`` becomes ``.json`` rather than ``.``), but they still
     produce cosmetically broken hidden filenames with no recoverable session
     name and so are rejected on quality-of-life grounds.
 
@@ -73,7 +75,7 @@ def persist_named_session(
     *,
     base_dir: Path,
     auto_saved: bool = False,
-    success_message_template: Optional[str] = None,
+    success_message_key: Optional[str] = None,
 ) -> SessionMetadata:
     """Save ``agent.get_message_history()`` under ``session_name`` and fire hooks.
 
@@ -83,14 +85,20 @@ def persist_named_session(
     ``/dump_context``. The bit is preserved in ``SessionMetadata`` so
     downstream consumers can filter.
 
-    ``success_message_template`` (optional) is a format string with these
-    available substitutions: ``{message_count}``, ``{total_tokens}``,
-    ``{pickle_path}``, ``{metadata_path}``, ``{session_name}``. When provided,
-    the formatted result is emitted via ``emit_success`` so a caller like
-    ``/dump_context`` can keep its existing user-facing line without
-    bifurcating the helper. When omitted, no success line is emitted (the
-    correct behavior for silent save-back paths like ``-r NAME`` and
-    periodic autosave).
+    ``success_message_key`` (optional) is an i18n catalog key. When provided,
+    the helper resolves it via ``t()`` with the following available named
+    parameters -- ``{message_count}``, ``{total_tokens}``, ``{json_path}``,
+    ``{pickle_path}`` (legacy), ``{metadata_path}``, ``{session_name}`` --
+    and emits the result via
+    ``emit_success`` so a caller like ``/dump_context`` can keep its
+    user-facing line without bifurcating the helper. When omitted, no success
+    line is emitted (the correct behavior for silent save-back paths like
+    ``-r NAME`` and periodic autosave).
+
+    Passing a catalog *key* (not a raw template) is deliberate: catalog text
+    is untrusted input and must NEVER be routed through ``str.format`` --
+    ``t()`` uses a hardened ``{identifier}``-only interpolator that neither
+    walks object internals nor honours format specs. See ``docs/I18N.md``.
 
     Returns the ``SessionMetadata`` produced by ``save_session`` so callers can
     surface their own UX as well.
@@ -102,36 +110,27 @@ def persist_named_session(
         timestamp=datetime.now().isoformat(),
         token_estimator=agent.estimate_tokens_for_message,
         auto_saved=auto_saved,
+        scope_key=compute_scope_key(Path.cwd()),
     )
-    if success_message_template is not None:
-        try:
-            from code_puppy.messaging import emit_success
+    if success_message_key is not None:
+        # t() interpolates via hardened {identifier} grammar: a missing
+        # placeholder leaves the token intact — no try/except needed.
+        from code_puppy.i18n import t
+        from code_puppy.messaging import emit_success
 
-            emit_success(
-                success_message_template.format(
-                    message_count=metadata.message_count,
-                    total_tokens=metadata.total_tokens,
-                    pickle_path=metadata.pickle_path,
-                    metadata_path=metadata.metadata_path,
-                    session_name=session_name,
-                )
+        emit_success(
+            t(
+                success_message_key,
+                message_count=metadata.message_count,
+                total_tokens=metadata.total_tokens,
+                pickle_path=metadata.pickle_path,
+                json_path=metadata.json_path,
+                metadata_path=metadata.metadata_path,
+                session_name=session_name,
             )
-        except (KeyError, IndexError, ValueError):
-            # KeyError: template references an unknown {field}.
-            # IndexError: positional placeholder out of range.
-            # ValueError: bad format spec like "{x:!}". All three are bugs
-            # in the caller-supplied template, not transient failures --
-            # swallow so the save path keeps running, but DON'T swallow
-            # MemoryError / KeyboardInterrupt / etc.
-            pass
-    # NOTE: deliberately does NOT fire ``fire_post_autosave_callback``.
-    # The ``post_autosave`` hook is reserved for the periodic background
-    # auto-save path (``config.auto_save_session_if_enabled``); firing it
-    # from /dump_context and headless ``-r NAME -p ...`` save-back too
-    # would change plugin-visible behavior for callers that registered
-    # against the hook (e.g. ``a downstream token-quota plugin``
-    # would print the quota line after every explicit /dump_context).
-    # Pre-unification semantics: only periodic auto-save fires the hook.
+        )
+    # NOTE: deliberately skips ``fire_post_autosave_callback`` — that hook is
+    # reserved for the periodic auto-save path only (pre-unification semantics).
     return metadata
 
 
@@ -160,18 +159,17 @@ def resolve_or_create_resume_target(
 
     Resolution order:
 
-    1. ``<resume_target>`` is a path ending in ``.pkl`` that exists --
-       load directly from that file. ``lazy_created=False``.
-    2. ``<sessions_dir>/<resume_target>.pkl`` exists -- load that named
-       session. ``lazy_created=False``.
+    1. ``<resume_target>`` is a path ending in ``.json`` or ``.pkl`` that
+       exists -- load directly from that file. ``lazy_created=False``.
+    2. ``<sessions_dir>/<resume_target>.json`` (or legacy ``.pkl``) exists --
+       load that named session. ``lazy_created=False``.
     3. ``<resume_target>`` is a path (any extension) that exists -- load it.
        ``lazy_created=False``.
-    4. ``<resume_target>`` is a bare slug ending in ``.pkl`` with no path
-       separator -- strip the ``.pkl`` suffix and fall through to lazy-create
-       under the bare name. Prevents accidental ``foo.pkl.pkl`` creation
-       when users instinctively append the extension. Case-sensitive
-       match against ``.pkl`` exactly (``Path.suffix`` semantics); ``foo.PKL``
-       does NOT normalize -- ``.pkl`` is the documented spelling.
+    4. ``<resume_target>`` is a bare slug ending in ``.json``/``.pkl`` with no
+       path separator -- strip the suffix and fall through to lazy-create
+       under the bare name. Prevents accidental ``foo.json.json`` creation
+       when users instinctively append the extension. Case-sensitive match
+       (``Path.suffix`` semantics); ``foo.JSON`` does NOT normalize.
     5. Nothing matched. If ``allow_lazy_create`` is True AND the target is a
        safe slug, lazy-create an empty session under that name in
        ``sessions_dir`` and return ``lazy_created=True``. Otherwise raise
@@ -193,28 +191,27 @@ def resolve_or_create_resume_target(
     guard.
     """
     resume_path = Path(resume_target)
-    if resume_path.suffix == ".pkl" and resume_path.exists():
+    if resume_path.suffix in _SESSION_FILE_SUFFIXES and resume_path.exists():
         return _validated_branch_result(
             resume_path.stem, resume_path.parent, False, sessions_dir
         )
 
-    named = sessions_dir / f"{resume_target}.pkl"
-    if named.exists():
-        return _validated_branch_result(
-            resume_target, sessions_dir, False, sessions_dir
-        )
+    for suffix in _SESSION_FILE_SUFFIXES:
+        if (sessions_dir / f"{resume_target}{suffix}").exists():
+            return _validated_branch_result(
+                resume_target, sessions_dir, False, sessions_dir
+            )
 
     if resume_path.exists():
         return _validated_branch_result(
             resume_path.stem, resume_path.parent, False, sessions_dir
         )
 
-    # Branch 4: bare-name normalization. "foo.pkl" with no path separator
-    # and a valid bare-name slug after suffix strip --> treat as "foo".
-    # Avoids the historical ``foo.pkl.pkl`` lazy-create bug.
+    # Branch 4: "foo.json"/"foo.pkl" with no separator + valid slug -> "foo"
+    # (avoids the historical ``foo.pkl.pkl`` lazy-create bug).
     normalized_target = resume_target
     if (
-        resume_path.suffix == ".pkl"
+        resume_path.suffix in _SESSION_FILE_SUFFIXES
         and "/" not in resume_target
         and "\\" not in resume_target
         and is_valid_session_name(resume_path.stem, allow_reserved_prefix=False)
@@ -226,10 +223,8 @@ def resolve_or_create_resume_target(
             f"Resume target not found: {resume_target}",
         )
 
-    # Lazy-create gate: user-input reserved-prefix protection. The
-    # post-creation validation below uses allow_reserved_prefix=True
-    # (stored-name semantics) so the same name we just allowed in passes
-    # the resolver's output guard.
+    # Lazy-create gate: reject reserved prefix up front; the output guard below
+    # uses allow_reserved_prefix=True (stored-name semantics) for allowed names.
     if not is_valid_session_name(normalized_target, allow_reserved_prefix=False):
         raise ResumeTargetError(
             f"Invalid session name for lazy-create: {normalized_target!r}",
@@ -284,6 +279,7 @@ def create_empty_session(session_name: str, *, base_dir: Path) -> SessionMetadat
         timestamp=datetime.now().isoformat(),
         token_estimator=lambda _msg: 0,
         auto_saved=False,
+        scope_key=compute_scope_key(Path.cwd()),
     )
 
 

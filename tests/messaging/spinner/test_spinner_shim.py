@@ -10,13 +10,8 @@ import io
 from code_puppy.messaging import bottom_bar as bottom_bar_mod
 from code_puppy.messaging.spinner import (
     ConsoleSpinner,
-    _active_spinners,
     clear_spinner_context,
     format_context_info,
-    pause_all_spinners,
-    register_spinner,
-    resume_all_spinners,
-    unregister_spinner,
     update_spinner_context,
 )
 
@@ -29,18 +24,6 @@ class FakeTTY(io.StringIO):
 # =========================================================================
 # No-op surface
 # =========================================================================
-
-
-def test_pause_resume_are_noops():
-    pause_all_spinners()
-    resume_all_spinners()  # must not raise
-
-
-def test_register_unregister_are_noops():
-    sentinel = object()
-    register_spinner(sentinel)
-    assert _active_spinners == []  # nothing is tracked anymore
-    unregister_spinner(sentinel)  # must not raise
 
 
 def test_console_spinner_stub_is_inert_context_manager():
@@ -128,27 +111,39 @@ def test_format_context_info_zero_or_negative_capacity():
     assert format_context_info(100, -5, 0.0) == ""
 
 
+def _codex_usage_status() -> str:
+    """Fake plugin usage_status hook result."""
+    return "5h 66% remaining · week 90% remaining"
+
+
 def test_format_context_info_appends_usage_for_codex_model(monkeypatch):
+    from code_puppy.callbacks import register_callback, unregister_callback
+
     monkeypatch.setattr(
         "code_puppy.config.get_global_model_name", lambda: "codex-gpt-5.4"
     )
-    monkeypatch.setattr(
-        "code_puppy.plugins.chatgpt_oauth.usage.get_usage_status",
-        lambda: "5h 66% remaining · week 90% remaining",
-    )
-
-    assert format_context_info(5000, 10000, 0.5) == (
-        "5k/10k tokens (50%) · Codex 5h 66% remaining · week 90% remaining"
-    )
+    register_callback("usage_status", _codex_usage_status)
+    try:
+        assert format_context_info(5000, 10000, 0.5) == (
+            "5k/10k tokens (50%) · Codex 5h 66% remaining · week 90% remaining"
+        )
+    finally:
+        unregister_callback("usage_status", _codex_usage_status)
 
 
 def test_format_context_info_hides_codex_usage_for_other_models(monkeypatch):
+    from code_puppy.callbacks import register_callback, unregister_callback
+
     monkeypatch.setattr(
         "code_puppy.config.get_global_model_name", lambda: "openai-gpt-5"
     )
-    monkeypatch.setattr(
-        "code_puppy.plugins.chatgpt_oauth.usage.get_usage_status",
-        lambda: "5h 66% remaining",
-    )
+    register_callback("usage_status", _codex_usage_status)
+    try:
+        assert format_context_info(5000, 10000, 0.5) == "5k/10k tokens (50%)"
+    finally:
+        unregister_callback("usage_status", _codex_usage_status)
 
+
+def test_format_context_info_no_handler_returns_plain_context():
+    # No plugin handler registered -> suffix falls back to "".
     assert format_context_info(5000, 10000, 0.5) == "5k/10k tokens (50%)"

@@ -16,21 +16,20 @@ from pydantic_ai.messages import (
     ToolCallPartDelta,
 )
 from rich.console import Console
-from rich.markup import escape
-from rich.text import Text
 
 from code_puppy.agents.smooth_stream import (
     SmoothTermflowWriter,
-    ThinkingStreamSmoother,
     make_smooth_termflow_writer,
-    make_thinking_smoother,
 )
+from code_puppy.agents.stream_status import get_stream_status
+from code_puppy.agents.thinking_output import DimWriter
 from code_puppy.config import (
-    get_banner_color,
+    get_headless_mode,
     get_output_level,
     get_subagent_verbose,
     get_suppress_thinking_messages,
 )
+from code_puppy.messaging.safe_console import SafeConsole
 from code_puppy.tools.display import erase_progress_line
 from code_puppy.tools.subagent_context import is_subagent
 
@@ -51,9 +50,13 @@ def _fire_stream_event(event_type: str, event_data: Any) -> None:
         agent_session_id = get_session_context()
 
         # Use create_task to fire callback without blocking
-        asyncio.create_task(
-            callbacks.on_stream_event(event_type, event_data, agent_session_id)
-        )
+        coroutine = callbacks.on_stream_event(event_type, event_data, agent_session_id)
+        try:
+            asyncio.create_task(coroutine)
+        except BaseException:
+            # Submission failed: no task owns this coroutine. Preserve cancellation.
+            coroutine.close()
+            raise
     except ImportError:
         logger.debug("callbacks or messaging module not available for stream event")
     except Exception as e:
@@ -85,7 +88,7 @@ def get_streaming_console() -> Console:
     """
     if _streaming_console is not None:
         return _streaming_console
-    return Console()
+    return SafeConsole()
 
 
 def _should_suppress_output() -> bool:
@@ -122,7 +125,14 @@ def _suppress_tool_progress() -> bool:
 
     In ``low`` mode, the shell-start peek in the RichConsoleRenderer is
     sufficient; the streaming token counter is noise.
+
+    Headless runs (``-p``) always suppress it as well. The counter repaints
+    itself with a bare ``\\r``, which only overwrites on a real terminal --
+    redirected into a file or CI log every repaint becomes its own line, so
+    a single tool call emits a wall of ``Calling <tool>... N token(s)`` rows.
     """
+    if get_headless_mode():
+        return True
     return get_output_level() == "low"
 
 
@@ -145,9 +155,8 @@ async def event_stream_handler(
             pass  # Just consume events without rendering
         return
 
-    # NOTE: TTFT / gen-speed timing is handled by callback hooks
-    # (agent_run_start + stream_event + agent_run_end). This handler
-    # stays focused on rendering.
+    # NOTE: TTFT/gen-speed timing lives in callback hooks (agent_run_start +
+    # stream_event + agent_run_end); this handler only renders.
 
     from termflow import Parser as TermflowParser
     from termflow import Renderer as TermflowRenderer
@@ -162,6 +171,20 @@ async def event_stream_handler(
 
     # Use the module-level console (set via set_streaming_console)
     console = get_streaming_console()
+    from code_puppy.messaging.bottom_bar import get_bottom_bar
+
+    progress_bar = None if is_subagent() else get_bottom_bar()
+    stream_status = get_stream_status(progress_bar)
+
+    from code_puppy.messaging.speculation_stats import (
+        get_speculation_stats,
+        get_speculation_status,
+    )
+
+    spec_stats = get_speculation_stats()
+    spec_enabled = not is_subagent() and get_speculation_status() is not None
+    if progress_bar is not None:
+        progress_bar.set_speculation_status(get_speculation_status())
 
     # Track which part indices we're currently streaming (for Text/Thinking/Tool parts)
     streaming_parts: set[int] = set()
@@ -173,7 +196,6 @@ async def event_stream_handler(
     tool_names: dict[int, str] = {}  # Track tool name per tool part index
     tool_args_buffer: dict[int, str] = {}  # Accumulate raw tool-call args JSON
     did_stream_anything = False  # Track if we streamed any content
-    is_high_mode = get_output_level() == "high"
 
     # Termflow streaming state for text parts
     termflow_parsers: dict[int, TermflowParser] = {}
@@ -199,7 +221,12 @@ async def event_stream_handler(
 
     def _make_text_renderer(index: int) -> TermflowRenderer:
         """Build a termflow renderer, optionally typed out smoothly."""
-        writer = make_smooth_termflow_writer(console.file)
+        thinking = index in thinking_parts
+        writer = (
+            make_smooth_termflow_writer(console.file, thinking=True)
+            if thinking
+            else make_smooth_termflow_writer(console.file)
+        )
         if writer is not None:
             writer.start()
             termflow_writers[index] = writer
@@ -209,20 +236,31 @@ async def event_stream_handler(
         prompt_color = on_prompt_text_color()
         if prompt_color and len(prompt_color) == 7 and prompt_color.startswith("#"):
             output = _ThemedBoldWriter(output, prompt_color)
+        width = console.width
+        if thinking:
+            output = DimWriter(output)
         return TermflowRenderer(
             output=output,
-            width=console.width,
+            width=width,
             style=on_termflow_style(RenderStyle.default()),
             features=RenderFeatures(clipboard=False),
             highlighter=on_termflow_highlighter(Highlighter()),
         )
 
-    # Smooth-stream state for thinking parts. Each index maps to a smoother
-    # (steady-rate drain) or lands in ``thinking_direct`` when smoothing is
-    # disabled and we should print deltas immediately.
-    thinking_smoothers: dict[int, ThinkingStreamSmoother] = {}
-    thinking_direct: set[int] = set()
+    def _render_text_content(index: int, content: str) -> None:
+        """Feed text through Termflow one complete line at a time."""
+        buffer = termflow_line_buffers[index] + content
+        parser = termflow_parsers[index]
+        renderer = termflow_renderers[index]
+
+        while "\n" in buffer:
+            line, buffer = buffer.split("\n", 1)
+            renderer.render_all(parser.parse_line(line))
+
+        termflow_line_buffers[index] = buffer
+
     thinking_stream_id = object()
+    thinking_trailing_whitespace: dict[int, str] = {}
 
     def _filter_thinking(index: int, text: str, *, final: bool = False) -> str:
         """Apply synchronous display-only filters before rendering thinking."""
@@ -236,66 +274,71 @@ async def event_stream_handler(
         )
 
     def _emit_thinking(index: int, text: str, *, final: bool = False) -> None:
-        """Filter and render thinking through the smooth or direct path."""
+        """Filter thinking before sending it through dim Termflow Markdown.
+
+        Structured ``ThinkingPart`` content is wrapped in synthetic
+        ``<think>`` marker lines so it renders with Termflow's dim think
+        box, exactly like ``<think>`` blocks embedded in assistant text.
+        The marker must be its own complete line (Termflow only opens a
+        think block on a bare ``<think>`` line). The close comes from
+        ``parser.finalize()`` when the part finishes, so no explicit
+        closing marker is fed. Content that itself contains ``<think>``
+        tags is left as-is: Termflow strips nested inline think tags
+        inside a think block, and a line that is only a closing tag
+        would end the box early.
+        """
         text = _filter_thinking(index, text, final=final)
-        if not text:
+        # Hold whitespace until more content proves it is internal. Trimming
+        # each delta would eat paragraph breaks; trimming only at finalization
+        # is too late once blank lines have already reached the terminal.
+        text = thinking_trailing_whitespace.pop(index, "") + text
+        trimmed = text.rstrip()
+        if not final and len(trimmed) < len(text):
+            thinking_trailing_whitespace[index] = text[len(trimmed) :]
+        text = trimmed
+        if not text or _suppress_thinking_stream():
             return
-        smoother = thinking_smoothers.get(index)
-        if smoother is None and index not in thinking_direct:
-            smoother = make_thinking_smoother(console)
-            if smoother is not None:
-                smoother.start()
-                thinking_smoothers[index] = smoother
-            else:
-                thinking_direct.add(index)
-        if smoother is not None:
-            smoother.feed(text)
+        if index not in termflow_parsers:
+            termflow_parsers[index] = TermflowParser()
+            termflow_renderers[index] = _make_text_renderer(index)
+            termflow_line_buffers[index] = "<think>\n" + text.lstrip()
+            # Feed the marker line immediately so the box opens even
+            # when the first chunk has no newline of its own.
+            _render_text_content(index, "")
         else:
-            console.print(f"[dim]{escape(text)}[/dim]", end="")
+            _render_text_content(index, text)
 
-    async def _print_thinking_banner() -> None:
-        """Print the THINKING banner on a fresh line."""
+    async def _finish_text_part(index: int) -> None:
+        """Flush one text part, including streams missing ``PartEndEvent``."""
+        parser = termflow_parsers.pop(index, None)
+        renderer = termflow_renderers.pop(index, None)
+        if parser is not None and renderer is not None:
+            remaining = termflow_line_buffers.pop(index, "")
+            if remaining.strip():
+                renderer.render_all(parser.parse_line(remaining))
+            renderer.render_all(parser.finalize())
+
+        writer = termflow_writers.pop(index, None)
+        if writer is not None:
+            await writer.close()
+        console.print()  # Blank line separating the response from what follows
+
+    async def _start_fresh_block(*, thinking: bool = False) -> None:
+        """Open a thinking/response block on a clean line (banners are gone)."""
         nonlocal did_stream_anything
 
-        # Clear any \r-repainted progress line, then move below it
+        # Thinking follows the previous block's existing trailing spacing.
         erase_progress_line(console)
-        console.print()  # Newline before banner
-        # Bold banner with configurable color.
-        thinking_color = get_banner_color("thinking")
-
-        console.print(
-            Text.from_markup(
-                f"[bold white on {thinking_color}] THINKING [/bold white on {thinking_color}] "
-            ),
-            end="",
-        )
-        did_stream_anything = True
-
-    async def _print_response_banner() -> None:
-        """Print the AGENT RESPONSE banner on a fresh line."""
-        nonlocal did_stream_anything
-
-        # Clear any \r-repainted progress line, then move below it
-        erase_progress_line(console)
-        console.print()  # Newline before banner
-        response_color = get_banner_color("agent_response")
-        console.print(
-            Text.from_markup(
-                f"[bold white on {response_color}] AGENT RESPONSE [/bold white on {response_color}]"
-            )
-        )
+        if not thinking:
+            console.print()
         did_stream_anything = True
 
     def _abort_all_drainers() -> None:
         """Kill every drain task and drop buffers — the user said STOP."""
-        for smoother in thinking_smoothers.values():
-            smoother.abort()
-        thinking_smoothers.clear()
         for index in thinking_parts:
             # Finalize callback state but discard any withheld display text:
             # abort means the user explicitly asked output to stop.
             _filter_thinking(index, "", final=True)
-        thinking_direct.clear()
         for writer in termflow_writers.values():
             writer.abort()
         termflow_writers.clear()
@@ -303,9 +346,8 @@ async def event_stream_handler(
     try:
         async for event in events:
             # ---- Pause gate ------------------------------------------------
-            # If the user has paused the agent, suppress rendering and block
-            # at this safe boundary until resume (or until the safety timeout
-            # expires, to avoid SSE upstream timeouts).
+            # Paused: suppress rendering and block at this safe boundary until
+            # resume (or the safety timeout, to avoid SSE upstream timeouts).
             from code_puppy.messaging.pause_controller import get_pause_controller
 
             _pc = get_pause_controller()
@@ -320,11 +362,10 @@ async def event_stream_handler(
                 resumed = await _pc.wait_if_paused(timeout=max_pause)
                 if resumed:
                     break
-                # Timed out — the controller force-resumed itself. If a
-                # slash-command window still owns the pause lease, re-arm
-                # and keep waiting: streaming must NOT interleave under an
-                # open /command menu. The drain's ``finally`` guarantees
-                # the ultimate resume, so this can't wait forever.
+                # Timed out (controller force-resumed). If a /command window
+                # still owns the pause lease, re-arm and keep waiting: streaming
+                # must not interleave under it; the drain's ``finally``
+                # guarantees the ultimate resume.
                 from code_puppy.messaging.run_ui import is_draining
 
                 if is_draining():
@@ -337,6 +378,13 @@ async def event_stream_handler(
                     "avoid upstream timeout."
                 )
                 break
+
+            stream_status.update(event)
+            # Speculation updates pinned chrome only, never the transcript.
+            if spec_enabled and spec_stats.handle_event(event):
+                if progress_bar is not None:
+                    progress_bar.set_speculation_status(get_speculation_status())
+                continue
 
             # PartStartEvent - register the part but defer banner until content arrives
             if isinstance(event, PartStartEvent):
@@ -358,7 +406,7 @@ async def event_stream_handler(
                     # (unless thinking is suppressed by output level or toggle).
                     if part.content and part.content.strip():
                         if not _suppress_thinking_stream():
-                            await _print_thinking_banner()
+                            await _start_fresh_block(thinking=True)
                             _emit_thinking(event.index, part.content)
                         banner_printed.add(event.index)
                 elif isinstance(part, TextPart):
@@ -370,9 +418,9 @@ async def event_stream_handler(
                     termflow_line_buffers[event.index] = ""
                     # Handle initial content if present
                     if part.content and part.content.strip():
-                        await _print_response_banner()
+                        await _start_fresh_block()
                         banner_printed.add(event.index)
-                        termflow_line_buffers[event.index] = part.content
+                        _render_text_content(event.index, part.content)
                 elif isinstance(part, ToolCallPart):
                     streaming_parts.add(event.index)
                     tool_parts.add(event.index)
@@ -405,32 +453,17 @@ async def event_stream_handler(
                             if event.index in text_parts:
                                 # Print banner on first content
                                 if event.index not in banner_printed:
-                                    await _print_response_banner()
+                                    await _start_fresh_block()
                                     banner_printed.add(event.index)
 
-                                # Add content to line buffer
-                                termflow_line_buffers[event.index] += (
-                                    delta.content_delta
-                                )
-
-                                # Process complete lines
-                                parser = termflow_parsers[event.index]
-                                renderer = termflow_renderers[event.index]
-                                buffer = termflow_line_buffers[event.index]
-
-                                while "\n" in buffer:
-                                    line, buffer = buffer.split("\n", 1)
-                                    events_to_render = parser.parse_line(line)
-                                    renderer.render_all(events_to_render)
-
-                                termflow_line_buffers[event.index] = buffer
+                                _render_text_content(event.index, delta.content_delta)
                             else:
-                                # For thinking parts, stream smoothly (dim) via a
-                                # rate-limited buffer so bursty deltas don't stutter.
-                                # Gate on output level / suppress_thinking toggle.
+                                # Stream thinking parts smoothly (dim) via a
+                                # rate-limited buffer; gate on output level /
+                                # suppress_thinking toggle.
                                 if not _suppress_thinking_stream():
                                     if event.index not in banner_printed:
-                                        await _print_thinking_banner()
+                                        await _start_fresh_block(thinking=True)
                                         banner_printed.add(event.index)
                                     _emit_thinking(event.index, delta.content_delta)
                     elif isinstance(delta, ToolCallPartDelta):
@@ -456,24 +489,6 @@ async def event_stream_handler(
                                 tool_names.get(event.index, "") + tool_name_delta
                             )
 
-                        # Use stored tool name for display.
-                        # In low mode, skip the progress counter — the
-                        # RichConsoleRenderer peek is sufficient.
-                        if not _suppress_tool_progress():
-                            tool_name = tool_names.get(event.index, "")
-                            count = token_count[event.index]
-                            # Display tool progress without decorative icons.
-                            if tool_name:
-                                console.print(
-                                    f"  Calling {tool_name}... {count} token(s)   ",
-                                    end="\r",
-                                )
-                            else:
-                                console.print(
-                                    f"  Calling tool... {count} token(s)   ",
-                                    end="\r",
-                                )
-
             # PartEndEvent - finish the streaming with a newline
             elif isinstance(event, PartEndEvent):
                 # Fire stream event callback for part_end
@@ -486,69 +501,13 @@ async def event_stream_handler(
                 )
 
                 if event.index in streaming_parts:
-                    # For text parts, finalize termflow rendering
                     if event.index in text_parts:
-                        # Render any remaining buffered content
-                        if event.index in termflow_parsers:
-                            parser = termflow_parsers[event.index]
-                            renderer = termflow_renderers[event.index]
-                            remaining = termflow_line_buffers.get(event.index, "")
-
-                            # Parse and render any remaining partial line
-                            if remaining.strip():
-                                events_to_render = parser.parse_line(remaining)
-                                renderer.render_all(events_to_render)
-
-                            # Finalize the parser to close any open blocks
-                            final_events = parser.finalize()
-                            renderer.render_all(final_events)
-
-                            # Clean up termflow state
-                            del termflow_parsers[event.index]
-                            del termflow_renderers[event.index]
-                            del termflow_line_buffers[event.index]
-
-                        # Drain any smooth typewriter writer to completion so the
-                        # full response has finished printing before we move on.
-                        writer = termflow_writers.pop(event.index, None)
-                        if writer is not None:
-                            await writer.close()
-                    # For tool parts, clear the chunk counter line
-                    elif event.index in tool_parts:
-                        # Erase the \r-repainted chunk counter line entirely
-                        # (space-padding assumed <= 50 cells and left ghost
-                        # tails like ``s)`` behind long tool names).
-                        erase_progress_line(console)
-                        # In high mode, dump the full tool call arguments so the
-                        # user can see exactly what the model sent to the tool.
-                        if is_high_mode:
-                            tool_name = tool_names.get(event.index, "tool")
-                            raw_args = tool_args_buffer.get(event.index, "")
-                            if raw_args:
-                                # Pretty-print the JSON if possible.
-                                import json as _json
-
-                                try:
-                                    parsed = _json.loads(raw_args)
-                                    formatted = _json.dumps(
-                                        parsed, indent=2, ensure_ascii=False
-                                    )
-                                except (ValueError, TypeError):
-                                    formatted = raw_args
-                                console.print(
-                                    f"[dim]  tool_call {escape(tool_name)} args:[/dim]"
-                                )
-                                for arg_line in formatted.splitlines():
-                                    console.print(f"[dim]    {escape(arg_line)}[/dim]")
-                    # For thinking parts, drain the smoother then print newline
+                        await _finish_text_part(event.index)
+                    # Finish Markdown and drain before the next tool/response.
                     elif event.index in thinking_parts:
                         _emit_thinking(event.index, "", final=True)
-                        smoother = thinking_smoothers.pop(event.index, None)
-                        if smoother is not None:
-                            await smoother.close()
-                        thinking_direct.discard(event.index)
-                        if event.index in banner_printed:
-                            console.print()  # Final newline after streaming
+                        if event.index in termflow_parsers:
+                            await _finish_text_part(event.index)
 
                     # Clean up token count and tool names
                     token_count.pop(event.index, None)
@@ -562,20 +521,23 @@ async def event_stream_handler(
                     banner_printed.discard(event.index)
 
     except BaseException:
-        # Cancelled (Ctrl+C / steer) or crashed mid-stream: the graceful
-        # drain below would never run, orphaning the background drain
-        # tasks — which then keep typing into the terminal. Abort them.
+        # Cancelled/crashed mid-stream: the graceful drain never runs, orphaning
+        # background drain tasks that keep typing into the terminal. Abort them.
         _abort_all_drainers()
         raise
+
+    # Providers can end without PartEndEvent. Finalize those parsers too;
+    # otherwise an unterminated fence or partial line disappears.
+    for index in list(text_parts):
+        await _finish_text_part(index)
 
     # Drain any smoothers/writers that didn't see a PartEndEvent (e.g. the
     # stream ended abruptly) so we never lose buffered text or orphan tasks.
     for index in list(thinking_parts):
         _emit_thinking(index, "", final=True)
-    for smoother in list(thinking_smoothers.values()):
-        await smoother.close()
-    thinking_smoothers.clear()
-    thinking_direct.clear()
+        if index in termflow_parsers:
+            await _finish_text_part(index)
     for writer in list(termflow_writers.values()):
         await writer.close()
     termflow_writers.clear()
+    stream_status.working()

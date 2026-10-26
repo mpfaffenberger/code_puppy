@@ -30,11 +30,11 @@ Example (new):
 """
 
 # =============================================================================
-# Apply Rich Markdown patches (left-justified headers)
+# Apply Rich Markdown patches (left-justified headers, unpadded code blocks)
 # =============================================================================
-from .markdown_patches import patch_markdown_headings
+from .markdown_patches import patch_markdown
 
-patch_markdown_headings()
+patch_markdown()
 
 # =============================================================================
 # Legacy API (backward compatible)
@@ -94,6 +94,7 @@ from .message_queue import (
     emit_planned_next_steps,
     emit_prompt,
     emit_queued,
+    emit_steer,
     emit_success,
     emit_system_message,
     emit_tool_output,
@@ -189,6 +190,7 @@ __all__ = [
     "emit_message",
     "emit_info",
     "emit_queued",
+    "emit_steer",
     "emit_success",
     "emit_warning",
     "emit_divider",
@@ -290,7 +292,7 @@ __all__ = [
     "DEFAULT_STYLES",
     "DIFF_STYLES",
     # Markdown patches
-    "patch_markdown_headings",
+    "patch_markdown",
     # Sub-agent console manager
     "AgentState",
     "SubAgentConsoleManager",

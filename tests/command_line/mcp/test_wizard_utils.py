@@ -5,6 +5,8 @@ import os
 from dataclasses import dataclass
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 
 @dataclass
 class FakeServer:
@@ -50,60 +52,17 @@ class TestInteractiveServerSelection:
             result = interactive_server_selection("grp")
         assert result == servers[0]
 
+    @pytest.mark.parametrize("user_input", ["q", "99", "abc"])
     @patch("code_puppy.command_line.mcp.wizard_utils.emit_prompt")
     @patch("code_puppy.command_line.mcp.wizard_utils.emit_info")
-    def test_select_server_quit(self, mock_info, mock_prompt):
+    def test_select_server_rejects_input(self, mock_info, mock_prompt, user_input):
         from code_puppy.command_line.mcp.wizard_utils import (
             interactive_server_selection,
         )
 
         mock_catalog = MagicMock()
         mock_catalog.get_popular.return_value = [FakeServer()]
-        mock_prompt.return_value = "q"
-
-        with patch.dict(
-            "sys.modules",
-            {
-                "code_puppy.mcp_.server_registry_catalog": MagicMock(
-                    catalog=mock_catalog
-                )
-            },
-        ):
-            result = interactive_server_selection("grp")
-        assert result is None
-
-    @patch("code_puppy.command_line.mcp.wizard_utils.emit_prompt")
-    @patch("code_puppy.command_line.mcp.wizard_utils.emit_info")
-    def test_select_server_invalid_number(self, mock_info, mock_prompt):
-        from code_puppy.command_line.mcp.wizard_utils import (
-            interactive_server_selection,
-        )
-
-        mock_catalog = MagicMock()
-        mock_catalog.get_popular.return_value = [FakeServer()]
-        mock_prompt.return_value = "99"
-
-        with patch.dict(
-            "sys.modules",
-            {
-                "code_puppy.mcp_.server_registry_catalog": MagicMock(
-                    catalog=mock_catalog
-                )
-            },
-        ):
-            result = interactive_server_selection("grp")
-        assert result is None
-
-    @patch("code_puppy.command_line.mcp.wizard_utils.emit_prompt")
-    @patch("code_puppy.command_line.mcp.wizard_utils.emit_info")
-    def test_select_server_non_numeric(self, mock_info, mock_prompt):
-        from code_puppy.command_line.mcp.wizard_utils import (
-            interactive_server_selection,
-        )
-
-        mock_catalog = MagicMock()
-        mock_catalog.get_popular.return_value = [FakeServer()]
-        mock_prompt.return_value = "abc"
+        mock_prompt.return_value = user_input
 
         with patch.dict(
             "sys.modules",
@@ -189,9 +148,10 @@ class TestInteractiveConfigureServer:
             )
         assert result is True
 
+    @pytest.mark.parametrize("found_id", ["existing-id", None])
     @patch("code_puppy.command_line.mcp.wizard_utils.emit_prompt")
     @patch("code_puppy.command_line.mcp.wizard_utils.emit_info")
-    def test_existing_server_declined(self, mock_info, mock_prompt):
+    def test_configure_aborted(self, mock_info, mock_prompt, found_id):
         from code_puppy.command_line.mcp.wizard_utils import (
             interactive_configure_server,
         )
@@ -200,25 +160,7 @@ class TestInteractiveConfigureServer:
 
         with patch(
             "code_puppy.command_line.mcp.utils.find_server_id_by_name",
-            return_value="existing-id",
-        ):
-            result = interactive_configure_server(
-                MagicMock(), FakeServer(), "srv", "grp", {}, {}
-            )
-        assert result is False
-
-    @patch("code_puppy.command_line.mcp.wizard_utils.emit_prompt")
-    @patch("code_puppy.command_line.mcp.wizard_utils.emit_info")
-    def test_cancelled_at_confirm(self, mock_info, mock_prompt):
-        from code_puppy.command_line.mcp.wizard_utils import (
-            interactive_configure_server,
-        )
-
-        mock_prompt.return_value = "n"
-
-        with patch(
-            "code_puppy.command_line.mcp.utils.find_server_id_by_name",
-            return_value=None,
+            return_value=found_id,
         ):
             result = interactive_configure_server(
                 MagicMock(), FakeServer(), "srv", "grp", {}, {}
@@ -444,6 +386,14 @@ class TestRunInteractiveInstallWizard:
         result = run_interactive_install_wizard(MagicMock(), "grp")
         assert result is True
 
+    @pytest.mark.parametrize(
+        "args",
+        [
+            [{"name": "path", "prompt": "Path", "default": "/tmp", "required": True}],
+            [{"name": "opt", "prompt": "Opt", "default": "def", "required": False}],
+        ],
+        ids=["empty_value_uses_default", "not_required_with_default_empty_input"],
+    )
     @patch(
         "code_puppy.command_line.mcp.wizard_utils.interactive_configure_server",
         return_value=True,
@@ -455,47 +405,16 @@ class TestRunInteractiveInstallWizard:
     @patch("code_puppy.command_line.mcp.wizard_utils.interactive_server_selection")
     @patch("code_puppy.command_line.mcp.wizard_utils.emit_prompt")
     @patch("code_puppy.command_line.mcp.wizard_utils.emit_info")
-    def test_wizard_cmd_arg_empty_value_uses_default(
-        self, mock_info, mock_prompt, mock_select, mock_name, mock_config
+    def test_wizard_cmd_arg_empty_input_uses_default(
+        self, mock_info, mock_prompt, mock_select, mock_name, mock_config, args
     ):
-        """Test cmd arg where user enters empty value and default is used."""
+        """Cmd args with a default fall back to it on empty user input."""
         from code_puppy.command_line.mcp.wizard_utils import (
             run_interactive_install_wizard,
         )
 
         server = FakeServer()
-        server.get_command_line_args = lambda: [
-            {"name": "path", "prompt": "Path", "default": "/tmp", "required": True},
-        ]
-        mock_select.return_value = server
-        mock_prompt.return_value = ""  # empty -> uses default
-
-        result = run_interactive_install_wizard(MagicMock(), "grp")
-        assert result is True
-
-    @patch(
-        "code_puppy.command_line.mcp.wizard_utils.interactive_configure_server",
-        return_value=True,
-    )
-    @patch(
-        "code_puppy.command_line.mcp.wizard_utils.interactive_get_server_name",
-        return_value="srv",
-    )
-    @patch("code_puppy.command_line.mcp.wizard_utils.interactive_server_selection")
-    @patch("code_puppy.command_line.mcp.wizard_utils.emit_prompt")
-    @patch("code_puppy.command_line.mcp.wizard_utils.emit_info")
-    def test_wizard_cmd_arg_not_required_with_default_empty_input(
-        self, mock_info, mock_prompt, mock_select, mock_name, mock_config
-    ):
-        """Test optional cmd arg with default where user enters empty -> uses default."""
-        from code_puppy.command_line.mcp.wizard_utils import (
-            run_interactive_install_wizard,
-        )
-
-        server = FakeServer()
-        server.get_command_line_args = lambda: [
-            {"name": "opt", "prompt": "Opt", "default": "def", "required": False},
-        ]
+        server.get_command_line_args = lambda: args
         mock_select.return_value = server
         mock_prompt.return_value = ""  # empty -> uses default
 

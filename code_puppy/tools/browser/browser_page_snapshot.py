@@ -19,9 +19,8 @@ from code_puppy.tools.common import generate_group_id
 
 from .browser_manager import get_session_browser_manager
 
-# One JS pass gathers everything so we make a single round-trip to the
-# page rather than N Playwright calls. ``limit`` caps each collection so
-# huge pages don't blow up the tool output.
+# One JS pass = one round-trip instead of N Playwright calls. ``limit`` caps
+# each collection so huge pages don't blow up the tool output.
 _SNAPSHOT_JS = """
 (limit) => {
   const isVisible = (el) => {

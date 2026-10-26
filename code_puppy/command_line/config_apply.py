@@ -17,6 +17,7 @@ from typing import Optional
 MODEL_SETTINGS_ONLY_KEYS = frozenset(
     {
         "openai_reasoning_effort",
+        "openai_reasoning_summary",
         "openai_verbosity",
     }
 )

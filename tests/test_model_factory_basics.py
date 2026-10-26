@@ -32,7 +32,7 @@ class TestModelFactoryBasics:
             assert config["claude-3-5-sonnet"]["type"] == "anthropic"
 
     @patch(
-        "code_puppy.plugins.claude_code_oauth.utils.load_claude_models_filtered",
+        "code_puppy_core_plugins.claude_code_oauth.utils.load_claude_models_filtered",
         return_value={},
     )
     @patch("code_puppy.model_factory.pathlib.Path")
@@ -104,7 +104,7 @@ class TestModelFactoryBasics:
         assert "custom-model" in config
 
     @patch(
-        "code_puppy.plugins.claude_code_oauth.utils.load_claude_models_filtered",
+        "code_puppy_core_plugins.claude_code_oauth.utils.load_claude_models_filtered",
         return_value={},
     )
     @patch("code_puppy.model_factory.pathlib.Path")

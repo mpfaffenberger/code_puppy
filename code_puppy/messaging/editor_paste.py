@@ -20,6 +20,7 @@ replicated because it's an inline closure there; helpers are imported):
 from __future__ import annotations
 
 import logging
+from io import StringIO
 from typing import Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -33,29 +34,37 @@ class PasteBuffer:
 
     def __init__(self) -> None:
         self.active = False
-        self._buf: str = ""
+        self._buf = StringIO()
+        self._tail = ""
 
     def start(self) -> None:
         self.active = True
-        self._buf = ""
+        self._buf = StringIO()
+        self._tail = ""
 
     def feed(self, ch: str) -> Optional[str]:
         """Feed one char; returns the completed payload at the closer."""
         if not self.active:
             return None
-        self._buf += ch
-        if self._buf.endswith(PASTE_END):
-            payload = self._buf[: -len(PASTE_END)]
+        # Attribute-string += copies the entire paste for every character:
+        # quadratic work while the editor lock is held. Append instead and
+        # inspect only the fixed-size suffix needed to recognize the closer.
+        self._buf.write(ch)
+        self._tail = (self._tail + ch)[-len(PASTE_END) :]
+        if self._tail == PASTE_END:
+            payload = self._buf.getvalue()[: -len(PASTE_END)]
             self.active = False
-            self._buf = ""
+            self._buf = StringIO()
+            self._tail = ""
             return payload
         return None
 
     def abort(self) -> str:
         """Bail out (e.g. editor teardown); returns whatever accumulated."""
-        payload = self._buf
+        payload = self._buf.getvalue()
         self.active = False
-        self._buf = ""
+        self._buf = StringIO()
+        self._tail = ""
         return payload
 
 
@@ -69,10 +78,8 @@ def classify_paste(payload: str) -> Tuple[str, str]:
     if payload and payload.strip():
         return ("text", _normalize(payload))
 
-    # No meaningful text — try capturing a clipboard image directly
-    # (Windows image paste sends an empty bracketed paste). ONE clipboard
-    # read: a separate "has image?" probe would double the (slow,
-    # osascript-backed on macOS) round-trip.
+    # Empty paste → try a clipboard image capture (Windows image paste sends an
+    # empty bracketed paste). One read only — probing twice doubles the slow macOS round-trip.
     try:
         from code_puppy.command_line.clipboard import (
             capture_clipboard_image_to_pending,

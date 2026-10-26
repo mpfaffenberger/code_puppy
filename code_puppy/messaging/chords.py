@@ -4,8 +4,8 @@ Ctrl+X is ALWAYS a chord prefix — the line editor arms a pending state
 on ``\\x18`` and resolves the NEXT key against this registry. Components
 register bindings for exactly as long as they're meaningful:
 
-* ``run_ui`` registers Ctrl+E (edit the prompt in $EDITOR) for the
-  UI's lifetime.
+* ``run_ui`` registers Ctrl+E (edit the prompt in $EDITOR) and Ctrl+S
+  (toggle speculative execution) for the UI's lifetime.
 * ``command_runner`` registers Ctrl+X (kill all shells) and Ctrl+B
   (background all shells) while shell commands are in flight.
 

@@ -3,6 +3,8 @@
 import os
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 MODULE = "code_puppy.command_line.mcp.catalog_server_installer"
 UTILS = "code_puppy.command_line.mcp.utils"
 
@@ -98,81 +100,58 @@ class TestPromptForServerConfig:
         result = prompt_for_server_config(MagicMock(), FakeServer())
         assert result["name"] == "custom-name"
 
-    @patch(f"{MODULE}.safe_input", side_effect=KeyboardInterrupt)
+    @pytest.mark.parametrize(
+        "exc", [KeyboardInterrupt, EOFError], ids=["keyboard_interrupt", "eof"]
+    )
+    @patch(f"{MODULE}.safe_input")
     @patch(f"{MODULE}.emit_info")
     @patch(f"{MODULE}.emit_warning")
-    def test_keyboard_interrupt_on_name(self, mock_warn, mock_info, mock_input):
+    def test_name_input_aborted(self, mock_warn, mock_info, mock_input, exc):
         from code_puppy.command_line.mcp.catalog_server_installer import (
             prompt_for_server_config,
         )
 
+        mock_input.side_effect = exc
         assert prompt_for_server_config(MagicMock(), FakeServer()) is None
 
-    @patch(f"{MODULE}.safe_input", side_effect=EOFError)
-    @patch(f"{MODULE}.emit_info")
-    @patch(f"{MODULE}.emit_warning")
-    def test_eof_on_name(self, mock_warn, mock_info, mock_input):
-        from code_puppy.command_line.mcp.catalog_server_installer import (
-            prompt_for_server_config,
-        )
-
-        assert prompt_for_server_config(MagicMock(), FakeServer()) is None
-
+    @pytest.mark.parametrize(
+        "response,succeeds",
+        [("n", False), ("yes", True)],
+        ids=["declined", "accepted"],
+    )
     @patch(f"{MODULE}.safe_input")
     @patch(f"{MODULE}.emit_info")
     @patch(f"{MODULE}.emit_warning")
     @patch(f"{UTILS}.find_server_id_by_name", return_value="existing-id")
-    def test_existing_server_declined(
-        self, mock_find, mock_warn, mock_info, mock_input
+    def test_existing_server_override(
+        self, mock_find, mock_warn, mock_info, mock_input, response, succeeds
     ):
         from code_puppy.command_line.mcp.catalog_server_installer import (
             prompt_for_server_config,
         )
 
-        mock_input.side_effect = ["my-server", "n"]
-        assert prompt_for_server_config(MagicMock(), FakeServer()) is None
-
-    @patch(f"{MODULE}.safe_input")
-    @patch(f"{MODULE}.emit_info")
-    @patch(f"{MODULE}.emit_warning")
-    @patch(f"{UTILS}.find_server_id_by_name", return_value="existing-id")
-    def test_existing_server_accepted(
-        self, mock_find, mock_warn, mock_info, mock_input
-    ):
-        from code_puppy.command_line.mcp.catalog_server_installer import (
-            prompt_for_server_config,
-        )
-
-        mock_input.side_effect = ["my-server", "yes"]
+        mock_input.side_effect = ["my-server", response]
         result = prompt_for_server_config(MagicMock(), FakeServer())
-        assert result is not None
+        if succeeds:
+            assert result is not None
+        else:
+            assert result is None
 
+    @pytest.mark.parametrize(
+        "exc", [KeyboardInterrupt, EOFError], ids=["keyboard_interrupt", "eof"]
+    )
     @patch(f"{MODULE}.safe_input")
     @patch(f"{MODULE}.emit_info")
     @patch(f"{MODULE}.emit_warning")
     @patch(f"{UTILS}.find_server_id_by_name", return_value="existing-id")
-    def test_existing_server_interrupt_on_override(
-        self, mock_find, mock_warn, mock_info, mock_input
+    def test_existing_server_override_aborted(
+        self, mock_find, mock_warn, mock_info, mock_input, exc
     ):
         from code_puppy.command_line.mcp.catalog_server_installer import (
             prompt_for_server_config,
         )
 
-        mock_input.side_effect = ["my-server", KeyboardInterrupt]
-        assert prompt_for_server_config(MagicMock(), FakeServer()) is None
-
-    @patch(f"{MODULE}.safe_input")
-    @patch(f"{MODULE}.emit_info")
-    @patch(f"{MODULE}.emit_warning")
-    @patch(f"{UTILS}.find_server_id_by_name", return_value="existing-id")
-    def test_existing_server_eof_on_override(
-        self, mock_find, mock_warn, mock_info, mock_input
-    ):
-        from code_puppy.command_line.mcp.catalog_server_installer import (
-            prompt_for_server_config,
-        )
-
-        mock_input.side_effect = ["my-server", EOFError]
+        mock_input.side_effect = ["my-server", exc]
         assert prompt_for_server_config(MagicMock(), FakeServer()) is None
 
     @patch("code_puppy.config.set_config_value")

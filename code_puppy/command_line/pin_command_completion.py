@@ -1,8 +1,12 @@
 import json
 from typing import Iterable
 
-from prompt_toolkit.completion import Completer, Completion
-from prompt_toolkit.document import Document
+from termflow.tui.completion import Completer, Completion, Document
+
+from code_puppy.command_line.completion_cache import TTLCache
+
+_agent_names_cache: TTLCache[tuple[tuple[object, object], list[str]]] = TTLCache()
+_agent_meta_caches: dict[str, TTLCache[tuple[object, str]]] = {}
 
 
 def _get_json_agents_for_model(model_name: str) -> list:
@@ -71,15 +75,28 @@ def _get_model_display_meta(model_name: str) -> str:
     return "Model"
 
 
-def _get_agent_display_meta(agent_name: str) -> str:
-    """Get display meta for an agent showing pinned model."""
+def _read_agent_display_meta(agent_name: str) -> str:
     pinned_model = _get_pinned_model_for_agent(agent_name)
     if pinned_model:
         return f"→ {pinned_model}"
     return "default"
 
 
-def load_agent_names():
+def _get_agent_display_meta(agent_name: str) -> str:
+    """Get briefly cached display meta for an agent's pinned model."""
+    cache = _agent_meta_caches.setdefault(agent_name, TTLCache())
+    source, meta = cache.get(
+        lambda: (_get_pinned_model_for_agent, _read_agent_display_meta(agent_name))
+    )
+    if source is not _get_pinned_model_for_agent:
+        cache.clear()
+        _, meta = cache.get(
+            lambda: (_get_pinned_model_for_agent, _read_agent_display_meta(agent_name))
+        )
+    return meta
+
+
+def _read_agent_names() -> list[str]:
     """Load all available agent names (both built-in and JSON agents)."""
     agents = set()
 
@@ -102,6 +119,21 @@ def load_agent_names():
         pass
 
     return sorted(list(agents))
+
+
+def load_agent_names() -> list[str]:
+    """Return available agent names, refreshing after a short TTL."""
+    from code_puppy.agents.agent_manager import get_agent_descriptions
+    from code_puppy.agents.json_agent import discover_json_agents
+
+    signature = (get_agent_descriptions, discover_json_agents)
+    cached_signature, names = _agent_names_cache.get(
+        lambda: (signature, _read_agent_names())
+    )
+    if cached_signature != signature:
+        _agent_names_cache.clear()
+        _, names = _agent_names_cache.get(lambda: (signature, _read_agent_names()))
+    return names
 
 
 def load_model_names():

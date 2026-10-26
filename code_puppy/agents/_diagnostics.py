@@ -13,12 +13,14 @@ guarded; diagnostic emit must never itself raise.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional
 
 from rich.text import Text
 
+from code_puppy.agents._multimodal_error_hint import multimodal_error_hint
+from code_puppy.agents._token_limit_hint import token_limit_hint
 from code_puppy.error_logging import log_error
-from code_puppy.messaging import emit_info
+from code_puppy.messaging import emit_info, emit_warning
 
 # Python 3.11+ builtin; graceful fallback for 3.10
 try:
@@ -36,18 +38,6 @@ USEFUL_ATTRS = ("response", "body", "message", "detail", "errors")
 # Hard caps so a pathological exception tree can't flood the terminal.
 _MAX_CHAIN_DEPTH = 5
 _MAX_GROUP_LEAVES = 10
-
-# AnyIO / MCP teardown noise. These ``RuntimeError``s bubble out of MCP client
-# task-group cleanup (typically SSE/HTTP streams yielding inside a cancel
-# scope) *after* the underlying tool call has already succeeded and surfaced
-# its result to the user. They aren't actionable, the user can't fix them,
-# and showing them as ``Unexpected error:`` is straight-up misleading. We
-# still log to file for forensics; we just refuse to scream on the terminal.
-_MCP_TEARDOWN_SNIPPETS = (
-    "cancel scope",
-    "different task than it was entered in",
-    "async generator",  # "async generator ... was garbage collected"
-)
 
 
 def _safe_getattr(obj: Any, name: str) -> Any:
@@ -116,23 +106,9 @@ def _needs_deep_diagnostics(exc: BaseException) -> bool:
     return any(trigger in msg for trigger in DIAGNOSTIC_TRIGGERS)
 
 
-def _is_mcp_teardown_noise(exc: BaseException) -> bool:
-    """Return True for benign AnyIO/MCP cleanup ``RuntimeError``s.
-
-    These fire *after* the agent run has already produced a result and
-    represent client-library plumbing failing to unwind cleanly. Surfacing
-    them as ``Unexpected error:`` confuses the user — the tool call worked.
-    """
-    if not isinstance(exc, RuntimeError):
-        return False
-    try:
-        msg = str(exc).lower()
-    except Exception:  # pragma: no cover - hostile __str__
-        return False
-    return any(snippet in msg for snippet in _MCP_TEARDOWN_SNIPPETS)
-
-
-def emit_exception_diagnostics(exc: BaseException, group_id: str) -> None:
+def emit_exception_diagnostics(
+    exc: BaseException, group_id: str, model_name: Optional[str] = None
+) -> None:
     """Emit terminal diagnostics for ``exc``, bounded and defensive.
 
     Cheap path (always): one-line summary + log file write.
@@ -142,25 +118,23 @@ def emit_exception_diagnostics(exc: BaseException, group_id: str) -> None:
     Never raises. Worst-case failure is a slightly noisier terminal during an
     already-failed run.
     """
-    # MCP/AnyIO teardown artifacts: log quietly, do NOT shout on the terminal.
-    # The user already saw a successful result before cleanup tripped.
-    if _is_mcp_teardown_noise(exc):
-        try:
-            log_error(
-                exc,
-                context=(
-                    f"MCP/AnyIO teardown noise (suppressed from terminal, "
-                    f"group_id={group_id})"
-                ),
-                include_traceback=True,
-            )
-        except Exception:  # pragma: no cover - logging must not cascade
-            pass
-        return
-
     try:
         emit_info(f"Unexpected error: {exc}", group_id=group_id)
     except Exception:  # pragma: no cover - emit should never fail
+        pass
+
+    try:
+        hint = token_limit_hint(exc, model_name)
+        if hint:
+            emit_warning(hint, group_id=group_id)
+    except Exception:  # pragma: no cover - a hint must never cascade
+        pass
+
+    try:
+        hint = multimodal_error_hint(exc)
+        if hint:
+            emit_warning(hint, group_id=group_id)
+    except Exception:  # pragma: no cover - a hint must never cascade
         pass
 
     # File logging is independent of terminal output and stays on the cheap path.

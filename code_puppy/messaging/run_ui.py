@@ -42,6 +42,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
+import time
 from contextlib import contextmanager
 from typing import Dict, Iterator, Optional
 
@@ -49,7 +50,16 @@ from .bottom_bar import get_bottom_bar
 from .line_editor import RunningLineEditor
 from .chords import register_chord, unregister_chord
 from .external_editor import make_external_edit_handler
-from .run_ui_wiring import attach_completion, make_clipboard_handler
+from .speculation_toggle import (
+    CHORD_HINT as SPECULATION_HINT,
+    CHORD_KEY as SPECULATION_KEY,
+    make_speculation_toggle_handler,
+)
+from .run_ui_wiring import (
+    attach_completion,
+    make_clipboard_handler,
+    make_help_overlay_handler,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -59,9 +69,8 @@ _loop: Optional[asyncio.AbstractEventLoop] = None
 _draining = False
 
 # --- Persistent-prompt state (Phase A: the bar IS the prompt) -----------
-# When persistent, the bar + editor + key listener live for the whole
-# REPL; start_run_ui/stop_run_ui merely toggle _run_active so submission
-# routing (idle = new turn, running = steer/slash-drain) stays correct.
+# Bar + editor + listener live for the whole REPL; start/stop_run_ui merely
+# toggle _run_active (idle = new turn, running = steer/slash-drain).
 _persistent = False
 _run_active = False
 _idle_queue: "Optional[asyncio.Queue]" = None
@@ -76,13 +85,18 @@ def _get_loop() -> Optional[asyncio.AbstractEventLoop]:
 _listener_handle = None  # KeyListenerHandle owned by the persistent UI
 _EOF = object()  # idle-queue sentinel: Ctrl+D on an empty buffer
 
+#: Double-tap window for idle Ctrl+C -> quit (mirrors Ctrl+D). Two idle
+#: Ctrl+C presses within this many seconds exit the REPL; a lone press
+#: keeps the readline feel (clear the buffer, stay alive).
+DOUBLE_CTRL_C_WINDOW_S = 0.5
+_last_idle_ctrl_c: float = 0.0
+
 #: How long the consumer waits for the agent to actually park at its
 #: pause boundary before running commands anyway (best-effort).
 _PARK_TIMEOUT_S = 2.0
 
-#: Commands that must NOT execute while an agent run is in flight, with a
-#: one-line reason each. Conservative: anything that mutates the agent,
-#: its message history, or the session is deferred to the idle REPL.
+#: Commands that must NOT execute while an agent run is in flight (one-line
+#: reason each). Anything mutating the agent/history/session is deferred.
 MID_RUN_DENYLIST: Dict[str, str] = {
     "exit": "terminates the app; cancel the run first (Ctrl+C)",
     "quit": "terminates the app; cancel the run first (Ctrl+C)",
@@ -110,8 +124,12 @@ def start_run_ui() -> Optional[RunningLineEditor]:
     from idle-turn to steer/slash-drain).
     """
     global _editor, _loop, _run_active
+    from code_puppy.agents.stream_status import get_stream_status
+
     with _lock:
         if _persistent:
+            if not _run_active:
+                get_stream_status(get_bottom_bar(), reset=True)
             _run_active = True
             return _editor
         if _editor is not None:
@@ -120,24 +138,30 @@ def start_run_ui() -> Optional[RunningLineEditor]:
         bar.start()
         if not bar.is_active():
             return None  # non-TTY: no bar, no editor
+        get_stream_status(bar, reset=True)
         editor = RunningLineEditor()
         _editor = editor
-        # Capture the main loop for the slash-command consumer — the
-        # editor's feed() runs on the key-listener daemon thread, but
-        # command execution needs the loop (see module docstring).
+        # Capture the main loop for the slash-command consumer: feed() runs
+        # on the key-listener thread, but command execution needs the loop.
         try:
             _loop = asyncio.get_running_loop()
         except RuntimeError:
             _loop = None
     editor.add_submit_listener(_make_slash_listener(editor))
     editor.set_clipboard_handler(make_clipboard_handler(editor, _get_loop))
-    # Ctrl+X Ctrl+E: edit the prompt in $EDITOR (chord registry — shell
-    # kill/background chords are registered by command_runner while
-    # shells run; this one lives for the UI's lifetime).
+    editor.set_help_overlay_handler(make_help_overlay_handler(_get_loop))
+    # Ctrl+X Ctrl+E: edit the prompt in $EDITOR. Shell chords are registered
+    # per-shell by command_runner; this one lives for the UI's lifetime.
     register_chord(
         "\x05",
         make_external_edit_handler(editor, _get_loop),
         "Ctrl+E edit in $EDITOR",
+    )
+    # Ctrl+X Ctrl+S: toggle speculative execution. Same lifetime as Ctrl+E.
+    register_chord(
+        SPECULATION_KEY,
+        make_speculation_toggle_handler(_get_loop),
+        SPECULATION_HINT,
     )
     attach_completion(editor, _get_loop)
     _set_feed_target(editor)
@@ -159,9 +183,8 @@ def stop_run_ui() -> None:
             # The UI outlives the run — just drop back to idle routing.
             _run_active = False
             _clear_status_row()
-            # Self-heal: if the REPL-lifetime listener died mid-run (its
-            # thread crashed, or a per-run listener replaced-then-stopped
-            # it), typing at the idle prompt would be dead forever.
+            # Self-heal: if the REPL-lifetime listener died mid-run (thread
+            # crash, or replaced-then-stopped), idle typing would be dead.
             _ensure_persistent_listener_locked()
             persistent_run_ended = True
             editor = None
@@ -173,8 +196,10 @@ def stop_run_ui() -> None:
     if persistent_run_ended:
         return
     if editor is not None:
+        editor.clear_buffer()
         _set_feed_target(None)
     unregister_chord("\x05")  # the handler closes over the dead editor
+    unregister_chord(SPECULATION_KEY)
     _clear_status_row()
     try:
         get_bottom_bar().stop()
@@ -190,23 +215,20 @@ def _defer_undelivered_steers() -> None:
 
         moved = get_pause_controller().defer_pending_steer_now()
         if moved:
-            from . import emit_info
+            from . import emit_queued
 
-            emit_info(f"⏭ Queued {moved} steering message(s) for the next turn.")
+            emit_queued(f"for next turn: {moved} steer(s) that missed this run")
     except Exception:
         logger.debug("undelivered steer deferral failed", exc_info=True)
 
 
 def _clear_status_row() -> None:
-    """Run over (finished OR cancelled): drop the token/context line.
-
-    The status row only means something while an agent is working; a
-    stale '5.5k/500k tokens' under an idle prompt is just noise — and
-    clearing both slots collapses the row entirely (the bar reclaims
-    it for the scroll region). Never raises: this runs on finally paths.
-    """
+    """Finish activity while retaining context and the final streamed total."""
     try:
-        get_bottom_bar().set_status("")
+        from code_puppy.agents.stream_status import finish_stream_status
+
+        bar = get_bottom_bar()
+        finish_stream_status(bar)
     except Exception:
         logger.debug("status clear failed", exc_info=True)
 
@@ -267,8 +289,14 @@ def start_persistent_ui(
         _idle_queue = asyncio.Queue()
     if prompt_prefix:
         editor.set_prompt_prefix(prompt_prefix, prefix_sgrs)
+    from .idle_status import refresh_context_status
+    from code_puppy.agents.stream_status import finish_stream_status
+
+    refresh_context_status()
+    finish_stream_status(get_bottom_bar())
     editor.set_submit_router(_persistent_router)
     editor.set_eof_handler(_handle_eof)
+    editor.set_ctrl_c_handler(_handle_raw_ctrl_c)
     _spawn_persistent_listener()
     return True
 
@@ -288,6 +316,7 @@ def stop_persistent_ui() -> None:
         if editor is not None:
             editor.set_submit_router(None)
             editor.set_eof_handler(None)
+            editor.set_ctrl_c_handler(None)
         stop_run_ui()  # persistent flag is off -> full teardown
     if handle is not None:
         try:
@@ -331,7 +360,10 @@ async def wait_for_idle_submission() -> str:
         q = _idle_queue
     if q is None:
         raise EOFError  # persistent UI gone -> treat as end of input
-    item = await q.get()
+    from code_puppy.agent_completion_inbox import wait_for_completion_or_input
+    from code_puppy.agents.agent_manager import get_current_agent
+
+    item = await wait_for_completion_or_input(get_current_agent(), q)
     if item is _EOF:
         raise EOFError
     return item
@@ -342,6 +374,9 @@ def set_idle_prompt_prefix(prefix: str, prefix_sgrs: Optional[list] = None) -> N
     editor = get_run_editor()
     if editor is not None:
         editor.set_prompt_prefix(prefix, prefix_sgrs)
+        from .idle_status import refresh_context_status
+
+        refresh_context_status()
 
 
 def clear_idle_buffer() -> None:
@@ -352,6 +387,35 @@ def clear_idle_buffer() -> None:
     editor = get_run_editor()
     if editor is not None:
         editor.clear_buffer()
+
+
+def note_idle_ctrl_c(now: Optional[float] = None) -> bool:
+    """One idle Ctrl+C press: clear the buffer, arm the quit double-tap.
+
+    A second press within ``DOUBLE_CTRL_C_WINDOW_S`` exits the REPL by
+    pushing the same ``_EOF`` sentinel Ctrl+D uses, so the interactive
+    loop's existing quit branch handles teardown. Returns True when the
+    press triggered the quit. No-op (False) while a run is active — mid-run
+    Ctrl+C belongs to the cancel/absorb layers, never to quit.
+
+    ``now`` is injectable for tests; production callers pass nothing.
+    """
+    global _last_idle_ctrl_c
+    if not is_persistent() or is_run_active():
+        return False
+    if now is None:
+        now = time.monotonic()
+    if now - _last_idle_ctrl_c <= DOUBLE_CTRL_C_WINDOW_S:
+        _last_idle_ctrl_c = 0.0
+        _push_idle(_EOF)
+        return True
+    _last_idle_ctrl_c = now
+    clear_idle_buffer()
+    try:
+        get_bottom_bar().set_status("press ctrl+c again quickly to exit")
+    except Exception:
+        logger.debug("double-ctrl+c hint paint failed", exc_info=True)
+    return False
 
 
 def absorb_ctrl_c_if_composing() -> bool:
@@ -399,8 +463,8 @@ def _persistent_router(text: str, mode: str) -> Optional[str]:
     """Central idle-vs-running routing for the persistent prompt."""
     editor = get_run_editor()
     if is_run_active():
-        # Mid-run: keep Phase 1-5 semantics (steer now / Alt+Enter queue /
-        # slash -> drain queue, scheduled by the submit listener).
+        # Mid-run: Enter/Alt+Enter queue, Ctrl+Enter steers now, and slash
+        # commands enter the drain queue scheduled by the submit listener.
         if editor is not None:
             return editor.route_default(text, mode)
         return None
@@ -415,6 +479,21 @@ def _handle_eof() -> None:
     if is_run_active():
         return
     _push_idle(_EOF)
+
+
+def _handle_raw_ctrl_c() -> None:
+    """Raw \\x03 from the key listener (Windows clamp path).
+
+    Mid-run: keep the historical buffer wipe (cancel stays with the
+    hotkey/signal layers). Idle: same double-tap-to-quit policy as the
+    SIGINT path.
+    """
+    if is_run_active():
+        editor = get_run_editor()
+        if editor is not None:
+            editor.clear_buffer()
+        return
+    note_idle_ctrl_c()
 
 
 def _push_idle(item) -> None:
@@ -441,9 +520,8 @@ def _spawn_persistent_listener() -> None:
     except ImportError:
         return  # no listener infra: prompt still works via nothing-to-feed
     stop_event = threading.Event()
-    # Atomic reuse-or-spawn: if someone else already owns stdin we back
-    # off (spawned=False) and deliberately do NOT record their handle as
-    # ours — stop_persistent_ui must never stop a listener it didn't spawn.
+    # Reuse-or-spawn: if someone else owns stdin we back off (spawned=False)
+    # and never record their handle — stop_persistent_ui stops only its own.
     handle, spawned = _key_listeners.acquire_listener(
         stop_event, on_escape=lambda: None
     )
@@ -565,19 +643,15 @@ async def _run_paused_commands(editor: RunningLineEditor, first_cmd: str) -> Non
     """Pause → execute queued command(s) → resume. Exception-safe."""
     from .bus import get_message_bus
     from .commands import PauseAgentCommand, ResumeAgentCommand
-    from .message_queue import emit_info, emit_warning
+    from .message_queue import emit_warning
     from .pause_controller import get_pause_controller
 
     bus = get_message_bus()
     pc = get_pause_controller()
     bus.provide_response(PauseAgentCommand(reason="slash command"))
     try:
-        # Pause is a flag, not a rendezvous: wait (briefly) for the agent
-        # to actually park at its safe boundary before taking over the
-        # terminal. Best-effort — between model calls the gate is never
-        # reached, so proceed anyway on timeout. Poll asynchronously:
-        # blocking the loop here would prevent the agent from ever
-        # REACHING the pause gate (it runs on this same loop).
+        # Pause is a flag, not a rendezvous: briefly await the agent's park,
+        # then proceed on timeout. Poll async; blocking the loop would starve the gate.
         await _await_parked(pc, _PARK_TIMEOUT_S)
         cmd: Optional[str] = first_cmd
         while cmd is not None:
@@ -589,26 +663,20 @@ async def _run_paused_commands(editor: RunningLineEditor, first_cmd: str) -> Non
                     f"({reason}) — finish the run first."
                 )
             elif not pc.is_paused():
-                # Only event_stream_handler's wait_if_paused timeout (or a
-                # cancel path) resumes behind our back — the pause window
-                # is gone, so running now would interleave with streaming.
-                emit_warning(
-                    f"⏸ pause expired before {cmd} could run — skipped; "
-                    "run it again when the agent finishes."
-                )
+                # wait_if_paused timeout / cancel resumed behind our back; the
+                # window is gone, so running now would interleave with streaming.
+                logger.debug("pause expired before %s could run; skipped", cmd)
             else:
-                emit_info(f"⏸ agent paused — running {cmd}")
                 with suspended_run_ui():
                     result = _execute_command(cmd)
                 _handle_command_result(cmd, result)
             cmd = editor.get_pending_command()
     finally:
-        # ALWAYS resume + let the transcript know, even on exceptions.
+        # ALWAYS resume silently, even on exceptions.
         try:
             bus.provide_response(ResumeAgentCommand())
         except Exception:
             pc.resume()
-        emit_info("▶ resumed")
 
 
 async def _await_parked(pc, timeout: float) -> bool:
@@ -663,10 +731,8 @@ def _handle_command_result(cmd: str, result) -> None:
     emit_info(f"⏭ {cmd} expanded to a prompt — queued as the next turn.")
 
 
-# TODO(deferred): invert this messaging→agents lazy import — have the
-# key-listener register itself into a small registry owned by messaging
-# instead of run_ui reaching across packages. (Flagged by review; not
-# worth the churn mid-rewrite.)
+# TODO(deferred): invert this messaging→agents lazy import — key-listener
+# registers into a registry owned by messaging instead of run_ui reaching across.
 def _set_feed_target(editor: Optional[RunningLineEditor]) -> None:
     """Install/clear the key-listener feed target (lazy import, no cycle)."""
     try:
@@ -693,6 +759,7 @@ def _suspended_key_listener():
 __all__ = [
     "MID_RUN_DENYLIST",
     "clear_idle_buffer",
+    "note_idle_ctrl_c",
     "get_run_editor",
     "is_draining",
     "is_persistent",

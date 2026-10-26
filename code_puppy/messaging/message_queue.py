@@ -15,6 +15,8 @@ from typing import Any, Dict, Optional, Union
 
 from rich.text import Text
 
+from code_puppy.i18n import LazyTranslation
+
 logger = logging.getLogger(__name__)
 
 
@@ -23,7 +25,10 @@ class MessageType(Enum):
 
     # Basic content types
     INFO = "info"
-    QUEUED = "queued"
+    # Queued submissions use the status badge; explicit steering notices
+    # get a distinct, themed transcript acknowledgement.
+    QUEUED = "queued"  # parked for the next turn
+    STEER = "steer"  # injected into the current turn
     SUCCESS = "success"
     WARNING = "warning"
     ERROR = "error"
@@ -116,6 +121,11 @@ class MessageQueue:
 
     def emit(self, message: UIMessage):
         """Emit a message to the queue."""
+        from .tool_output import suppress_tool_message
+
+        if suppress_tool_message(message):
+            return
+
         # If no renderer is active yet, buffer the message for startup
         if not self._has_active_renderer:
             self._startup_buffer.append(message)
@@ -306,7 +316,23 @@ def get_buffered_startup_messages():
 
 
 def emit_message(message_type: MessageType, content: Any, **metadata):
-    """Convenience function to emit a message to the global queue."""
+    """Convenience function to emit a message to the global queue.
+
+    This is the single legacy choke point every ``emit_*`` helper funnels
+    through, so it's the natural i18n seam. If a call site passes a
+    :class:`~code_puppy.i18n.LazyTranslation` (from ``i18n.lazy(...)``), it is
+    resolved against the active locale here. Plain strings pass through
+    untouched, so existing call sites are unaffected. (Full render-time
+    deferral — respecting a locale switch *after* emit — lands with the
+    rich_renderer seam in PUP-485.)
+    """
+    if isinstance(content, LazyTranslation):
+        content = str(content)
+    if message_type in (MessageType.INFO, MessageType.SUCCESS):
+        from .menu_lifecycle import is_menu_close_notice
+
+        if is_menu_close_notice(content):
+            return
     queue = get_global_queue()
     queue.emit_simple(message_type, content, **metadata)
 
@@ -319,6 +345,11 @@ def emit_info(content: Any, **metadata):
 def emit_queued(content: Any, **metadata):
     """Emit a queued-for-next-turn acknowledgement."""
     emit_message(MessageType.QUEUED, content, **metadata)
+
+
+def emit_steer(content: Any, **metadata):
+    """Emit a steer-injected-now acknowledgement."""
+    emit_message(MessageType.STEER, content, **metadata)
 
 
 def emit_success(content: Any, **metadata):

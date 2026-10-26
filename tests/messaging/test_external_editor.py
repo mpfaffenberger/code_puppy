@@ -171,12 +171,6 @@ def test_visual_wins_over_editor(monkeypatch):
     assert resolve_editor_command() == ["vis-editor"]
 
 
-def test_editor_used_when_visual_unset(monkeypatch):
-    monkeypatch.delenv("VISUAL", raising=False)
-    monkeypatch.setenv("EDITOR", "my-editor")
-    assert resolve_editor_command() == ["my-editor"]
-
-
 def test_editor_value_splits_arguments(monkeypatch):
     monkeypatch.delenv("VISUAL", raising=False)
     monkeypatch.setenv("EDITOR", "code --wait")

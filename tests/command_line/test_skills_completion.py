@@ -1,30 +1,11 @@
 """Tests for skills_completion.py - 100% coverage."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
-from prompt_toolkit.document import Document
+import pytest
+from termflow.tui.completion import Document
 
-from code_puppy.command_line.skills_completion import (
-    SkillsCompleter,
-    load_catalog_skill_ids,
-)
-
-
-class TestLoadCatalogSkillIds:
-    @patch("code_puppy.plugins.agent_skills.skill_catalog.catalog")
-    def test_success(self, mock_catalog):
-        mock_entry = MagicMock()
-        mock_entry.id = "test-skill"
-        mock_catalog.get_all.return_value = [mock_entry]
-        result = load_catalog_skill_ids()
-        assert result == ["test-skill"]
-
-    def test_import_failure(self):
-        with patch.dict(
-            "sys.modules", {"code_puppy.plugins.agent_skills.skill_catalog": None}
-        ):
-            result = load_catalog_skill_ids()
-            assert result == []
+from code_puppy.command_line.skills_completion import SkillsCompleter
 
 
 class TestSkillsCompleter:
@@ -38,62 +19,34 @@ class TestSkillsCompleter:
         doc = Document(text, cursor_pos)
         return list(self.completer.get_completions(doc, self.event))
 
-    def test_no_trigger(self):
-        assert self._get_completions("hello") == []
-
-    def test_trigger_no_space(self):
-        assert self._get_completions("/skills") == []
+    @pytest.mark.parametrize("text", ["hello", "/skills"])
+    def test_no_completions(self, text):
+        assert self._get_completions(text) == []
 
     def test_show_all_subcommands(self):
         result = self._get_completions("/skills ")
         names = [c.text for c in result]
         assert "list" in names
-        assert "install" in names
         assert "enable" in names
+        # The remote marketplace is gone; don't advertise its command.
+        assert "install" not in names
 
     def test_partial_subcommand(self):
         result = self._get_completions("/skills li")
         names = [c.text for c in result]
-        assert "list" in names
-        assert "install" not in names
+        assert names == ["list"]
 
-    @patch.object(
-        SkillsCompleter, "_get_skill_ids", return_value=["skill-a", "skill-b"]
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "/skills list ",
+            "hello /skills ",
+            # No catalog anymore: install must not complete skill ids.
+            "/skills install ",
+            "/skills install al",
+        ],
     )
-    def test_install_show_all_skills(self, mock_ids):
-        result = self._get_completions("/skills install ")
-        names = [c.text for c in result]
-        assert "skill-a" in names
-        assert "skill-b" in names
-
-    @patch.object(SkillsCompleter, "_get_skill_ids", return_value=["alpha", "beta"])
-    def test_install_filter_skills(self, mock_ids):
-        result = self._get_completions("/skills install al")
-        names = [c.text for c in result]
-        assert "alpha" in names
-        assert "beta" not in names
-
-    def test_no_further_completion(self):
-        # After a full subcommand + space (non-install)
-        result = self._get_completions("/skills list ")
-        assert result == []
-
-    def test_get_skill_ids_cache(self):
-        with patch.object(self.completer, "_skill_ids_cache", ["cached"]):
-            self.completer._cache_timestamp = 999999999999.0
-            result = self.completer._get_skill_ids()
-            assert result == ["cached"]
-
-    def test_get_skill_ids_refresh(self):
-        self.completer._skill_ids_cache = None
-        self.completer._cache_timestamp = None
-        with patch(
-            "code_puppy.command_line.skills_completion.load_catalog_skill_ids",
-            return_value=["new"],
-        ):
-            result = self.completer._get_skill_ids()
-            assert result == ["new"]
-
-    def test_not_at_beginning(self):
-        result = self._get_completions("hello /skills ")
+    def test_no_further_completion(self, text):
+        # After a full subcommand + space, or when /skills isn't at the start
+        result = self._get_completions(text)
         assert result == []

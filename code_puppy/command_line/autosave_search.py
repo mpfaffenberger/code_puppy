@@ -23,13 +23,10 @@ from typing import Callable, Dict, Iterator, Optional, Tuple
 
 from code_puppy.session_storage import load_session
 
-# Alphabet bound to the search buffer while ``in_search_mode`` is True.
-# Lowercase ASCII letters (except ``e`` and ``q``), digits, underscore,
-# hyphen, and space. ``e`` and ``q`` are deliberately excluded because
-# autosave_menu.py already binds them to nav actions (browse-msgs and
-# exit-browse respectively); those existing handlers are dual-mode --
-# they append to the search buffer when ``in_search_mode`` is True and
-# fire their nav action otherwise. Same trick set_menu uses for ``r``.
+# Search-buffer alphabet (a-z minus ``e``/``q``, digits, `_`, `-`, space).
+# ``e``/``q`` are excluded: autosave_menu binds them to nav actions via
+# dual-mode handlers (search-buffer append when ``in_search_mode``, nav
+# otherwise) — same trick set_menu uses for ``r``.
 SEARCH_ALPHABET = "abcdfghijklmnoprstuvwxyz0123456789_- "
 
 
@@ -91,22 +88,19 @@ class SessionContentIndex:
     ) -> None:
         self._loader = loader or load_session
         self._cache: Dict[str, str] = {}
-        # The pre-warm task runs on an ``asyncio.to_thread`` worker while
-        # the picker's render path reads cache state on the event loop;
-        # the post-Enter filter (PR review accept #2) also runs on a
-        # worker. CPython's GIL makes individual dict ops atomic, but
-        # the ``check-then-load-then-store`` sequence in ``lookup`` is
-        # not -- the lock keeps the invariant tidy and survives a future
-        # free-threaded build where GIL atomicity disappears.
+        # The pre-warm task (asyncio.to_thread), the render path (event loop),
+        # and the post-Enter filter (another worker) all touch the cache. GIL
+        # makes individual dict ops atomic but not lookup's check-then-load-
+        # then-store — the lock keeps the invariant tidy and survives a
+        # free-threaded build.
         self._lock = Lock()
 
     def lookup(self, session_name: str, base_dir: Path) -> str:
         with self._lock:
             cached = self._cache.get(session_name)
             if cached is not None or session_name in self._cache:
-                # ``cached is not None`` short-circuits the common case;
-                # the explicit ``in`` check picks up cached-empty-string
-                # entries (failed loads) without re-running the loader.
+                # ``cached is not None`` short-circuits the common case; the
+                # explicit ``in`` catches cached-empty-string (failed loads).
                 return cached or ""
         # Loader runs OUTSIDE the lock so a slow pickle read does not
         # block other threads from checking the cache for unrelated keys.

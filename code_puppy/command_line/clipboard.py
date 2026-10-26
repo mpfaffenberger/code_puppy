@@ -8,7 +8,6 @@ Also provides a thread-safe ClipboardAttachmentManager for managing
 pending clipboard image attachments in the CLI.
 """
 
-import io
 import logging
 import subprocess
 import sys
@@ -22,13 +21,19 @@ try:
     from PIL import Image, ImageGrab
 
     PIL_AVAILABLE = True
-    # SEC-CLIP-002: Protect against decompression bombs
-    # Set explicit limit (PIL default) to prevent memory exhaustion from malicious images
-    Image.MAX_IMAGE_PIXELS = 178956970
+    # Note: Image.MAX_IMAGE_PIXELS is set by image_utils on import (SEC-CLIP-002)
 except ImportError:
     PIL_AVAILABLE = False
     Image = None  # type: ignore[misc, assignment]
     ImageGrab = None  # type: ignore[misc, assignment]
+
+# Shared resize/verify helpers and limits — single source of truth.
+from code_puppy.command_line.image_utils import (  # noqa: E402
+    ImageTooLargeError,
+    _encode_image,
+    _safe_open_image,
+    normalize_image_bytes,
+)
 
 # Import BinaryContent for pydantic-ai integration
 try:
@@ -42,53 +47,23 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 # Constants
-MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024  # 10MB
-MAX_IMAGE_DIMENSION = 4096  # Max width/height for resize
 MAX_PENDING_IMAGES = (
     10  # SEC-CLIP-001: Limit pending images to prevent memory exhaustion
 )
 MAX_IMAGE_FILE_SIZE_BYTES = 50 * 1024 * 1024  # Local image files only
 CLIPBOARD_RATE_LIMIT_SECONDS: float = 0.5  # SEC-CLIP-004: Max 2 captures per second
 _IMAGE_FILE_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"}
+_IMAGE_SUFFIX_MEDIA_TYPES = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".bmp": "image/bmp",
+    ".webp": "image/webp",
+}
 
 # Rate limiting state
 _last_clipboard_capture: float = 0.0
-
-
-def _safe_open_image(image_bytes: bytes) -> Optional["Image.Image"]:
-    """Safely open and verify an image from bytes.
-
-    Verifies image integrity to protect against malicious images.
-
-    Args:
-        image_bytes: Raw image bytes to open.
-
-    Returns:
-        PIL Image if valid, None if verification fails.
-    """
-    if not PIL_AVAILABLE or Image is None:
-        return None
-
-    try:
-        # First pass: verify integrity without fully loading
-        verify_image = Image.open(io.BytesIO(image_bytes))
-        verify_image.verify()  # Checks for corruption/malicious data
-
-        # Re-open after verify (verify() closes the image)
-        image = Image.open(io.BytesIO(image_bytes))
-        return image
-    except Image.DecompressionBombError as e:
-        logger.warning(f"Rejected decompression bomb image: {e}")
-        return None
-    except Image.UnidentifiedImageError as e:
-        logger.warning(f"Rejected unidentified image format: {e}")
-        return None
-    except OSError as e:
-        logger.warning(f"Rejected potentially malicious image: {e}")
-        return None
-    except Exception as e:
-        logger.warning(f"Failed to open/verify image: {type(e).__name__}: {e}")
-        return None
 
 
 def _check_linux_clipboard_tool() -> Optional[str]:
@@ -164,106 +139,63 @@ def _get_linux_clipboard_image() -> Optional[bytes]:
     return None
 
 
-def _resize_image_if_needed(image: "Image.Image", max_bytes: int) -> "Image.Image":
-    """Resize image if it exceeds max size when saved as PNG.
+def _image_to_attachment(image: "Image.Image", media_type: str = "image/png"):
+    """Encode a PIL image and normalize it, returning ``(bytes, media_type)``.
 
-    Args:
-        image: PIL Image to potentially resize.
-        max_bytes: Maximum allowed size in bytes.
-
-    Returns:
-        Original or resized image.
+    The source format is preserved where possible: clipboard screenshots stay
+    PNG, and oversized images are re-encoded by
+    :func:`normalize_image_bytes` (JPEG for opaque non-PNG sources).
+    Returns ``None`` if the image cannot be made to fit.
     """
     if Image is None:
-        return image
-
-    # Check current size
-    buffer = io.BytesIO()
-    image.save(buffer, format="PNG", optimize=True)
-    current_size = buffer.tell()
-
-    if current_size <= max_bytes:
-        return image
-
-    logger.info(
-        f"Image size ({current_size / 1024 / 1024:.2f}MB) exceeds limit "
-        f"({max_bytes / 1024 / 1024:.2f}MB), resizing..."
-    )
-
-    # Calculate scale factor to reduce size
-    # Rough estimate: size scales with area (width * height)
-    scale_factor = (max_bytes / current_size) ** 0.5 * 0.9  # 0.9 for safety margin
-
-    new_width = int(image.width * scale_factor)
-    new_height = int(image.height * scale_factor)
-
-    # Ensure we don't go below minimum dimensions
-    new_width = max(new_width, 100)
-    new_height = max(new_height, 100)
-
-    # Also cap at max dimension
-    if new_width > MAX_IMAGE_DIMENSION:
-        ratio = MAX_IMAGE_DIMENSION / new_width
-        new_width = MAX_IMAGE_DIMENSION
-        new_height = int(new_height * ratio)
-    if new_height > MAX_IMAGE_DIMENSION:
-        ratio = MAX_IMAGE_DIMENSION / new_height
-        new_height = MAX_IMAGE_DIMENSION
-        new_width = int(new_width * ratio)
-
-    resized = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
-    logger.info(
-        f"Resized image from {image.width}x{image.height} to {new_width}x{new_height}"
-    )
-
-    return resized
-
-
-def _image_to_png_bytes(image: "Image.Image") -> Optional[bytes]:
-    """Normalize a PIL image and return PNG bytes within configured limits."""
-    if Image is None:
         return None
-    if image.mode in ("RGBA", "LA") or (
-        image.mode == "P" and "transparency" in image.info
-    ):
-        pass
-    elif image.mode != "RGB":
-        image = image.convert("RGB")
-
-    image = _resize_image_if_needed(image, MAX_IMAGE_SIZE_BYTES)
-    buffer = io.BytesIO()
-    image.save(buffer, format="PNG", optimize=True)
-    image_bytes = buffer.getvalue()
-    logger.info(f"Clipboard image size: {len(image_bytes) / 1024:.1f}KB")
-    return image_bytes
+    try:
+        encoded = normalize_image_bytes(_encode_image(image, "PNG"), media_type)
+    except ImageTooLargeError as exc:
+        logger.warning(f"Clipboard image is too large to attach: {exc}")
+        return None
+    except Exception as e:
+        logger.warning(f"Failed to encode clipboard image: {e}")
+        return None
+    data, out_media_type = encoded
+    logger.info(f"Clipboard image size: {len(data) / 1024:.1f}KB ({out_media_type})")
+    return data, out_media_type
 
 
-def get_image_file_as_png(file_path: str) -> Optional[bytes]:
-    """Read a local image file and normalize it to PNG bytes safely."""
+def get_image_file_bytes(file_path: str) -> Optional[tuple[bytes, str]]:
+    """Read a local image file and normalize it, preserving its format."""
     if not PIL_AVAILABLE:
         return None
     try:
         path = Path(file_path).expanduser()
-        if not path.is_file() or path.suffix.lower() not in _IMAGE_FILE_SUFFIXES:
+        suffix = path.suffix.lower()
+        if not path.is_file() or suffix not in _IMAGE_FILE_SUFFIXES:
             return None
         if path.stat().st_size > MAX_IMAGE_FILE_SIZE_BYTES:
             logger.warning(f"Rejected oversized image file: {path}")
             return None
-        image = _safe_open_image(path.read_bytes())
-        return None if image is None else _image_to_png_bytes(image)
+        data = path.read_bytes()
+        if _safe_open_image(data) is None:
+            return None
+        return normalize_image_bytes(
+            data, _IMAGE_SUFFIX_MEDIA_TYPES.get(suffix, "image/png")
+        )
+    except ImageTooLargeError as exc:
+        logger.warning(f"Pasted image is too large to attach: {exc}")
+        return None
     except Exception as e:
         logger.debug(f"Failed to read pasted image file {file_path!r}: {e}")
         return None
 
 
-def _image_file_list_to_png_bytes(value) -> Optional[bytes]:
+def _image_file_list_to_attachment(value) -> Optional[tuple[bytes, str]]:
     if not isinstance(value, (list, tuple)):
         return None
     for item in value:
         if isinstance(item, str):
-            image_bytes = get_image_file_as_png(item)
-            if image_bytes is not None:
-                return image_bytes
+            image = get_image_file_bytes(item)
+            if image is not None:
+                return image
     return None
 
 
@@ -314,17 +246,19 @@ def has_image_in_clipboard() -> bool:
         return False
 
 
-def get_clipboard_image() -> Optional[bytes]:
-    """Get clipboard image as PNG bytes.
+def get_clipboard_image() -> Optional[tuple[bytes, str]]:
+    """Get the clipboard image as ``(bytes, media_type)``.
 
     Handles cross-platform clipboard access:
     - Windows/macOS: Uses PIL.ImageGrab
     - Linux: Uses xclip or wl-paste
 
-    Images larger than 10MB are automatically resized.
+    Images over the API's base64 payload budget are downscaled, keeping the
+    source format (JPEG stays JPEG instead of ballooning into PNG).
 
     Returns:
-        PNG bytes if clipboard contains an image, None otherwise.
+        ``(image_bytes, media_type)`` if the clipboard holds an image, else
+        ``None``.
     """
     image_bytes: Optional[bytes] = None
 
@@ -334,41 +268,25 @@ def get_clipboard_image() -> Optional[bytes]:
         if image_bytes is None:
             return None
 
-        # Check size and resize if needed
-        if len(image_bytes) > MAX_IMAGE_SIZE_BYTES:
-            if not PIL_AVAILABLE:
-                logger.warning(
-                    f"Image size ({len(image_bytes) / 1024 / 1024:.2f}MB) exceeds limit, "
-                    "but PIL not available for resizing."
-                )
-                return None
+        if not PIL_AVAILABLE:
+            logger.warning(
+                "PIL not available; cannot verify or normalize clipboard image."
+            )
+            return None
 
-            try:
-                # Use safe image opening with verification
-                image = _safe_open_image(image_bytes)
-                if image is None:
-                    logger.warning(
-                        "Image verification failed for Linux clipboard image"
-                    )
-                    return None
-                image = _resize_image_if_needed(image, MAX_IMAGE_SIZE_BYTES)
-                buffer = io.BytesIO()
-                image.save(buffer, format="PNG", optimize=True)
-                image_bytes = buffer.getvalue()
-            except Exception as e:
-                logger.warning(f"Error resizing Linux clipboard image: {e}")
-                return None
-        else:
-            # Verify even small images for safety
-            if PIL_AVAILABLE:
-                image = _safe_open_image(image_bytes)
-                if image is None:
-                    logger.warning(
-                        "Image verification failed for Linux clipboard image"
-                    )
-                    return None
+        # Verify even small images for safety.
+        if _safe_open_image(image_bytes) is None:
+            logger.warning("Image verification failed for Linux clipboard image")
+            return None
 
-        return image_bytes
+        try:
+            return normalize_image_bytes(image_bytes, "image/png")
+        except ImageTooLargeError as exc:
+            logger.warning(f"Linux clipboard image is too large to attach: {exc}")
+            return None
+        except Exception as e:
+            logger.warning(f"Error normalizing Linux clipboard image: {e}")
+            return None
 
     # Windows/macOS path - use PIL
     if not PIL_AVAILABLE:
@@ -382,14 +300,14 @@ def get_clipboard_image() -> Optional[bytes]:
             return None
 
         if not isinstance(image, Image.Image):
-            image_bytes = _image_file_list_to_png_bytes(image)
-            if image_bytes is not None:
-                return image_bytes
+            attachment = _image_file_list_to_attachment(image)
+            if attachment is not None:
+                return attachment
             logger.debug(f"Clipboard contains non-image data: {type(image)}")
             return None
 
         logger.info(f"Captured clipboard image: {image.width}x{image.height}")
-        return _image_to_png_bytes(image)
+        return _image_to_attachment(image)
 
     except Exception as e:
         logger.warning(f"Error reading clipboard image: {e}")
@@ -409,11 +327,12 @@ def get_clipboard_image_as_binary_content() -> Optional["BinaryContent"]:
         logger.warning("pydantic-ai BinaryContent not available")
         return None
 
-    image_bytes = get_clipboard_image()
-    if image_bytes is None:
+    attachment = get_clipboard_image()
+    if attachment is None:
         return None
 
-    return BinaryContent(data=image_bytes, media_type="image/png")
+    data, media_type = attachment
+    return BinaryContent(data=data, media_type=media_type)
 
 
 class ClipboardAttachmentManager:
@@ -433,15 +352,17 @@ class ClipboardAttachmentManager:
 
     def __init__(self) -> None:
         """Initialize the clipboard attachment manager."""
-        self._pending_images: list[bytes] = []
+        # (data, media_type) pairs — format is preserved end to end.
+        self._pending_images: list[tuple[bytes, str]] = []
         self._lock = threading.Lock()
         self._counter = 0
 
-    def add_image(self, image_bytes: bytes) -> str:
+    def add_image(self, image_bytes: bytes, media_type: str = "image/png") -> str:
         """Add image bytes to pending attachments.
 
         Args:
-            image_bytes: PNG image bytes to add.
+            image_bytes: Encoded image bytes to add.
+            media_type: MIME type of *image_bytes* (defaults to PNG).
 
         Returns:
             Placeholder ID string like '[clipboard image 1]'
@@ -457,7 +378,7 @@ class ClipboardAttachmentManager:
                     "Send your message to clear the queue, or use /paste clear."
                 )
             self._counter += 1
-            self._pending_images.append(image_bytes)
+            self._pending_images.append((image_bytes, media_type))
             placeholder = f"[clipboard image {self._counter}]"
             logger.debug(
                 f"Added clipboard image {self._counter} "
@@ -478,8 +399,8 @@ class ClipboardAttachmentManager:
 
         with self._lock:
             return [
-                BinaryContent(data=img_bytes, media_type="image/png")
-                for img_bytes in self._pending_images
+                BinaryContent(data=data, media_type=media_type)
+                for data, media_type in self._pending_images
             ]
 
     def clear_pending(self) -> None:
@@ -548,12 +469,13 @@ def capture_clipboard_image_to_pending() -> Optional[str]:
         logger.debug("Clipboard capture rate limited")
         return None  # Rate limited, silently ignore
 
-    image_bytes = get_clipboard_image()
-    if image_bytes is None:
+    attachment = get_clipboard_image()
+    if attachment is None:
         return None
 
+    data, media_type = attachment
     manager = get_clipboard_manager()
-    placeholder = manager.add_image(image_bytes)
+    placeholder = manager.add_image(data, media_type)
 
     # Update timestamp on successful capture
     _last_clipboard_capture = now

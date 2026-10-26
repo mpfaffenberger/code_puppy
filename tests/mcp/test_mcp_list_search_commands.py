@@ -21,11 +21,6 @@ class TestListCommand:
         """Setup for each test method."""
         self.command = ListCommand()
 
-    def test_init(self):
-        """Test command initialization."""
-        assert hasattr(self.command, "manager")
-        assert callable(self.command.generate_group_id)
-
     def test_execute_no_servers(self, mock_emit_info, mock_mcp_manager):
         """Test listing when no servers are registered."""
         mock_mcp_manager.list_servers.return_value = []  # Empty servers
@@ -211,10 +206,21 @@ class TestListCommand:
         table_message = mock_emit_info.messages[0][0]
         assert hasattr(table_message, "title")
 
-    def test_generate_group_id(self):
-        """Test group ID generation."""
-        group_id1 = self.command.generate_group_id()
-        group_id2 = self.command.generate_group_id()
+
+@pytest.mark.parametrize(
+    "command_cls", [ListCommand, SearchCommand], ids=["list", "search"]
+)
+class TestCommandCommon:
+    """Behavior shared by list and search commands."""
+
+    def test_init(self, command_cls):
+        command = command_cls()
+        assert hasattr(command, "manager")
+        assert callable(command.generate_group_id)
+
+    def test_generate_group_id(self, command_cls):
+        group_id1 = command_cls().generate_group_id()
+        group_id2 = command_cls().generate_group_id()
 
         assert group_id1 != group_id2
         assert len(group_id1) > 10
@@ -226,11 +232,6 @@ class TestSearchCommand:
     def setup_method(self):
         """Setup for each test method."""
         self.command = SearchCommand()
-
-    def test_init(self):
-        """Test command initialization."""
-        assert hasattr(self.command, "manager")
-        assert callable(self.command.generate_group_id)
 
     def test_execute_no_args_shows_popular(self, mock_emit_info, mock_server_catalog):
         """Test executing without args shows popular servers."""
@@ -477,15 +478,6 @@ class TestSearchCommand:
 
         title_message = mock_emit_info.messages[0][0]
         assert "test  with  spaces" in title_message
-
-    def test_generate_group_id(self):
-        """Test group ID generation."""
-        group_id1 = self.command.generate_group_id()
-        group_id2 = self.command.generate_group_id()
-
-        assert group_id1 != group_id2
-        assert len(group_id1) > 10
-        assert len(group_id2) > 10
 
 
 class TestCommandIntegration:

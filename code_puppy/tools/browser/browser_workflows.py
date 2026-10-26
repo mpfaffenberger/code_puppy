@@ -10,11 +10,12 @@ from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warni
 from code_puppy.tools.common import atomic_write_text, generate_group_id
 
 
-def get_workflows_directory() -> Path:
-    """Get the browser workflows directory, creating it if it doesn't exist (uses XDG_DATA_HOME)."""
+def get_workflows_directory(*, create: bool = True) -> Path:
+    """Get the browser workflows directory, creating it only for writes."""
     data_dir = Path(config.DATA_DIR)
     workflows_dir = data_dir / "browser_workflows"
-    workflows_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if create:
+        workflows_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     return workflows_dir
 
 
@@ -90,7 +91,7 @@ async def list_workflows() -> Dict[str, Any]:
     )
 
     try:
-        workflows_dir = get_workflows_directory()
+        workflows_dir = get_workflows_directory(create=False)
 
         # Find all .md files in the workflows directory
         workflow_files = list(workflows_dir.glob("*.md"))
@@ -137,12 +138,12 @@ async def read_workflow(name: str) -> Dict[str, Any]:
     """Read a saved browser workflow."""
     group_id = generate_group_id("read_workflow", name)
     emit_info(
-        f"READ WORKFLOW 📖 name='{name}'",
+        f"READ WORKFLOW name='{name}'",
         message_group=group_id,
     )
 
     try:
-        workflows_dir = get_workflows_directory()
+        workflows_dir = get_workflows_directory(create=False)
 
         # Handle both with and without .md extension
         if not name.endswith(".md"):
@@ -202,7 +203,7 @@ def register_save_workflow(agent):
 def register_list_workflows(agent):
     """Register the list workflows tool."""
 
-    @agent.tool
+    @agent.tool(metadata={"speculatable": True})
     async def browser_list_workflows(context: RunContext) -> Dict[str, Any]:
         """List all saved browser automation workflows."""
         return await list_workflows()
@@ -211,7 +212,7 @@ def register_list_workflows(agent):
 def register_read_workflow(agent):
     """Register the read workflow tool."""
 
-    @agent.tool
+    @agent.tool(metadata={"speculatable": True})
     async def browser_read_workflow(
         context: RunContext,
         name: str,

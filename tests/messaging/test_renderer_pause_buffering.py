@@ -250,14 +250,12 @@ def test_bus_listener_path_respects_pause(buffer_io):
     try:
         pc = get_pause_controller()
         pc.pause()
-        # Emit through the queue; the consume thread will pick these up
-        # and route them through ``_render_message`` (which buffers while
-        # paused).
+        # Emit via the queue; the consume thread routes them through _render_message
+        # (which buffers while paused).
         q.emit(_msg("bus-1"))
         q.emit(_msg("bus-2"))
-        # Wait for the consume thread to actually drain the queue into
-        # the renderer's pause buffer. A fixed sleep here is flaky under
-        # load — poll the observable state instead.
+        # Wait for the consume thread to drain into the pause buffer — poll observable
+        # state instead of sleeping (fixed sleeps are flaky under load).
         deadline = time.monotonic() + 2.0
         while time.monotonic() < deadline:
             if len(renderer._paused_buffer) >= 2:
