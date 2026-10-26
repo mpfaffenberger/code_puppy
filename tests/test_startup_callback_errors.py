@@ -189,3 +189,42 @@ async def test_fail_closed_result_is_unchanged_and_not_written(log_file):
     ]
     assert results[0]["blocked"] is True
     assert not log_file.exists()
+
+
+class _HostileCallback:
+    """Named, failing, and with a ``__repr__`` that must never be called."""
+
+    __name__ = "broken"
+
+    def __call__(self, *_args: Any, **_kwargs: Any) -> None:
+        raise RuntimeError("plugin bug")
+
+    def __repr__(self) -> str:
+        raise AssertionError("repr was evaluated while reporting a failure")
+
+
+async def test_sync_and_async_dispatch_isolate_a_callback_with_a_throwing_repr(
+    log_file,
+):
+    ran: list[str] = []
+    _register_around("handle_cli_args", _HostileCallback(), ran)
+    _register_around("startup", _HostileCallback(), ran)
+
+    sync_results = callbacks.on_handle_cli_args(argparse.Namespace())
+    async_results = await callbacks.on_startup()
+
+    expected = ["before-result", None, "after-result"]
+    assert sync_results == async_results == expected
+    assert _contexts(log_file) == [
+        f"{SYNC_CONTEXT} (handle_cli_args, broken)",
+        f"{ASYNC_CONTEXT} (startup, broken)",
+    ]
+
+
+def test_fail_fast_dispatch_still_raises_the_original_exception(log_file):
+    _register_around("register_cli_args", _HostileCallback(), [])
+
+    with pytest.raises(RuntimeError, match="plugin bug"):
+        callbacks.on_register_cli_args(argparse.ArgumentParser())
+
+    assert _contexts(log_file) == [f"{SYNC_CONTEXT} (register_cli_args, broken)"]

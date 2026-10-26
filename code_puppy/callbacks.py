@@ -223,7 +223,9 @@ def _log_startup_failure(
     Called by: ``_trigger_callbacks_sync``, ``_trigger_callbacks``.
     """
     if phase in _STARTUP_PHASES:
-        name = getattr(callback, "__name__", repr(callback))
+        # Not repr(callback): the default would be evaluated even when __name__ exists,
+        # and a throwing __repr__ would replace the failure being reported.
+        name = getattr(callback, "__name__", type(callback).__name__)
         log_error(error, context=f"{context} ({phase}, {name})")
 
 

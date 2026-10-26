@@ -8,6 +8,8 @@ import traceback
 from datetime import datetime
 from typing import Optional
 
+from code_puppy.error_redaction import redact
+
 logger = logging.getLogger(__name__)
 
 # Size bounds. Rotation keeps one ``.1`` backup, so errors.log plus its backup
@@ -19,6 +21,10 @@ _MAX_CONTEXT_CHARS = 1024
 _MAX_TRACEBACK_CHARS = 32768
 _MAX_ENTRY_CHARS = 65536
 
+# A secret straddling a cut is only recognised when its tail is still in view, so
+# redaction runs over this much text past the cap before the cut is applied.
+_REDACTION_LOOKAHEAD = 512
+
 _RULE = "=" * 80
 
 
@@ -26,16 +32,21 @@ def _marker(cut: int) -> str:
     return f"…[truncated {cut} chars]"
 
 
+def _redact_head(text: str, limit: int) -> str:
+    """Redact *text*, keeping at most its first *limit* characters (redacted)."""
+    return redact(text[: limit + _REDACTION_LOOKAHEAD])[:limit]
+
+
 def _cap(text: object, limit: int) -> str:
-    """Keep the start of *text* and say exactly how many characters were cut.
+    """Redact *text*, keep its start and say exactly how many characters were cut.
 
     Not used for Args: that repr is bounded while it is built (``_args_text``),
     so how much was dropped is unknown and its marker carries no number.
     """
     text = str(text)
     if len(text) <= limit:
-        return text
-    return text[:limit] + _marker(len(text) - limit)
+        return redact(text)
+    return _redact_head(text, limit) + _marker(len(text) - limit)
 
 
 def _cap_traceback(text: str, limit: int) -> str:
@@ -69,24 +80,41 @@ def cap_entry(entry: str) -> str:
 # __repr__ returning it raw can only cause a spurious marker; output stays bounded.
 _ELIDED = "\ufdd0"
 _ELIDED_MARKER = "…[truncated, repr elided]"
-_args_repr = reprlib.Repr()
-_args_repr.fillvalue = _ELIDED
-_args_repr.maxlevel = 6
-_args_repr.maxtuple = _args_repr.maxlist = _args_repr.maxdict = 32
-_args_repr.maxset = _args_repr.maxfrozenset = _args_repr.maxdeque = 32
-_args_repr.maxarray = 32
-_args_repr.maxlong = _MAX_ARGS_CHARS  # the default of 40 would elide a 100-digit int
-_args_repr.maxstring = _args_repr.maxother = _MAX_ARGS_CHARS
+# Per-container child limits multiply across levels (and a shared child is visited once
+# per reference), so a tiny exception can fan out to millions of repr calls. The budget
+# counts every value visited, bounding the traversal itself rather than only its text.
+_MAX_ARGS_NODES = 256
+
+
+class _BudgetedRepr(reprlib.Repr):
+    """A ``reprlib.Repr`` that visits at most ``_MAX_ARGS_NODES`` values per instance."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.fillvalue = _ELIDED
+        self.maxlevel = 6
+        self.maxtuple = self.maxlist = self.maxdict = 32
+        self.maxset = self.maxfrozenset = self.maxdeque = 32
+        self.maxarray = 32
+        self.maxlong = _MAX_ARGS_CHARS  # the default of 40 would elide a 100-digit int
+        self.maxstring = self.maxother = _MAX_ARGS_CHARS
+        self._nodes_left = _MAX_ARGS_NODES
+
+    def repr1(self, x: object, level: int) -> str:
+        if self._nodes_left <= 0:
+            return self.fillvalue
+        self._nodes_left -= 1
+        return super().repr1(x, level)
 
 
 def _args_text(args: object) -> str:
-    """Bounded repr of *args*; ends with a fixed marker when anything was elided or cut."""
-    text = _args_repr.repr(args)
+    """Bounded, redacted repr of *args*; ends with a fixed marker when anything was elided or cut."""
+    text = _BudgetedRepr().repr(args)
     elided = _ELIDED in text
     text = text.replace(_ELIDED, "...")
     if elided or len(text) > _MAX_ARGS_CHARS:
-        return text[:_MAX_ARGS_CHARS] + _ELIDED_MARKER
-    return text
+        return _redact_head(text, _MAX_ARGS_CHARS) + _ELIDED_MARKER
+    return redact(text)
 
 
 def _format_traceback(error: BaseException) -> str:
