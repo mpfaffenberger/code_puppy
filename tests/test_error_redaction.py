@@ -127,3 +127,59 @@ def test_a_shared_nested_graph_is_visited_a_bounded_number_of_times():
     assert _Leaf.visits <= EL._MAX_ARGS_NODES
     assert text.endswith(EL._ELIDED_MARKER)
     assert len(text) <= EL._MAX_ARGS_CHARS + len(EL._ELIDED_MARKER)
+
+
+QUOTED_SECRETS = {
+    "whitespace": ('password="alpha beta gamma"', ("alpha", "beta", "gamma")),
+    "comma-semicolon": ("{'api_key': 'alpha,beta;gamma'}", ("alpha", "beta", "gamma")),
+    "escaped-quote": (r'secret="alpha \"beta\" gamma"', ("alpha", "beta", "gamma")),
+    "single-quoted-source-line": ("token = 'alpha beta'", ("alpha", "beta")),
+}
+
+
+@pytest.mark.parametrize("case", QUOTED_SECRETS)
+def test_a_quoted_credential_is_consumed_whole_in_every_persisted_field(case):
+    text, fragments = QUOTED_SECRETS[case]
+    error = ValueError(text)
+
+    entry = EL._build_error_entry(error, text, True, "T")
+
+    for fragment in fragments:
+        assert fragment not in entry
+    assert redact(redact(text)) == redact(text)  # a second pass changes nothing
+
+
+def _spread_token_payloads() -> dict[str, str]:
+    token = "ghp_" + "A" * 36
+    return {
+        # Cut points of reprlib's middle elision at maxstring 2048: head 1022, tail 1023.
+        "straddles-the-head-cut": "x" * 1000 + " " + token + " " + "y" * 3000,
+        "straddles-the-tail-cut": "y" * 3000 + " " + token + " " + "x" * 1000,
+        "in-the-elided-middle": "x" * 2000 + " " + token + " " + "y" * 2000,
+        "short": f"before {token} after",
+    }
+
+
+@pytest.mark.parametrize("case", _spread_token_payloads())
+@pytest.mark.parametrize(
+    "nest", [lambda s: (s,), lambda s: ({"k": [s]},)], ids=["flat", "nested"]
+)
+def test_a_token_cut_by_the_args_elision_leaves_no_fragment(case, nest):
+    payload = _spread_token_payloads()[case]
+
+    entry = EL.render_error_entry(ValueError(*nest(payload)), None, True)
+
+    assert "ghp_" not in entry
+    assert "AAAAAAAA" not in entry
+
+
+class _LongRepr:
+    def __repr__(self) -> str:
+        return "x" * 1015 + " Bearer " + "S" * 40 + " " + "y" * 3000
+
+
+def test_a_token_in_a_custom_repr_cut_by_the_elision_leaves_no_fragment():
+    text = EL._args_text((_LongRepr(),))
+
+    assert "SSSSSSSS" not in text
+    assert text.endswith(EL._ELIDED_MARKER)

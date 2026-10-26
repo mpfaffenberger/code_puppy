@@ -13,11 +13,14 @@ from functools import lru_cache
 
 REDACTED = "[REDACTED]"
 
-# ``key: value`` / ``key=value`` / ``'key': 'value'`` where the key names a credential. An
-# optional auth scheme before the value is swallowed so the scheme does not hide the secret.
+# ``key: value`` / ``key=value`` / ``'key': 'value'`` where the key names a credential. A quoted
+# value is consumed whole (spaces, commas, escaped quotes; an unterminated one runs to the
+# end); a bare one may carry an auth scheme, which is dropped. ``(?!\[REDACTED\])`` keeps
+# a second pass over already-redacted text from adding a stray bracket.
 _CREDENTIAL_PAIR = re.compile(
-    r"(api[_-]?key|secret|password|passwd|authorization|token)([\w.-]*['\"]?\s*[:=]\s*['\"]?)"
-    r"(?:(?:bearer|basic|token)\s+)?[^\s'\",;&)}\]]+",
+    r"(api[_-]?key|secret|password|passwd|authorization|token)([\w.-]*['\"]?\s*[:=]\s*)"
+    r"(?:(?P<quoted>\"(?:[^\"\\]|\\.)*\"?|'(?:[^'\\]|\\.)*'?)"
+    r"|(?:(?:bearer|basic|token)\s+)?(?!\[REDACTED\])[^\s'\",;&)}\]]+)",
     re.IGNORECASE,
 )
 _BEARER = re.compile(r"\b(bearer)\s+[A-Za-z0-9._~+/=-]{8,}", re.IGNORECASE)
@@ -47,9 +50,14 @@ def _current_home(home: str) -> re.Pattern[str] | None:
     return re.compile(prefix + r"[\\/]+".join(segments), re.IGNORECASE)
 
 
+def _redact_pair(match: re.Match[str]) -> str:
+    quote = match["quoted"][:1] if match["quoted"] else ""
+    return f"{match[1]}{match[2]}{quote}{REDACTED}{quote}"
+
+
 def redact(text: str) -> str:
     """Replace credentials and the user's home directory in *text*; layout is preserved."""
-    text = _CREDENTIAL_PAIR.sub(rf"\1\2{REDACTED}", text)
+    text = _CREDENTIAL_PAIR.sub(_redact_pair, text)
     text = _BEARER.sub(rf"\1 {REDACTED}", text)
     text = _URL_CREDENTIALS.sub(rf"\1{REDACTED}\2", text)
     text = _TOKEN_SHAPE.sub(REDACTED, text)

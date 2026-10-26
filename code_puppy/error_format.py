@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import reprlib
+import sys
 import traceback
 from datetime import datetime
 from typing import Optional
@@ -86,8 +87,21 @@ _ELIDED_MARKER = "…[truncated, repr elided]"
 _MAX_ARGS_NODES = 256
 
 
+def _elide(text: str, limit: int) -> str:
+    """reprlib's middle elision: keep the head and tail, mark the gap with ``_ELIDED``."""
+    if len(text) <= limit:
+        return text
+    head = max(0, (limit - 3) // 2)
+    tail = max(0, limit - 3 - head)
+    return text[:head] + _ELIDED + text[len(text) - tail :]
+
+
 class _BudgetedRepr(reprlib.Repr):
-    """A ``reprlib.Repr`` that visits at most ``_MAX_ARGS_NODES`` values per instance."""
+    """A ``reprlib.Repr`` that visits at most ``_MAX_ARGS_NODES`` values per instance.
+
+    Strings and other objects are redacted *before* the middle is elided: once reprlib
+    has cut a token in two, neither half is recognisable any more.
+    """
 
     def __init__(self) -> None:
         super().__init__()
@@ -97,7 +111,8 @@ class _BudgetedRepr(reprlib.Repr):
         self.maxset = self.maxfrozenset = self.maxdeque = 32
         self.maxarray = 32
         self.maxlong = _MAX_ARGS_CHARS  # the default of 40 would elide a 100-digit int
-        self.maxstring = self.maxother = _MAX_ARGS_CHARS
+        self.maxstring = _MAX_ARGS_CHARS
+        self.maxother = sys.maxsize  # repr_instance elides after redacting
         self._nodes_left = _MAX_ARGS_NODES
 
     def repr1(self, x: object, level: int) -> str:
@@ -105,6 +120,21 @@ class _BudgetedRepr(reprlib.Repr):
             return self.fillvalue
         self._nodes_left -= 1
         return super().repr1(x, level)
+
+    def repr_str(self, x: str, level: int) -> str:
+        if len(x) <= self.maxstring:
+            return _elide(repr(redact(x)), self.maxstring)
+        head = max(0, (self.maxstring - 3) // 2)
+        tail = max(0, self.maxstring - 3 - head)
+        # Only the two kept ends are scanned, so a huge string stays cheap; the lookahead
+        # lets a token that straddles an end still be seen whole before it is clipped.
+        kept_head = redact(x[: head + _REDACTION_LOOKAHEAD])[:head]
+        kept_tail = redact(x[-(tail + _REDACTION_LOOKAHEAD) :])[-tail:] if tail else ""
+        text = repr(kept_head + kept_tail)
+        return text[: len(kept_head)] + _ELIDED + text[len(text) - len(kept_tail) :]
+
+    def repr_instance(self, x: object, level: int) -> str:
+        return _elide(redact(super().repr_instance(x, level)), _MAX_ARGS_CHARS)
 
 
 def _args_text(args: object) -> str:
