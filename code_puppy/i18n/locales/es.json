@@ -1,4 +1,5 @@
 {
+  "agent.error.multimodal_processing_hint": "El servidor del modelo no pudo procesar la entrada de imagen (mtmd). Revisa los registros de llama-server para ver el error de decodificación subyacente, verifica el modelo y el proyector multimodal correspondiente, y comprueba los límites de recursos/contexto del servidor. Si la decodificación especulativa (por ejemplo, DFlash) está habilitada, prueba desactivarla en el servidor antes de volver a intentarlo. Este diagnóstico no elimina imágenes, no restablece el historial ni cambia la configuración de tu servidor. La traza de error completa se guarda en ~/.code_puppy/logs/errors.log.",
   "agent.model_settings.boolean_type": "model_settings[{key!r}] debe ser verdadero o falso (se obtuvo {value!r})",
   "agent.model_settings.choice": "model_settings[{key!r}] debe ser uno de {choices} (se obtuvo {value!r})",
   "agent.model_settings.maximum": "model_settings[{key!r}] debe ser <= {maximum} (se obtuvo {value!r})",

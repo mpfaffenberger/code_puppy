@@ -1,4 +1,5 @@
 {
+  "agent.error.multimodal_processing_hint": "Le serveur du modèle n’a pas pu traiter l’image en entrée (mtmd). Consultez les journaux de llama-server pour identifier l’erreur de décodage sous-jacente, vérifiez le modèle et le projecteur multimodal (mmproj) correspondant, puis vérifiez les limites de ressources et de contexte du serveur. Si le décodage spéculatif (par exemple, DFlash) est activé, essayez de le désactiver sur le serveur avant de réessayer. Ce diagnostic ne supprime aucune image, ne réinitialise pas l’historique et ne modifie pas la configuration de votre serveur. La trace complète de l’exception est enregistrée dans ~/.code_puppy/logs/errors.log.",
   "agent.model_settings.boolean_type": "model_settings[{key!r}] doit être vrai ou faux (valeur obtenue : {value!r})",
   "agent.model_settings.choice": "model_settings[{key!r}] doit être l’une de {choices} (valeur obtenue : {value!r})",
   "agent.model_settings.maximum": "model_settings[{key!r}] doit être <= {maximum} (valeur obtenue : {value!r})",
