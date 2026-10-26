@@ -10,6 +10,8 @@ from typing import Any, Callable, Dict, List, Literal, Optional, Set, Tuple
 
 from pydantic_ai.messages import ModelMessage
 
+from code_puppy.error_logging import log_error
+
 PhaseType = Literal[
     "startup",
     "shutdown",
@@ -197,6 +199,32 @@ BLOCKING_PHASES: frozenset = frozenset({"pre_tool_call", "run_shell_command"})
 # by callable: the same helper may be registered on several phases with
 # different policies, and one phase's choice must not leak into another.
 _fail_closed_callbacks: Set[Tuple[PhaseType, CallbackFunc]] = set()
+
+# Phases whose callback failures also go to errors.log. Others, such as
+# ``stream_event``, fire per event and repeat throttling is not in this change.
+_STARTUP_PHASES = frozenset(
+    {"register_cli_args", "handle_cli_args", "version_check", "startup"}
+)
+_SYNC_STARTUP_CONTEXT = (
+    "code_puppy.callbacks::_trigger_callbacks_sync: startup/cli-args: "
+    "run a startup-phase callback registered by a plugin"
+)
+_ASYNC_STARTUP_CONTEXT = (
+    "code_puppy.callbacks::_trigger_callbacks: startup/plugin-startup: "
+    "run a startup-phase async callback registered by a plugin"
+)
+
+
+def _log_startup_failure(
+    phase: PhaseType, callback: CallbackFunc, error: Exception, context: str
+) -> None:
+    """Record a callback failure in errors.log when *phase* is a startup phase.
+
+    Called by: ``_trigger_callbacks_sync``, ``_trigger_callbacks``.
+    """
+    if phase in _STARTUP_PHASES:
+        name = getattr(callback, "__name__", repr(callback))
+        log_error(error, context=f"{context} ({phase}, {name})")
 
 
 def _failure_result(
@@ -572,6 +600,7 @@ def _trigger_callbacks_sync(
                 f"Callback {callback.__name__} failed in phase '{phase}': {e}\n"
                 f"{traceback.format_exc()}"
             )
+            _log_startup_failure(phase, callback, e, _SYNC_STARTUP_CONTEXT)
             if raise_on_error:
                 raise
             if (phase, callback) in _fail_closed_callbacks:
@@ -610,6 +639,7 @@ async def _trigger_callbacks(phase: PhaseType, *args, **kwargs) -> List[Any]:
                 f"Async callback {callback.__name__} failed in phase '{phase}': {e}\n"
                 f"{traceback.format_exc()}"
             )
+            _log_startup_failure(phase, callback, e, _ASYNC_STARTUP_CONTEXT)
             if (phase, callback) in _fail_closed_callbacks:
                 results.append(_failure_result(callback, phase, e))
             else:
