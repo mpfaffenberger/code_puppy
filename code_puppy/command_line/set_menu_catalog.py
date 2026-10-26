@@ -52,6 +52,7 @@ from code_puppy.config import (
     get_puppy_token,
     get_resume_message_count,
     get_safety_permission_level,
+    get_selection_friendly_transcript,
     get_smooth_response_stream,
     get_smooth_thinking_stream,
     get_subagent_verbose,
@@ -294,6 +295,17 @@ _FEATURES = SettingsCategory(
             description="Allow agents to dynamically create custom tools at runtime.",
             type_hint="bool",
             effective_getter=get_universal_constructor_enabled,
+        ),
+        Setting(
+            key="selection_friendly_transcript",
+            display_name="Selection-Friendly Transcript",
+            description=(
+                "Skip forcing the theme foreground on rendered markdown so "
+                "terminal text-selection keeps contrast. Disable to restore "
+                "the legacy theme-fg override for terminals that ignore OSC 10."
+            ),
+            type_hint="bool",
+            effective_getter=get_selection_friendly_transcript,
         ),
         Setting(
             key="enable_dbos",
