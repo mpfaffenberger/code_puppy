@@ -8,8 +8,9 @@ slash drain — see ``run_ui``'s router).
 
 Key map (Phase B parity set): printables, backspace/Delete, Ctrl+U/K/W
 kills, Ctrl+A/E + Left/Right/Home/End + word jumps (Ctrl/Alt+arrows,
-Meta-b/f), Up/Down (menu > multiline line-move > history), Enter
-(accept-completion / newline-in-multiline / submit; ``\\r`` only — the
+Meta-b/f), Ctrl+L (clear screen), Up/Down (menu > multiline line-move >
+history), Enter (accept-completion / newline-in-multiline / submit;
+``\\r`` only — the
 POSIX listener clears ICRNL so Ctrl+J = ``\\n`` = newline), Shift/Ctrl+
 Enter (CSI-u + modifyOtherKeys: Shift newline, Ctrl steer), Alt+Enter
 (queue-submit),
@@ -67,6 +68,7 @@ DEFAULT_ESC_TIMEOUT = 0.05
 _ENTER, _CTRL_J, _TAB, _ESC = ek.ENTER, ek.CTRL_J, ek.TAB, ek.ESC
 _BACKSPACE_KEYS = ek.BACKSPACE_KEYS
 _CTRL_C, _CTRL_D, _CTRL_R, _CTRL_V = ek.CTRL_C, ek.CTRL_D, ek.CTRL_R, ek.CTRL_V
+_CTRL_L = ek.CTRL_L
 
 #: Callback signature: ``(text, mode)`` where mode is "now" or "queue".
 SubmitListener = Callable[[str, str], None]
@@ -382,6 +384,14 @@ class RunningLineEditor:
                 self._call_handler(self._ctrl_c_handler, "ctrl-c")
             else:
                 self.clear_buffer()
+            return None
+
+        if ch == _CTRL_L:
+            # Before the reverse-search gate: clearing must not cancel a search.
+            if not handle_chord(self, ch):
+                self._call_handler(
+                    lambda: self._resolve_bar().clear_screen(), "clear_screen"
+                )
             return None
 
         if self._rsearch.active:

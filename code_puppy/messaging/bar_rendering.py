@@ -24,6 +24,7 @@ RESTORE_CURSOR = "\x1b8"  # DECRC
 RESET_REGION = "\x1b[r"  # DECSTBM with no args = full screen
 CLEAR_LINE = "\x1b[2K"
 ERASE_BELOW = "\x1b[J"  # ED 0: cursor to end of screen
+CLEAR_SCREEN = "\x1b[H\x1b[2J"  # home + erase viewport; NOT 3J, scrollback stays
 REVERSE_ON = "\x1b[7m"
 REVERSE_OFF = "\x1b[27m"
 WRAP_OFF = "\x1b[?7l"  # DECAWM off: belt-and-braces against row bleed
