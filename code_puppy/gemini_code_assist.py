@@ -36,6 +36,7 @@ from code_puppy.gemini_common import (
     _build_tools,
     _parse_candidate_parts,
     _build_generation_config,
+    tool_call_signature,
 )
 
 logger = logging.getLogger(__name__)
@@ -207,11 +208,13 @@ class GeminiCodeAssistModel(Model):
                             }
                         }
 
-                        # Code Assist API requires thoughtSignature on function calls.
-                        # Use synthetic signature to skip validation.
+                        # Code Assist API requires thoughtSignature on the first
+                        # function call. Replay Gemini's real signature when we
+                        # have it; the synthetic one skips validation otherwise.
                         if first_func_call:
                             func_call_part["thoughtSignature"] = (
-                                "skip_thought_signature_validator"
+                                tool_call_signature(part)
+                                or "skip_thought_signature_validator"
                             )
                             first_func_call = False
 

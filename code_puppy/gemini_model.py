@@ -41,6 +41,8 @@ from code_puppy.gemini_common import (
     _parse_candidate_parts,
     generate_tool_call_id,
     _build_generation_config,
+    signature_provider_details,
+    tool_call_signature,
 )
 from code_puppy.steer_metadata import is_steer_request
 
@@ -367,13 +369,18 @@ class GeminiModel(Model):
                         "id": item.tool_call_id,
                     }
                 }
-                # Gemini thinking models REQUIRE thoughtSignature on function calls
-                # Use pending signature from thinking or bypass signature
+                # Gemini thinking models REQUIRE thoughtSignature on function calls.
+                # Replay the signature Gemini attached to this call; otherwise
+                # the one from a preceding thinking part; bypass only as a last
+                # resort (it costs the model its reasoning state).
                 part_dict["thoughtSignature"] = (
-                    pending_signature
-                    if pending_signature is not None
-                    else BYPASS_THOUGHT_SIGNATURE
+                    tool_call_signature(item)
+                    or pending_signature
+                    or BYPASS_THOUGHT_SIGNATURE
                 )
+                # Gemini signs only the first call of a parallel batch, so a
+                # pending thinking signature belongs to the next call only.
+                pending_signature = None
                 parts.append(part_dict)
             elif isinstance(item, TextPart):
                 part_dict = {"text": item.content}
@@ -634,6 +641,7 @@ class GeminiStreamingResponse(StreamedResponse):
                     for event in self._parts_manager.handle_thinking_delta(
                         vendor_part_id=None,
                         content=part["text"],
+                        signature=part.get("thoughtSignature"),
                     ):
                         yield event
 
@@ -685,6 +693,7 @@ class GeminiStreamingResponse(StreamedResponse):
                             tool_name=self._current_tool_name,
                             args=delta_args,
                             tool_call_id=self._current_tool_call_id,
+                            provider_details=signature_provider_details(part),
                         )
                         if event is not None:
                             yield event

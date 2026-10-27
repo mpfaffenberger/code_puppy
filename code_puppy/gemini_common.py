@@ -20,9 +20,30 @@ from pydantic_ai.tools import ToolDefinition
 from pydantic_ai.settings import ModelSettings
 
 
+# ``ToolCallPart.provider_details`` key holding the ``thoughtSignature`` Gemini
+# attached to that function call. Gemini 3 sends it directly on the
+# ``functionCall`` part when no thought text precedes the call, and only on
+# the first call of a parallel batch -- so it is stored per part, never copied.
+THOUGHT_SIGNATURE_KEY = "thought_signature"
+
+
 def generate_tool_call_id() -> str:
     """Generate a unique tool call ID."""
     return str(uuid.uuid4())
+
+
+def signature_provider_details(part: dict[str, Any]) -> dict[str, Any] | None:
+    """Provider details carrying a wire part's own ``thoughtSignature``, if any."""
+    signature = part.get("thoughtSignature")
+    return {THOUGHT_SIGNATURE_KEY: signature} if signature else None
+
+
+def tool_call_signature(part: ToolCallPart) -> str | None:
+    """Return the real ``thoughtSignature`` Gemini attached to this tool call."""
+    details = part.provider_details
+    if not isinstance(details, dict):
+        return None
+    return details.get(THOUGHT_SIGNATURE_KEY) or None
 
 
 def _flatten_union_to_object_gemini(union_items: list, defs: dict, resolve_fn) -> dict:
@@ -288,6 +309,7 @@ def _parse_candidate_parts(
                     tool_name=fc["name"],
                     args=fc.get("args", {}),
                     tool_call_id=fc.get("id") or generate_tool_call_id(),
+                    provider_details=signature_provider_details(part),
                 )
             )
 
