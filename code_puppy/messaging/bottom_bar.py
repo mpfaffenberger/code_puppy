@@ -411,17 +411,24 @@ class BottomBar(TranscriptGuardMixin, SpeculationLineMixin, BarPainterMixin):
         simulator, popup slack and terminal modes are reset the same way a
         resize does. Cached prompt/status/panel state repaints. On the Windows
         guard path the cursor parks at the region bottom, so new output starts
-        just above the bar (as at startup) rather than at row 1.
+        just above the bar (as at startup) rather than at row 1. A withheld
+        incomplete escape tail (``_carry``) is preserved across the clear so
+        the next ``guarded_write`` completes it instead of leaking its rest.
         """
         if not self._is_tty():
             return
         with self._lock:
             if not self._active or self._suspend_depth > 0:
                 return
+            # A Ctrl+L between streaming chunks must not split an escape
+            # sequence: withhold the pending tail across the clear and let
+            # the next guarded_write complete it.
+            pending, self._carry = self._carry, ""
             if self._region_up:
                 self._teardown()
             self._write(_CLEAR_SCREEN)
             self._establish()
+            self._carry = pending
 
     # =========================================================================
     # Geometry / resize

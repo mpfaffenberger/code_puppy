@@ -339,7 +339,37 @@ def test_posix_clear_starts_transcript_at_the_top():
     assert rows[1] == "second after clear"
 
 
-def test_windows_guard_flushes_carry_before_clear_and_resyncs_simulator():
+RED_NEW = "\x1b[31mNEW\r\n"
+
+
+@pytest.mark.parametrize(
+    "split",
+    [1, 2, 3, 4],
+    ids=["esc", "esc-bracket", "esc-bracket-3", "esc-bracket-31"],
+)
+def test_windows_guard_clear_does_not_split_withheld_escape(split):
+    # Ctrl+L between two streaming chunks: the withheld escape head must
+    # survive the clear and be completed by the next chunk, not flushed
+    # half-done into the terminal where the tail would print as text.
+    term = Term(guard_scroll_fix=True)
+    term.bar.start()
+    head, rest = RED_NEW[:split], RED_NEW[split:]
+
+    term.bar.guarded_write(head, term.bar._stream)
+    assert term.bar._carry == head
+    term.bar.clear_screen()
+    term.bar.guarded_write(rest, term.bar._stream)
+
+    rows = term.rows()
+    new_rows = [i for i, row in enumerate(rows) if "NEW" in row]
+    assert len(new_rows) == 1, rows
+    row = new_rows[0]
+    assert rows[row] == "NEW", rows
+    assert term.screen.buffer[row][0].data == "N"
+    assert term.screen.buffer[row][0].fg == "red"
+
+
+def test_windows_guard_clear_withholds_carry_and_resyncs_simulator():
     term = Term(guard_scroll_fix=True)
     writes = []
     real_write = term.bar._write
@@ -350,9 +380,9 @@ def test_windows_guard_flushes_carry_before_clear_and_resyncs_simulator():
 
     term.bar.clear_screen()
 
-    joined = "".join(writes)
-    assert joined.index("\x1b[38;2;1;2") < joined.index(CLEAR_SCREEN)
-    assert term.bar._carry == ""
+    assert CLEAR_SCREEN in "".join(writes)
+    assert not any("\x1b[38;2;1;2" in seq for seq in writes)
+    assert term.bar._carry == "\x1b[38;2;1;2"
     assert term.bar._sim_row == ROWS - term.bar._reserved
 
 
