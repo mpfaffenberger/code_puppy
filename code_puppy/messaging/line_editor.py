@@ -10,10 +10,9 @@ Key map (Phase B parity set): printables, backspace/Delete, Ctrl+U/K/W
 kills, Ctrl+A/E + Left/Right/Home/End + word jumps (Ctrl/Alt+arrows,
 Meta-b/f), Ctrl+L (clear screen), Up/Down (menu > multiline line-move >
 history), Enter (accept-completion / newline-in-multiline / submit;
-``\\r`` only — the
-POSIX listener clears ICRNL so Ctrl+J = ``\\n`` = newline), Shift/Ctrl+
-Enter (CSI-u + modifyOtherKeys: Shift newline, Ctrl steer), Alt+Enter
-(queue-submit),
+``\\r`` only — the POSIX listener clears ICRNL so Ctrl+J = ``\\n`` =
+newline), Shift/Ctrl+Enter (CSI-u + modifyOtherKeys: Shift newline,
+Ctrl steer), Alt+Enter (queue-submit),
 Ctrl+Z / Cmd+Z undo + Ctrl+Y / Cmd+Shift+Z redo (editor_undo; Cmd via
 CSI-u), Ctrl+D (EOF on empty), Ctrl+R (reverse search; Enter accepts WITHOUT
 submitting), Ctrl+V (async smart paste — image or text), Ctrl+X chords
