@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 import pytest
 
 from code_puppy import error_format as EL
@@ -266,3 +268,84 @@ def test_an_interior_quote_after_a_backslash_run_does_not_end_redaction(case):
         for fragment in ("alpha", "beta", "gamma"):
             assert fragment not in text
         assert "<entry could not be rendered>" not in text  # no rendering fallback
+
+
+# Each unit is the worst case for one pattern: a quadratic scan turns 256 KB into minutes
+# (the key-suffix pattern took 17s at 64 KB), a linear one into well under a second.
+LINEAR_UNITS = {
+    "key-suffix-token": "token",
+    "key-suffix-dotted": "secret.",
+    "key-suffix-api-key": "api_key",
+    "backslash-run": "\\",
+    "quote-backslash": "'\\",
+    "escaped-opener": "password=\\'",
+    "key-then-spaces": "token" + " " * 40,
+    "home-prefix": "/Users/a",
+    "url-userinfo": "://a:",
+}
+SCAN_SECONDS = 3.0
+
+
+@pytest.mark.parametrize("case", LINEAR_UNITS)
+def test_redaction_cost_is_linear_in_the_input_size(case):
+    text = LINEAR_UNITS[case] * (256_000 // len(LINEAR_UNITS[case]))
+
+    started = time.perf_counter()
+    redact(text)
+
+    assert time.perf_counter() - started < SCAN_SECONDS
+
+
+def test_a_crash_with_a_huge_credential_named_argument_renders_quickly():
+    started = time.perf_counter()
+    EL.render_error_entry(ValueError("token" * 50_000), "ctx", True)
+
+    assert time.perf_counter() - started < SCAN_SECONDS
+
+
+def _redacted_sizes(monkeypatch) -> list[int]:
+    sizes: list[int] = []
+
+    def counting(text: str) -> str:
+        sizes.append(len(text))
+        return redact(text)
+
+    monkeypatch.setattr(EL, "redact", counting)
+    return sizes
+
+
+def test_a_huge_bytes_or_custom_repr_is_never_redacted_whole(monkeypatch):
+    sizes = _redacted_sizes(monkeypatch)
+
+    EL._args_text((b"token" * 1_200_000,))  # a 6 MB repr, as in the review
+
+    assert max(sizes) <= 4096
+
+
+def test_the_scan_budget_is_shared_by_every_value_in_one_render(monkeypatch):
+    sizes = _redacted_sizes(monkeypatch)
+
+    EL._args_text(tuple(b"x" * 200_000 for _ in range(10)))
+
+    assert sum(sizes) <= EL._MAX_ARGS_SCAN_CHARS + 16 * 1024
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("/Users/bob/proj/x.py", "~/proj/x.py"),
+        ("read /Users/bob: nope", "read ~: nope"),
+        ("in /Users/bob.", "in ~."),
+        # A longer or dotted name is another user: no part of it may survive.
+        ("/Users/bobby/proj/x.py", "<home>/proj/x.py"),
+        ("/Users/bob.old/x", "<home>/x"),
+        ("/Users/Shared/tool", "<home>/tool"),
+    ],
+)
+def test_own_home_needs_a_segment_boundary_and_other_homes_get_a_neutral_marker(
+    monkeypatch, text, expected
+):
+    monkeypatch.setenv("HOME", "/Users/bob")
+    monkeypatch.setenv("USERPROFILE", "/Users/bob")
+
+    assert redact(text) == expected

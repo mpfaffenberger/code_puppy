@@ -2,7 +2,8 @@
 
 Every wrapper reports first and then ALWAYS delegates to the hook it replaced,
 so the traceback and exit status stay exactly as before. Nothing is printed
-from here. Importing this module installs nothing; callers opt in.
+from here. Importing this module installs nothing; callers opt in. Once installed the
+hooks stay for the whole process lifetime, so crashes after startup are recorded too.
 
 Imports are module-level on purpose: the sink must already be loaded if a
 later import crashes.

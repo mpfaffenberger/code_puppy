@@ -23,10 +23,10 @@ REDACTED = "[REDACTED]"
 # literal, then repr) the text went through, and that cannot be known here. So the
 # matching is conservative: a plain quote closes the value only when no backslash precedes
 # it, and for a repr-escaped quote only a lone backslash-quote closes it. Ambiguous text
-# therefore redacts more than strictly needed, never less. Possessive quantifiers keep the
-# scan linear.
+# therefore redacts more than strictly needed, never less. Possessive quantifiers and the
+# bounded key suffix keep the scan linear (a longer suffix is not a realistic credential name).
 _CREDENTIAL_PAIR = re.compile(
-    r"(api[_-]?key|secret|password|passwd|authorization|token)([\w.-]*['\"]?\s*[:=]\s*)"
+    r"(api[_-]?key|secret|password|passwd|authorization|token)([\w.-]{0,64}+['\"]?\s*[:=]\s*)"
     r"(?:(?P<quoted>"
     r"\\(?P<esc>['\"])(?:[^\\]|\\{2,}+(?P=esc)?|\\(?!\\|(?P=esc)))*+(?:\\(?P=esc)|$)"
     r"|\"(?:[^\"\\]|\\++\"?)*+\"?"
@@ -45,11 +45,15 @@ _TOKEN_SHAPE = re.compile(
     r"|xox[abprs]-[A-Za-z0-9-]{10,}"
     r"|eyJ[\w-]{8,}\.[\w-]{8,}\.[\w-]{8,})"
 )
-# /Users/<name>, /home/<name>, C:\Users\<name>; repr() doubles backslashes, hence ``+``.
-# The lookbehind keeps URL paths such as ``https://host/home/x`` intact.
+# /Users/<name>, /home/<name>, C:\Users\<name>; repr() doubles backslashes, hence ``++``.
+# The lookbehind keeps URL paths such as ``https://host/home/x`` intact, and excluding
+# separators from it means only the start of a separator run is tried (linear scan).
+HOME_PLACEHOLDER = "<home>"
 _HOME_PATH = re.compile(
-    r"(?<![\w.\-])(?:[A-Za-z]:)?[\\/]+(?:Users|home)[\\/]+[^\\/\s'\"]+"
+    r"(?<![\w.\-\\/])(?:[A-Za-z]:)?[\\/]++(?:Users|home)[\\/]++[^\\/\s'\"]+"
 )
+# A name continuing after the home (``bobby``, ``bob.old``) is a different user.
+_SEGMENT_END = r"(?![\w\-]|\.\w)"
 
 
 @lru_cache(maxsize=4)
@@ -57,8 +61,8 @@ def _current_home(home: str) -> re.Pattern[str] | None:
     segments = [re.escape(part) for part in re.split(r"[\\/]+", home) if part]
     if len(segments) < 2:  # "/" or a bare drive root would erase every path
         return None
-    prefix = r"[\\/]+" if home[0] in "\\/" else ""
-    return re.compile(prefix + r"[\\/]+".join(segments), re.IGNORECASE)
+    prefix = r"(?<![\\/])[\\/]++" if home[0] in "\\/" else ""
+    return re.compile(prefix + r"[\\/]++".join(segments) + _SEGMENT_END, re.IGNORECASE)
 
 
 def _redact_pair(match: re.Match[str]) -> str:
@@ -76,4 +80,4 @@ def redact(text: str) -> str:
     own_home = _current_home(os.path.expanduser("~"))
     if own_home is not None:
         text = own_home.sub("~", text)
-    return _HOME_PATH.sub("~", text)
+    return _HOME_PATH.sub(HOME_PLACEHOLDER, text)

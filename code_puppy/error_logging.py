@@ -61,6 +61,8 @@ def _append_entry(entry: str) -> None:
 # The stamp lives on the exception because builtin exceptions cannot be weakly
 # referenced. Exceptions that refuse ``setattr`` fall back to a bounded table
 # that holds a strong reference, which keeps ``id()`` unique while it is there.
+# The stamp travels with ``__dict__`` when an exception is pickled, so one logged in a
+# process and re-raised in another (a subprocess or multiprocessing result) is skipped.
 _STAMP = "__code_puppy_logged__"
 _FALLBACK_MAX = 128
 _fallback: "OrderedDict[int, BaseException]" = OrderedDict()

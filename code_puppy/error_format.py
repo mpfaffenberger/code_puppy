@@ -132,11 +132,20 @@ class _BudgetedRepr(reprlib.Repr):
             return _elide(repr(redact(x)), self.maxstring)
         # Too much text left to scan whole: keep only a head (its context is intact) and
         # drop the tail, whose discarded context could not be checked.
+        return repr(self._redacted_head(x)) + _ELIDED
+
+    def _redacted_head(self, text: str) -> str:
         head = max(0, (self.maxstring - 3) // 2)
-        return repr(redact(x[: head + _REDACTION_LOOKAHEAD])[:head]) + _ELIDED
+        return redact(text[: head + _REDACTION_LOOKAHEAD])[:head]
 
     def repr_instance(self, x: object, level: int) -> str:
-        return _elide(redact(super().repr_instance(x, level)), _MAX_ARGS_CHARS)
+        text = super().repr_instance(
+            x, level
+        )  # maxother is unbounded: redact, then elide
+        if len(text) <= self._scan_left:
+            self._scan_left -= len(text)
+            return _elide(redact(text), _MAX_ARGS_CHARS)
+        return self._redacted_head(text) + _ELIDED
 
 
 def _args_text(args: object) -> str:
