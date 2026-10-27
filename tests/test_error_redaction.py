@@ -282,6 +282,15 @@ LINEAR_UNITS = {
     "key-then-spaces": "token" + " " * 40,
     "home-prefix": "/Users/a",
     "url-userinfo": "://a:",
+    # One per _TOKEN_SHAPE branch; the JWT branch needs a terminating dot, so it is the
+    # one that can fail late and go quadratic.
+    "jwt-prefix": "eyJ-",
+    "jwt-two-segments": "eyJaaaaaaaa.aaaaaaaa ",
+    "openai-prefix": "sk-",
+    "github-prefix": "ghp_",
+    "github-pat-prefix": "github_pat_",
+    "aws-key-prefix": "AKIA",
+    "slack-prefix": "xoxb-",
 }
 SCAN_SECONDS = 3.0
 

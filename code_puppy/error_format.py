@@ -139,9 +139,8 @@ class _BudgetedRepr(reprlib.Repr):
         return redact(text[: head + _REDACTION_LOOKAHEAD])[:head]
 
     def repr_instance(self, x: object, level: int) -> str:
-        text = super().repr_instance(
-            x, level
-        )  # maxother is unbounded: redact, then elide
+        # maxother is unbounded: redact, then elide
+        text = super().repr_instance(x, level)
         if len(text) <= self._scan_left:
             self._scan_left -= len(text)
             return _elide(redact(text), _MAX_ARGS_CHARS)

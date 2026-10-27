@@ -2,7 +2,7 @@
 
 Best-effort pattern matching, not a guarantee: it covers the shapes that show up in
 exception text, tracebacks and ``Args`` reprs, and it must stay linear-time because it
-runs on the failure path. Called by: ``error_format::_redact_head``.
+runs on the failure path. Called by: error_format (every persisted text path).
 """
 
 from __future__ import annotations
@@ -37,13 +37,15 @@ _CREDENTIAL_PAIR = re.compile(
 _BEARER = re.compile(r"\b(bearer)\s+[A-Za-z0-9._~+/=-]{8,}", re.IGNORECASE)
 _URL_CREDENTIALS = re.compile(r"(://[^/\s:@]+:)[^@\s/]+(@)")
 # Well-known token shapes that appear without a naming key (min lengths avoid prose).
+# The JWT branch needs a terminating ``.``, so it may only start at the beginning of a
+# ``[\w-]`` run; otherwise every ``eyJ`` after a ``-`` rescans the run (quadratic).
 _TOKEN_SHAPE = re.compile(
     r"\b(?:(?:sk|pk|rk)-[A-Za-z0-9_-]{16,}"
     r"|gh[pousr]_[A-Za-z0-9]{20,}"
     r"|github_pat_\w{20,}"
     r"|AKIA[0-9A-Z]{16}"
     r"|xox[abprs]-[A-Za-z0-9-]{10,}"
-    r"|eyJ[\w-]{8,}\.[\w-]{8,}\.[\w-]{8,})"
+    r"|(?<![\w-])eyJ[\w-]{8,}\.[\w-]{8,}\.[\w-]{8,})"
 )
 # /Users/<name>, /home/<name>, C:\Users\<name>; repr() doubles backslashes, hence ``++``.
 # The lookbehind keeps URL paths such as ``https://host/home/x`` intact, and excluding
