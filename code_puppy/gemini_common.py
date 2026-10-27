@@ -7,6 +7,7 @@ Wire-format knowledge for the Gemini API should live in exactly one place.
 """
 
 import uuid
+from collections.abc import Iterator, Sequence
 from typing import Any
 
 from pydantic_ai import (
@@ -16,6 +17,8 @@ from pydantic_ai import (
     ToolCallPart,
     RequestUsage,
 )
+from pydantic_ai.messages import ModelRequestPart
+from pydantic_ai.models import _sendable_request_parts
 from pydantic_ai.tools import ToolDefinition
 from pydantic_ai.settings import ModelSettings
 
@@ -23,6 +26,20 @@ from pydantic_ai.settings import ModelSettings
 def generate_tool_call_id() -> str:
     """Generate a unique tool call ID."""
     return str(uuid.uuid4())
+
+
+def sendable_request_parts(
+    parts: Sequence[ModelRequestPart],
+) -> Iterator[ModelRequestPart]:
+    """Request parts as a stock pydantic-ai adapter would map them.
+
+    A compaction summary written by the harness is a provider-less
+    ``CompactionPart``; pydantic-ai leaves it for each adapter to render as
+    framed user text, so an adapter that skips this step drops the summary.
+    The helper is private upstream, hence the single seam (exact version pins
+    keep it stable; ``tests/test_gemini_compaction_summary.py`` pins its output).
+    """
+    return _sendable_request_parts(parts)
 
 
 def _flatten_union_to_object_gemini(union_items: list, defs: dict, resolve_fn) -> dict:

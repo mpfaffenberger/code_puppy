@@ -24,7 +24,6 @@ from pydantic_ai.messages import (
     ModelRequest,
     ModelResponse,
     ModelResponseStreamEvent,
-    RetryPromptPart,
     SystemPromptPart,
     TextPart,
     ThinkingPart,
@@ -40,6 +39,7 @@ from code_puppy.gemini_common import (
     _build_tools,
     _parse_candidate_parts,
     generate_tool_call_id,
+    sendable_request_parts,
     _build_generation_config,
 )
 from code_puppy.steer_metadata import is_steer_request
@@ -215,7 +215,7 @@ class GeminiModel(Model):
             if is_steer_request(m):
                 tool_parts: list[dict[str, Any]] = []
                 steer_parts: list[dict[str, Any]] = []
-                for part in m.parts:
+                for part in sendable_request_parts(m.parts):
                     if isinstance(part, SystemPromptPart):
                         system_parts.append({"text": part.content})
                     elif isinstance(part, UserPromptPart):
@@ -230,19 +230,6 @@ class GeminiModel(Model):
                                 }
                             }
                         )
-                    elif isinstance(part, RetryPromptPart):
-                        if part.tool_name is None:
-                            steer_parts.append({"text": part.model_response()})
-                        else:
-                            tool_parts.append(
-                                {
-                                    "function_response": {
-                                        "name": part.tool_name,
-                                        "response": {"error": part.model_response()},
-                                        "id": part.tool_call_id,
-                                    }
-                                }
-                            )
 
                 if tool_parts:
                     # Tool returns (e.g. spliced by prune_interrupted_tool_calls)
@@ -273,7 +260,7 @@ class GeminiModel(Model):
             if isinstance(m, ModelRequest):
                 message_parts: list[dict[str, Any]] = []
 
-                for part in m.parts:
+                for part in sendable_request_parts(m.parts):
                     if isinstance(part, SystemPromptPart):
                         system_parts.append({"text": part.content})
                     elif isinstance(part, UserPromptPart):
@@ -289,19 +276,6 @@ class GeminiModel(Model):
                                 }
                             }
                         )
-                    elif isinstance(part, RetryPromptPart):
-                        if part.tool_name is None:
-                            message_parts.append({"text": part.model_response()})
-                        else:
-                            message_parts.append(
-                                {
-                                    "function_response": {
-                                        "name": part.tool_name,
-                                        "response": {"error": part.model_response()},
-                                        "id": part.tool_call_id,
-                                    }
-                                }
-                            )
 
                 if message_parts:
                     # Merge with previous user message if exists

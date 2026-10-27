@@ -18,6 +18,7 @@ from typing import Any, Dict, Optional
 
 import httpx
 from pydantic_ai.messages import (
+    ERROR_OUTCOMES,
     ModelMessage,
     ModelRequest,
     ModelResponse,
@@ -36,6 +37,7 @@ from code_puppy.gemini_common import (
     _build_tools,
     _parse_candidate_parts,
     _build_generation_config,
+    sendable_request_parts,
 )
 
 logger = logging.getLogger(__name__)
@@ -148,7 +150,7 @@ class GeminiCodeAssistModel(Model):
 
         for msg in messages:
             if isinstance(msg, ModelRequest):
-                for part in msg.parts:
+                for part in sendable_request_parts(msg.parts):
                     if isinstance(part, SystemPromptPart):
                         # Collect system prompt.
                         if system_instruction is None:
@@ -178,6 +180,11 @@ class GeminiCodeAssistModel(Model):
                             except (TypeError, ValueError):
                                 content = str(content)
 
+                        # Gemini's function-response schema reports a failed or
+                        # retried call under ``error`` rather than ``result``.
+                        result_key = (
+                            "error" if part.outcome in ERROR_OUTCOMES else "result"
+                        )
                         contents.append(
                             {
                                 "role": "user",
@@ -185,7 +192,7 @@ class GeminiCodeAssistModel(Model):
                                     {
                                         "functionResponse": {
                                             "name": part.tool_name,
-                                            "response": {"result": content},
+                                            "response": {result_key: content},
                                         }
                                     }
                                 ],

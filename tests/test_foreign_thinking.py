@@ -80,6 +80,7 @@ async def test_anthropic_request_carries_findings_but_not_foreign_reasoning():
     agent = Agent(
         _anthropic(captured),
         capabilities=[build_model_message_transform("code-puppy")],
+        model_settings={"max_tokens": 1024},
     )
 
     await agent.run("final review", message_history=history)
