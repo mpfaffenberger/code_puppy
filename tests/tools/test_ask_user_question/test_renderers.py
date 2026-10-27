@@ -165,9 +165,9 @@ class TestRenderQuestionPanel:
         """Other text with Rich markup chars should be escaped."""
         state = _make_state()
         state.other_texts[0] = "[bold]dangerous[/bold]"
-        result = render_question_panel(state)
-        # Should not crash and should contain escaped text
-        assert result is not None
+        text = _strip_ansi(render_question_panel(state))
+        assert '"[bold]dangerous[/bold]"' in text
+        assert "\\[" not in text
 
 
 class TestRenderHelpOverlay:
@@ -290,6 +290,36 @@ class TestMarkupInjectionResistance:
         text = _strip_ansi(result)
         assert "render error" not in text
         assert "foo" in text and "bar" in text
+
+    def _live_input_state(self, buffer):
+        state = self._state_with()
+        state.entering_other_text = True
+        state.other_text_buffer = buffer
+        return state
+
+    def test_live_other_input_keeps_bracketed_text_visible(self):
+        state = self._live_input_state("[logo] button")
+        text = _strip_ansi(render_question_panel(state))
+        assert "> [logo] button_" in text
+
+    def test_live_other_input_with_unmatched_closing_tag_does_not_raise(self):
+        state = self._live_input_state("[/x]")
+        text = _strip_ansi(render_question_panel(state))
+        assert "> [/x]_" in text
+        assert "render error" not in text
+
+    def test_live_other_input_trailing_backslash_is_not_doubled(self):
+        state = self._live_input_state("C:\\Users\\")
+        text = _strip_ansi(render_question_panel(state))
+        assert "> C:\\Users\\_" in text
+        assert "\\\\_" not in text
+
+    def test_committed_other_text_has_no_stray_escape_backslash(self):
+        state = self._state_with()
+        state.other_texts[0] = "[logo] button"
+        text = _strip_ansi(render_question_panel(state))
+        assert '"[logo] button"' in text
+        assert "\\" not in text
 
     def test_renderer_never_propagates_exceptions(self, monkeypatch):
         # Force the inner renderer to blow up; outer guard must still return ANSI.
