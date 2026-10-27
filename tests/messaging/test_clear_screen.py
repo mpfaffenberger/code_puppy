@@ -501,6 +501,32 @@ def test_inline_writes_after_clear_still_erase_and_repaint():
         bar.stop()
 
 
+def _raise_render_failure():
+    raise RuntimeError("render failed")
+
+
+def test_inline_clear_with_failed_repaint_claims_no_painted_rows(monkeypatch):
+    term = Term(InlineBottomBar)
+    bar = term.bar
+    bar.start()
+    try:
+        bar.set_prompt_text("> ", "draft", 5)
+        bar.set_panel_lines(["panel"])
+        assert bar._displayed_rows >= 2
+
+        with monkeypatch.context() as broken:
+            broken.setattr(bar, "_inline_lines", _raise_render_failure)
+            with pytest.raises(RuntimeError):
+                bar.clear_screen()
+
+        assert bar._displayed_rows == 0
+        bar.guarded_write("kept\r\n")
+        assert term.rows()[0] == "kept"
+        assert "> draft" in term.text()
+    finally:
+        bar.stop()
+
+
 def test_inline_clear_is_noop_when_inactive_or_suspended():
     tty = FakeTTY()
     bar = InlineBottomBar(stream=tty, get_size=lambda: (COLS, ROWS))
