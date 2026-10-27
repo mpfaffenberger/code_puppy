@@ -14,14 +14,10 @@ check would report "already true" regardless of what is being exercised.
 The child denies socket connections before importing anything (including
 ``code_puppy``) and self-tests that denial, then tracks two ordered events
 -- the ``apply_all_patches`` *invocation* (not merely its import) and the
-first ``pydantic_ai`` import -- by wrapping ``builtins.__import__``, the
-same technique this project's own offline-review cold-import probe uses
-(no new production helper; see ``guarded.py``'s ``cold`` mode in the
-independent review sandbox this pattern was read from). Checking only
-``'code_puppy.pydantic_patches' in sys.modules`` is not sufficient: that
-module can be imported without its ``apply_all_patches()`` ever being
-called, or called too late, and membership alone cannot tell the two cases
-apart from a correctly-ordered facade import.
+first ``pydantic_ai`` import -- by wrapping ``builtins.__import__``.
+Checking only ``'code_puppy.pydantic_patches' in sys.modules`` is insufficient:
+membership does not show whether patches were invoked or whether that
+invocation preceded the first ``pydantic_ai`` import.
 """
 
 import ast
@@ -156,8 +152,8 @@ def test_facade_import_calls_patches_before_pydantic_ai():
 
 @pytest.mark.parametrize("leaf", ["interactive_runner", "interactive_support"])
 def test_facade_first_then_leaf_keeps_patches_applied(leaf):
-    """The fix applied to the affected tests: facade import first, then the
-    direct leaf import, still invokes patches before any pydantic_ai import.
+    """Importing the facade before a leaf module invokes patches before
+    any pydantic_ai import.
     """
     probe = _run_cold_probe(f"import code_puppy.cli_runner\nimport code_puppy.{leaf}")
     assert probe["patches_called"], probe
@@ -193,10 +189,8 @@ def _unparse_import_nodes(nodes: list) -> str:
     return "\n".join(ast.unparse(node) for node in nodes)
 
 
-# All four affected files bootstrap at module scope (see R2-002: the
-# history test's bootstrap moved out of its test function and up to module
-# level, since a module-level fix is what a module-level import block can
-# actually verify).
+# All four callers bootstrap at module scope, so extracting their leading
+# import blocks checks the real import sequence.
 _AFFECTED_CALLERS = [
     "tests/test_double_ctrl_c_exit.py",
     "tests/test_cli_runner_persistent_prompt.py",
@@ -207,8 +201,8 @@ _AFFECTED_CALLERS = [
 
 @pytest.mark.parametrize("relative_path", _AFFECTED_CALLERS)
 def test_affected_caller_bootstrap_precedes_pydantic_ai(relative_path):
-    """Execute the ACTUAL import statements of each previously-flagged test
-    file (not a hand-written stand-in) and prove patches are invoked before
+    """Execute each caller's actual import statements (not a hand-written
+    stand-in) and prove patches are invoked before
     that file's own first pydantic_ai import. Catches a removed facade-first
     import and a facade import left in the wrong position (e.g. after a
     pydantic_ai-importing module in the same file).

@@ -7,18 +7,9 @@ headless dispatch). This module re-exports their public entrypoints for
 backwards compatibility and owns ``main_entry()`` -- the installed console
 script's actual entrypoint (see ``code_puppy/main.py``).
 
-Export policy: ``__all__`` lists the public entrypoints (``main``,
-``interactive_mode``, ``execute_single_prompt``, ``run_prompt_with_attachments``,
-``apply_quick_resume``, ``main_entry``) plus four selected legacy private
-aliases that existing tests/callers still import or patch directly
-(``_HEADLESS_AUTONOMY_PROMPT``, ``_save_autosave_snapshot``,
-``_use_persistent_prompt``, ``_write_usage_file``). It is not an exhaustive
-list of this module's retained attributes: ``plugins``,
-``reset_unix_terminal``, ``apply_all_patches``, and ``_force_utf8_stdio``
-remain importable/patchable here too, just outside ``__all__``. Other
-formerly-private helpers moved to their owning module without any facade
-alias because nothing in this repo or the official plugin bundle
-references them.
+``__all__`` defines the exported entrypoints and selected legacy private
+aliases. Additional legacy attributes remain importable/patchable outside
+``__all__``; this facade does not preserve every former private helper.
 """
 
 # Apply pydantic-ai patches BEFORE any pydantic-ai imports
