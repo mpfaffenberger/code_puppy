@@ -87,8 +87,26 @@ class TestResolveProxyConfig:
 
             config = _resolve_proxy_config()
             assert config.disable_retry is True
+            # The retry switch says nothing about TLS: verification stays as
+            # configured (None here = httpx's default trust store).
+            assert config.verify is None
+            assert config.trust_env is True
+
+    def test_insecure_skip_verify_disables_tls_explicitly(self):
+        env = {"CODE_PUPPY_INSECURE_SKIP_VERIFY": "true"}
+        with (
+            patch.dict(os.environ, env, clear=True),
+            patch("code_puppy.http_utils.get_cert_bundle_path", return_value=None),
+            patch("code_puppy.http_utils.get_http2", return_value=False),
+            patch("code_puppy.http_utils.emit_warning"),
+            patch("code_puppy.http_utils._INSECURE_SKIP_VERIFY_WARNED", False),
+        ):
+            from code_puppy.http_utils import _resolve_proxy_config
+
+            config = _resolve_proxy_config()
             assert config.verify is False
             assert config.trust_env is True
+            assert config.disable_retry is False
 
     def test_explicit_verify_passed(self):
         with (

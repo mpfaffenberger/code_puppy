@@ -1,4 +1,5 @@
 {
+  "agent.error.multimodal_processing_hint": "The model server failed to process image input (mtmd). Check the llama-server logs for the underlying decode error, verify the model and matching multimodal projector, and check server resource/context limits. If speculative decoding (for example DFlash) is enabled, try disabling it on the server before retrying. This diagnostic does not remove images, reset history, or change your server configuration. The full traceback is saved in ~/.code_puppy/logs/errors.log.",
   "agent.model_settings.boolean_type": "model_settings[{key!r}] must be true or false (got {value!r})",
   "agent.model_settings.choice": "model_settings[{key!r}] must be one of {choices} (got {value!r})",
   "agent.model_settings.maximum": "model_settings[{key!r}] must be <= {maximum} (got {value!r})",
@@ -74,6 +75,7 @@
   "cfg.set.reload_failed": "Config saved but agent reload failed: {error}",
   "cfg.set.success": "Set {key} = \"{value}\" in puppy.cfg!",
   "cfg.set.yolo_config_unchanged": "Using YOLO mode from puppy.cfg; configuration unchanged.",
+  "cfg.show.agency_level": "agency_level",
   "cfg.unpin.agent_reloaded": "Active agent reloaded with default model",
   "cfg.unpin.failed": "Failed to unpin model from agent '{agent}': {error}",
   "cfg.unpin.reload_failed": "Model unpinned but reload failed: {error}",
@@ -227,8 +229,8 @@
   "confirm.no": "No",
   "confirm.yes": "Yes",
   "credentials.empty": "A shared API credential cannot be empty.",
-  "credentials.migration_conflict": "Conflicting legacy credential '{key}'. Reconcile that key in puppy.cfg and existing profile configs before switching profiles; no conflicting value was overwritten.",
   "credentials.migration_failed": "Could not verify shared credential storage. Legacy credentials were retained.",
+  "credentials.migration_skipped": "Did not migrate credential '{key}': its value in {paths} differs from secure storage or another profile. Nothing was overwritten; the stored value is used when present. Delete '{key}' from those files to stop this warning (copy the value first if you still need it).",
   "error.generic": "Something went wrong: {detail}",
   "files.deleted": {
     "one": "Deleted {count} file.",
@@ -244,6 +246,8 @@
   "help.keybinding.newline.label": "Ctrl+J or Shift+Enter",
   "help.keybinding.up.description": "Edit queued turns before browsing prompt history",
   "help.keybinding.up.label": "Up Arrow",
+  "http_utils.cert_bundle_missing": "{name} points to a missing file ({path}); falling back to the default trust store.",
+  "http_utils.insecure_skip_verify": "TLS certificate verification is DISABLED (CODE_PUPPY_INSECURE_SKIP_VERIFY). Every HTTPS request -- including your API keys -- is unverified.",
   "locale.current": "Current locale: {locale}",
   "locale.set": "Locale set to {locale}.",
   "logfire.configure_failed": "Failed to configure Logfire: {error}",

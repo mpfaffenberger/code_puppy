@@ -108,6 +108,22 @@ class TestBuildModelConfig:
         config = amm.build_model_config(make_model(), provider)
         assert config["custom_endpoint"]["url"] == amm.PROVIDER_ENDPOINTS["xai"]
 
+    def test_perplexity_sends_integration_header(self):
+        provider = make_provider(id="perplexity", api="N/A", env=["PERPLEXITY_API_KEY"])
+        config = amm.build_model_config(make_model(), provider)
+        assert config["custom_endpoint"]["url"] == "https://api.perplexity.ai"
+        assert config["custom_endpoint"]["headers"] == {
+            "X-Pplx-Integration": "code-puppy"
+        }
+
+    def test_integration_header_only_for_perplexity_host(self):
+        for api in (
+            "https://api.groq.com/openai/v1",
+            "https://api.perplexity.ai.example.com/v1",
+        ):
+            config = amm.build_model_config(make_model(), make_provider(api=api))
+            assert "headers" not in config["custom_endpoint"]
+
     def test_minimax_strips_v1(self):
         provider = make_provider(
             id="minimax",

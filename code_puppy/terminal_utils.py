@@ -166,47 +166,21 @@ _COOKED_INPUT_BITS = 0x0002 | 0x0004
 _stripped_cooked_bits: int = 0
 
 
-def enable_windows_raw_input() -> bool:
-    """Put stdin in listener raw mode: cooked bits off, VT input on (verified).
-
-    Cooked bits go first and independently: every host supports clearing
-    them, while ancient hosts reject the VT flag outright — Ctrl+S must
-    stop freezing the console even there.
-
-    ConPTY only forwards terminal-side VT input sequences to a client
-    whose stdin carries this flag. Bracketed-paste markers
-    (``ESC[200~``/``ESC[201~``) have no key-event representation, so
-    without the flag ConPTY silently DROPS them — and Windows Terminal
-    pastes an image-only clipboard as an EMPTY bracketed paste, meaning
-    the app receives NOTHING and Ctrl+V image capture never fires.
-    (Text pastes still arrive as synthesized keystrokes, which is why
-    only image paste broke.) Verified live via console probe 2026-07-08:
-    mode ``0x1f7`` → 0 chars delivered; mode ``0x3f7`` → the 12-char
-    empty bracketed paste.
-
-    Scope contract: only the Windows key listener enables this, while it
-    owns stdin (both of its readers use ``ReadConsoleInput``, which
-    ignores line mode) — and it disables it around suspensions, because
-    other readers (prompt_toolkit TUIs, ``input()``) expect classic key
-    events and their own console mode. Returns True when the VT flag is
-    CONFIRMED set via a mode read-back (mirrors
-    :func:`ensure_windows_vt_processing`; ancient hosts silently no-op
-    ``SetConsoleMode``). Never raises.
-    """
+def _disable_windows_cooked_input():
+    """Clear line/echo input and return the console state for further setup."""
     global _stripped_cooked_bits
 
     if platform.system() != "Windows":
-        return False
+        return None
 
     try:
         import ctypes
 
         kernel32 = ctypes.windll.kernel32
         stdin_handle = kernel32.GetStdHandle(-10)  # STD_INPUT_HANDLE
-
         mode = ctypes.c_ulong()
         if not kernel32.GetConsoleMode(stdin_handle, ctypes.byref(mode)):
-            return False
+            return None
         current = mode.value
 
         cooked = current & _COOKED_INPUT_BITS
@@ -215,14 +189,39 @@ def enable_windows_raw_input() -> bool:
         ):
             _stripped_cooked_bits |= cooked
             current &= ~_COOKED_INPUT_BITS
+        return kernel32, stdin_handle, current
+    except Exception:
+        return None
 
-        if current & _ENABLE_VIRTUAL_TERMINAL_INPUT:
-            return True  # already on
 
-        if not kernel32.SetConsoleMode(
-            stdin_handle, current | _ENABLE_VIRTUAL_TERMINAL_INPUT
-        ):
-            return False
+def enable_windows_question_input() -> bool:
+    """Let question TUIs receive Ctrl+S without switching arrows to VT input.
+
+    The termflow widget uses ``msvcrt`` scan codes for Windows arrows. It needs
+    cooked line input disabled so conhost stops consuming Ctrl+S as XOFF, but
+    must not enable virtual-terminal input because that changes arrows into
+    ``ESC [ A`` / ``ESC [ B`` sequences that this widget does not parse.
+    """
+    return _disable_windows_cooked_input() is not None
+
+
+def enable_windows_raw_input() -> bool:
+    """Put stdin in listener raw mode: cooked bits off, VT input on (verified)."""
+    state = _disable_windows_cooked_input()
+    if state is None:
+        return False
+    kernel32, stdin_handle, current = state
+
+    if current & _ENABLE_VIRTUAL_TERMINAL_INPUT:
+        return True  # already on
+
+    if not kernel32.SetConsoleMode(
+        stdin_handle, current | _ENABLE_VIRTUAL_TERMINAL_INPUT
+    ):
+        return False
+
+    try:
+        import ctypes
 
         verify = ctypes.c_ulong()
         if not kernel32.GetConsoleMode(stdin_handle, ctypes.byref(verify)):
@@ -297,10 +296,16 @@ def reset_windows_terminal_full() -> None:
 
 
 #: Escape codes undoing every visual mode we could have left enabled:
-#: DECSTR soft reset, attributes off, cursor visible, alternate screen off.
+#: DECSTR soft reset, attributes off, cursor visible.
 #: Deliberately NOT the full RIS (``\\x1bc``) that ``reset(1)`` sends -- that
 #: clears the screen, wiping the output the user just asked for.
-_UNIX_TERMINAL_RESET = "\x1b[!p\x1b[0m\x1b[?25h\x1b[?1049l"
+#: Deliberately NOT ``\\x1b[?1049l`` either: leaving the alternate screen also
+#: restores the last saved cursor (the bottom bar saves one on teardown), so
+#: the shell prompt overwrites everything printed after it -- "Goodbye!" and
+#: any shutdown output. Every alternate-screen user (the splash, and anything
+#: using termflow's ``alt_screen``/``terminal_session``) leaves it in its own
+#: ``finally`` / context manager.
+_UNIX_TERMINAL_RESET = "\x1b[!p\x1b[0m\x1b[?25h"
 
 
 def reset_unix_terminal() -> None:

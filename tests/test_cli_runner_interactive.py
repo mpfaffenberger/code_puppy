@@ -481,6 +481,55 @@ class TestInteractiveMode:
             )
 
     @pytest.mark.anyio
+    async def test_autosave_load_damaged_session_changes_nothing(self, tmp_path):
+        """Repeated /resume of a damaged file names it and leaves all state alone."""
+        from code_puppy.config import get_current_session_name
+
+        session_file = tmp_path / "damaged.json"
+        session_file.write_bytes(b'{"format": 2, "messages": ["\n"]}')
+        original = session_file.read_bytes()
+        session_before = get_current_session_name()
+        agent = MagicMock()
+        agent.get_user_prompt.return_value = "task:"
+        tty = MagicMock()
+        tty.isatty.return_value = True
+        mock_emit_error = MagicMock()
+
+        with patch.dict(os.environ, {"CODE_PUPPY_NO_TUI": ""}, clear=False):
+            await _run_interactive(
+                _mock_renderer(),
+                _interactive_patches(),
+                _scripted_input("/resume", "/resume"),
+                agent=agent,
+                extra_patches={
+                    "code_puppy.command_line.command_handler.handle_command": MagicMock(
+                        return_value="__AUTOSAVE_LOAD__"
+                    ),
+                    "code_puppy.interactive_runner.parse_prompt_attachments": MagicMock(
+                        return_value=_mock_parse_result("/resume")
+                    ),
+                    "sys.stdin": tty,
+                    "sys.stdout": tty,
+                    "code_puppy.interactive_runner.AUTOSAVE_DIR": str(tmp_path),
+                    "code_puppy.command_line.autosave_menu.interactive_autosave_picker": AsyncMock(
+                        return_value="damaged"
+                    ),
+                    "code_puppy.messaging.emit_error": mock_emit_error,
+                },
+            )
+
+        failures = [
+            str(c.args[0])
+            for c in mock_emit_error.call_args_list
+            if str(session_file) in str(c.args[0])
+            and "Invalid control character" in str(c.args[0])
+        ]
+        assert len(failures) == 2
+        agent.set_message_history.assert_not_called()
+        assert get_current_session_name() == session_before
+        assert session_file.read_bytes() == original
+
+    @pytest.mark.anyio
     async def test_autosave_load_non_tty_warns_instead_of_prompting(self):
         """Non-TTY /autosave_load points at -r NAME instead of prompting."""
         fake_input = _scripted_input("/autosave_load")

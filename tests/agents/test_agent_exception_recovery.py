@@ -83,12 +83,32 @@ def isolated_runtime_callbacks(monkeypatch: pytest.MonkeyPatch):
 def diagnostics(monkeypatch: pytest.MonkeyPatch) -> list[BaseException]:
     seen: list[BaseException] = []
 
-    def spy(exc: BaseException, *, group_id: str | None = None) -> None:
-        del group_id
+    def spy(
+        exc: BaseException,
+        *,
+        group_id: str | None = None,
+        model_name: str | None = None,
+    ) -> None:
+        del group_id, model_name
         seen.append(exc)
 
     monkeypatch.setattr(_runtime, "emit_exception_diagnostics", spy)
     return seen
+
+
+async def test_diagnostics_receive_the_agents_model_name(monkeypatch) -> None:
+    captured: dict[str, Any] = {}
+
+    def spy(exc: BaseException, *, group_id=None, model_name=None) -> None:
+        captured["model_name"] = model_name
+
+    monkeypatch.setattr(_runtime, "emit_exception_diagnostics", spy)
+    agent = DummyAgent(ScriptedPydanticAgent(RuntimeError("boom")))
+
+    with pytest.raises(RuntimeError, match="boom"):
+        await _runtime.run_with_mcp(agent, "hello")
+
+    assert captured["model_name"] == "dummy-model"
 
 
 async def test_no_callbacks_preserves_baseline_exception_path(

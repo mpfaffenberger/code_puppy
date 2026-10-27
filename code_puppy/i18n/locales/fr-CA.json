@@ -1,4 +1,5 @@
 {
+  "agent.error.multimodal_processing_hint": "Le serveur du modèle n’a pas pu traiter l’image en entrée (mtmd). Consultez les journaux de llama-server pour identifier l’erreur de décodage sous-jacente, vérifiez le modèle et le projecteur multimodal (mmproj) correspondant, puis vérifiez les limites de ressources et de contexte du serveur. Si le décodage spéculatif (par exemple, DFlash) est activé, essayez de le désactiver sur le serveur avant de réessayer. Ce diagnostic ne supprime aucune image, ne réinitialise pas l’historique et ne modifie pas la configuration de votre serveur. La trace complète de l’exception est enregistrée dans ~/.code_puppy/logs/errors.log.",
   "agent.model_settings.boolean_type": "model_settings[{key!r}] doit être vrai ou faux (valeur obtenue : {value!r})",
   "agent.model_settings.choice": "model_settings[{key!r}] doit être l’une de {choices} (valeur obtenue : {value!r})",
   "agent.model_settings.maximum": "model_settings[{key!r}] doit être <= {maximum} (valeur obtenue : {value!r})",
@@ -74,6 +75,7 @@
   "cfg.set.reload_failed": "Configuration enregistrée, mais échec du rechargement de l’agent : {error}",
   "cfg.set.success": "{key} = \"{value}\" a été défini dans puppy.cfg.",
   "cfg.set.yolo_config_unchanged": "Utilisation du mode YOLO de puppy.cfg; la configuration reste inchangée.",
+  "cfg.show.agency_level": "agency_level",
   "cfg.unpin.agent_reloaded": "Agent actif rechargé avec le modèle par défaut",
   "cfg.unpin.failed": "Impossible de retirer le modèle épinglé de l’agent '{agent}' : {error}",
   "cfg.unpin.reload_failed": "Le modèle n’est plus épinglé, mais le rechargement a échoué : {error}",
@@ -227,8 +229,8 @@
   "confirm.no": "Non",
   "confirm.yes": "Oui",
   "credentials.empty": "Un identifiant d’API partagé ne peut pas être vide.",
-  "credentials.migration_conflict": "L’identifiant hérité '{key}' est en conflit. Résolvez le conflit pour cette clé dans puppy.cfg et les configurations de profil existantes avant de changer de profil; aucune valeur en conflit n’a été écrasée.",
   "credentials.migration_failed": "Impossible de vérifier le stockage des identifiants partagés. Les identifiants hérités ont été conservés.",
+  "credentials.migration_skipped": "L’identifiant '{key}' n’a pas été migré : sa valeur dans {paths} ne correspond pas au stockage sécurisé ou à un autre profil. Rien n’a été écrasé; la valeur stockée est utilisée lorsqu’elle existe. Supprimez '{key}' de ces fichiers pour faire disparaître cet avertissement (copiez d’abord la valeur si vous en avez encore besoin).",
   "error.generic": "Une erreur s'est produite : {detail}",
   "files.deleted": {
     "one": "{count} fichier supprimé.",
@@ -244,6 +246,8 @@
   "help.keybinding.newline.label": "Ctrl+J ou Shift+Enter",
   "help.keybinding.up.description": "Modifier les tours en attente avant de parcourir l’historique des instructions",
   "help.keybinding.up.label": "Flèche vers le haut",
+  "http_utils.cert_bundle_missing": "{name} pointe vers un fichier inexistant ({path}); le magasin de confiance par defaut sera utilise.",
+  "http_utils.insecure_skip_verify": "La verification des certificats TLS est DESACTIVEE (CODE_PUPPY_INSECURE_SKIP_VERIFY). Chaque requete HTTPS -- y vos cles API -- n'est pas verifie.",
   "locale.current": "Langue actuelle : {locale}",
   "locale.set": "Langue réglée à {locale}.",
   "logfire.configure_failed": "Impossible de configurer Logfire : {error}",

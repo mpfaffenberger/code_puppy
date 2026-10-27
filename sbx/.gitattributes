@@ -1,0 +1,3 @@
+# Kit sources are consumed by Linux sandbox images; never check them out
+# with CRLF line endings on Windows.
+* text eol=lf

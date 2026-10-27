@@ -28,7 +28,9 @@ import uuid
 from typing import Any, Callable, Iterator, List, Optional, Sequence, Type, Union
 
 import httpcore
+import httpcore2
 import httpx
+import httpx2
 
 try:  # pragma: no cover - mcp version dependent
     from mcp.shared.exceptions import McpError
@@ -80,6 +82,7 @@ from code_puppy.agents._run_signals import (
     reset_pause_state_at_run_start,
     sigint_should_cancel,
 )
+from code_puppy.agents._token_limit_hint import resolve_model_name
 from code_puppy.agents.event_stream_handler import event_stream_handler
 from code_puppy.agents.run_invocation import ModelCall, run_with_exception_retry
 from code_puppy.callbacks import (
@@ -136,7 +139,9 @@ _RETRYABLE_SNIPPETS = (
 
 # Transport failures worth a silent retry, by umbrella base class (not each
 # subclass) so any dropped-socket guise or timeout is covered. A flaky
-# VPN/WiFi blip is recoverable, never fatal.
+# VPN/WiFi blip is recoverable, never fatal. ``httpx2``/``httpcore2`` (used by
+# the provider SDKs) share no base classes with ``httpx``/``httpcore``, so both
+# families must be listed.
 _RETRYABLE_EXCEPTIONS: tuple = (
     httpx.NetworkError,
     httpx.TimeoutException,
@@ -144,6 +149,12 @@ _RETRYABLE_EXCEPTIONS: tuple = (
     httpcore.NetworkError,
     httpcore.TimeoutException,
     httpcore.RemoteProtocolError,
+    httpx2.NetworkError,
+    httpx2.TimeoutException,
+    httpx2.RemoteProtocolError,
+    httpcore2.NetworkError,
+    httpcore2.TimeoutException,
+    httpcore2.RemoteProtocolError,
 )
 
 # AnyIO normally translates TLS failures through httpcore/httpx, but a failure
@@ -996,7 +1007,9 @@ async def _run_with_mcp_impl(
                     group_id=group_id,
                 )
             for exc in unexpected:
-                emit_exception_diagnostics(exc, group_id=group_id)
+                emit_exception_diagnostics(
+                    exc, group_id=group_id, model_name=resolve_model_name(agent)
+                )
             # Re-raise, else the bare except* would silently mask all errors
             # and run_with_mcp() would look like success.
             if unexpected:

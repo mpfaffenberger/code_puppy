@@ -550,15 +550,18 @@ def _models_dev_output_tokens(
         model_config: Catalog entry; its ``name`` is the bare model id.
 
     Returns:
-        The cap when models.dev vouches for it, else ``None`` so the caller
-        falls through to the heuristic. Never raises, and never guesses: an
-        ambiguous or unknown model yields ``None``.
+        The cap when models.dev vouches for it, or an inferred one for an
+        unindexed Claude model (see ``models_dev_family``); else ``None`` so
+        the caller falls through to the heuristic. Never raises: an ambiguous
+        or unknown model yields ``None``.
     """
     name = str(model_config.get("name") or "")
     if not name:
         return None
     try:
+        from code_puppy.models_dev_family import infer_family_output_cap
         from code_puppy.models_dev_parser import (
+            LimitMatchKind,
             get_registry,
             index_limits,
             match_limits,
@@ -567,14 +570,21 @@ def _models_dev_output_tokens(
         registry = get_registry()
         if registry is None:
             return None
-        by_key, by_name = index_limits(registry.get_models())
+        models = list(registry.get_models())
+        by_key, by_name = index_limits(models)
         # Mirrors extra_model_key() over a "provider/model" alias so the
         # provider-scoped match applies whenever we can identify the provider.
         key = model_name.replace("/", "-").replace(":", "-")
         match = match_limits(by_key, by_name, key, name)
-        if match.limits is None:
-            return None
-        return _coerce_positive_int(match.limits.max_output)
+        if match.limits is not None:
+            return _coerce_positive_int(match.limits.max_output)
+        if match.kind is LimitMatchKind.UNMATCHED:
+            return _coerce_positive_int(
+                infer_family_output_cap(
+                    name, str(model_config.get("type") or ""), models
+                )
+            )
+        return None
     except Exception:
         return None
 
@@ -594,7 +604,9 @@ def get_model_max_output_tokens(
     3. ``limit.output`` for that model id from models.dev, so entries that
        predate ``/add_model`` stamping limits (or were written by hand) still
        get a real cap rather than a guess.
-    4. Heuristic: 15% of ``context_length``, clamped to [2048, 65536].
+    4. For unindexed Claude models, the cap of the newest known sibling of the
+       same family that is not newer than the model (best-effort inference).
+    5. Heuristic: 15% of ``context_length``, clamped to [2048, 65536].
 
     Args:
         model_name: Model key; defaults to the current global model.
@@ -641,7 +653,7 @@ def get_model_max_output_tokens(
 def get_config_keys():
     """
     Returns the list of all config keys currently in puppy.cfg,
-    plus certain preset expected keys (e.g. "yolo_mode", "model", "compaction_strategy", "message_limit", "allow_recursion").
+    plus core menu settings, preset expected keys, and plugin settings.
 
     Only core-owned keys belong in ``default_keys``: plugins declare theirs
     through the ``register_settings`` hook (see :func:`_plugin_setting_keys`).
@@ -707,9 +719,29 @@ def get_config_keys():
     default_keys.append("retry_subagent_strategy")
     default_keys.append("retry_subagent_max_attempts")
 
+    # Core-owned controls without curated menu entries. Plugin-owned controls
+    # must come from register_settings, not this fallback list.
+    default_keys.extend(
+        (
+            "classic_prompt",
+            "command_timeout_seconds",
+            "disabled_plugins",
+            "enable_speculative_code_mode",
+            "osc_palette_json",
+            "port_base",
+        )
+    )
+
+    # Import lazily: the catalog imports config getters while it is built.
+    # Reuse the catalog rather than maintaining a second list of its keys.
+    from code_puppy.command_line.set_menu_catalog import SETTINGS_CATEGORIES
+
     config = _load_config()
     keys = set(config[DEFAULT_SECTION].keys()) if DEFAULT_SECTION in config else set()
     keys.update(default_keys)
+    keys.update(
+        setting.key for category in SETTINGS_CATEGORIES for setting in category.settings
+    )
     keys.update(_plugin_setting_keys())
     return sorted(keys)
 
@@ -1767,6 +1799,29 @@ def get_grep_max_matches() -> int:
         return max(1, int(val))
     except (ValueError, TypeError):
         return GREP_MAX_MATCHES_DEFAULT
+
+
+#: Default ceiling for a normalized image attachment, in KiB of encoded bytes.
+IMAGE_ATTACHMENT_MAX_KB_DEFAULT = 1024
+
+
+def get_image_attachment_max_kb() -> int:
+    """Return the attachment ceiling in KiB (``image_attachment_max_kb``).
+
+    Attachments are normalized down to this size before they go into the
+    conversation, so the value caps both the upload and every later replay of
+    the image. Defaults to ``IMAGE_ATTACHMENT_MAX_KB_DEFAULT`` (1 MiB) when
+    unset, non-numeric, or non-positive — a zero/negative ceiling has no
+    sensible meaning and would just make attaching impossible.
+    """
+    val = get_value("image_attachment_max_kb")
+    if val is None or not str(val).strip():
+        return IMAGE_ATTACHMENT_MAX_KB_DEFAULT
+    try:
+        kb = int(str(val).strip())
+    except (ValueError, TypeError):
+        return IMAGE_ATTACHMENT_MAX_KB_DEFAULT
+    return kb if kb > 0 else IMAGE_ATTACHMENT_MAX_KB_DEFAULT
 
 
 def get_disable_dangerous_command_guard() -> bool:

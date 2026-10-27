@@ -4,20 +4,23 @@ build-backend = "hatchling.build"
 
 [project]
 name = "code-puppy"
-version = "0.0.925"
+version = "0.0.946"
 description = "Code generation agent"
 readme = "README.md"
 requires-python = ">=3.11,<3.15"
 dependencies = [
-    "code-puppy-core-plugins>=0.0.94",
+    "code-puppy-core-plugins>=0.0.97",
     "logfire>=4.0",
     "pydantic-ai-slim[openai,anthropic,mcp]==2.51.0",
     "pydantic-ai-harness[code-mode]==0.35.0",
     # Monty 1.0 removed max_duration_secs, still used by harness CodeMode.
     "pydantic-monty<1",
-    "anyio>=4.7.0",
+    # Security floor: 4.14.2 fixes CVE-2026-63374 and CVE-2026-64847.
+    "anyio>=4.14.2",
     "typer>=0.12.0",
     "mcp>=1.9.4",
+    # Imported directly by code_puppy.mcp_; range mirrors pydantic-ai-slim[mcp].
+    "fastmcp-slim[client]>=3.3.0,<5",
     # FastMCP's OAuth callback server explicitly uses Uvicorn websockets-sansio.
     "websockets>=14.0",
     "httpx[http2]>=0.24.1",
@@ -66,7 +69,7 @@ classifiers = [
 bedrock = ["boto3>=1.35.0"]
 durable = ["dbos>=2.11.0"]
 computer-use = [
-    "code-puppy-core-plugins[computer-use]>=0.0.94",
+    "code-puppy-core-plugins[computer-use]>=0.0.97",
 ]
 
 [project.urls]

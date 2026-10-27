@@ -29,6 +29,7 @@ from code_puppy.config import (
     get_subagent_verbose,
     get_suppress_thinking_messages,
 )
+from code_puppy.messaging.safe_console import SafeConsole
 from code_puppy.tools.display import erase_progress_line
 from code_puppy.tools.subagent_context import is_subagent
 
@@ -87,7 +88,7 @@ def get_streaming_console() -> Console:
     """
     if _streaming_console is not None:
         return _streaming_console
-    return Console()
+    return SafeConsole()
 
 
 def _should_suppress_output() -> bool:
