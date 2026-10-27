@@ -1,23 +1,20 @@
 """Plugin transforms for final outbound model messages."""
 
-from copy import copy
+from dataclasses import replace
 from typing import Any
 
 from pydantic_ai import RunContext
-from pydantic_ai.capabilities import Hooks, WrapModelRequestHandler
-from pydantic_ai.messages import ModelResponse
-from pydantic_ai.models import ModelRequestContext
+from pydantic_ai.capabilities import (
+    CapabilityOrdering,
+    Hooks,
+    WrapModelRequestHandler,
+)
+from pydantic_ai.messages import ModelMessage, ModelResponse
+from pydantic_ai.models import Model, ModelRequestContext
 from pydantic_ai.models.wrapper import WrapperModel
 
 from code_puppy.agents._foreign_thinking import strip_foreign_thinking
 from code_puppy.callbacks import on_transform_model_messages
-
-# Per-request prefix fingerprint, handed from the ``wrap_model_request`` leg
-# to the ``after_model_request`` leg via this attribute on the (mutable,
-# per-request) ``ModelRequestContext``. ``None`` means "this request's
-# outbound messages diverged from the durable history it was built from, so
-# don't stamp an anchor" -- see ``build_model_message_transform``.
-_PREFIX_ATTR = "_context_accounting_prefix"
 
 
 class _ContinuationObserver(WrapperModel):
@@ -29,11 +26,26 @@ class _ContinuationObserver(WrapperModel):
     a receipt. The framework's durable-execution capabilities use the same
     request-model swap seam. Provider details and billing limitations live
     in ``docs/API_CONTEXT_ACCOUNTING.md``.
+
+    It also carries this request's accounting state from the
+    ``before_model_request`` leg to the ``after_model_request`` leg: the
+    durable history the request was built from, and its prefix fingerprint.
+    ``prefix`` is ``None`` when the outbound messages diverged from that
+    history, so no anchor is stamped. The model object is the one thing every
+    later hook and the core hand on unchanged.
     """
 
-    def __init__(self, wrapped):
+    def __init__(
+        self,
+        wrapped: Model,
+        *,
+        durable_messages: list[ModelMessage],
+        prefix: str | None,
+    ):
         super().__init__(wrapped)
         self.continued = False
+        self.durable_messages = durable_messages
+        self.prefix = prefix
 
     def continuation_delay(self, response: ModelResponse) -> float | None:
         self.continued = True
@@ -42,6 +54,10 @@ class _ContinuationObserver(WrapperModel):
 
 def build_model_message_transform(agent_name: str | None, owner: Any = None) -> Hooks:
     """Build the request-only plugin transform for an agent.
+
+    The transform runs in ``before_model_request`` as the innermost
+    capability, so it sees what the request really sends: the history after
+    compaction and every other ``before_model_request`` rewrite.
 
     ``owner`` is the Code Puppy agent (or agent-shaped object) whose
     ``_context_overhead`` compaction just computed for this same request --
@@ -55,15 +71,12 @@ def build_model_message_transform(agent_name: str | None, owner: Any = None) -> 
     the caller's *current* overhead back in.
     """
 
-    async def transform(
-        _ctx: RunContext[Any],
-        *,
-        request_context: ModelRequestContext,
-        handler: WrapModelRequestHandler,
-    ) -> ModelResponse:
-        from code_puppy.context_accounting import fingerprint, invalidate_anchors
+    async def prepare(
+        _ctx: RunContext[Any], request_context: ModelRequestContext
+    ) -> ModelRequestContext:
+        from code_puppy.context_accounting import fingerprint
 
-        durable_messages = request_context.messages
+        durable_messages = list(request_context.messages)
         # Snapshot *before* anything can touch the messages. strip_foreign_thinking
         # is a no-op pass-through for non-Anthropic models (same list AND same
         # message objects by reference, not a copy) -- so a plugin transform
@@ -71,42 +84,47 @@ def build_model_message_transform(agent_name: str | None, owner: Any = None) -> 
         # and a fingerprint taken afterwards would never see the divergence.
         original_fingerprint = fingerprint(durable_messages)
 
-        transformed_context = copy(request_context)
-        transformed_context.messages = strip_foreign_thinking(
-            list(durable_messages), request_context.model
-        )
-        await on_transform_model_messages(agent_name, transformed_context.messages)
+        outbound = strip_foreign_thinking(list(durable_messages), request_context.model)
+        await on_transform_model_messages(agent_name, outbound)
 
         # The anchor must describe what the *durable history* looked like,
         # because that's what next turn's ``context_tokens`` re-fingerprints
-        # against. If anything between the snapshot above and the handler
-        # call -- the built-in foreign-thinking strip, or a plugin's rewrite,
-        # in place or not -- changed what's actually sent, the response's
-        # usage no longer describes ``durable_messages`` and must not anchor it.
+        # against. If anything between the snapshot above and the model call
+        # -- the built-in foreign-thinking strip, or a plugin's rewrite, in
+        # place or not -- changed what's actually sent, the response's usage no
+        # longer describes ``durable_messages`` and must not anchor it.
         prefix = original_fingerprint
-        if fingerprint(transformed_context.messages) != prefix:
+        if fingerprint(outbound) != prefix:
             prefix = None
 
         # Wrap *after* the fingerprint check above (which needs the real
-        # model for foreign-thinking detection) and *before* the handler
-        # call, so the continuation loop inside `handler` actually drives
-        # this wrapper's `continuation_delay` -- see `_ContinuationObserver`.
-        observer = _ContinuationObserver(transformed_context.model)
-        transformed_context.model = observer
+        # model for foreign-thinking detection), so the continuation loop
+        # inside the core drives this wrapper's `continuation_delay`.
+        observer = _ContinuationObserver(
+            request_context.model, durable_messages=durable_messages, prefix=prefix
+        )
+        return replace(request_context, messages=outbound, model=observer)
 
+    async def invalidate_on_failure(
+        _ctx: RunContext[Any],
+        *,
+        request_context: ModelRequestContext,
+        handler: WrapModelRequestHandler,
+    ) -> ModelResponse:
+        # ``on_model_request_error`` only sees failures of the core call;
+        # failures of other hooks and cancellation reach only a wrapper.
         try:
-            response = await handler(transformed_context)
+            return await handler(request_context)
         except BaseException:
-            invalidate_anchors(durable_messages)
-            raise
+            from code_puppy.context_accounting import invalidate_anchors
 
-        if observer.continued:
-            # Usage on `response` is a cumulative sum across segments, not
-            # one measured prompt -- decline to anchor it. Billing/usage
-            # itself is untouched; only our own receipt is suppressed.
-            prefix = None
-        setattr(request_context, _PREFIX_ATTR, prefix)
-        return response
+            observer = request_context.model
+            invalidate_anchors(
+                observer.durable_messages
+                if isinstance(observer, _ContinuationObserver)
+                else request_context.messages
+            )
+            raise
 
     async def stamp(
         _ctx: RunContext[Any],
@@ -116,15 +134,25 @@ def build_model_message_transform(agent_name: str | None, owner: Any = None) -> 
     ) -> ModelResponse:
         from code_puppy.context_accounting import model_names, record_anchor
 
-        prefix = getattr(request_context, _PREFIX_ATTR, None)
-        if prefix is not None:
+        observer = request_context.model
+        if not isinstance(observer, _ContinuationObserver):
+            return response
+        # Usage on a continued response is a cumulative sum across segments,
+        # not one measured prompt -- decline to anchor it. Billing/usage
+        # itself is untouched; only our own receipt is suppressed.
+        if observer.prefix is not None and not observer.continued:
             record_anchor(
-                request_context.messages,
+                observer.durable_messages,
                 response,
                 context_overhead=getattr(owner, "_context_overhead", 0),
-                prefix=prefix,
-                request_model=model_names(request_context.model),
+                prefix=observer.prefix,
+                request_model=model_names(observer.wrapped),
             )
         return response
 
-    return Hooks(model_request=transform, after_model_request=stamp)
+    return Hooks(
+        before_model_request=prepare,
+        model_request=invalidate_on_failure,
+        after_model_request=stamp,
+        ordering=CapabilityOrdering(position="innermost"),
+    )

@@ -196,6 +196,27 @@ def test_retry_prompt_counts_as_return():
     assert prune_interrupted_tool_calls(history) is history
 
 
+def test_retried_tool_return_counts_as_return():
+    """pydantic-ai 2.60+ stores a tool-bound retry as a retried tool return."""
+    history = [
+        ModelRequest(parts=[UserPromptPart(content="go")]),
+        ModelResponse(parts=[_call("a")]),
+        ModelRequest(
+            parts=[
+                ToolReturnPart(
+                    tool_name="edit",
+                    content="args invalid",
+                    tool_call_id="a",
+                    outcome="retried",
+                )
+            ]
+        ),
+    ]
+
+    assert prune_interrupted_tool_calls(history) is history
+    assert not has_pending_tool_calls(history)
+
+
 def test_builtin_tool_call_left_alone():
     """Provider-executed (builtin) calls wait for the provider, not for us."""
     from pydantic_ai.messages import NativeToolCallPart

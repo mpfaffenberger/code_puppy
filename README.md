@@ -368,7 +368,7 @@ Use `custom_openai` for OpenAI-compatible Chat Completions endpoints. If an endp
 
 ## Multiple System Messages
 
-Custom OpenAI-compatible endpoints (`custom_openai`, `openrouter`, `cerebras`, and Zhipu `zai_coding`/`zai_api`) default to merging consecutive leading `system` messages into one. Strict backends (SGLang, some vLLM deployments) reject more than one leading system message — this surfaces after auto-compact, which inserts a compaction-summary system message alongside the agent's own system instructions, as a `400: System message must be at the beginning.`
+Custom OpenAI-compatible endpoints (`custom_openai`, `openrouter`, `cerebras`, and Zhipu `zai_coding`/`zai_api`) default to merging consecutive leading `system` messages into one. Strict backends (SGLang, some vLLM deployments) reject more than one leading system message — this surfaces when the agent's own system instructions are followed by further system prompts (for example from plugins), as a `400: System message must be at the beginning.`
 
 The merge is harmless for endpoints that *do* support multiple system messages. If you know your endpoint handles them, opt out per model with `"supports_multiple_system_messages": true` (a JSON boolean):
 

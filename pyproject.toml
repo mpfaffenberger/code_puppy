@@ -11,10 +11,10 @@ requires-python = ">=3.11,<3.15"
 dependencies = [
     "code-puppy-core-plugins>=0.0.97",
     "logfire>=4.0",
-    "pydantic-ai-slim[openai,anthropic,mcp]==2.51.0",
-    "pydantic-ai-harness[code-mode]==0.35.0",
-    # Monty 1.0 removed max_duration_secs, still used by harness CodeMode.
-    "pydantic-monty<1",
+    "pydantic-ai-slim[openai,anthropic,mcp]==2.62.0",
+    "pydantic-ai-harness[code-mode]==0.62.0",
+    # Imported directly by code_puppy.agents; range mirrors pydantic-ai-harness[code-mode].
+    "pydantic-monty>=1.0.0,<2",
     # Security floor: 4.14.2 fixes CVE-2026-63374 and CVE-2026-64847.
     "anyio>=4.14.2",
     "typer>=0.12.0",

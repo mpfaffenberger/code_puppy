@@ -46,7 +46,6 @@ def _assert_golden_history(history: list) -> None:
         BinaryContent,
         ModelRequest,
         ModelResponse,
-        RetryPromptPart,
         ThinkingPart,
         ToolCallPart,
         ToolReturnPart,
@@ -75,8 +74,10 @@ def _assert_golden_history(history: list) -> None:
     assert tool_return.tool_call_id == tool_call.tool_call_id == "call_1"
     assert tool_return.content == "3 matches"
 
+    # pydantic-ai loads a legacy tool-bound retry as a retried tool return.
     retry = history[3].parts[0]
-    assert isinstance(retry, RetryPromptPart)
+    assert isinstance(retry, ToolReturnPart)
+    assert retry.outcome == "retried"
     assert retry.tool_name == "grep"
     assert retry.tool_call_id == "call_2"
 

@@ -447,7 +447,9 @@ def build_pydantic_agent(
             # ToolOutputLimits reduces oversized tool returns on a different
             # hook (after_tool_execute), so its position is inert; the
             # response clamp runs before_model_request after compaction and
-            # steering. The plugin transform wraps the final model request.
+            # steering. The plugin transform is the innermost capability
+            # (before_model_request runs it last), so it sees the final
+            # compacted, steered request.
             capabilities=[
                 *build_tool_output_limits(),
                 history_compaction,

@@ -1,6 +1,6 @@
 """Speculative CodeMode capability wiring, switched by one config flag.
 
-Uses speculative programmatic tool calling from pydantic-ai-harness 0.33.0.
+Uses speculative programmatic tool calling from pydantic-ai-harness.
 
 When ``enable_speculative_code_mode`` is on, every agent (main and sub-agent)
 has its whole tool surface, MCP servers and plugin tools included, folded
@@ -39,7 +39,7 @@ from pydantic_monty import MountDir, OSAccess
 from pydantic_ai_harness.code_mode import CodeMode
 
 from code_puppy.agents._code_mode_guidance import CodeModeGuidance
-from code_puppy.agents._code_mode_session import SessionCodeMode, repl_path_for
+from code_puppy.agents._code_mode_session import FileReplStore, repl_path_for
 from code_puppy.agents._wire_tool_names import StreamedToolNameNormalizer
 from code_puppy.capabilities.eager_timing import EagerTiming
 from code_puppy.config import get_speculative_code_mode_enabled
@@ -238,8 +238,8 @@ def build_speculative_code_mode(
     workspace = os.getcwd()
     mount_path = sandbox_mount_path(workspace)
     return [
-        SessionCodeMode(
-            repl_path=repl_path,
+        CodeMode(
+            repl_store=FileReplStore(repl_path) if repl_path is not None else None,
             tools=_sandbox_tool,
             speculate=speculate,
             # Composed tiers: eager runs each streamed statement in the live REPL as it

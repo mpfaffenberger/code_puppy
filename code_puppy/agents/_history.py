@@ -345,7 +345,9 @@ def estimate_context_overhead(
 # call/return pairing: tool-call/-return, builtin-tool-call/-return (claude
 # extended-thinking / provider-executed), and retry-prompt (acts as a response
 # only when it is tool-bound — a nameless retry is validation feedback, not a
-# result). ``_classify_tool_part`` and these sets describe that full vocabulary
+# result). Since pydantic-ai 2.60 a tool-bound retry is a regular tool-return
+# with ``outcome='retried'``; retry-prompt remains for legacy parts until v3.
+# ``_classify_tool_part`` and these sets describe that full vocabulary
 # for consumers that want every id-bearing part. The repair and
 # pending-detection logic instead uses the narrower ``_is_repairable_*``
 # predicates below, which exclude builtin parts.
