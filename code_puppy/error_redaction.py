@@ -18,10 +18,19 @@ REDACTED = "[REDACTED]"
 # end), including one whose delimiters repr() escaped (``b'password=\'x\''``); a bare one
 # may carry an auth scheme, which is dropped. ``(?!\[REDACTED\])`` keeps a second pass
 # over already-redacted text from adding a stray bracket.
+#
+# Whether a backslash-quote closes a value depends on how many escaping layers (source
+# literal, then repr) the text went through, and that cannot be known here. So the
+# matching is conservative: a plain quote closes the value only when no backslash precedes
+# it, and for a repr-escaped quote only a lone backslash-quote closes it. Ambiguous text
+# therefore redacts more than strictly needed, never less. Possessive quantifiers keep the
+# scan linear.
 _CREDENTIAL_PAIR = re.compile(
     r"(api[_-]?key|secret|password|passwd|authorization|token)([\w.-]*['\"]?\s*[:=]\s*)"
-    r"(?:(?P<quoted>\\(?P<esc>['\"]).*?(?:\\(?P=esc)|$)"
-    r"|\"(?:[^\"\\]|\\.)*\"?|'(?:[^'\\]|\\.)*'?)"
+    r"(?:(?P<quoted>"
+    r"\\(?P<esc>['\"])(?:[^\\]|\\{2,}+(?P=esc)?|\\(?!\\|(?P=esc)))*+(?:\\(?P=esc)|$)"
+    r"|\"(?:[^\"\\]|\\++\"?)*+\"?"
+    r"|'(?:[^'\\]|\\++'?)*+'?)"
     r"|(?:(?:bearer|basic|token)\s+)?(?!\[REDACTED\])[^\s'\",;&)}\]]+)",
     re.IGNORECASE | re.DOTALL,
 )

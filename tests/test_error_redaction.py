@@ -232,3 +232,37 @@ def test_a_credential_in_a_bytes_repr_is_redacted_despite_escaped_delimiters(cas
     for text in rendered:
         assert "alpha" not in text
         assert "beta" not in text
+
+
+def _interior_escape_payloads() -> dict[str, bytes | str]:
+    """A credential whose interior quote follows a run of 1-4 literal backslashes.
+
+    Whether that quote closes the value depends on escaping layers the text no longer
+    shows, so every run must redact the whole remainder (never just up to the quote).
+    """
+    payloads: dict[str, bytes | str] = {}
+    for run in range(1, 5):
+        for quote, other in (("'", '"'), ('"', "'")):
+            text = f"password={quote}alpha{chr(92) * run}{quote}beta{other}gamma{quote}"
+            payloads[f"bytes-{quote}-run{run}"] = text.encode()
+            payloads[f"str-{quote}-run{run}"] = text
+    return payloads
+
+
+INTERIOR_ESCAPES = _interior_escape_payloads()
+
+
+@pytest.mark.parametrize("case", INTERIOR_ESCAPES)
+def test_an_interior_quote_after_a_backslash_run_does_not_end_redaction(case):
+    payload = INTERIOR_ESCAPES[case]
+
+    rendered = [
+        redact(str(payload)),
+        EL._args_text((payload,)),
+        EL.render_error_entry(ValueError(payload), None, True),
+    ]
+
+    for text in rendered:
+        for fragment in ("alpha", "beta", "gamma"):
+            assert fragment not in text
+        assert "<entry could not be rendered>" not in text  # no rendering fallback
