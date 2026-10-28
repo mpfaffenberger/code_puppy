@@ -296,9 +296,7 @@
   "mcp.edit.install_hint": "Utilisez « /mcp install » pour ajouter un serveur d’abord.",
   "mcp.edit.list_hint": "Utilisez « /mcp list » pour voir les serveurs disponibles.",
   "mcp.edit.no_servers": "Aucun serveur MCP n’est encore configuré.",
-  "mcp.edit.not_found": "Serveur « {server} » introuvable.",
   "mcp.edit.server_name": "  • {name}",
-  "mcp.edit.usage": "Utilisation : /mcp edit <server_name>",
   "mcp.http_form.advanced": "Configuration JSON avancée",
   "mcp.http_form.auth": "Méthode d’authentification",
   "mcp.http_form.auth_value": "Authentification : {auth}",
@@ -361,6 +359,71 @@
   "mcp.oauth.https_required": "OAuth nécessite une URL de serveur HTTPS (HTTP est autorisé uniquement pour les serveurs en boucle locale), sans identifiants intégrés.",
   "mcp.oauth.invalid_method": "La méthode d’authentification MCP HTTP doit être 'oauth' ou être omise. Pour les clés d’API, utilisez plutôt des en-têtes.",
   "mcp.oauth.prompt": "Utiliser l’authentification OAuth dans le navigateur?",
+  "mcp.server.agent_reloaded": "Agent rechargé avec les serveurs mis à jour",
+  "mcp.server.already_running": "{server} : déjà en cours d’exécution",
+  "mcp.server.available": "Serveurs disponibles : {servers}",
+  "mcp.server.bound": "🔗 « {server} » lié à l’agent « {agent} »",
+  "mcp.server.bound_session_only": "(cette session seulement)",
+  "mcp.server.count_already_running": {
+    "one": "{count} serveur déjà en cours d’exécution",
+    "other": "{count} serveurs déjà en cours d’exécution"
+  },
+  "mcp.server.count_start_failed": {
+    "one": "Échec du démarrage de {count} serveur",
+    "other": "Échec du démarrage de {count} serveurs"
+  },
+  "mcp.server.count_started": {
+    "one": "{count} serveur démarré",
+    "other": "{count} serveurs démarrés"
+  },
+  "mcp.server.count_stop_failed": {
+    "one": "Échec de l’arrêt de {count} serveur",
+    "other": "Échec de l’arrêt de {count} serveurs"
+  },
+  "mcp.server.count_stopped": {
+    "one": "{count} serveur arrêté",
+    "other": "{count} serveurs arrêtés"
+  },
+  "mcp.server.did_you_mean": "Vouliez-vous dire : {suggestions} ?",
+  "mcp.server.enabled": "✅ Serveur activé : {server}",
+  "mcp.server.item_failed": "✗ Échec : {server}",
+  "mcp.server.item_started": "✓ Démarré : {server}",
+  "mcp.server.item_stopped": "✓ Arrêté : {server}",
+  "mcp.server.none_registered": "Aucun serveur enregistré",
+  "mcp.server.none_running": "Aucun serveur n’est en cours d’exécution",
+  "mcp.server.not_found": "Serveur « {server} » introuvable",
+  "mcp.server.reload_failed": "✗ Échec du rechargement de la configuration du serveur : {server}",
+  "mcp.server.reloading_config": "Rechargement de la configuration...",
+  "mcp.server.remove_error": "Erreur lors de la suppression du serveur : {error}",
+  "mcp.server.remove_failed": "✗ Échec de la suppression du serveur : {server}",
+  "mcp.server.removed": "✓ Serveur supprimé : {server}",
+  "mcp.server.restart_error": "Échec du redémarrage du serveur : {error}",
+  "mcp.server.restart_start_failed": "✗ Échec du démarrage du serveur après le rechargement : {server}",
+  "mcp.server.restarted": "✓ Serveur redémarré : {server}",
+  "mcp.server.start_all_error": "Échec du démarrage des serveurs : {error}",
+  "mcp.server.start_error": "Échec du démarrage du serveur : {error}",
+  "mcp.server.start_failed": "Échec du démarrage du serveur : {server}",
+  "mcp.server.starting": "Démarrage du serveur : {server}",
+  "mcp.server.starting_all": {
+    "one": "Démarrage de {count} serveur...",
+    "other": "Démarrage de {count} serveurs..."
+  },
+  "mcp.server.starting_background": "🚀 Démarrage du serveur : {server} (le sous-processus démarre en arrière-plan)",
+  "mcp.server.status_tip": "Astuce : utilisez /mcp status pour vérifier si le serveur est entièrement initialisé",
+  "mcp.server.stop_all_error": "Échec de l’arrêt des serveurs : {error}",
+  "mcp.server.stop_error": "Échec de l’arrêt du serveur : {error}",
+  "mcp.server.stop_failed": "✗ Échec de l’arrêt du serveur : {server}",
+  "mcp.server.stopped": "✓ Serveur arrêté : {server}",
+  "mcp.server.stopping": "Arrêt du serveur : {server}",
+  "mcp.server.stopping_all": {
+    "one": "Arrêt de {count} serveur en cours d’exécution...",
+    "other": "Arrêt de {count} serveurs en cours d’exécution..."
+  },
+  "mcp.server.unbound": {
+    "one": "✓ Également dissocié de {count} agent : {agents}",
+    "other": "✓ Également dissocié de {count} agents : {agents}"
+  },
+  "mcp.server.usage": "Utilisation : /mcp {command} <server_name>",
   "mcp.wizard.add_failed": "Échec de l'ajout du serveur : {error}",
   "mcp.wizard.added": "\n✅ Serveur « {name} » ajouté avec succès !",
   "mcp.wizard.cancelled": "Configuration annulée",

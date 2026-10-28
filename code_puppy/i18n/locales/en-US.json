@@ -296,9 +296,7 @@
   "mcp.edit.install_hint": "Use '/mcp install' to add a server first.",
   "mcp.edit.list_hint": "Use '/mcp list' to see available servers.",
   "mcp.edit.no_servers": "No MCP servers configured yet.",
-  "mcp.edit.not_found": "Server '{server}' not found.",
   "mcp.edit.server_name": "  • {name}",
-  "mcp.edit.usage": "Usage: /mcp edit <server_name>",
   "mcp.http_form.advanced": "Advanced JSON configuration",
   "mcp.http_form.auth": "Authentication method",
   "mcp.http_form.auth_value": "Authentication: {auth}",
@@ -361,6 +359,71 @@
   "mcp.oauth.https_required": "OAuth requires an HTTPS server URL (HTTP is allowed for loopback servers only), without embedded credentials.",
   "mcp.oauth.invalid_method": "HTTP MCP auth must be 'oauth' or omitted. For API keys, use headers instead.",
   "mcp.oauth.prompt": "Use browser-based OAuth authentication?",
+  "mcp.server.agent_reloaded": "Agent reloaded with updated servers",
+  "mcp.server.already_running": "{server}: already running",
+  "mcp.server.available": "Available servers: {servers}",
+  "mcp.server.bound": "🔗 Bound '{server}' to agent '{agent}'",
+  "mcp.server.bound_session_only": "(this session only)",
+  "mcp.server.count_already_running": {
+    "one": "{count} server already running",
+    "other": "{count} servers already running"
+  },
+  "mcp.server.count_start_failed": {
+    "one": "Failed to start {count} server",
+    "other": "Failed to start {count} servers"
+  },
+  "mcp.server.count_started": {
+    "one": "Started {count} server",
+    "other": "Started {count} servers"
+  },
+  "mcp.server.count_stop_failed": {
+    "one": "Failed to stop {count} server",
+    "other": "Failed to stop {count} servers"
+  },
+  "mcp.server.count_stopped": {
+    "one": "Stopped {count} server",
+    "other": "Stopped {count} servers"
+  },
+  "mcp.server.did_you_mean": "Did you mean: {suggestions}",
+  "mcp.server.enabled": "✅ Enabled server: {server}",
+  "mcp.server.item_failed": "✗ Failed: {server}",
+  "mcp.server.item_started": "✓ Started: {server}",
+  "mcp.server.item_stopped": "✓ Stopped: {server}",
+  "mcp.server.none_registered": "No servers registered",
+  "mcp.server.none_running": "No servers are currently running",
+  "mcp.server.not_found": "Server '{server}' not found",
+  "mcp.server.reload_failed": "✗ Failed to reload server configuration: {server}",
+  "mcp.server.reloading_config": "Reloading configuration...",
+  "mcp.server.remove_error": "Error removing server: {error}",
+  "mcp.server.remove_failed": "✗ Failed to remove server: {server}",
+  "mcp.server.removed": "✓ Removed server: {server}",
+  "mcp.server.restart_error": "Failed to restart server: {error}",
+  "mcp.server.restart_start_failed": "✗ Failed to start server after reload: {server}",
+  "mcp.server.restarted": "✓ Restarted server: {server}",
+  "mcp.server.start_all_error": "Failed to start servers: {error}",
+  "mcp.server.start_error": "Failed to start server: {error}",
+  "mcp.server.start_failed": "Failed to start server: {server}",
+  "mcp.server.starting": "Starting server: {server}",
+  "mcp.server.starting_all": {
+    "one": "Starting {count} server...",
+    "other": "Starting {count} servers..."
+  },
+  "mcp.server.starting_background": "🚀 Starting server: {server} (subprocess starting in background)",
+  "mcp.server.status_tip": "Tip: Use /mcp status to check if the server is fully initialized",
+  "mcp.server.stop_all_error": "Failed to stop servers: {error}",
+  "mcp.server.stop_error": "Failed to stop server: {error}",
+  "mcp.server.stop_failed": "✗ Failed to stop server: {server}",
+  "mcp.server.stopped": "✓ Stopped server: {server}",
+  "mcp.server.stopping": "Stopping server: {server}",
+  "mcp.server.stopping_all": {
+    "one": "Stopping {count} running server...",
+    "other": "Stopping {count} running servers..."
+  },
+  "mcp.server.unbound": {
+    "one": "✓ Also unbound from {count} agent: {agents}",
+    "other": "✓ Also unbound from {count} agents: {agents}"
+  },
+  "mcp.server.usage": "Usage: /mcp {command} <server_name>",
   "mcp.wizard.add_failed": "Failed to add server: {error}",
   "mcp.wizard.added": "\n✅ Server '{name}' added successfully!",
   "mcp.wizard.cancelled": "Configuration cancelled",

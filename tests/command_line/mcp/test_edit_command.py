@@ -58,7 +58,7 @@ class TestEditCommand:
         ):
             edit_cmd.execute(["myserver"], group_id="g1")
             mock_err.assert_called_once_with(
-                t("mcp.edit.not_found", server="myserver"), message_group="g1"
+                t("mcp.server.not_found", server="myserver"), message_group="g1"
             )
 
     def test_server_not_found_shows_available(self, edit_cmd):
