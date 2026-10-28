@@ -103,6 +103,14 @@ def test_ordinary_text_is_left_alone(text):
         ),
         ("got bearer abcdefgh12345678 back", "got bearer [REDACTED] back"),
         ("https://user:hunter2@host/path", "https://user:[REDACTED]@host/path"),
+        # Token counts are not credentials; any other value for the key still is.
+        ("max_tokens: 64001 > 64000", "max_tokens: 64001 > 64000"),
+        ("tokens=200000", "tokens=200000"),
+        ("token_count: 5", "token_count: 5"),
+        ("token=12ab", "token=[REDACTED]"),
+        ("password=123456", "password=[REDACTED]"),
+        ("api_key=12345", "api_key=[REDACTED]"),
+        ('"token": "12345"', '"token": "[REDACTED]"'),
         # The password runs to the last "@" of the authority; the username may be empty.
         (
             "postgres://admin:p@ssw0rd@db.internal:5432/app",

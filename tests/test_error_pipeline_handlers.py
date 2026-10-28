@@ -14,7 +14,13 @@ Any silent handler in the scanned files that is not listed fails the build, so a
 ``except`` cannot slip in, and a startup site turned back into ``pass`` fails its pin. Ordinals
 shift only when a handler is added or removed earlier in the same function; the failure names the
 identity to re-pin. Contexts follow ``<module>::<qualname>: <phrase>``: the qualname must be the
-real enclosing function and the phrase unique per file (rule 15c).
+real enclosing function and the phrase unique per file.
+
+Contributor notes: a new silent ``except`` in ``cli_runner.py``, ``callbacks.py``,
+``plugins/__init__.py`` or ``pydantic_patches.py`` fails this test. Either record it (route
+``ERROR`` or ``EXPECTED``) or, if it must stay silent, add a ``DEFERRED`` row to the TSV. Adding or
+removing a ``try`` earlier in ``cli_runner.main`` shifts the ordinals of the handlers after it;
+update their ``ordinal`` column to the identities the failure message prints.
 
 AST helpers live in ``tests/error_ast_support.py``.
 """

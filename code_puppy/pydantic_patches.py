@@ -1037,10 +1037,8 @@ def patch_silence_pydantic_serializer_warnings() -> bool:
 def _report_patch_failures() -> None:
     """Write each collected patch failure to errors.log, then forget them.
 
-    Runs only after the last patch: ``log_error`` notifies the ``error_logged``
-    phase, which imports ``callbacks`` and with it pydantic-ai, and that import
-    must not happen between patches (cli_runner applies them first). Imported
-    lazily so a clean boot never loads the sink. Never raises.
+    Runs only after the last patch, so recording one failure cannot interleave
+    with the patches still to be applied. Never raises.
 
     Called by: ``apply_all_patches``.
     """
