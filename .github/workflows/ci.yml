@@ -11,7 +11,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest]
+        # macos-latest is Apple Silicon (arm64). macos-15-intel keeps Intel Macs
+        # honest: a dependency that ships arm64-only macOS wheels (or a native
+        # binary that only runs on arm64) passes the arm64 job but breaks
+        # `uvx code-puppy` on Intel. Fresh `uv pip install` mirrors that path.
+        os: [macos-latest, macos-15-intel]
         python-version: ['3.13']
     steps:
       - name: Checkout code

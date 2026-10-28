@@ -57,6 +57,9 @@ uvx code-puppy -i
 
 #### macOS / Linux
 
+Both Apple Silicon (arm64) and Intel (x86_64) Macs are supported; CI runs the
+full test suite on each.
+
 ```bash
 # Install UV if you don't have it
 curl -LsSf https://astral.sh/uv/install.sh | sh
