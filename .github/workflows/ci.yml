@@ -11,10 +11,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # macos-latest is Apple Silicon (arm64). macos-15-intel keeps Intel Macs
-        # honest: a dependency that ships arm64-only macOS wheels (or a native
-        # binary that only runs on arm64) passes the arm64 job but breaks
-        # `uvx code-puppy` on Intel. Fresh `uv pip install` mirrors that path.
+        # macos-latest is Apple Silicon (arm64). macos-15-intel runs the suite
+        # on real x86_64, catching native binaries that only work on arm64.
+        # It cannot catch missing x86_64 wheels (the runner ships Rust and would
+        # quietly compile the sdist); the intel-mac-wheels job covers that.
         os: [macos-latest, macos-15-intel]
         python-version: ['3.13']
     steps:
@@ -137,6 +137,41 @@ jobs:
 
       - name: Run Windows regression tests (encoding + shell pipe/job I/O)
         run: uv run pytest tests/test_windows_encoding.py tests/tools/test_win_shell_io.py -v --no-cov
+
+  # Resolve fresh (exactly what `uvx code-puppy` does) for Intel Macs, then
+  # refuse source builds. A dependency that drops x86_64 macOS wheels -- as
+  # cryptography 49 did -- fails here instead of on users' machines, where the
+  # sdist build needs Rust + OpenSSL. macOS 12 is the oldest Intel target we
+  # promise; bump MACOSX_DEPLOYMENT_TARGET deliberately, never to go green.
+  intel-mac-wheels:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Install from wheels only (x86_64 macOS, every supported Python)
+        env:
+          MACOSX_DEPLOYMENT_TARGET: '12.0'
+        run: |
+          for python in 3.11 3.12 3.13 3.14; do
+            echo "::group::Python $python"
+            uv pip compile pyproject.toml --all-extras --quiet \
+              --python-platform x86_64-apple-darwin --python-version "$python" \
+              --output-file "$RUNNER_TEMP/requirements-$python.txt"
+            uv pip install --dry-run --no-build \
+              --python-platform x86_64-apple-darwin --python-version "$python" \
+              --target "$RUNNER_TEMP/site-$python" \
+              --requirements "$RUNNER_TEMP/requirements-$python.txt"
+            echo "::endgroup::"
+          done
 
   quality:
     runs-on: ubuntu-latest
