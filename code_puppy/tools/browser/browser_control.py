@@ -3,7 +3,6 @@
 from typing import Any, Dict, Optional
 
 from pydantic_ai import RunContext
-from rich.text import Text
 
 from code_puppy.i18n import t
 from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
@@ -20,12 +19,10 @@ async def initialize_browser(
     """Initialize the browser with specified settings."""
     group_id = generate_group_id("browser_initialize", f"{browser_type}_{homepage}")
     emit_info(
-        Text(
-            t(
-                "browser.control.initialize",
-                browser_type=browser_type,
-                homepage=homepage,
-            )
+        t(
+            "browser.control.initialize",
+            browser_type=browser_type,
+            homepage=homepage,
         ),
         message_group=group_id,
     )
@@ -64,7 +61,7 @@ async def initialize_browser(
 
     except Exception as e:
         emit_error(
-            Text(t("browser.control.initialize_failed", error=str(e))),
+            t("browser.control.initialize_failed", error=str(e)),
             message_group=group_id,
         )
         return {
@@ -79,14 +76,14 @@ async def close_browser() -> Dict[str, Any]:
     """Close the browser and clean up resources."""
     group_id = generate_group_id("browser_close")
     emit_info(
-        Text(t("browser.control.close")),
+        t("browser.control.close"),
         message_group=group_id,
     )
     try:
         browser_manager = get_session_browser_manager()
         await browser_manager.close()
 
-        emit_warning(Text(t("browser.control.closed")), message_group=group_id)
+        emit_warning(t("browser.control.closed"), message_group=group_id)
 
         return {"success": True, "message": "Browser closed"}
 
@@ -98,7 +95,7 @@ async def get_browser_status() -> Dict[str, Any]:
     """Get current browser status and information."""
     group_id = generate_group_id("browser_status")
     emit_info(
-        Text(t("browser.control.status")),
+        t("browser.control.status"),
         message_group=group_id,
     )
     try:
@@ -143,7 +140,7 @@ async def create_new_page(url: Optional[str] = None) -> Dict[str, Any]:
     """Create a new browser page/tab."""
     group_id = generate_group_id("browser_new_page", url or "blank")
     emit_info(
-        Text(t("browser.control.new_page", url=url or t("browser.control.blank_page"))),
+        t("browser.control.new_page", url=url or t("browser.control.blank_page")),
         message_group=group_id,
     )
     try:
@@ -161,7 +158,7 @@ async def create_new_page(url: Optional[str] = None) -> Dict[str, Any]:
         title = await page.title()
 
         emit_success(
-            Text(t("browser.control.page_created", url=final_url)),
+            t("browser.control.page_created", url=final_url),
             message_group=group_id,
         )
 
@@ -175,7 +172,7 @@ async def list_pages() -> Dict[str, Any]:
     """List all open browser pages/tabs."""
     group_id = generate_group_id("browser_list_pages")
     emit_info(
-        Text(t("browser.control.list_pages")),
+        t("browser.control.list_pages"),
         message_group=group_id,
     )
     try:

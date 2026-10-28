@@ -1,12 +1,14 @@
 from io import StringIO
 from string import Formatter
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from rich.console import Console
-from rich.text import Text
 
 from code_puppy.i18n import available_locales, catalog, pseudo, translate
+from code_puppy.messaging.message_queue import MessageType
+from code_puppy.messaging.renderers import _print_message_uncoordinated
 from code_puppy.tools.browser import browser_control as control
 
 _REAL_PARAMS = {
@@ -119,29 +121,60 @@ async def test_lifecycle_call_sites(locale, monkeypatch):
             ),
         ]
         assert [
-            call.args[0].plain for call in emitters["emit_info"].call_args_list
+            call.args[0] for call in emitters["emit_info"].call_args_list
         ] == expected_info
         for emitter, suffix, count in (
             ("emit_success", "page_created", 3),
             ("emit_warning", "closed", 1),
             ("emit_error", "initialize_failed", 1),
         ):
-            assert [
-                call.args[0].plain for call in emitters[emitter].call_args_list
-            ] == [
+            assert [call.args[0] for call in emitters[emitter].call_args_list] == [
                 translate.t(f"browser.control.{suffix}", **_REAL_PARAMS[suffix])
             ] * count
         for emitter in emitters.values():
             for call in emitter.call_args_list:
-                text = call.args[0]
-                assert isinstance(text, Text)
+                message = call.args[0]
+                # Plain str: the renderer escapes it and colours it by level.
+                assert type(message) is str
                 assert call.kwargs == {"message_group": "test-group"}
-                assert "{" not in text.plain and "}" not in text.plain
-                stream = StringIO()
-                Console(file=stream, width=300, color_system=None).print(text, end="")
-                assert stream.getvalue() == text.plain
+                assert "{" not in message and "}" not in message
     finally:
         translate.set_locale("en-US")
+
+
+_LEVELS = {
+    "emit_error": (MessageType.ERROR, "\x1b[1;31m"),
+    "emit_warning": (MessageType.WARNING, "\x1b[33m"),
+    "emit_success": (MessageType.SUCCESS, "\x1b[32m"),
+}
+
+
+def _render(message_type, content, color):
+    stream = StringIO()
+    console = Console(
+        file=stream,
+        width=400,
+        force_terminal=color,
+        color_system="truecolor" if color else None,
+    )
+    message = SimpleNamespace(type=message_type, content=content, metadata={})
+    _print_message_uncoordinated(console, message)
+    return stream.getvalue()
+
+
+@pytest.mark.parametrize(
+    ("emitter", "suffix"),
+    [
+        ("emit_error", "initialize_failed"),
+        ("emit_warning", "closed"),
+        ("emit_success", "page_created"),
+    ],
+)
+def test_production_renderer_keeps_level_colour_and_literal_markup(emitter, suffix):
+    message = translate.t(f"browser.control.{suffix}", **_REAL_PARAMS[suffix])
+    message_type, colour = _LEVELS[emitter]
+    assert _render(message_type, message, color=False) == message + "\n"
+    assert colour in _render(message_type, message, color=True)
 
 
 def test_english_layout_is_unchanged():
