@@ -7,6 +7,7 @@ Because even good puppies make mistakes sometimes! 🐶
 
 import logging
 import os
+import sys
 import threading
 from collections import OrderedDict
 from pathlib import Path
@@ -117,8 +118,9 @@ def _notify_error_logged(
 ) -> None:
     """Best-effort dispatch of the ``error_logged`` observation phase.
 
-    Imported lazily: ``callbacks`` pulls in pydantic-ai, and importing it at
-    module scope would create an import cycle through ``config``.
+    ``callbacks`` is looked up in ``sys.modules`` rather than imported: nothing can
+    have subscribed before it was imported, and importing it here would re-fail
+    (and re-warn) on every entry when pydantic-ai itself is broken.
 
     Core registers no subscriber, so this is a no-op in a stock install.
 
@@ -131,9 +133,10 @@ def _notify_error_logged(
 
     _notify_state.active = True
     try:
-        from code_puppy.callbacks import on_error_logged
-
-        on_error_logged(
+        callbacks = sys.modules.get("code_puppy.callbacks")
+        if callbacks is None:
+            return
+        callbacks.on_error_logged(
             error,
             context=context,
             include_traceback=include_traceback,
@@ -144,7 +147,7 @@ def _notify_error_logged(
         #
         # ``_trigger_callbacks_sync`` already isolates and logs each
         # subscriber's own failures, so reaching here means the dispatch
-        # itself broke: the lazy import failed, most plausibly.
+        # itself broke.
         #
         # warning, not debug: the root logger sits at WARNING in a stock
         # install, so a debug record is discarded and the "breadcrumb" this

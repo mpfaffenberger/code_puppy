@@ -169,9 +169,10 @@ def test_the_report_waits_for_the_last_patch_and_a_clean_boot_never_loads_the_si
         False,
         False,
     )
-    # The tail report then writes the entry; its notify step imports callbacks.
+    # The tail report writes the entry without importing callbacks: nothing can have
+    # subscribed to a module that was never imported.
     assert failed["after"]["log_written"] is True
-    assert failed["after"]["callbacks"] is True
+    assert failed["after"]["callbacks"] is False
     # With no failure the report never runs.
     assert clean["after"]["log_written"] is False
     assert clean["after"]["callbacks"] is False

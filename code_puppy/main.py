@@ -9,8 +9,6 @@ which is exactly the window the shimmer covers. ``code_puppy.splash`` is
 stdlib-only by design -- keep it that way, and keep it first.
 """
 
-import logging
-
 from code_puppy.splash import start_splash
 
 _splash = start_splash()
@@ -21,6 +19,8 @@ try:
 
         install_error_hooks()
     except Exception:
+        import logging
+
         logging.getLogger(__name__).debug(
             "installing the error hooks failed", exc_info=True
         )

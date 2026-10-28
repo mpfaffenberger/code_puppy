@@ -35,7 +35,9 @@ _CREDENTIAL_PAIR = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 _BEARER = re.compile(r"\b(bearer)\s+[A-Za-z0-9._~+/=-]{8,}", re.IGNORECASE)
-_URL_CREDENTIALS = re.compile(r"(://[^/\s:@]+:)[^@\s/]+(@)")
+# The password runs to the last ``@`` of the authority (``p@ss`` is one password), and the
+# username may be empty (``redis://:pw@host``).
+_URL_CREDENTIALS = re.compile(r"(://[^/\s:@]*+:)[^\s/?#]*(@)")
 # Well-known token shapes that appear without a naming key (min lengths avoid prose).
 # The JWT branch needs a terminating ``.``, so it may only start at the beginning of a
 # ``[\w-]`` run; otherwise every ``eyJ`` after a ``-`` rescans the run (quadratic).

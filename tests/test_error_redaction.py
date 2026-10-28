@@ -103,6 +103,15 @@ def test_ordinary_text_is_left_alone(text):
         ),
         ("got bearer abcdefgh12345678 back", "got bearer [REDACTED] back"),
         ("https://user:hunter2@host/path", "https://user:[REDACTED]@host/path"),
+        # The password runs to the last "@" of the authority; the username may be empty.
+        (
+            "postgres://admin:p@ssw0rd@db.internal:5432/app",
+            "postgres://admin:[REDACTED]@db.internal:5432/app",
+        ),
+        ("redis://:s3cret@cache:6379", "redis://:[REDACTED]@cache:6379"),
+        # Not userinfo: a port, and an "@" that belongs to the path or query.
+        ("http://host:8080/a@b", "http://host:8080/a@b"),
+        ("http://host:8080?mail=a@b", "http://host:8080?mail=a@b"),
         ("leaked ghp_" + "a" * 36 + " here", "leaked [REDACTED] here"),
     ],
 )
@@ -282,6 +291,8 @@ LINEAR_UNITS = {
     "key-then-spaces": "token" + " " * 40,
     "home-prefix": "/Users/a",
     "url-userinfo": "://a:",
+    "url-empty-user": "://:",
+    "url-empty-password": "://a:@",
     # One per _TOKEN_SHAPE branch; the JWT branch needs a terminating dot, so it is the
     # one that can fail late and go quadratic.
     "jwt-prefix": "eyJ-",
