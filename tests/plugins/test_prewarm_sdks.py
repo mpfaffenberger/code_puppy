@@ -1,6 +1,5 @@
 """Tests for the prompt_ready SDK prewarm plugin."""
 
-import asyncio
 import importlib
 import sys
 import threading
@@ -57,15 +56,8 @@ def test_prompt_ready_hook_dispatches_to_plugin(monkeypatch):
     assert calls == ["prompt_ready"]
 
 
-def test_startup_does_not_trigger_prewarm(monkeypatch):
-    calls = []
-    monkeypatch.setattr(
-        register_callbacks,
-        "start_prewarm_for_active_model",
-        lambda: calls.append("startup"),
-    )
-    asyncio.run(callbacks.on_startup())
-    assert calls == []
+def test_prewarm_is_not_a_startup_callback():
+    assert register_callbacks._on_prompt_ready not in callbacks.get_callbacks("startup")
 
 
 def test_prewarm_thread_is_daemon_and_named(monkeypatch):
