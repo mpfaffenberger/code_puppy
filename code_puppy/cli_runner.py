@@ -19,7 +19,7 @@ import traceback
 from pathlib import Path
 
 from code_puppy import __version__, callbacks, get_core_plugins_version, plugins
-from code_puppy.agents import get_current_agent
+from code_puppy.agents import apply_agent_reloads, get_current_agent
 from code_puppy.asyncio_cleanup import install_httpcore2_shutdown_filter
 from code_puppy.i18n import t, use_detected_locale
 from code_puppy.command_line.attachments import (
@@ -831,6 +831,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         from code_puppy.agents import get_current_agent
         from code_puppy.messaging import emit_info, emit_success, emit_system_message
 
+        apply_agent_reloads(get_current_agent)
         agent = get_current_agent()
         emit_info(t("cli.initial_command.processing", command=initial_command))
 
@@ -1158,6 +1159,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 # Command not recognized, continue with normal processing
                 pass
 
+        apply_agent_reloads(lambda: current_agent)
         if task.strip():
             # History belongs to input capture (editor/classic/queue insertion),
             # not dispatch: queued or deferred inputs may already be recorded.
@@ -1283,6 +1285,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 if delay > 0:
                     await asyncio.sleep(delay)
 
+                apply_agent_reloads(lambda: current_agent)
                 continuation_prompt = next_prompt
                 continuation_result = None
                 continuation_success = False
@@ -1526,6 +1529,7 @@ async def execute_single_prompt(
     emit_info(t("cli.headless.executing", prompt=prompt))
 
     try:
+        apply_agent_reloads(get_current_agent)
         agent = get_current_agent()
         # Headless -p mode: no run UI (no bottom bar, no line editor) —
         # output must stay plain for pipes/CI even when stdout is a TTY.
