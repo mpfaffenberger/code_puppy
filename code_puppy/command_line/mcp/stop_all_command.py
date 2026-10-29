@@ -8,6 +8,7 @@ from typing import List, Optional
 
 from rich.text import Text
 
+from code_puppy.i18n import ngettext, t
 from code_puppy.mcp_.managed_server import ServerState
 from code_puppy.messaging import emit_info
 
@@ -40,7 +41,7 @@ class StopAllCommand(MCPCommandBase):
             servers = self.manager.list_servers()
 
             if not servers:
-                emit_info("No servers registered", message_group=group_id)
+                emit_info(t("mcp.server.none_registered"), message_group=group_id)
                 return
 
             stopped_count = 0
@@ -50,11 +51,11 @@ class StopAllCommand(MCPCommandBase):
             running_servers = [s for s in servers if s.state == ServerState.RUNNING]
 
             if not running_servers:
-                emit_info("No servers are currently running", message_group=group_id)
+                emit_info(t("mcp.server.none_running"), message_group=group_id)
                 return
 
             emit_info(
-                f"Stopping {len(running_servers)} running server(s)...",
+                ngettext("mcp.server.stopping_all", len(running_servers)),
                 message_group=group_id,
             )
 
@@ -67,18 +68,28 @@ class StopAllCommand(MCPCommandBase):
 
                 if success:
                     stopped_count += 1
-                    emit_info(f"  ✓ Stopped: {server_name}", message_group=group_id)
+                    emit_info(
+                        "  " + t("mcp.server.item_stopped", server=server_name),
+                        message_group=group_id,
+                    )
                 else:
                     failed_count += 1
-                    emit_info(f"  ✗ Failed: {server_name}", message_group=group_id)
+                    emit_info(
+                        "  " + t("mcp.server.item_failed", server=server_name),
+                        message_group=group_id,
+                    )
 
             # Summary
             emit_info("", message_group=group_id)
             if stopped_count > 0:
-                emit_info(f"Stopped {stopped_count} server(s)", message_group=group_id)
+                emit_info(
+                    ngettext("mcp.server.count_stopped", stopped_count),
+                    message_group=group_id,
+                )
             if failed_count > 0:
                 emit_info(
-                    f"Failed to stop {failed_count} server(s)", message_group=group_id
+                    ngettext("mcp.server.count_stop_failed", failed_count),
+                    message_group=group_id,
                 )
 
             # Reload agent if any servers were stopped
@@ -99,9 +110,7 @@ class StopAllCommand(MCPCommandBase):
                     # Update MCP tool cache immediately so token counts reflect the change
                     agent.update_mcp_tool_cache_sync()
                     emit_info(
-                        Text.from_markup(
-                            "[dim]Agent reloaded with updated servers[/dim]"
-                        ),
+                        Text(t("mcp.server.agent_reloaded"), style="dim"),
                         message_group=group_id,
                     )
                 except Exception as e:
@@ -109,4 +118,4 @@ class StopAllCommand(MCPCommandBase):
 
         except Exception as e:
             logger.error(f"Error stopping all servers: {e}")
-            emit_info(f"Failed to stop servers: {e}", message_group=group_id)
+            emit_info(t("mcp.server.stop_all_error", error=e), message_group=group_id)

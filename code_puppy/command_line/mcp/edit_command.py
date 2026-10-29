@@ -42,7 +42,7 @@ class EditCommand(MCPCommandBase):
             # Need a server name
             if not args:
                 emit_info(
-                    Text(t("mcp.edit.usage"), style="yellow"),
+                    Text(t("mcp.server.usage", command="edit"), style="yellow"),
                     message_group=group_id,
                 )
                 emit_info(
@@ -113,7 +113,7 @@ class EditCommand(MCPCommandBase):
 
             if server_name not in servers:
                 emit_error(
-                    t("mcp.edit.not_found", server=server_name),
+                    t("mcp.server.not_found", server=server_name),
                     message_group=group_id,
                 )
                 # Show available servers

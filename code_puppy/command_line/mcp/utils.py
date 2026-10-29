@@ -99,6 +99,7 @@ def suggest_similar_servers(
     """
     import logging
 
+    from code_puppy.i18n import t
     from code_puppy.messaging import emit_info
 
     logger = logging.getLogger(__name__)
@@ -106,7 +107,7 @@ def suggest_similar_servers(
     try:
         servers = manager.list_servers()
         if not servers:
-            emit_info("No servers are registered", message_group=group_id)
+            emit_info(t("mcp.server.none_registered"), message_group=group_id)
             return
 
         # Simple suggestion based on partial matching
@@ -118,11 +119,15 @@ def suggest_similar_servers(
                 suggestions.append(server.name)
 
         if suggestions:
-            emit_info(f"Did you mean: {', '.join(suggestions)}", message_group=group_id)
+            emit_info(
+                t("mcp.server.did_you_mean", suggestions=", ".join(suggestions)),
+                message_group=group_id,
+            )
         else:
             server_names = [s.name for s in servers]
             emit_info(
-                f"Available servers: {', '.join(server_names)}", message_group=group_id
+                t("mcp.server.available", servers=", ".join(server_names)),
+                message_group=group_id,
             )
 
     except Exception as e:

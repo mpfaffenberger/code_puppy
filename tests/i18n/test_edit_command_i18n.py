@@ -22,10 +22,11 @@ _REAL_PARAMS = {
     "mcp.edit.install_hint": {},
     "mcp.edit.list_hint": {},
     "mcp.edit.no_servers": {},
-    "mcp.edit.not_found": {"server": "demo-server"},
     "mcp.edit.server_name": {"name": "demo-name"},
-    "mcp.edit.usage": {},
+    "mcp.server.not_found": {"server": "demo-server"},
+    "mcp.server.usage": {"command": "edit"},
 }
+_EDIT_KEYS = {key for key in _REAL_PARAMS if key.startswith("mcp.edit.")}
 
 
 def test_keys_and_kwargs_match_actual_callers():
@@ -43,7 +44,7 @@ def test_keys_and_kwargs_match_actual_callers():
 @pytest.mark.parametrize("locale", _LOCALES)
 def test_exact_namespace_and_real_placeholder_contract(locale):
     entries = catalog.load_catalog(locale)
-    assert {key for key in entries if key.startswith("mcp.edit.")} == set(_REAL_PARAMS)
+    assert {key for key in entries if key.startswith("mcp.edit.")} == _EDIT_KEYS
     translate.set_locale(locale)
     for key, params in _REAL_PARAMS.items():
         assert set(re.findall(r"\{(\w+)\}", entries[key])) == set(params)
@@ -55,7 +56,7 @@ def test_exact_namespace_and_real_placeholder_contract(locale):
 
 @pytest.mark.parametrize("payload", ["Uso: [nombre]", "Uso: [/mcp edit]"])
 def test_usage_keeps_translated_markup_literal(monkeypatch, payload):
-    monkeypatch.setattr(edit_command, "t", lambda key: payload)
+    monkeypatch.setattr(edit_command, "t", lambda key, **_: payload)
     output = MagicMock()
     monkeypatch.setattr(edit_command, "emit_info", output)
     command = object.__new__(edit_command.EditCommand)

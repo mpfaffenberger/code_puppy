@@ -5,6 +5,7 @@ MCP Remove Command - Removes an MCP server.
 import logging
 from typing import List, Optional
 
+from code_puppy.i18n import ngettext, t
 from code_puppy.messaging import emit_error, emit_info
 
 from .base import MCPCommandBase
@@ -33,7 +34,7 @@ class RemoveCommand(MCPCommandBase):
             group_id = self.generate_group_id()
 
         if not args:
-            emit_info("Usage: /mcp remove <server_name>", message_group=group_id)
+            emit_info(t("mcp.server.usage", command="remove"), message_group=group_id)
             return
 
         server_name = args[0]
@@ -42,7 +43,10 @@ class RemoveCommand(MCPCommandBase):
             # Find server by name
             server_id = find_server_id_by_name(self.manager, server_name)
             if not server_id:
-                emit_info(f"Server '{server_name}' not found", message_group=group_id)
+                emit_info(
+                    t("mcp.server.not_found", server=server_name),
+                    message_group=group_id,
+                )
                 suggest_similar_servers(self.manager, server_name, group_id=group_id)
                 return
 
@@ -59,11 +63,18 @@ class RemoveCommand(MCPCommandBase):
             success = self.manager.remove_server(server_id)
 
             if success:
-                emit_info(f"✓ Removed server: {server_name}", message_group=group_id)
+                emit_info(
+                    t("mcp.server.removed", server=server_name),
+                    message_group=group_id,
+                )
                 if bound_agents:
                     emit_info(
-                        f"  ✓ Also unbound from {len(bound_agents)} agent(s): "
-                        f"{', '.join(bound_agents)}",
+                        "  "
+                        + ngettext(
+                            "mcp.server.unbound",
+                            len(bound_agents),
+                            agents=", ".join(bound_agents),
+                        ),
                         message_group=group_id,
                     )
 
@@ -78,9 +89,10 @@ class RemoveCommand(MCPCommandBase):
                     logger.warning(f"Could not update mcp_servers.json: {e}")
             else:
                 emit_info(
-                    f"✗ Failed to remove server: {server_name}", message_group=group_id
+                    t("mcp.server.remove_failed", server=server_name),
+                    message_group=group_id,
                 )
 
         except Exception as e:
             logger.error(f"Error removing server '{server_name}': {e}")
-            emit_error(f"Error removing server: {e}", message_group=group_id)
+            emit_error(t("mcp.server.remove_error", error=e), message_group=group_id)
