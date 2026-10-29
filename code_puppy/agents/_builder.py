@@ -334,6 +334,26 @@ database or production mutations, or other actions without a clear rollback.
 """
 
 
+_GEMINI_FLASH_SEARCH_GUIDANCE_TEXT = """
+
+## Investigation & Search Strategy
+When searching for symbols, configuration keys, classes, or code patterns:
+1. Budget searches rationally: formulate 2-3 targeted searches.
+2. If initial searches across primary directories yield zero matches, do NOT loop endlessly through minor regex variations, synonyms, or slight spelling differences. Conclude that the symbol does not exist or is named differently.
+3. Once primary locations have been checked, synthesize your findings immediately in text rather than calling more tools to confirm absence.
+"""
+
+
+def _is_gemini_flash(model_name: Optional[str]) -> bool:
+    """Gemini Flash models get the search-discipline guidance.
+
+    They tend to keep varying a failed search instead of concluding that the
+    target is absent; larger models rarely need the reminder.
+    """
+    name = (model_name or "").lower()
+    return "gemini" in name and "flash" in name
+
+
 def _is_gpt_5_6_family(model_name: Optional[str]) -> bool:
     """GPT-5.6 and newer (incl. GPT-6) get the shell-safety guard."""
     from code_puppy.model_utils import supports_gpt_responses_controls
@@ -369,6 +389,9 @@ def _assemble_instructions(agent: Any, resolved_model_name: str) -> PreparedProm
             instructions += _build_gpt_5_6_invoke_agent_guard_text()
         if _agent_exposes_tool(agent, "shell"):
             instructions += _GPT_5_6_RUN_SHELL_COMMAND_GUARD_TEXT
+
+    if _is_gemini_flash(resolved_model_name):
+        instructions += _GEMINI_FLASH_SEARCH_GUIDANCE_TEXT
 
     return prepare_prompt_for_model(
         agent.get_model_name(), instructions, "", prepend_system_to_user=False
