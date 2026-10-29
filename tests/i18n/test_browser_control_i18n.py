@@ -1,5 +1,4 @@
 from io import StringIO
-from string import Formatter
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -7,6 +6,7 @@ import pytest
 from rich.console import Console
 
 from code_puppy.i18n import available_locales, catalog, pseudo, translate
+from code_puppy.i18n.interpolation import placeholder_names
 from code_puppy.messaging.message_queue import MessageType
 from code_puppy.messaging.renderers import _print_message_uncoordinated
 from code_puppy.tools.browser import browser_control as control
@@ -28,32 +28,23 @@ _REAL_PARAMS = {
 _LOCALES = (*available_locales(), pseudo.PSEUDO_LOCALE)
 
 
-@pytest.mark.parametrize("locale", _LOCALES)
+@pytest.mark.parametrize("locale", available_locales())
 def test_catalog_contract(locale):
+    """Browser-specific contracts; generic sweeps live in test_catalog_namespaces."""
     translate.set_locale(locale)
     try:
         source = catalog.load_catalog("en-US")
-        target = (
-            catalog.load_catalog(locale) if locale != pseudo.PSEUDO_LOCALE else source
-        )
+        target = catalog.load_catalog(locale)
         keys = {f"browser.control.{suffix}" for suffix in _REAL_PARAMS}
         assert {key for key in target if key.startswith("browser.control.")} == keys
         for suffix, params in _REAL_PARAMS.items():
             key = f"browser.control.{suffix}"
-            fields = {
-                field for _, field, _, _ in Formatter().parse(target[key]) if field
-            }
-            assert fields == set(params)
+            assert placeholder_names(target[key]) == set(params)
             rendered = translate.t(key, **params)
-            assert rendered != key
-            assert "{" not in rendered and "}" not in rendered
-            if locale != pseudo.PSEUDO_LOCALE:
-                for value in params.values():
-                    assert value in rendered
-            if locale not in ("en-US", pseudo.PSEUDO_LOCALE):
+            for value in params.values():
+                assert value in rendered
+            if locale != "en-US":
                 assert target[key] != source[key]
-            if locale == pseudo.PSEUDO_LOCALE:
-                assert rendered.startswith("⟦")
     finally:
         translate.set_locale("en-US")
 
