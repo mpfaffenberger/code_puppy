@@ -15,17 +15,24 @@ which labels parts with the model name) rely on their own thinking replay.
 from __future__ import annotations
 
 import dataclasses
+import sys
 
 from pydantic_ai.messages import ModelMessage, ModelResponse, ThinkingPart
 from pydantic_ai.models import Model
-from pydantic_ai.models.anthropic import AnthropicModel
 from pydantic_ai.models.wrapper import WrapperModel
+
+_ANTHROPIC_MODULE = "pydantic_ai.models.anthropic"
 
 
 def _is_anthropic(model: Model) -> bool:
+    # An AnthropicModel cannot exist until its module is imported, so an unloaded
+    # module means no match. This keeps the Anthropic SDK off the startup path.
+    anthropic_model = getattr(sys.modules.get(_ANTHROPIC_MODULE), "AnthropicModel", None)
+    if anthropic_model is None:
+        return False
     while isinstance(model, WrapperModel):
         model = model.wrapped
-    return isinstance(model, AnthropicModel)
+    return isinstance(model, anthropic_model)
 
 
 def strip_foreign_thinking(
