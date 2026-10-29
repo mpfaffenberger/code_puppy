@@ -311,11 +311,16 @@ def _build_gpt_5_6_invoke_agent_guard_text() -> str:
     limit = get_subagent_recursion_limit_gpt_5_6()
     return (
         "\n\n## Sub-Agent Delegation (GPT-5.6)\n"
-        "Use `invoke_agent` only for focused work that benefits from separate "
-        "context or specialized tools. Handle work directly when you can. "
+        "Use `invoke_agent` for focused work that benefits from separate "
+        "context or specialized tools; handle small work directly. When a task "
+        "has independent, tightly scoped pieces, invoke them as multiple "
+        "sub-agents concurrently in one batch (several `invoke_agent` calls in "
+        "the same response) rather than one at a time. Each must be a direct "
+        "child told not to delegate further. Wait for the batch, then "
+        "synthesize the results yourself; "
+        "do not start recursive or repeated follow-up delegation chains. "
         "Never invoke `planning-agent`. "
-        f"Hard cap: as a GPT-5.6 caller you may only invoke a sub-agent while "
-        f"the resulting chain depth stays at or below {limit} "
+        f"Hard cap: the resulting chain depth must stay at or below {limit} "
         f"(main agent = depth 0). Do not attempt deeper chains.\n"
     )
 
