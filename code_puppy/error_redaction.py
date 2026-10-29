@@ -69,12 +69,17 @@ def _current_home(home: str) -> re.Pattern[str] | None:
     return re.compile(prefix + r"[\\/]++".join(segments) + _SEGMENT_END, re.IGNORECASE)
 
 
+# Suffixes after ``token`` that name a count (tokens, max_tokens, token_count), so an
+# all-digit value is a number to keep. Anything else (``token_secret``, ``auth_token``,
+# bare ``token``) stays a credential.
+_COUNT_SUFFIXES = frozenset({"s", "_count", "_limit", "_used", "_usage", "_total"})
+_KEY_SUFFIX = re.compile(r"[\w.-]*")
+
+
 def _redact_pair(match: re.Match[str]) -> str:
     value = match[0][len(match[1]) + len(match[2]) :]
-    # Only a suffixed key (tokens, max_tokens, token_count) keeps an all-digit value: a
-    # count, not a credential. A bare ``token=`` or ``auth_token:`` still redacts.
-    is_count_key = re.match(r"[\w.-]", match[2]) is not None
-    if match[1].lower() == "token" and is_count_key and value.isdigit():
+    suffix = _KEY_SUFFIX.match(match[2])[0].lower()
+    if match[1].lower() == "token" and suffix in _COUNT_SUFFIXES and value.isdigit():
         return match[0]
     quoted = match["quoted"] or ""
     quote = quoted[:2] if match["esc"] else quoted[:1]

@@ -108,6 +108,11 @@ def test_ordinary_text_is_left_alone(text):
         ("tokens=200000", "tokens=200000"),
         ("token_count: 5", "token_count: 5"),
         ("token=12ab", "token=[REDACTED]"),
+        # A suffix that names a credential is not a count.
+        ("token_secret=839201", "token_secret=[REDACTED]"),
+        ("token_password: 839201", "token_password: [REDACTED]"),
+        ("tokens_secret=839201", "tokens_secret=[REDACTED]"),
+        ("token_count: 5 token_limit=100", "token_count: 5 token_limit=100"),
         # A bare or prefixed credential key redacts digits too.
         ("boom token=839201 end", "boom token=[REDACTED] end"),
         ("auth_token=839201", "auth_token=[REDACTED]"),
@@ -382,3 +387,15 @@ def test_own_home_needs_a_segment_boundary_and_other_homes_get_a_neutral_marker(
     monkeypatch.setenv("USERPROFILE", "/Users/bob")
 
     assert redact(text) == expected
+
+
+@pytest.mark.parametrize(
+    "key", ["token_secret", "token_password", "auth_token", "token"]
+)
+@pytest.mark.parametrize("sep", ["=", ": "])
+def test_a_numeric_credential_never_reaches_any_part_of_the_entry(key, sep):
+    payload = f"{key}{sep}839201"
+
+    entry = EL.render_error_entry(ValueError(payload), "ctx", True)
+
+    assert "839201" not in entry
