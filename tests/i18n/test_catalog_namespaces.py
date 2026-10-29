@@ -66,6 +66,9 @@ _NAMESPACES = {
     "browser.interaction": (("browser.interaction.",), 18),
     "browser.navigation": (("browser.navigation.",), 8),
     "browser.control": (("browser.control.",), 9),
+    "mcp.state": (("mcp.state.",), 7),
+    "mcp.list": (("mcp.list.",), 11),
+    "mcp.status": (("mcp.status.",), 22),
 }
 
 _PREFIXES = [prefixes for prefixes, _ in _NAMESPACES.values()]
