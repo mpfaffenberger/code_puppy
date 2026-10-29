@@ -4,6 +4,7 @@ from typing import Any, Dict
 
 from pydantic_ai import RunContext
 
+from code_puppy.i18n import t
 from code_puppy.messaging import emit_error, emit_info, emit_success
 from code_puppy.tools.common import generate_group_id
 
@@ -14,7 +15,7 @@ async def navigate_to_url(url: str) -> Dict[str, Any]:
     """Navigate to a specific URL."""
     group_id = generate_group_id("browser_navigate", url)
     emit_info(
-        f"BROWSER NAVIGATE 🌐 {url}",
+        t("browser.navigation.navigate", url=url),
         message_group=group_id,
     )
     try:
@@ -31,12 +32,14 @@ async def navigate_to_url(url: str) -> Dict[str, Any]:
         final_url = page.url
         title = await page.title()
 
-        emit_success(f"Navigated to: {final_url}", message_group=group_id)
+        emit_success(
+            t("browser.navigation.navigated", url=final_url), message_group=group_id
+        )
 
         return {"success": True, "url": final_url, "title": title, "requested_url": url}
 
     except Exception as e:
-        emit_error(f"Navigation failed: {str(e)}", message_group=group_id)
+        emit_error(t("browser.navigation.failed", error=str(e)), message_group=group_id)
         return {"success": False, "error": str(e), "url": url}
 
 
@@ -44,7 +47,7 @@ async def get_page_info() -> Dict[str, Any]:
     """Get current page information."""
     group_id = generate_group_id("browser_get_page_info")
     emit_info(
-        "BROWSER GET PAGE INFO 📌",
+        t("browser.navigation.page_info"),
         message_group=group_id,
     )
     try:
@@ -67,7 +70,7 @@ async def go_back() -> Dict[str, Any]:
     """Navigate back in browser history."""
     group_id = generate_group_id("browser_go_back")
     emit_info(
-        "BROWSER GO BACK ⬅️",
+        t("browser.navigation.go_back"),
         message_group=group_id,
     )
     try:
@@ -89,7 +92,7 @@ async def go_forward() -> Dict[str, Any]:
     """Navigate forward in browser history."""
     group_id = generate_group_id("browser_go_forward")
     emit_info(
-        "BROWSER GO FORWARD ➡️",
+        t("browser.navigation.go_forward"),
         message_group=group_id,
     )
     try:
@@ -111,7 +114,7 @@ async def reload_page(wait_until: str = "domcontentloaded") -> Dict[str, Any]:
     """Reload the current page."""
     group_id = generate_group_id("browser_reload", wait_until)
     emit_info(
-        f"BROWSER RELOAD 🔄 wait_until={wait_until}",
+        t("browser.navigation.reload", details=f"wait_until={wait_until}"),
         message_group=group_id,
     )
     try:
@@ -135,7 +138,10 @@ async def wait_for_load_state(
     """Wait for page to reach a specific load state."""
     group_id = generate_group_id("browser_wait_for_load", f"{state}_{timeout}")
     emit_info(
-        f"BROWSER WAIT FOR LOAD state={state} timeout={timeout}ms",
+        t(
+            "browser.navigation.wait_for_load",
+            details=f"state={state} timeout={timeout}ms",
+        ),
         message_group=group_id,
     )
     try:

@@ -63,6 +63,8 @@ _NAMESPACES = {
     "renderer": (("renderer.",), 26),
     "model_factory": (("model_factory.",), 15),
     "agent_menu": (("agent_menu.",), 10),
+    "browser.interaction": (("browser.interaction.",), 18),
+    "browser.navigation": (("browser.navigation.",), 8),
     "browser.control": (("browser.control.",), 9),
 }
 
