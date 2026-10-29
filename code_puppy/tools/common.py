@@ -22,8 +22,8 @@ from termflow.diff import brighten_hex as brighten_hex  # re-export (public API)
 from termflow.syntax import Highlighter as TermflowHighlighter
 
 from code_puppy.i18n import t
-from code_puppy.tools.file_permission_state import set_diff_already_shown
 from code_puppy.tools import fs_access
+from code_puppy.tools.file_permission_state import set_diff_already_shown
 
 # =============================================================================
 # Approval queueing locks
@@ -834,6 +834,30 @@ def get_user_approval(
         )
 
 
+def _approval_preview_text(preview: str) -> tuple[Text, bool]:
+    """Render a plain omission summary literally, or render a real diff."""
+    from code_puppy.tools.deletion_preview import PlainTextDeletionPreview
+
+    if isinstance(preview, PlainTextDeletionPreview):
+        return Text(str(preview)), False
+
+    formatted = format_diff_with_colors(preview)
+    if isinstance(formatted, Text):
+        return formatted, True
+    return Text.from_markup(formatted), True
+
+
+def _append_approval_preview(panel_content: Text, preview: str) -> None:
+    """Append a preview and mark only rendered diffs as already shown."""
+    panel_content.append("\n\n", style="")
+    panel_content.append(t("tools.common.approval.preview"), style="bold underline")
+    panel_content.append("\n", style="")
+    preview_text, is_diff = _approval_preview_text(preview)
+    panel_content.append(preview_text)
+    if is_diff:
+        set_diff_already_shown(True)
+
+
 def _get_user_approval_impl(
     title: str,
     content: Text | str,
@@ -866,22 +890,7 @@ def _get_user_approval_impl(
 
     # Add preview if provided
     if preview:
-        panel_content.append("\n\n", style="")
-        panel_content.append(t("tools.common.approval.preview"), style="bold underline")
-        panel_content.append("\n", style="")
-        formatted_preview = format_diff_with_colors(preview)
-
-        # Handle both string (text mode) and Text object (highlight mode)
-        if isinstance(formatted_preview, Text):
-            preview_text = formatted_preview
-        else:
-            preview_text = Text.from_markup(formatted_preview)
-
-        panel_content.append(preview_text)
-
-        # Mark that we showed a diff preview (no-op when no permission
-        # provider is registered, i.e. the file-permission plugin is absent).
-        set_diff_already_shown(True)
+        _append_approval_preview(panel_content, preview)
 
     # Create panel
     panel = Panel(
@@ -1065,22 +1074,7 @@ async def _get_user_approval_async_impl(
 
     # Add preview if provided
     if preview:
-        panel_content.append("\n\n", style="")
-        panel_content.append(t("tools.common.approval.preview"), style="bold underline")
-        panel_content.append("\n", style="")
-        formatted_preview = format_diff_with_colors(preview)
-
-        # Handle both string (text mode) and Text object (highlight mode)
-        if isinstance(formatted_preview, Text):
-            preview_text = formatted_preview
-        else:
-            preview_text = Text.from_markup(formatted_preview)
-
-        panel_content.append(preview_text)
-
-        # Mark that we showed a diff preview (no-op when no permission
-        # provider is registered, i.e. the file-permission plugin is absent).
-        set_diff_already_shown(True)
+        _append_approval_preview(panel_content, preview)
 
     # Create panel
     panel = Panel(

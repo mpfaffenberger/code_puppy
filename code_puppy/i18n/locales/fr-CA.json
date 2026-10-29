@@ -688,6 +688,17 @@
   "stream.thinking": "● Réflexion en cours",
   "subagent.gpt_5_6_recursion_blocked": "Impossible d’invoquer '{agent}' à la profondeur de sous-agent {depth} : les appelants GPT-5.6 sont limités à la profondeur {limit}.",
   "subagent.recursion_limit_reached": "La limite de récursion des sous-agents ({limit}) est atteinte; impossible d’invoquer '{agent}'.",
+  "tools.deletion.binary_preview_omitted": {
+    "one": "Aperçu texte omis pour {filename} (fichier binaire de {size} octet).",
+    "other": "Aperçu texte omis pour {filename} (fichier binaire de {size} octets)."
+  },
+  "tools.deletion.unsafe_preview_omitted": {
+    "one": "Aperçu texte omis pour {filename} (contenu non sécuritaire, {size} octet).",
+    "other": "Aperçu texte omis pour {filename} (contenu non sécuritaire, {size} octets)."
+  },
+  "tools.deletion.omission_size_unknown": "Aperçu texte omis pour {filename} (contenu binaire ou non sécuritaire; taille du fichier inconnue).",
+  "tools.deletion.preview_unavailable": "Aperçu texte indisponible pour {filename}; la suppression nécessite toujours une approbation.",
+  "tools.deletion.read_failed": "Impossible de lire {filename} de façon sécuritaire avant la suppression; le fichier n’a pas été supprimé.",
   "tools.common.approval.approve": "Approuver",
   "tools.common.approval.approved": "Approuvé!",
   "tools.common.approval.cancelled": "Annulé par l’utilisateur",

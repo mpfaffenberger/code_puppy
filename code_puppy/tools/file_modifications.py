@@ -15,9 +15,8 @@ import difflib
 import json
 import os
 import traceback
-from pathlib import Path
-from code_puppy.undo_manager import UndoManager
 import warnings
+from pathlib import Path
 from typing import Annotated, Any, Dict, List, Union
 
 import json_repair
@@ -25,6 +24,7 @@ from pydantic import BaseModel, BeforeValidator, WithJsonSchema
 from pydantic_ai import RunContext
 
 from code_puppy.callbacks import on_delete_file, on_edit_file
+from code_puppy.i18n import ngettext, t
 from code_puppy.messaging import (  # Structured messaging types
     DiffLine,
     DiffMessage,
@@ -35,9 +35,16 @@ from code_puppy.messaging import (  # Structured messaging types
 from code_puppy.tools import fs_access
 from code_puppy.tools.common import (
     generate_group_id,
-    resolve_path,
     read_text_sanitized,
+    resolve_path,
     write_project_file,
+)
+from code_puppy.tools.deletion_preview import (
+    DeletionPreparation,
+    PlainTextDeletionPreview,
+    create_deletion_diff,
+    escape_deletion_filename,
+    prepare_deletion,
 )
 from code_puppy.tools.file_permission_state import (
     PermissionNotDecided,
@@ -46,6 +53,7 @@ from code_puppy.tools.file_permission_state import (
     get_last_user_feedback,
     was_diff_already_shown,
 )
+from code_puppy.undo_manager import UndoManager
 
 
 def _split_existing(path: Path) -> tuple[Path, tuple[str, ...]]:
@@ -860,6 +868,105 @@ async def _edit_file_async(
         }
 
 
+def _deletion_permission_preview(
+    file_path: str, preparation: DeletionPreparation
+) -> str | None:
+    """Return a safe diff or localized plain-text omission summary."""
+    if preparation.status == "missing":
+        return None
+
+    filename = escape_deletion_filename(os.path.basename(file_path))
+    if preparation.status == "read_error":
+        return PlainTextDeletionPreview(
+            t("tools.deletion.preview_unavailable", filename=filename)
+        )
+
+    assert preparation.content is not None
+    content = preparation.content
+    if content.kind == "text":
+        from code_puppy.config import get_diff_context_lines
+
+        return create_deletion_diff(
+            os.path.basename(file_path), content.text or "", get_diff_context_lines()
+        )
+
+    if content.size_bytes is None:
+        return PlainTextDeletionPreview(
+            t("tools.deletion.omission_size_unknown", filename=filename)
+        )
+    if content.omission_reason == "binary":
+        message = ngettext(
+            "tools.deletion.binary_preview_omitted",
+            content.size_bytes,
+            filename=filename,
+            size=content.size_bytes,
+        )
+    else:
+        message = ngettext(
+            "tools.deletion.unsafe_preview_omitted",
+            content.size_bytes,
+            filename=filename,
+            size=content.size_bytes,
+        )
+    return PlainTextDeletionPreview(message)
+
+
+def _log_deletion_read_error(error: Exception | None) -> None:
+    """Log the captured read traceback outside its original except block."""
+    emit_error("Unable to read file safely before deletion")
+    if error is not None:
+        trace = "".join(
+            traceback.format_exception(type(error), error, error.__traceback__)
+        )
+        emit_error(trace, highlight=False)
+
+
+def _delete_prepared_file(
+    file_path: str, preparation: DeletionPreparation
+) -> Dict[str, Any]:
+    """Delete only after a successful safe-content preflight and approval."""
+    if preparation.status == "missing":
+        return {"error": f"File '{file_path}' does not exist.", "diff": ""}
+    if preparation.status == "read_error":
+        _log_deletion_read_error(preparation.error)
+        return {
+            "error": t(
+                "tools.deletion.read_failed",
+                filename=escape_deletion_filename(file_path),
+            ),
+            "diff": "",
+        }
+
+    assert preparation.content is not None
+    try:
+        diff_text = ""
+        if preparation.content.kind == "text":
+            from code_puppy.config import get_diff_context_lines
+
+            diff_text = create_deletion_diff(
+                os.path.basename(file_path),
+                preparation.content.text or "",
+                get_diff_context_lines(),
+            )
+
+        fs_access.delete_file(file_path)
+        message = f"File '{file_path}' deleted successfully."
+        if preparation.content.kind == "omitted":
+            omission_summary = _deletion_permission_preview(file_path, preparation)
+            if omission_summary is not None:
+                message = f"{message} {omission_summary}"
+        return {
+            "success": True,
+            "path": file_path,
+            "message": message,
+            "changed": True,
+            "diff": diff_text,
+        }
+    except Exception as exc:
+        _log_error("Unhandled exception in delete_file", exc)
+        return {"error": str(exc), "diff": ""}
+
+
 def _delete_file(
     context: RunContext, file_path: str, message_group: str | None = None
 ) -> Dict[str, Any]:
@@ -869,57 +976,28 @@ def _delete_file(
 
     UndoManager().record_change(file_path, "delete_file")
     file_path = resolve_path(file_path)
+    preparation = prepare_deletion(file_path)
 
-    # Use the plugin system for permission handling with operation data.
+    # Pass the safe legacy preview with operation_data=None. Older permission
+    # plugins regenerate a delete preview whenever operation_data is supplied.
     from code_puppy.callbacks import on_file_permission
 
-    operation_data = {}  # No additional data needed for delete operations.
     permission_results = on_file_permission(
-        context, file_path, "delete", None, message_group, operation_data
+        context,
+        file_path,
+        "delete",
+        _deletion_permission_preview(file_path, preparation),
+        message_group,
+        None,
     )
-
-    # If any permission handler denies the operation, return cancelled result.
     if _permission_denied(permission_results):
         return _create_rejection_response(file_path)
 
-    try:
-        if not fs_access.exists(file_path) or not fs_access.is_file(file_path):
-            res = {"error": f"File '{file_path}' does not exist.", "diff": ""}
-
-        else:
-            # Sanitize any surrogate characters from reading.
-            original = read_text_sanitized(file_path)
-
-            from code_puppy.config import get_diff_context_lines
-
-            diff_text = "".join(
-                difflib.unified_diff(
-                    original.splitlines(keepends=True),
-                    [],
-                    fromfile=f"a/{os.path.basename(file_path)}",
-                    tofile=f"b/{os.path.basename(file_path)}",
-                    n=get_diff_context_lines(),
-                )
-            )
-
-            fs_access.delete_file(file_path)
-
-            res = {
-                "success": True,
-                "path": file_path,
-                "message": f"File '{file_path}' deleted successfully.",
-                "changed": True,
-                "diff": diff_text,
-            }
-
-    except Exception as exc:
-        _log_error("Unhandled exception in delete_file", exc)
-        res = {"error": str(exc), "diff": ""}
-
-    diff = res.get("diff", "")
+    result = _delete_prepared_file(file_path, preparation)
+    diff = result.get("diff", "")
     if diff:
-        _emit_diff_message(file_path, "delete", diff)
-    return res
+        _emit_diff_message(escape_deletion_filename(file_path), "delete", diff)
+    return result
 
 
 async def _delete_file_async(
@@ -931,57 +1009,26 @@ async def _delete_file_async(
         return refused
 
     file_path = resolve_path(file_path)
+    preparation = await asyncio.to_thread(prepare_deletion, file_path)
 
     from code_puppy.callbacks import on_file_permission_async
 
-    operation_data = {}
     permission_results = await on_file_permission_async(
-        context, file_path, "delete", None, message_group, operation_data
+        context,
+        file_path,
+        "delete",
+        _deletion_permission_preview(file_path, preparation),
+        message_group,
+        None,
     )
-
     if _permission_denied(permission_results):
         return _create_rejection_response(file_path)
 
-    def _delete() -> Dict[str, Any]:
-        try:
-            if not fs_access.exists(file_path) or not fs_access.is_file(file_path):
-                return {"error": f"File '{file_path}' does not exist.", "diff": ""}
-
-            # Sanitize any surrogate characters from reading.
-            original = read_text_sanitized(file_path)
-
-            from code_puppy.config import get_diff_context_lines
-
-            diff_text = "".join(
-                difflib.unified_diff(
-                    original.splitlines(keepends=True),
-                    [],
-                    fromfile=f"a/{os.path.basename(file_path)}",
-                    tofile=f"b/{os.path.basename(file_path)}",
-                    n=get_diff_context_lines(),
-                )
-            )
-
-            fs_access.delete_file(file_path)
-
-            return {
-                "success": True,
-                "path": file_path,
-                "message": f"File '{file_path}' deleted successfully.",
-                "changed": True,
-                "diff": diff_text,
-            }
-
-        except Exception as exc:
-            _log_error("Unhandled exception in delete_file", exc)
-            return {"error": str(exc), "diff": ""}
-
-    res = await asyncio.to_thread(_delete)
-
-    diff = res.get("diff", "")
+    result = await asyncio.to_thread(_delete_prepared_file, file_path, preparation)
+    diff = result.get("diff", "")
     if diff:
-        _emit_diff_message(file_path, "delete", diff)
-    return res
+        _emit_diff_message(escape_deletion_filename(file_path), "delete", diff)
+    return result
 
 
 def register_edit_file(agent):
