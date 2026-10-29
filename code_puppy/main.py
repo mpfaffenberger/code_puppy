@@ -13,6 +13,17 @@ from code_puppy.splash import start_splash
 
 _splash = start_splash()
 try:
+    try:
+        # Before the runner import so an import-time crash is recorded too.
+        from code_puppy.error_hooks import install_error_hooks
+
+        install_error_hooks()
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).debug(
+            "installing the error hooks failed", exc_info=True
+        )
     from code_puppy.cli_runner import main_entry
 finally:
     _splash.stop()

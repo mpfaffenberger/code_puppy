@@ -1,0 +1,45 @@
+file	enclosing_qualname	ordinal	route	context
+code_puppy/cli_runner.py	main	3	ERROR	code_puppy.cli_runner::main: startup/model: validate the --model value against models.json
+code_puppy/cli_runner.py	main	4	ERROR	code_puppy.cli_runner::main: startup/agent: resolve and set the --agent value
+code_puppy/cli_runner.py	main	5	ERROR	code_puppy.cli_runner::main: startup/session-migration: sweep legacy contexts into autosaves
+code_puppy/cli_runner.py	main	6	ERROR	code_puppy.cli_runner::main: startup/session-migration: migrate legacy pickle sessions to versioned JSON
+code_puppy/cli_runner.py	main	8	ERROR	code_puppy.cli_runner::main: startup/resume: re-render resumed session history
+code_puppy/cli_runner.py	main	9	ERROR	code_puppy.cli_runner::main: startup/resume: load and apply the resumed session history
+code_puppy/cli_runner.py	main	10	DEFERRED	
+code_puppy/cli_runner.py	main	11	DEFERRED	
+code_puppy/cli_runner.py	_use_persistent_prompt	1	DEFERRED	
+code_puppy/cli_runner.py	_use_persistent_prompt	2	DEFERRED	
+code_puppy/cli_runner.py	_use_persistent_prompt	3	DEFERRED	
+code_puppy/cli_runner.py	_persistent_prompt_parts	1	DEFERRED	
+code_puppy/cli_runner.py	_interactive_sigint_guard	1	DEFERRED	
+code_puppy/cli_runner.py	_interactive_sigint_guard	2	DEFERRED	
+code_puppy/cli_runner.py	_shutdown_agent_task	1	DEFERRED	
+code_puppy/cli_runner.py	interactive_mode	3	EXPECTED	code_puppy.cli_runner::interactive_mode: startup/interactive-init: install the baseline SIGINT guard
+code_puppy/cli_runner.py	interactive_mode	4	EXPECTED	code_puppy.cli_runner::interactive_mode: startup/interactive-init: install the SIGUSR2 stack-dump handler
+code_puppy/cli_runner.py	interactive_mode	5	EXPECTED	code_puppy.cli_runner::interactive_mode: startup/interactive-init: start the persistent bottom-bar prompt UI
+code_puppy/cli_runner.py	interactive_mode	16	DEFERRED	
+code_puppy/cli_runner.py	_force_utf8_stdio	1	EXPECTED	code_puppy.cli_runner::_force_utf8_stdio: startup/stdio: reconfigure stdout/stderr to UTF-8
+code_puppy/error_logging.py	log_error	1	INTERNAL	
+code_puppy/error_logging.py	log_error_message	1	INTERNAL	
+code_puppy/plugins/__init__.py	_load_installed_plugins	2	ERROR	code_puppy.plugins::_load_installed_plugins: startup/plugins: import the installed plugin {plugin_name}
+code_puppy/plugins/__init__.py	_load_installed_plugins	3	ERROR	code_puppy.plugins::_load_installed_plugins: startup/plugins: load the installed plugin {plugin_name}
+code_puppy/plugins/__init__.py	_load_builtin_plugins	2	ERROR	code_puppy.plugins::_load_builtin_plugins: startup/plugins: import the builtin plugin {plugin_name}
+code_puppy/plugins/__init__.py	_load_builtin_plugins	3	ERROR	code_puppy.plugins::_load_builtin_plugins: startup/plugins: load the builtin plugin {plugin_name}
+code_puppy/plugins/__init__.py	_load_user_plugins	2	ERROR	code_puppy.plugins::_load_user_plugins: startup/plugins: import the user plugin {plugin_name}
+code_puppy/plugins/__init__.py	_load_user_plugins	3	ERROR	code_puppy.plugins::_load_user_plugins: startup/plugins: load the user plugin {plugin_name}
+code_puppy/plugins/__init__.py	_load_user_plugins	5	ERROR	code_puppy.plugins::_load_user_plugins: startup/plugins: execute the user plugin package {plugin_name}
+code_puppy/plugins/__init__.py	_module_origin_is_under	2	DEFERRED	
+code_puppy/plugins/__init__.py	_load_one_project_plugin	2	ERROR	code_puppy.plugins::_load_one_project_plugin: startup/plugins: import the project plugin {plugin_name}
+code_puppy/plugins/__init__.py	_load_one_project_plugin	3	ERROR	code_puppy.plugins::_load_one_project_plugin: startup/plugins: load the project plugin {plugin_name}
+code_puppy/plugins/__init__.py	get_project_plugins_directory	1	EXPECTED	code_puppy.plugins::get_project_plugins_directory: startup/plugins: compare the project plugins directory with the user plugins directory
+code_puppy/pydantic_patches.py	_repair_tool_call_json	2	DEFERRED	
+code_puppy/pydantic_patches.py	_repair_tool_call_json	3	DEFERRED	
+code_puppy/pydantic_patches.py	_resolve_tool_schema	1	DEFERRED	
+code_puppy/pydantic_patches.py	_unwrap_arguments_envelope	1	DEFERRED	
+code_puppy/pydantic_patches.py	_log_placeholder_strip	2	DEFERRED	
+code_puppy/pydantic_patches.py	_sanitize_tool_call_args	1	DEFERRED	
+code_puppy/pydantic_patches.py	_get_code_puppy_version	1	DEFERRED	
+code_puppy/pydantic_patches.py	patch_user_agent._get_dynamic_user_agent	1	DEFERRED	
+code_puppy/pydantic_patches.py	patch_tool_call_callbacks._patched_execute_tool_call	1	DEFERRED	
+code_puppy/pydantic_patches.py	patch_tool_call_callbacks._patched_execute_tool_call	2	DEFERRED	
+code_puppy/pydantic_patches.py	patch_tool_call_callbacks._patched_execute_tool_call	4	DEFERRED	
