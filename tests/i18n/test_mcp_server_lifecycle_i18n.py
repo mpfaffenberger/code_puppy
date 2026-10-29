@@ -13,7 +13,6 @@ strings upstream must stay plain strings; sites that used styled markup use
 """
 
 import ast
-import re
 from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -36,6 +35,7 @@ from code_puppy.command_line.mcp import (
 )
 from code_puppy.i18n import catalog, ngettext, translate
 from code_puppy.i18n import t as tr
+from code_puppy.i18n.interpolation import placeholder_names
 from code_puppy.mcp_.managed_server import ServerState
 from code_puppy.messaging.message_queue import MessageType
 from code_puppy.messaging.renderers import _print_message_uncoordinated
@@ -213,6 +213,7 @@ def test_keys_and_kwargs_match_actual_callers():
 
 @pytest.mark.parametrize("locale", _LOCALES)
 def test_catalog_contract(locale):
+    """MCP-specific contracts; generic sweeps live in test_catalog_namespaces."""
     entries = catalog.load_catalog(locale)
     source = catalog.load_catalog("en-US")
     keys = {f"{_PREFIX}{suffix}" for suffix in _REAL_PARAMS}
@@ -225,13 +226,14 @@ def test_catalog_contract(locale):
         if suffix in _PLURAL:
             assert set(entry) == {"one", "other"}
         for text in entry.values() if suffix in _PLURAL else [entry]:
-            assert set(re.findall(r"\{(\w+)\}", text)) == set(params)
+            assert placeholder_names(text) == set(params)
         if locale != "en-US":
             assert entry != source[key], key
         for count in (1, 2) if suffix in _PLURAL else (None,):
             kwargs = {**params, "count": count} if count else params
             rendered = ngettext(key, count, **kwargs) if count else tr(key, **kwargs)
-            assert rendered != key
+            # The shared sweep checks braces in en-US only; call-site tests
+            # compare against t() output, so this is the per-locale guard.
             assert "{" not in rendered and "}" not in rendered
             assert all(str(value) in rendered for value in kwargs.values())
 
