@@ -47,7 +47,7 @@ class TestListCommand:
         list_cmd.manager.list_servers.return_value = []
         with patch("code_puppy.command_line.mcp.list_command.emit_info") as mock_emit:
             list_cmd.execute([], group_id="g1")
-            assert "No MCP servers registered" in str(mock_emit.call_args)
+            assert "No servers registered" in str(mock_emit.call_args)
 
     def test_servers_displayed(self, list_cmd):
         list_cmd.manager.list_servers.return_value = [

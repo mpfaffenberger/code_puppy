@@ -64,6 +64,9 @@ _NAMESPACES = {
     "model_factory": (("model_factory.",), 15),
     "agent_menu": (("agent_menu.",), 10),
     "browser.control": (("browser.control.",), 9),
+    "mcp.state": (("mcp.state.",), 7),
+    "mcp.list": (("mcp.list.",), 11),
+    "mcp.status": (("mcp.status.",), 22),
 }
 
 _PREFIXES = [prefixes for prefixes, _ in _NAMESPACES.values()]
