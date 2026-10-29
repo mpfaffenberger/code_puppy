@@ -85,6 +85,7 @@ PhaseType = Literal[
     "feature_capability",
     "transform_model_messages",
     "error_logged",
+    "prompt_ready",
 ]
 CallbackFunc = Callable[..., Any]
 
@@ -177,6 +178,7 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "feature_capability": [],
     "transform_model_messages": [],
     "error_logged": [],
+    "prompt_ready": [],
 }
 
 logger = logging.getLogger(__name__)
@@ -901,6 +903,15 @@ def on_awaiting_user_input(awaiting: bool) -> List[Any]:
     paths.
     """
     return _trigger_callbacks_sync("awaiting_user_input", awaiting)
+
+
+def on_prompt_ready() -> List[Any]:
+    """Fired each time the interactive idle prompt is about to block for input.
+
+    Observers only, sync and fire-and-forget. Fires once per idle prompt, so
+    observers must tolerate repeat calls.
+    """
+    return _trigger_callbacks_sync("prompt_ready")
 
 
 async def on_file_permission_async(
