@@ -108,6 +108,11 @@ def test_ordinary_text_is_left_alone(text):
         ("tokens=200000", "tokens=200000"),
         ("token_count: 5", "token_count: 5"),
         ("token=12ab", "token=[REDACTED]"),
+        # A bare or prefixed credential key redacts digits too.
+        ("boom token=839201 end", "boom token=[REDACTED] end"),
+        ("auth_token=839201", "auth_token=[REDACTED]"),
+        ("access_token: 482913", "access_token: [REDACTED]"),
+        ('"token": 123456', '"token": [REDACTED]'),
         ("password=123456", "password=[REDACTED]"),
         ("api_key=12345", "api_key=[REDACTED]"),
         ('"token": "12345"', '"token": "[REDACTED]"'),

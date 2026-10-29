@@ -71,8 +71,11 @@ def _current_home(home: str) -> re.Pattern[str] | None:
 
 def _redact_pair(match: re.Match[str]) -> str:
     value = match[0][len(match[1]) + len(match[2]) :]
-    if match[1].lower() == "token" and value.isdigit():
-        return match[0]  # max_tokens=4096, tokens: 200000 -- a count, not a credential
+    # Only a suffixed key (tokens, max_tokens, token_count) keeps an all-digit value: a
+    # count, not a credential. A bare ``token=`` or ``auth_token:`` still redacts.
+    is_count_key = re.match(r"[\w.-]", match[2]) is not None
+    if match[1].lower() == "token" and is_count_key and value.isdigit():
+        return match[0]
     quoted = match["quoted"] or ""
     quote = quoted[:2] if match["esc"] else quoted[:1]
     return f"{match[1]}{match[2]}{quote}{REDACTED}{quote}"
