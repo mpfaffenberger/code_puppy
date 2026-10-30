@@ -8,12 +8,20 @@ from typing import List, Optional
 from rich.table import Table
 from rich.text import Text
 
+from code_puppy.i18n import t
 from code_puppy.messaging import emit_info, emit_system_message, emit_warning
 
 from .base import MCPCommandBase
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+_SEARCH_EXAMPLES = "/mcp search database, /mcp search file, /mcp search git"
+
+
+def _hint(label_key: str, command: str) -> Text:
+    """A translated yellow label followed by a literal command."""
+    return Text.assemble((t(label_key), "yellow"), f" {command}")
 
 
 class SearchCommand(MCPCommandBase):
@@ -39,37 +47,30 @@ class SearchCommand(MCPCommandBase):
 
             if not args:
                 # Show popular servers if no query
-                emit_info(
-                    "Popular MCP Servers:\n",
-                    message_group=group_id,
-                )
+                emit_info(t("mcp.search.popular_title"), message_group=group_id)
                 servers = catalog.get_popular(15)
             else:
                 query = " ".join(args)
                 emit_info(
-                    f"Searching for: {query}\n",
-                    message_group=group_id,
+                    t("mcp.search.searching", query=query), message_group=group_id
                 )
                 servers = catalog.search(query)
 
             if not servers:
-                emit_warning(
-                    "No servers found matching your search",
-                    message_group=group_id,
-                )
+                emit_warning(t("mcp.search.no_results"), message_group=group_id)
                 emit_info(
-                    "Try: /mcp search database, /mcp search file, /mcp search git",
+                    t("mcp.search.try", examples=_SEARCH_EXAMPLES),
                     message_group=group_id,
                 )
                 return
 
             # Create results table
             table = Table(show_header=True, header_style="bold magenta")
-            table.add_column("ID", style="cyan", width=20)
-            table.add_column("Name", style="green")
-            table.add_column("Category", style="yellow")
-            table.add_column("Description", style="white")
-            table.add_column("Tags", style="dim")
+            table.add_column(Text(t("mcp.search.column.id")), style="cyan", width=20)
+            table.add_column(Text(t("mcp.search.column.name")), style="green")
+            table.add_column(Text(t("mcp.search.column.category")), style="yellow")
+            table.add_column(Text(t("mcp.search.column.description")), style="white")
+            table.add_column(Text(t("mcp.search.column.tags")), style="dim")
 
             for server in servers[:20]:  # Limit to 20 results
                 tags = ", ".join(server.tags[:3])  # Show first 3 tags
@@ -98,26 +99,24 @@ class SearchCommand(MCPCommandBase):
 
             # The first message established the group, subsequent messages will auto-group
             emit_system_message(table, message_group=group_id)
-            emit_info("\n✓ = Verified  ⭐ = Popular", message_group=group_id)
+            emit_info(t("mcp.search.legend"), message_group=group_id)
             emit_info(
-                Text.from_markup("[yellow]To install:[/yellow] /mcp install <id>"),
+                _hint("mcp.search.install_label", "/mcp install <id>"),
                 message_group=group_id,
             )
             emit_info(
-                Text.from_markup(
-                    "[yellow]For details:[/yellow] /mcp search <specific-term>"
-                ),
+                _hint("mcp.search.details_label", "/mcp search <specific-term>"),
                 message_group=group_id,
             )
 
         except ImportError:
             emit_info(
-                Text.from_markup("[red]Server registry not available[/red]"),
+                Text(t("mcp.search.registry_unavailable"), style="red"),
                 message_group=group_id,
             )
         except Exception as e:
             logger.error(f"Error searching server registry: {e}")
             emit_info(
-                Text.from_markup(f"[red]Error searching servers: {e}[/red]"),
+                Text(t("mcp.search.failed", error=e), style="red"),
                 message_group=group_id,
             )

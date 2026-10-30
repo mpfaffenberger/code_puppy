@@ -9,6 +9,7 @@ from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.text import Text
 
+from code_puppy.i18n import ngettext, t
 from code_puppy.mcp_.mcp_logs import (
     clear_logs,
     get_log_file_path,
@@ -23,6 +24,8 @@ from .utils import find_server_id_by_name, suggest_similar_servers
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+_DEFAULT_LINES = 50
 
 
 class LogsCommand(MCPCommandBase):
@@ -63,7 +66,7 @@ class LogsCommand(MCPCommandBase):
             return
 
         # Determine number of lines
-        lines = 50  # Default
+        lines = _DEFAULT_LINES
         show_all = False
 
         if len(args) > 1:
@@ -74,13 +77,20 @@ class LogsCommand(MCPCommandBase):
                     lines = int(args[1])
                     if lines <= 0:
                         emit_info(
-                            "Lines must be positive, using default: 50",
+                            t(
+                                "mcp.logs.lines_not_positive",
+                                default=_DEFAULT_LINES,
+                            ),
                             message_group=group_id,
                         )
-                        lines = 50
+                        lines = _DEFAULT_LINES
                 except ValueError:
                     emit_info(
-                        f"Invalid number '{args[1]}', using default: 50",
+                        t(
+                            "mcp.logs.invalid_lines",
+                            value=args[1],
+                            default=_DEFAULT_LINES,
+                        ),
                         message_group=group_id,
                     )
 
@@ -91,14 +101,10 @@ class LogsCommand(MCPCommandBase):
         servers = list_servers_with_logs()
 
         if not servers:
-            emit_info(
-                "📋 No MCP server logs found.\n"
-                "Logs are created when servers are started.",
-                message_group=group_id,
-            )
+            emit_info(t("mcp.logs.none_found"), message_group=group_id)
             return
 
-        lines = ["📋 **Servers with logs:**\n"]
+        lines = [t("mcp.logs.list_title")]
 
         for server in servers:
             stats = get_log_stats(server)
@@ -106,16 +112,25 @@ class LogsCommand(MCPCommandBase):
             size_str = (
                 f"{size_kb:.1f} KB" if size_kb < 1024 else f"{size_kb / 1024:.1f} MB"
             )
+            rotated_count = stats["rotated_count"]
             rotated = (
-                f" (+{stats['rotated_count']} rotated)"
-                if stats["rotated_count"]
+                " " + ngettext("mcp.logs.rotated", rotated_count)
+                if rotated_count
                 else ""
             )
             lines.append(
-                f"  • **{server}** - {stats['line_count']} lines, {size_str}{rotated}"
+                t(
+                    "mcp.logs.server_entry",
+                    server=server,
+                    lines=ngettext("mcp.logs.lines", stats["line_count"]),
+                    size=size_str,
+                    rotated=rotated,
+                )
             )
 
-        lines.append("\n**Usage:** `/mcp logs <server_name> [lines|all]`")
+        lines.append(
+            t("mcp.logs.usage", command="`/mcp logs <server_name> [lines|all]`")
+        )
 
         emit_info("\n".join(lines), message_group=group_id)
 
@@ -136,7 +151,7 @@ class LogsCommand(MCPCommandBase):
                 stats = get_log_stats(server_name)
                 if not stats["exists"]:
                     emit_info(
-                        f"Server '{server_name}' not found and has no logs.",
+                        t("mcp.logs.server_not_found", server=server_name),
                         message_group=group_id,
                     )
                     suggest_similar_servers(
@@ -149,8 +164,11 @@ class LogsCommand(MCPCommandBase):
 
             if not log_lines:
                 emit_info(
-                    f"📋 No logs found for server: **{server_name}**\n"
-                    f"Log file: `{get_log_file_path(server_name)}`",
+                    t(
+                        "mcp.logs.no_logs_for",
+                        server=server_name,
+                        path=get_log_file_path(server_name),
+                    ),
                     message_group=group_id,
                 )
                 return
@@ -162,10 +180,13 @@ class LogsCommand(MCPCommandBase):
 
             # Format header
             if lines is None:
-                header = f"📋 Logs for {server_name} (all {total_lines} lines)"
+                header = ngettext("mcp.logs.title_all", total_lines, server=server_name)
             else:
-                header = (
-                    f"📋 Logs for {server_name} (last {showing} of {total_lines} lines)"
+                header = ngettext(
+                    "mcp.logs.title_last",
+                    total_lines,
+                    server=server_name,
+                    showing=showing,
                 )
 
             # Format log content with syntax highlighting
@@ -180,10 +201,11 @@ class LogsCommand(MCPCommandBase):
                 line_numbers=False,
             )
 
+            # Text, not str: server names and log paths may contain brackets.
             panel = Panel(
                 syntax,
-                title=header,
-                subtitle=f"Log file: {get_log_file_path(server_name)}",
+                title=Text(header),
+                subtitle=Text(t("mcp.logs.file", path=get_log_file_path(server_name))),
                 border_style="dim",
             )
 
@@ -192,16 +214,20 @@ class LogsCommand(MCPCommandBase):
             # Show hint for more options
             if lines is not None and showing < total_lines:
                 emit_info(
-                    Text.from_markup(
-                        f"[dim]💡 Use `/mcp logs {server_name} all` to see all logs, "
-                        f"or `/mcp logs {server_name} <number>` for specific count[/dim]"
+                    Text(
+                        t(
+                            "mcp.logs.more_hint",
+                            all_command=f"`/mcp logs {server_name} all`",
+                            count_command=f"`/mcp logs {server_name} <number>`",
+                        ),
+                        style="dim",
                     ),
                     message_group=group_id,
                 )
 
         except Exception as e:
             logger.error(f"Error getting logs for server '{server_name}': {e}")
-            emit_error(f"Error getting logs: {e}", message_group=group_id)
+            emit_error(t("mcp.logs.get_failed", error=e), message_group=group_id)
 
     def _clear_logs(self, server_name: str, group_id: str) -> None:
         """
@@ -216,7 +242,7 @@ class LogsCommand(MCPCommandBase):
 
             if not stats["exists"] and stats["rotated_count"] == 0:
                 emit_info(
-                    f"No logs to clear for server: {server_name}",
+                    t("mcp.logs.nothing_to_clear", server=server_name),
                     message_group=group_id,
                 )
                 return
@@ -226,10 +252,10 @@ class LogsCommand(MCPCommandBase):
 
             cleared_count = 1 + stats["rotated_count"]
             emit_info(
-                f"🗑️  Cleared {cleared_count} log file(s) for **{server_name}**",
+                ngettext("mcp.logs.cleared", cleared_count, server=server_name),
                 message_group=group_id,
             )
 
         except Exception as e:
             logger.error(f"Error clearing logs for server '{server_name}': {e}")
-            emit_error(f"Error clearing logs: {e}", message_group=group_id)
+            emit_error(t("mcp.logs.clear_failed", error=e), message_group=group_id)

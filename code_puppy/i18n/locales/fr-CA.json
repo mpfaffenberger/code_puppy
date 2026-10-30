@@ -404,10 +404,57 @@
     "other": "📊 Résumé : {running}/{count} serveurs en cours d’exécution"
   },
   "mcp.list.title": "🔌 Tableau de bord de l’état des serveurs MCP",
+  "mcp.logs.clear_failed": "Erreur lors de l’effacement des journaux : {error}",
+  "mcp.logs.cleared": {
+    "one": "🗑️  {count} fichier journal effacé pour {server}",
+    "other": "🗑️  {count} fichiers journaux effacés pour {server}"
+  },
+  "mcp.logs.file": "Fichier journal : {path}",
+  "mcp.logs.get_failed": "Erreur lors de la récupération des journaux : {error}",
+  "mcp.logs.invalid_lines": "Nombre invalide « {value} », valeur par défaut utilisée : {default}",
+  "mcp.logs.lines": {
+    "one": "{count} ligne",
+    "other": "{count} lignes"
+  },
+  "mcp.logs.lines_not_positive": "Le nombre de lignes doit être positif, valeur par défaut utilisée : {default}",
+  "mcp.logs.list_title": "📋 Serveurs avec journaux :\n",
+  "mcp.logs.more_hint": "💡 Utilisez {all_command} pour voir tous les journaux ou {count_command} pour un nombre précis",
+  "mcp.logs.no_logs_for": "📋 Aucun journal trouvé pour le serveur : {server}\nFichier journal : `{path}`",
+  "mcp.logs.none_found": "📋 Aucun journal de serveur MCP trouvé.\nLes journaux sont créés au démarrage des serveurs.",
+  "mcp.logs.nothing_to_clear": "Aucun journal à effacer pour le serveur : {server}",
+  "mcp.logs.rotated": {
+    "one": "(+{count} archivé)",
+    "other": "(+{count} archivés)"
+  },
+  "mcp.logs.server_entry": "  • {server} - {lines}, {size}{rotated}",
+  "mcp.logs.server_not_found": "Serveur « {server} » introuvable et sans journaux.",
+  "mcp.logs.title_all": {
+    "one": "📋 Journaux de {server} ({count} ligne au total)",
+    "other": "📋 Journaux de {server} ({count} lignes au total)"
+  },
+  "mcp.logs.title_last": {
+    "one": "📋 Journaux de {server} (dernière ligne : {showing} sur {count})",
+    "other": "📋 Journaux de {server} (dernières lignes : {showing} sur {count})"
+  },
+  "mcp.logs.usage": "\nUtilisation : {command}",
   "mcp.oauth.header_conflict": "OAuth ne peut pas être combiné avec un en-tête Authorization. Retirez l’en-tête ou désactivez OAuth.",
   "mcp.oauth.https_required": "OAuth nécessite une URL de serveur HTTPS (HTTP est autorisé uniquement pour les serveurs en boucle locale), sans identifiants intégrés.",
   "mcp.oauth.invalid_method": "La méthode d’authentification MCP HTTP doit être 'oauth' ou être omise. Pour les clés d’API, utilisez plutôt des en-têtes.",
   "mcp.oauth.prompt": "Utiliser l’authentification OAuth dans le navigateur?",
+  "mcp.search.column.category": "Catégorie",
+  "mcp.search.column.description": "Description",
+  "mcp.search.column.id": "ID",
+  "mcp.search.column.name": "Nom",
+  "mcp.search.column.tags": "Étiquettes",
+  "mcp.search.details_label": "Pour plus de détails :",
+  "mcp.search.failed": "Erreur lors de la recherche de serveurs : {error}",
+  "mcp.search.install_label": "Pour installer :",
+  "mcp.search.legend": "\n✓ = Vérifié  ⭐ = Populaire",
+  "mcp.search.no_results": "Aucun serveur ne correspond à votre recherche",
+  "mcp.search.popular_title": "Serveurs MCP populaires :\n",
+  "mcp.search.registry_unavailable": "Registre de serveurs indisponible",
+  "mcp.search.searching": "Recherche : {query}\n",
+  "mcp.search.try": "Essayez : {examples}",
   "mcp.server.agent_reloaded": "Agent rechargé avec les serveurs mis à jour",
   "mcp.server.already_running": "{server} : déjà en cours d’exécution",
   "mcp.server.available": "Serveurs disponibles : {servers}",

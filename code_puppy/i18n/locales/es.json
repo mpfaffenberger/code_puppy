@@ -404,10 +404,57 @@
     "other": "📊 Resumen: {running}/{count} servidores en ejecución"
   },
   "mcp.list.title": "🔌 Panel de estado de servidores MCP",
+  "mcp.logs.clear_failed": "Error al borrar los registros: {error}",
+  "mcp.logs.cleared": {
+    "one": "🗑️  Se borró {count} archivo de registro de {server}",
+    "other": "🗑️  Se borraron {count} archivos de registro de {server}"
+  },
+  "mcp.logs.file": "Archivo de registro: {path}",
+  "mcp.logs.get_failed": "Error al obtener los registros: {error}",
+  "mcp.logs.invalid_lines": "Número no válido '{value}'; se usará el valor predeterminado: {default}",
+  "mcp.logs.lines": {
+    "one": "{count} línea",
+    "other": "{count} líneas"
+  },
+  "mcp.logs.lines_not_positive": "El número de líneas debe ser positivo; se usará el valor predeterminado: {default}",
+  "mcp.logs.list_title": "📋 Servidores con registros:\n",
+  "mcp.logs.more_hint": "💡 Usa {all_command} para ver todos los registros o {count_command} para una cantidad específica",
+  "mcp.logs.no_logs_for": "📋 No se encontraron registros para el servidor: {server}\nArchivo de registro: `{path}`",
+  "mcp.logs.none_found": "📋 No se encontraron registros de servidores MCP.\nLos registros se crean cuando se inician los servidores.",
+  "mcp.logs.nothing_to_clear": "No hay registros que borrar para el servidor: {server}",
+  "mcp.logs.rotated": {
+    "one": "(+{count} rotado)",
+    "other": "(+{count} rotados)"
+  },
+  "mcp.logs.server_entry": "  • {server} - {lines}, {size}{rotated}",
+  "mcp.logs.server_not_found": "No se encontró el servidor '{server}' y no tiene registros.",
+  "mcp.logs.title_all": {
+    "one": "📋 Registros de {server} ({count} línea en total)",
+    "other": "📋 Registros de {server} ({count} líneas en total)"
+  },
+  "mcp.logs.title_last": {
+    "one": "📋 Registros de {server} (última línea: {showing} de {count})",
+    "other": "📋 Registros de {server} (últimas líneas: {showing} de {count})"
+  },
+  "mcp.logs.usage": "\nUso: {command}",
   "mcp.oauth.header_conflict": "OAuth no se puede combinar con un encabezado Authorization. Elimina el encabezado o desactiva OAuth.",
   "mcp.oauth.https_required": "OAuth requiere una URL de servidor HTTPS (HTTP solo se permite para servidores de bucle local), sin credenciales incrustadas.",
   "mcp.oauth.invalid_method": "La autenticación MCP HTTP debe ser 'oauth' u omitirse. Para claves de API, usa encabezados.",
   "mcp.oauth.prompt": "¿Usar autenticación OAuth mediante el navegador?",
+  "mcp.search.column.category": "Categoría",
+  "mcp.search.column.description": "Descripción",
+  "mcp.search.column.id": "ID",
+  "mcp.search.column.name": "Nombre",
+  "mcp.search.column.tags": "Etiquetas",
+  "mcp.search.details_label": "Para ver detalles:",
+  "mcp.search.failed": "Error al buscar servidores: {error}",
+  "mcp.search.install_label": "Para instalar:",
+  "mcp.search.legend": "\n✓ = Verificado  ⭐ = Popular",
+  "mcp.search.no_results": "No se encontraron servidores que coincidan con tu búsqueda",
+  "mcp.search.popular_title": "Servidores MCP populares:\n",
+  "mcp.search.registry_unavailable": "Registro de servidores no disponible",
+  "mcp.search.searching": "Buscando: {query}\n",
+  "mcp.search.try": "Prueba: {examples}",
   "mcp.server.agent_reloaded": "Agente recargado con los servidores actualizados",
   "mcp.server.already_running": "{server}: ya está en ejecución",
   "mcp.server.available": "Servidores disponibles: {servers}",
