@@ -86,6 +86,54 @@
   "browser.interaction.text_set": "Set text in element: {selector}",
   "browser.interaction.uncheck": "BROWSER UNCHECK ☐️ {details}",
   "browser.interaction.unchecked": "Unchecked element: {selector}",
+  "browser.locator.find_buttons": "BROWSER FIND BUTTONS 🔘 {details}",
+  "browser.locator.find_by_label": "BROWSER FIND BY LABEL 🏷️ {details}",
+  "browser.locator.find_by_placeholder": "BROWSER FIND BY PLACEHOLDER {details}",
+  "browser.locator.find_by_role": "BROWSER FIND BY ROLE 🎨 {details}",
+  "browser.locator.find_by_test_id": "BROWSER FIND BY TEST ID {details}",
+  "browser.locator.find_by_text": "BROWSER FIND BY TEXT {details}",
+  "browser.locator.find_links": "BROWSER FIND LINKS 🔗 {details}",
+  "browser.locator.found_buttons": {
+    "one": "Found {count} button",
+    "other": "Found {count} buttons"
+  },
+  "browser.locator.found_buttons_matching": {
+    "one": "Found {count} button containing '{filter}'",
+    "other": "Found {count} buttons containing '{filter}'"
+  },
+  "browser.locator.found_by_label": {
+    "one": "Found {count} element with label '{label}'",
+    "other": "Found {count} elements with label '{label}'"
+  },
+  "browser.locator.found_by_placeholder": {
+    "one": "Found {count} element with placeholder '{placeholder}'",
+    "other": "Found {count} elements with placeholder '{placeholder}'"
+  },
+  "browser.locator.found_by_role": {
+    "one": "Found {count} element with role '{role}'",
+    "other": "Found {count} elements with role '{role}'"
+  },
+  "browser.locator.found_by_test_id": {
+    "one": "Found {count} element with test-id '{test_id}'",
+    "other": "Found {count} elements with test-id '{test_id}'"
+  },
+  "browser.locator.found_by_text": {
+    "one": "Found {count} element containing text '{text}'",
+    "other": "Found {count} elements containing text '{text}'"
+  },
+  "browser.locator.found_by_xpath": {
+    "one": "Found {count} element with XPath '{xpath}'",
+    "other": "Found {count} elements with XPath '{xpath}'"
+  },
+  "browser.locator.found_links": {
+    "one": "Found {count} link",
+    "other": "Found {count} links"
+  },
+  "browser.locator.found_links_matching": {
+    "one": "Found {count} link containing '{filter}'",
+    "other": "Found {count} links containing '{filter}'"
+  },
+  "browser.locator.xpath_query": "BROWSER XPATH QUERY {details}",
   "browser.navigation.failed": "Navigation failed: {error}",
   "browser.navigation.go_back": "BROWSER GO BACK ⬅️",
   "browser.navigation.go_forward": "BROWSER GO FORWARD ➡️",
@@ -94,6 +142,35 @@
   "browser.navigation.page_info": "BROWSER GET PAGE INFO 📌",
   "browser.navigation.reload": "BROWSER RELOAD 🔄 {details}",
   "browser.navigation.wait_for_load": "BROWSER WAIT FOR LOAD {details}",
+  "browser.screenshot.banner": "BROWSER SCREENSHOT 📷 {details}",
+  "browser.screenshot.failed": "Screenshot failed: {error}",
+  "browser.screenshot.no_page": "No active browser page. Navigate to a webpage first.",
+  "browser.screenshot.not_visible": "Element '{selector}' is not visible",
+  "browser.screenshot.saved": "Screenshot saved: {path}",
+  "browser.semantic.check": "BROWSER CHECK BY {strategy}  {target}",
+  "browser.semantic.check_failed": "check failed: {error}",
+  "browser.semantic.checked": "check on {target}",
+  "browser.semantic.click": "BROWSER CLICK BY {strategy}  {target}",
+  "browser.semantic.click_failed": "click failed: {error}",
+  "browser.semantic.clicked": "click on {target}",
+  "browser.semantic.fill": "BROWSER FILL BY {strategy}  {target}",
+  "browser.semantic.fill_failed": "fill failed: {error}",
+  "browser.semantic.filled": "fill on {target}",
+  "browser.semantic.no_match": "No element matched {target}",
+  "browser.snapshot.banner": "BROWSER PAGE SNAPSHOT  gathering DOM state",
+  "browser.snapshot.buttons": {
+    "one": "{count} button",
+    "other": "{count} buttons"
+  },
+  "browser.snapshot.done": "Snapshot: {buttons}, {links}, {inputs}",
+  "browser.snapshot.inputs": {
+    "one": "{count} input",
+    "other": "{count} inputs"
+  },
+  "browser.snapshot.links": {
+    "one": "{count} link",
+    "other": "{count} links"
+  },
   "cfg.agent.not_found": "Agent '{agent}' not found",
   "cfg.listing.available_models": "Available models:",
   "cfg.listing.builtin_agents": "Available built-in agents:",
