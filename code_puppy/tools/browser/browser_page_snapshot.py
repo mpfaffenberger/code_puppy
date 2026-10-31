@@ -14,6 +14,7 @@ from typing import Any, Dict
 
 from pydantic_ai import RunContext
 
+from code_puppy.i18n import ngettext, t
 from code_puppy.messaging import emit_info, emit_success
 from code_puppy.tools.common import generate_group_id
 
@@ -97,7 +98,7 @@ async def get_page_snapshot(limit: int = 25) -> Dict[str, Any]:
         error dict if no page is available.
     """
     group_id = generate_group_id("browser_page_snapshot", "snapshot")
-    emit_info("BROWSER PAGE SNAPSHOT  gathering DOM state", message_group=group_id)
+    emit_info(t("browser.snapshot.banner"), message_group=group_id)
     try:
         browser_manager = get_session_browser_manager()
         page = await browser_manager.get_current_page()
@@ -108,10 +109,18 @@ async def get_page_snapshot(limit: int = 25) -> Dict[str, Any]:
         snapshot = await page.evaluate(_SNAPSHOT_JS, limit)
 
         emit_success(
-            "Snapshot: "
-            f"{len(snapshot.get('buttons', []))} buttons, "
-            f"{len(snapshot.get('links', []))} links, "
-            f"{len(snapshot.get('inputs', []))} inputs",
+            t(
+                "browser.snapshot.done",
+                buttons=ngettext(
+                    "browser.snapshot.buttons", len(snapshot.get("buttons", []))
+                ),
+                links=ngettext(
+                    "browser.snapshot.links", len(snapshot.get("links", []))
+                ),
+                inputs=ngettext(
+                    "browser.snapshot.inputs", len(snapshot.get("inputs", []))
+                ),
+            ),
             message_group=group_id,
         )
 

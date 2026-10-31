@@ -86,6 +86,54 @@
   "browser.interaction.text_set": "Texte saisi dans l’élément : {selector}",
   "browser.interaction.uncheck": "DÉCOCHER DANS LE NAVIGATEUR ☐️ {details}",
   "browser.interaction.unchecked": "Élément décoché : {selector}",
+  "browser.locator.find_buttons": "RECHERCHER LES BOUTONS DANS LE NAVIGATEUR 🔘 {details}",
+  "browser.locator.find_by_label": "RECHERCHER PAR ÉTIQUETTE DANS LE NAVIGATEUR 🏷️ {details}",
+  "browser.locator.find_by_placeholder": "RECHERCHER PAR TEXTE INDICATIF DANS LE NAVIGATEUR {details}",
+  "browser.locator.find_by_role": "RECHERCHER PAR RÔLE DANS LE NAVIGATEUR 🎨 {details}",
+  "browser.locator.find_by_test_id": "RECHERCHER PAR TEST-ID DANS LE NAVIGATEUR {details}",
+  "browser.locator.find_by_text": "RECHERCHER PAR TEXTE DANS LE NAVIGATEUR {details}",
+  "browser.locator.find_links": "RECHERCHER LES LIENS DANS LE NAVIGATEUR 🔗 {details}",
+  "browser.locator.found_buttons": {
+    "one": "{count} bouton trouvé",
+    "other": "{count} boutons trouvés"
+  },
+  "browser.locator.found_buttons_matching": {
+    "one": "{count} bouton trouvé contenant « {filter} »",
+    "other": "{count} boutons trouvés contenant « {filter} »"
+  },
+  "browser.locator.found_by_label": {
+    "one": "{count} élément trouvé avec l’étiquette « {label} »",
+    "other": "{count} éléments trouvés avec l’étiquette « {label} »"
+  },
+  "browser.locator.found_by_placeholder": {
+    "one": "{count} élément trouvé avec le texte indicatif « {placeholder} »",
+    "other": "{count} éléments trouvés avec le texte indicatif « {placeholder} »"
+  },
+  "browser.locator.found_by_role": {
+    "one": "{count} élément trouvé avec le rôle « {role} »",
+    "other": "{count} éléments trouvés avec le rôle « {role} »"
+  },
+  "browser.locator.found_by_test_id": {
+    "one": "{count} élément trouvé avec le test-id « {test_id} »",
+    "other": "{count} éléments trouvés avec le test-id « {test_id} »"
+  },
+  "browser.locator.found_by_text": {
+    "one": "{count} élément trouvé contenant le texte « {text} »",
+    "other": "{count} éléments trouvés contenant le texte « {text} »"
+  },
+  "browser.locator.found_by_xpath": {
+    "one": "{count} élément trouvé avec le XPath « {xpath} »",
+    "other": "{count} éléments trouvés avec le XPath « {xpath} »"
+  },
+  "browser.locator.found_links": {
+    "one": "{count} lien trouvé",
+    "other": "{count} liens trouvés"
+  },
+  "browser.locator.found_links_matching": {
+    "one": "{count} lien trouvé contenant « {filter} »",
+    "other": "{count} liens trouvés contenant « {filter} »"
+  },
+  "browser.locator.xpath_query": "REQUÊTE XPATH DANS LE NAVIGATEUR {details}",
   "browser.navigation.failed": "Échec de la navigation : {error}",
   "browser.navigation.go_back": "PAGE PRÉCÉDENTE DU NAVIGATEUR ⬅️",
   "browser.navigation.go_forward": "PAGE SUIVANTE DU NAVIGATEUR ➡️",
@@ -94,6 +142,35 @@
   "browser.navigation.page_info": "OBTENIR LES INFORMATIONS DE LA PAGE DU NAVIGATEUR 📌",
   "browser.navigation.reload": "RECHARGER LA PAGE DU NAVIGATEUR 🔄 {details}",
   "browser.navigation.wait_for_load": "ATTENDRE LE CHARGEMENT DU NAVIGATEUR {details}",
+  "browser.screenshot.banner": "CAPTURE D’ÉCRAN DU NAVIGATEUR 📷 {details}",
+  "browser.screenshot.failed": "Échec de la capture d’écran : {error}",
+  "browser.screenshot.no_page": "Aucune page active dans le navigateur. Ouvrez d’abord une page Web.",
+  "browser.screenshot.not_visible": "L’élément « {selector} » n’est pas visible",
+  "browser.screenshot.saved": "Capture d’écran enregistrée : {path}",
+  "browser.semantic.check": "COCHER DANS LE NAVIGATEUR ({strategy}) {target}",
+  "browser.semantic.check_failed": "Impossible de cocher l’élément : {error}",
+  "browser.semantic.checked": "Élément coché : {target}",
+  "browser.semantic.click": "CLIQUER DANS LE NAVIGATEUR ({strategy}) {target}",
+  "browser.semantic.click_failed": "Échec du clic : {error}",
+  "browser.semantic.clicked": "Clic effectué sur {target}",
+  "browser.semantic.fill": "SAISIR DU TEXTE DANS LE NAVIGATEUR ({strategy}) {target}",
+  "browser.semantic.fill_failed": "Échec de la saisie du texte : {error}",
+  "browser.semantic.filled": "Texte saisi dans {target}",
+  "browser.semantic.no_match": "Aucun élément ne correspond à {target}",
+  "browser.snapshot.banner": "INSTANTANÉ DE LA PAGE DANS LE NAVIGATEUR : collecte de l’état du DOM",
+  "browser.snapshot.buttons": {
+    "one": "{count} bouton",
+    "other": "{count} boutons"
+  },
+  "browser.snapshot.done": "Instantané : {buttons}, {links}, {inputs}",
+  "browser.snapshot.inputs": {
+    "one": "{count} champ",
+    "other": "{count} champs"
+  },
+  "browser.snapshot.links": {
+    "one": "{count} lien",
+    "other": "{count} liens"
+  },
   "cfg.agent.not_found": "Agent '{agent}' introuvable",
   "cfg.listing.available_models": "Modèles disponibles :",
   "cfg.listing.builtin_agents": "Agents intégrés disponibles :",
