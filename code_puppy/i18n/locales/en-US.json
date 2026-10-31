@@ -760,6 +760,7 @@
   "stream.thinking": "● Thinking",
   "subagent.gpt_5_6_recursion_blocked": "Cannot invoke '{agent}' at sub-agent depth {depth}: GPT-5.6 callers are limited to depth {limit}.",
   "subagent.recursion_limit_reached": "Sub-agent recursion limit ({limit}) reached; cannot invoke '{agent}'.",
+  "tools.command_runner.background_notice": "This command will run in the background and keep running after this turn ends.",
   "tools.common.approval.approve": "Approve",
   "tools.common.approval.approved": "Approved!",
   "tools.common.approval.cancelled": "Cancelled by user",
