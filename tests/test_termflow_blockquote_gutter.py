@@ -126,3 +126,50 @@ def test_real_top_level_code_with_literal_gt_is_untouched(restore_termflow_parse
     plain = _render_plain(sample)
 
     assert "echo hi > output.txt" in plain
+
+
+def _code_lines(plain: str) -> list[str]:
+    return [line.rstrip() for line in plain.split("\n")]
+
+
+def test_single_quoted_fence_keeps_literal_gt_lines(restore_termflow_parser):
+    """Issue #979: inside a depth-one quoted fence, only one ``>`` is the
+    quote marker; a code line that itself starts with ``>`` must keep it."""
+    pydantic_patches.patch_termflow_blockquote_gutter()
+
+    sample = "> ```sh\n> > output.txt\n> >> append.txt\n> echo ok\n> ```\n"
+    lines = _code_lines(_render_plain(sample))
+
+    assert "> output.txt" in lines
+    assert ">> append.txt" in lines
+    assert "echo ok" in lines
+
+
+def test_nested_quoted_fence_strips_only_its_depth(restore_termflow_parser):
+    pydantic_patches.patch_termflow_blockquote_gutter()
+
+    sample = "> > ```sh\n> > > output.txt\n> > echo ok\n> > ```\n"
+    lines = _code_lines(_render_plain(sample))
+
+    assert "> output.txt" in lines
+    assert "echo ok" in lines
+
+
+def test_indented_quoted_fence_keeps_literal_gt_lines(restore_termflow_parser):
+    pydantic_patches.patch_termflow_blockquote_gutter()
+
+    sample = "  > ```sh\n  > > output.txt\n  > ```\n"
+    lines = _code_lines(_render_plain(sample))
+
+    assert "> output.txt" in lines
+
+
+def test_text_after_quoted_fence_is_still_dequoted(restore_termflow_parser):
+    pydantic_patches.patch_termflow_blockquote_gutter()
+
+    sample = "> ```sh\n> > output.txt\n> ```\n> after the fence\n"
+    plain = _render_plain(sample)
+
+    assert "after the fence" in plain
+    for gutter in GUTTER_CHARS:
+        assert gutter not in plain

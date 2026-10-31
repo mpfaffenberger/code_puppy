@@ -784,12 +784,27 @@ def patch_termflow_code_padding() -> bool:
         )
 
 
-_BLOCKQUOTE_MARKER_RE = re.compile(r"^(?:\s*>\s?)+")
+_BLOCKQUOTE_MARKER_RE = re.compile(r"\s*>\s?")
 
 
-def _strip_blockquote_markers(line: str) -> str:
-    """Drop any leading ``>`` blockquote markers (any nesting depth)."""
-    return _BLOCKQUOTE_MARKER_RE.sub("", line)
+def _strip_blockquote_markers(
+    line: str, max_depth: int | None = None
+) -> tuple[str, int]:
+    """Drop leading ``>`` blockquote markers; return the rest and how many.
+
+    ``max_depth`` caps how many markers are removed, so a line inside a
+    quoted fence loses only the quote's own markers and keeps any literal
+    ``>`` that belongs to the code (e.g. ``> output.txt``).
+    """
+    depth = 0
+    pos = 0
+    while max_depth is None or depth < max_depth:
+        match = _BLOCKQUOTE_MARKER_RE.match(line, pos)
+        if not match:
+            break
+        pos = match.end()
+        depth += 1
+    return line[pos:], depth
 
 
 def _dequote_blockquotes_parse_line(original_parse_line):
@@ -800,32 +815,29 @@ def _dequote_blockquotes_parse_line(original_parse_line):
     termflow's normal top-level parsing instead of being flattened to one
     inline-formatted line by ``_try_parse_block_quote``.
 
-    Once inside a fence, only keep stripping if *that fence itself* was
-    opened from inside a quote (tracked via ``_copyable_quoted_fence`` on
-    the parser instance) -- otherwise a real top-level fence containing a
-    line that legitimately starts with ``>`` (e.g. a shell redirect) would
-    get corrupted.
+    Once inside a fence, strip at most as many markers as the quote depth the
+    fence was opened at (tracked via ``_copyable_quoted_fence_depth`` on the
+    parser instance; 0 for a top-level fence). Any further ``>`` belongs to
+    the code itself (e.g. a shell redirect) and must survive.
     """
 
     def patched(self, line: str):
         in_code_before = self.state.is_in_code()
-        quoted_fence = getattr(self, "_copyable_quoted_fence", False)
-        opened_via_quote = False
+        fence_depth = getattr(self, "_copyable_quoted_fence_depth", 0)
+        quote_depth = 0
 
         if not in_code_before:
-            de_quoted = _strip_blockquote_markers(line)
-            opened_via_quote = de_quoted != line
-            line = de_quoted
-        elif quoted_fence:
-            line = _strip_blockquote_markers(line)
+            line, quote_depth = _strip_blockquote_markers(line)
+        elif fence_depth:
+            line, _ = _strip_blockquote_markers(line, max_depth=fence_depth)
 
         events = original_parse_line(self, line)
 
         now_in_code = self.state.is_in_code()
         if not in_code_before and now_in_code:
-            self._copyable_quoted_fence = opened_via_quote
+            self._copyable_quoted_fence_depth = quote_depth
         elif in_code_before and not now_in_code:
-            self._copyable_quoted_fence = False
+            self._copyable_quoted_fence_depth = 0
 
         return events
 
