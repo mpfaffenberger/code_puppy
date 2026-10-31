@@ -124,11 +124,31 @@ def load_config(path: str) -> configparser.ConfigParser:
                 return configparser.ConfigParser()
 
 
+def sanitize_config_text(text: str) -> str:
+    """Return ``text`` with lone surrogates replaced, so it can be persisted.
+
+    A value that reached the config through a copy/paste of non-UTF-8 bytes
+    (a lone surrogate, e.g. ``\\udcc3``) cannot be encoded as UTF-8 at all.
+    Without this, writing the config raises ``UnicodeEncodeError`` and the
+    user is left with **no config file**: the app then fails on every start,
+    with no way back except hand-editing the file. Surrogates carry no
+    meaning in a config value, so replacing them is the only sane option --
+    the surrounding text is kept verbatim.
+
+    The import is deferred: :mod:`code_puppy.tools.common` pulls in the
+    messaging stack, which imports this module's own consumer.
+    """
+    from code_puppy.tools.common import _sanitize_string
+
+    return _sanitize_string(text)
+
+
 def _atomic_write_unlocked(path: str, parser: configparser.ConfigParser) -> None:
     """Durably replace ``path`` with serialized config from a temp file."""
     buffer = io.StringIO()
     parser.write(buffer)
-    atomic_io.atomic_write_bytes(path, buffer.getvalue().encode("utf-8"))
+    payload = sanitize_config_text(buffer.getvalue()).encode("utf-8")
+    atomic_io.atomic_write_bytes(path, payload)
 
 
 def mutate_config(
