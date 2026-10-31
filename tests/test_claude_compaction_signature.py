@@ -107,10 +107,16 @@ async def test_real_sdk_compacted_history_has_standalone_signature():
         ]
         await agent.run("continue", message_history=history)
     assert len(captured) == 1
-    assert captured[0]["system"] == [
-        {"type": "text", "text": SIGNATURE},
-        {"type": "text", "text": "Actual agent instructions"},
-    ]
+    system = captured[0]["system"]
+    # pydantic-ai adds its own block explaining the ``<system>`` tag after the
+    # leading system prompts on profiles without inline system prompts; the
+    # signature stays a standalone first block and nothing is merged into it.
+    assert system[0] == {"type": "text", "text": SIGNATURE}
+    assert system[-1] == {"type": "text", "text": "Actual agent instructions"}
+    assert all(
+        block["text"].startswith("\n\nMid-conversation system messages")
+        for block in system[1:-1]
+    )
     user_text = json.dumps(captured[0]["messages"])
     assert "<conversation_summary>" in user_text
     assert "Summary: preserved" in user_text

@@ -61,10 +61,13 @@ for _invalid_escape_category in (SyntaxWarning, DeprecationWarning):
 # MCP servers routinely ship tools without an output schema (Blender's
 # screenshot tools, for one); the sandbox signature just degrades to
 # ``-> Any``. Nothing the user can act on, so keep it off the terminal. The
-# harness's name-collision warning is actionable and stays visible.
+# wording differs by harness version ("tool X has no return schema" vs
+# "N tools have no return schema"), and newer releases raise it as a
+# ``UserWarning`` subclass, so a loose pattern on the base category covers
+# both. The harness's name-collision warning is actionable and stays visible.
 warnings.filterwarnings(
     "ignore",
-    message=r"CodeMode: tool .* has no return schema",
+    message=r"CodeMode: .*no return schema",
     category=UserWarning,
 )
 
