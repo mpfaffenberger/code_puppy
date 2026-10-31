@@ -6,9 +6,20 @@ import traceback
 from contextlib import nullcontext
 from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Literal, Optional, Set, Tuple
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Dict,
+    List,
+    Literal,
+    Optional,
+    Set,
+    Tuple,
+)
 
-from pydantic_ai.messages import ModelMessage
+if TYPE_CHECKING:
+    from pydantic_ai.messages import ModelMessage
 
 from code_puppy.error_logging import log_error
 
@@ -1119,7 +1130,7 @@ async def on_stream_event(
 
 
 async def on_transform_model_messages(
-    agent_name: str | None, messages: List[ModelMessage]
+    agent_name: str | None, messages: "List[ModelMessage]"
 ) -> List[Any]:
     """Let plugins mutate the final outbound model messages in place."""
     return await _trigger_callbacks("transform_model_messages", agent_name, messages)
