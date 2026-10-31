@@ -993,6 +993,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 else:
                     # Raises EOFError on Ctrl+D-with-empty-buffer, which the
                     # existing quit branch below handles.
+                    callbacks.on_prompt_ready()
                     task = await wait_for_idle_submission()
                     # Echo the user's text (bold, '> ') into scrollback — the editor
                     # clears its row on submit, and repainting the full prompt chrome
@@ -1004,7 +1005,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 # the featured path; this branch exists for pipes, CI, and
                 # the CODE_PUPPY_CLASSIC_PROMPT escape hatch.
                 reset_windows_terminal_ansi()
-                task = input(">>> ")
+                print(">>> ", end="", flush=True)
+                callbacks.on_prompt_ready()
+                task = input()
                 # Classic input has no editor: capture history here, even for
                 # shell/slash/exit commands that return before agent dispatch.
                 save_command_to_history(task)
