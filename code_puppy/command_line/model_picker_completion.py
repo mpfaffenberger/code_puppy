@@ -109,6 +109,14 @@ class ModelNameCompleter(Completer):
             ].lstrip()
             start_position = -len(text_after_prefix)
 
+        # Resolve the active model ONCE per completion pass: it cannot change
+        # while we walk the catalog, and re-reading it per model was pure
+        # overhead. get_active_model() returns None when no model is
+        # configured (fresh install before /add_model, or an invalid
+        # configured model) -- treat that as "no active model" instead of
+        # letting the completion thread die on None.lower().
+        active_model_name = (get_active_model() or "").lower()
+
         # Filter model names based on what's typed (case-insensitive).
         # Iterate the freshly loaded config -- NOT a snapshot from __init__:
         # long-lived completer stacks (persistent prompt caches them once)
@@ -120,8 +128,7 @@ class ModelNameCompleter(Completer):
                 continue  # Skip models that don't match the typed text
 
             description = get_model_description(models_config, model_name)
-            active_model_name = get_active_model()
-            if model_name.lower() == active_model_name.lower():
+            if active_model_name and model_name.lower() == active_model_name:
                 short = (
                     description[:45] + "..." if len(description) > 48 else description
                 )
