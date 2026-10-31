@@ -772,6 +772,17 @@
   "tools.common.approval.rejected_feedback": "Rejected with feedback!",
   "tools.common.approval.tell": "Tell {puppy_name} what to change:",
   "tools.common.approval.telling_feedback": "Telling {puppy_name}: \"{feedback}\"",
+  "tools.deletion.binary_preview_omitted": {
+    "one": "Text preview omitted for {filename} (binary file, {size} byte).",
+    "other": "Text preview omitted for {filename} (binary file, {size} bytes)."
+  },
+  "tools.deletion.omission_size_unknown": "Text preview omitted for {filename} (binary or unsafe content; file size unavailable).",
+  "tools.deletion.preview_unavailable": "Text preview unavailable for {filename}; deletion still requires approval.",
+  "tools.deletion.read_failed": "Could not safely read {filename} before deletion; the file was not deleted.",
+  "tools.deletion.unsafe_preview_omitted": {
+    "one": "Text preview omitted for {filename} (unsafe content, {size} byte).",
+    "other": "Text preview omitted for {filename} (unsafe content, {size} bytes)."
+  },
   "tools.streaming_progress": "{tool} ~{count} tokens",
   "version.core_plugins": "Core plugins version: {version}",
   "version.core_plugins_unknown": "Core plugins version: unknown",

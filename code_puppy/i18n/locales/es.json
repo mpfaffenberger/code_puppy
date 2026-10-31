@@ -772,6 +772,17 @@
   "tools.common.approval.rejected_feedback": "¡Rechazado con comentarios!",
   "tools.common.approval.tell": "Dile a {puppy_name} qué cambiar:",
   "tools.common.approval.telling_feedback": "Diciéndole a {puppy_name}: \"{feedback}\"",
+  "tools.deletion.binary_preview_omitted": {
+    "one": "Se omitió la vista previa de texto de {filename} (archivo binario de {size} byte).",
+    "other": "Se omitió la vista previa de texto de {filename} (archivo binario de {size} bytes)."
+  },
+  "tools.deletion.omission_size_unknown": "Se omitió la vista previa de texto de {filename} (contenido binario o no seguro; tamaño del archivo desconocido).",
+  "tools.deletion.preview_unavailable": "Vista previa de texto no disponible para {filename}; la eliminación aún requiere aprobación.",
+  "tools.deletion.read_failed": "No se pudo leer {filename} de forma segura antes de eliminarlo; no se eliminó el archivo.",
+  "tools.deletion.unsafe_preview_omitted": {
+    "one": "Se omitió la vista previa de texto de {filename} (contenido no seguro, {size} byte).",
+    "other": "Se omitió la vista previa de texto de {filename} (contenido no seguro, {size} bytes)."
+  },
   "tools.streaming_progress": "{tool} ~{count} tokens",
   "version.core_plugins": "Versión de los complementos principales: {version}",
   "version.core_plugins_unknown": "Versión de los complementos principales: desconocida",

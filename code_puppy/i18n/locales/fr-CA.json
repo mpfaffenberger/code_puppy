@@ -772,6 +772,17 @@
   "tools.common.approval.rejected_feedback": "Refusé avec commentaires!",
   "tools.common.approval.tell": "Dites à {puppy_name} quoi modifier :",
   "tools.common.approval.telling_feedback": "Message à {puppy_name} : « {feedback} »",
+  "tools.deletion.binary_preview_omitted": {
+    "one": "Aperçu texte omis pour {filename} (fichier binaire de {size} octet).",
+    "other": "Aperçu texte omis pour {filename} (fichier binaire de {size} octets)."
+  },
+  "tools.deletion.omission_size_unknown": "Aperçu texte omis pour {filename} (contenu binaire ou non sécuritaire; taille du fichier inconnue).",
+  "tools.deletion.preview_unavailable": "Aperçu texte indisponible pour {filename}; la suppression nécessite toujours une approbation.",
+  "tools.deletion.read_failed": "Impossible de lire {filename} de façon sécuritaire avant la suppression; le fichier n’a pas été supprimé.",
+  "tools.deletion.unsafe_preview_omitted": {
+    "one": "Aperçu texte omis pour {filename} (contenu non sécuritaire, {size} octet).",
+    "other": "Aperçu texte omis pour {filename} (contenu non sécuritaire, {size} octets)."
+  },
   "tools.streaming_progress": "{tool} ~{count} jetons",
   "version.core_plugins": "Version des modules d’extension principaux : {version}",
   "version.core_plugins_unknown": "Version des modules d’extension principaux : inconnue",
