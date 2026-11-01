@@ -1,5 +1,6 @@
 """Tests for the command catalog consumed by /help and completion tooling."""
 
+import json
 import os
 import subprocess
 import sys
@@ -117,21 +118,43 @@ def test_failing_callback_yields_no_plugin_entries(monkeypatch):
     assert list_plugin_commands() == []
 
 
-def test_catalog_is_complete_in_fresh_interpreter(tmp_path):
+# Plugin discovery is stubbed in the subprocess: it costs ~57s cold and is the
+# flaky part. The built-in set must come from the lazy command_handler import.
+_FRESH_INTERPRETER_SNIPPET = """
+import json
+import sys
+import code_puppy.plugins as p
+p.load_plugin_callbacks = lambda *a, **k: None
+from code_puppy.command_line.command_catalog import list_registry_commands
+assert "code_puppy.command_line.command_handler" not in sys.modules
+print(json.dumps(sorted(e.name for e in list_registry_commands())))
+"""
+
+
+def test_registry_catalog_is_complete_in_fresh_interpreter(monkeypatch, tmp_path):
+    import code_puppy.command_line.command_handler  # noqa: F401
+    import code_puppy.plugins as plugins
+
+    monkeypatch.setattr(plugins, "load_plugin_callbacks", lambda *a, **k: None)
+    expected = {
+        info.name
+        for info in get_unique_commands()
+        if info.handler.__module__.startswith("code_puppy.command_line.")
+    }
+    assert len(expected) > 20
+
     env = {**os.environ, "HOME": str(tmp_path), "USERPROFILE": str(tmp_path)}
     result = subprocess.run(
-        [
-            sys.executable,
-            "-c",
-            "from code_puppy.command_line.command_catalog import list_commands; "
-            "print(len(list_commands()))",
-        ],
+        [sys.executable, "-c", _FRESH_INTERPRETER_SNIPPET],
         env=env,
         capture_output=True,
         text=True,
-        timeout=120,
+        timeout=300,
         check=False,
     )
 
     assert result.returncode == 0, result.stderr
-    assert int(result.stdout.strip()) > 30
+    names = json.loads(
+        [line for line in result.stdout.splitlines() if line.strip()][-1]
+    )
+    assert set(names) >= expected, sorted(expected - set(names))
