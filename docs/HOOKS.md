@@ -222,16 +222,16 @@ Plugins describe their tools with a banner definition and report status with not
 from code_puppy.banners import register_banner_def, BannerDef, notice, emit_notice
 
 register_banner_def(
-    "jira_search",  # registered tool name
+    "docs_search",  # registered tool name
     BannerDef(
         name="grep",  # terminal colour key from DEFAULT_BANNER_COLORS
-        label="JIRA",
+        label="DOCS SEARCH",
         kind="search",  # read|edit|delete|search|execute|think|fetch|other
         target_args=("query",),
         target_type="query",  # path|command|query|url|text
     ),
 )
-emit_notice(notice("jira.sync_done", "SYNCED", details="42 issues"))
+emit_notice(notice("docs.index_done", "SYNCED", details="42 pages"))
 ```
 
 Register one `BannerDef` for each tool your plugin adds. Loading a plugin tool without a definition logs a warning.

@@ -26,7 +26,6 @@ logger = logging.getLogger(__name__)
 
 _TARGET_LIMIT = 60
 _SUMMARY_LIMIT = 300
-_BUILTINS_MODULE = "code_puppy.banner_defs"
 
 
 @dataclass(frozen=True)
@@ -64,8 +63,8 @@ class Banner:
         return {key: value for key, value in wire.items() if value is not None}
 
     def to_markup(self) -> str:
-        # Mirrors RichConsoleRenderer._format_banner byte-for-byte so terminal output
-        # does not change when banners are sourced from this contract.
+        # Wrapper matches RichConsoleRenderer._format_banner; label, target and
+        # details are rich-escaped (plugin text), so output differs only on markup.
         color = config.get_banner_color(self.name)
         markup = (
             f"[bold white on {color}] {escape(self.label)} [/bold white on {color}]"
@@ -95,6 +94,8 @@ _builtins_loaded = False
 
 
 def register_banner_def(tool_name: str, definition: BannerDef) -> None:
+    # Load builtins first so a plugin's explicit def is never overwritten by a later lazy load.
+    _ensure_builtins()
     _definitions[tool_name] = definition
 
 
@@ -104,11 +105,8 @@ def _ensure_builtins() -> None:
     if _builtins_loaded:
         return
     _builtins_loaded = True
-    try:
-        from code_puppy import banner_defs
-    except ImportError:
-        logger.debug("%s unavailable; using fallback banners", _BUILTINS_MODULE)
-        return
+    from code_puppy import banner_defs
+
     banner_defs.register_builtin_banner_defs()
 
 

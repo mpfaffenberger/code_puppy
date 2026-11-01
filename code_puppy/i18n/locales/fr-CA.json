@@ -91,7 +91,7 @@
   "banner.browser_select_option": "SÉLECTIONNER UNE OPTION DANS LE NAVIGATEUR",
   "banner.browser_set_text": "SAISIR DU TEXTE DANS LE NAVIGATEUR",
   "banner.browser_set_text_by_label": "SAISIR DU TEXTE PAR ÉTIQUETTE DANS LE NAVIGATEUR",
-  "banner.browser_set_viewport": "TAILLE DE LA FENÊTRE DU NAVIGATEUR",
+  "banner.browser_set_viewport": "RÉGLER LA TAILLE DE LA FENÊTRE DU NAVIGATEUR",
   "banner.browser_status": "ÉTAT DU NAVIGATEUR",
   "banner.browser_uncheck": "DÉCOCHER DANS LE NAVIGATEUR",
   "banner.browser_wait_for_element": "ATTENDRE L’ÉLÉMENT DANS LE NAVIGATEUR",

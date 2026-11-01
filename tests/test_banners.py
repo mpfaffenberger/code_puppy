@@ -222,16 +222,6 @@ def test_builtin_definitions_load_once_on_first_lookup(monkeypatch):
     assert calls == [True]
 
 
-def test_missing_builtin_module_degrades_to_fallback(monkeypatch):
-    monkeypatch.setattr(banners, "_definitions", {})
-    monkeypatch.setattr(banners, "_builtins_loaded", False)
-    monkeypatch.setitem(sys.modules, "code_puppy.banner_defs", None)
-    monkeypatch.delattr(code_puppy, "banner_defs", raising=False)
-
-    assert get_banner_def("read_file").kind == "other"
-    assert has_banner_def("read_file") is False
-
-
 def test_call_banner_carries_definition_target_and_in_progress_status(registry):
     assert banner_for_call("read_file", {"file_path": "/a/b/s.txt"}) == Banner(
         event="tool_call",
