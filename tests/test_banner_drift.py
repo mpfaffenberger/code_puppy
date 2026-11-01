@@ -21,6 +21,8 @@ from code_puppy.messaging.messages import (
     FileListingMessage,
     GrepResultMessage,
     ShellStartMessage,
+    SkillActivateMessage,
+    SkillListMessage,
     SubAgentInvocationMessage,
     UniversalConstructorMessage,
 )
@@ -30,6 +32,13 @@ from code_puppy.tools import agent_tools
 
 FILE = "/work/src/app.py"
 ROBOT = "\U0001f916 "
+SKILL_LIST = SkillListMessage(skills=[], total_count=0, query="pdf")
+SKILL_ACTIVATE = SkillActivateMessage(
+    skill_name="pdf",
+    skill_path="/skills/pdf",
+    content_preview="",
+    resource_count=0,
+)
 
 # (message, renderer method, tool name, tool args, banner prefix)
 RENDERED = [
@@ -131,6 +140,22 @@ RENDERED = [
         "",
         id="universal_constructor",
     ),
+    pytest.param(
+        SKILL_LIST,
+        "_render_skill_list",
+        "list_or_search_skills",
+        {"query": "pdf"},
+        "",
+        id="list_or_search_skills",
+    ),
+    pytest.param(
+        SKILL_ACTIVATE,
+        "_render_skill_activate",
+        "activate_skill",
+        {"skill_name": "pdf"},
+        "",
+        id="activate_skill",
+    ),
 ]
 
 # Legacy markup pinned from before the contract, with default colours.
@@ -206,6 +231,18 @@ LEGACY_BANNERS = [
         "_render_subagent_invocation",
         f"[bold white on deep_pink4] {ROBOT}INVOKE AGENT [/bold white on deep_pink4]",
         id="invoke_agent",
+    ),
+    pytest.param(
+        SKILL_LIST,
+        "_render_skill_list",
+        "[bold white on medium_purple4] LIST SKILLS [/bold white on medium_purple4]",
+        id="list_or_search_skills",
+    ),
+    pytest.param(
+        SKILL_ACTIVATE,
+        "_render_skill_activate",
+        "[bold white on medium_purple4] ACTIVATE SKILL [/bold white on medium_purple4]",
+        id="activate_skill",
     ),
 ]
 

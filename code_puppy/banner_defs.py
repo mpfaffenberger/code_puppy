@@ -1,7 +1,7 @@
 """Built-in banner definitions for every core and browser tool.
 
-Each tool in TOOL_REGISTRY needs an entry here; tests/test_banner_defs.py fails
-for any tool without one. ``name`` must be a colour key in
+Each core tool, including core tools registered by plugins, needs an entry here;
+tests/test_banner_defs.py fails for any tool without one. ``name`` must be a colour key in
 config.DEFAULT_BANNER_COLORS (or be listed as default-coloured in that test).
 
 Depends on: banners.py :: BannerDef, register_banner_def().
@@ -96,6 +96,12 @@ _CORE: dict[str, BannerDef] = {
         ("action",),
         "text",
         "renderer.universal_constructor",
+    ),
+    "activate_skill": BannerDef(
+        "agent_response", "ACTIVATE SKILL", "other", ("skill_name",), "text"
+    ),
+    "list_or_search_skills": BannerDef(
+        "agent_response", "LIST SKILLS", "search", ("query",), "query"
     ),
 }
 

@@ -1337,7 +1337,7 @@ class RichConsoleRenderer:
             return
 
         # Banner
-        banner = self._format_banner("agent_response", "LIST SKILLS")
+        banner = self._format_tool_banner("list_or_search_skills")
         query_info = f" matching [cyan]'{msg.query}'[/cyan]" if msg.query else ""
         self._console.print(
             f"\n{banner} 🛠️ Found [bold]{msg.total_count}[/bold] skill(s){query_info}\n"
@@ -1376,7 +1376,7 @@ class RichConsoleRenderer:
             return
 
         # Banner
-        banner = self._format_banner("agent_response", "ACTIVATE SKILL")
+        banner = self._format_tool_banner("activate_skill")
         status = "[green]✓[/green]" if msg.success else "[red]✗[/red]"
         self._console.print(
             f"\n{banner} {status} [bold cyan]{msg.skill_name}[/bold cyan]\n"

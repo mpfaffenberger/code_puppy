@@ -1,7 +1,11 @@
 """Built-in banner definitions: TOOL_REGISTRY coverage, terminal parity, kinds, colours."""
 
+import ast
+from pathlib import Path
+
 import pytest
 
+import code_puppy.tools as tools_pkg
 from code_puppy import banners, config
 from code_puppy.banner_defs import BUILTIN_BANNER_DEFS, register_builtin_banner_defs
 from code_puppy.banners import (
@@ -120,6 +124,22 @@ PARITY_ROWS = [
         (),
         None,
     ),
+    (
+        "activate_skill",
+        "agent_response",
+        "ACTIVATE SKILL",
+        "other",
+        ("skill_name",),
+        "text",
+    ),
+    (
+        "list_or_search_skills",
+        "agent_response",
+        "LIST SKILLS",
+        "search",
+        ("query",),
+        "query",
+    ),
 ]
 
 # Browser rows are data-driven, so spot-check one per kind and target type.
@@ -187,6 +207,70 @@ def test_core_style_registration_without_definition_is_reported(
     )
     monkeypatch.setitem(TOOL_REGISTRY, "fake_builtin_tool", register_fn)
     assert "fake_builtin_tool" in _missing_builtin_definitions()
+
+
+# Core tools registered through a plugin callback, so absent from TOOL_REGISTRY.
+PLUGIN_REGISTERED_CORE_TOOLS = (
+    "activate_skill",
+    "list_or_search_skills",
+    "universal_constructor",
+)
+TOOLS_DIR = Path(tools_pkg.__file__).parent
+
+
+@pytest.mark.parametrize("tool", PLUGIN_REGISTERED_CORE_TOOLS)
+def test_core_tools_registered_by_plugins_have_definitions(builtins_registry, tool):
+    assert has_banner_def(tool)
+
+
+def _tool_names_in_register(register_fn: ast.FunctionDef) -> set[str]:
+    # Covers both `@agent.tool(...)` decorators and `return agent.tool(fn)` calls.
+    names: set[str] = set()
+    for node in ast.walk(register_fn):
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+            if node is not register_fn and any(
+                "agent.tool" in ast.unparse(dec) for dec in node.decorator_list
+            ):
+                names.add(node.name)
+        elif isinstance(node, ast.Call) and ast.unparse(node.func) == "agent.tool":
+            if node.args and isinstance(node.args[0], ast.Name):
+                names.add(node.args[0].id)
+    return names
+
+
+def _scan_core_tools() -> dict[str, str]:
+    """Map each tool defined in code_puppy/tools/*.py to its register function."""
+    found: dict[str, str] = {}
+    for path in sorted(TOOLS_DIR.glob("*.py")):
+        if path.stem == "__init__" or path.stem.startswith("_"):
+            continue
+        if "browser" in path.stem:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in tree.body:
+            if isinstance(node, ast.FunctionDef) and node.name.startswith("register_"):
+                for tool in _tool_names_in_register(node):
+                    found[tool] = f"{path.stem}.{node.name}"
+    return found
+
+
+def test_source_scan_finds_core_tools_it_guards():
+    # A silently empty scan would make the guard below pass vacuously.
+    scanned = set(_scan_core_tools())
+    assert {"shell", "read_file", "activate_skill", "list_or_search_skills"} <= scanned
+    assert "invoke_agent" in scanned
+
+
+def test_every_core_tool_in_source_has_a_banner_definition(builtins_registry):
+    missing = {
+        tool: origin
+        for tool, origin in _scan_core_tools().items()
+        if not has_banner_def(tool)
+    }
+    assert not missing, (
+        f"Core tools defined in code_puppy/tools without a BannerDef: {missing}. "
+        "Fix: add each to _CORE in code_puppy/banner_defs.py."
+    )
 
 
 def test_unregistered_tool_is_not_reported_and_falls_back(builtins_registry):
