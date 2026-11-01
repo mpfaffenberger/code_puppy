@@ -1,6 +1,5 @@
 """Tests for code_puppy.banners: wire shape, terminal markup, titles, failure status, notices."""
 
-import json
 import sys
 import threading
 import types
@@ -316,7 +315,7 @@ STATUS_CASES = [
     ({"error": None, "success": True}, ("completed", None)),
     ({"success": False, "stderr": "bad\nreal reason\n"}, ("failed", "real reason")),
     ({"success": False}, ("failed", "tool reported failure")),
-    ({"exit_code": 3, "stderr": "a\nlast line"}, ("failed", "last line")),
+    ({"exit_code": 3, "stderr": "a\nlast line"}, ("failed", "exit code 3: last line")),
     ({"exit_code": 3}, ("failed", "exit code 3")),
     ({"exit_code": 0}, ("completed", None)),
     ({"exit_code": True}, ("completed", None)),
@@ -329,7 +328,10 @@ STATUS_CASES = [
     (GrepOutput(matches=[], error="bad regex"), ("failed", "bad regex")),
     (ListFileOutput(content="", error="no dir"), ("failed", "no dir")),
     (_shell(success=False, command="exit 3", exit_code=3), ("failed", "exit code 3")),
-    (_shell(success=False, exit_code=1, stderr="oops"), ("failed", "oops")),
+    (
+        _shell(success=False, exit_code=1, stderr="oops"),
+        ("failed", "exit code 1: oops"),
+    ),
     (_shell(success=False, timeout=True), ("failed", "timed out")),
     (_shell(), ("completed", None)),
 ]
@@ -395,11 +397,6 @@ def test_result_text_renders_readable_text(result, expected):
     assert result_text(result) == expected
 
 
-def test_result_text_renders_pydantic_model_as_json():
-    model = _read(content="hi")
-    assert json.loads(result_text(model)) == model.model_dump(mode="json")
-
-
 @pytest.mark.parametrize(
     ("text_length", "limit", "expected"),
     [
@@ -415,11 +412,9 @@ def test_result_text_caps_total_length_at_limit(text_length, limit, expected):
     assert len(text) <= limit
 
 
-def test_failed_text_starts_with_summary_then_body():
+def test_failed_text_starts_with_summary_then_readable_body():
     result = _shell(success=False, stdout="out", stderr="boom\n", exit_code=2)
-    header, body = result_text(result).split("\n\n", 1)
-    assert header == "boom"
-    assert json.loads(body) == result.model_dump(mode="json")
+    assert result_text(result) == "exit code 2: boom\n\nout\nstderr:\nboom"
 
 
 def test_failed_text_is_not_duplicated_when_body_equals_summary():

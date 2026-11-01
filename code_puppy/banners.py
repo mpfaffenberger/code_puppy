@@ -268,19 +268,25 @@ def _one_line(text: str) -> str:
     return _cut(first, _SUMMARY_LIMIT)
 
 
+def _last_stderr_line(result: Any) -> str:
+    lines = [line.strip() for line in str(_field(result, "stderr") or "").splitlines()]
+    return next((line for line in reversed(lines) if line), "")
+
+
 def _failure_summary(result: Any) -> str:
+    # Checked before `error`: shell tools put boilerplate in `error` for non-zero exits.
+    exit_code = _exit_code(result)
+    stderr_line = _last_stderr_line(result)
+    if exit_code is not None and exit_code != 0:
+        summary = f"exit code {exit_code}"
+        return _cut(
+            f"{summary}: {stderr_line}" if stderr_line else summary, _SUMMARY_LIMIT
+        )
     error = _field(result, "error")
     if error:
         return _one_line(str(error))
-    stderr_lines = [
-        line.strip() for line in str(_field(result, "stderr") or "").splitlines()
-    ]
-    stderr_lines = [line for line in stderr_lines if line]
-    if stderr_lines:
-        return _one_line(stderr_lines[-1])
-    exit_code = _exit_code(result)
-    if exit_code:
-        return f"exit code {exit_code}"
+    if stderr_line:
+        return _cut(stderr_line, _SUMMARY_LIMIT)
     if _field(result, "timeout") is True:
         return "timed out"
     return "tool reported failure"
@@ -309,6 +315,57 @@ def result_status(result: Any) -> tuple[str, str | None]:
         return "completed", None
 
 
+def _has_field(result: Any, key: str) -> bool:
+    if isinstance(result, dict):
+        return key in result
+    try:
+        return hasattr(result, key)
+    except Exception:
+        return False
+
+
+def _match_lines(matches: Any) -> list[str]:
+    if not isinstance(matches, (list, tuple)):
+        return []
+    lines = []
+    for row in matches:
+        path = _field(row, "file_path")
+        if not isinstance(path, str) or not path:
+            continue
+        text = _field(row, "line_content")
+        lines.append(f"{path}:{_field(row, 'line_number')}: {text or ''}")
+    return lines
+
+
+def _readable_body(result: Any) -> str:
+    parts = []
+    content = _field(result, "content")
+    if isinstance(content, str) and content:
+        parts.append(content)
+    stdout = _field(result, "stdout")
+    if isinstance(stdout, str) and stdout.rstrip("\n"):
+        parts.append(stdout.rstrip("\n"))
+    stderr = _field(result, "stderr")
+    if isinstance(stderr, str) and stderr.rstrip("\n"):
+        parts.append("stderr:\n" + stderr.rstrip("\n"))
+    match_lines = _match_lines(_field(result, "matches"))
+    if match_lines:
+        parts.append("\n".join(match_lines))
+    return "\n".join(parts)
+
+
+def _json_fallback(result: Any) -> str:
+    data = result.model_dump(mode="json") if isinstance(result, BaseModel) else result
+    if isinstance(data, dict):
+        data = {key: value for key, value in data.items() if key != "error"}
+        if not data:
+            return ""
+    return json.dumps(data, ensure_ascii=False, default=str)
+
+
+_READABLE_FIELDS = ("content", "stdout", "stderr", "matches")
+
+
 def _result_body(result: Any) -> str:
     if result is None:
         return ""
@@ -316,10 +373,10 @@ def _result_body(result: Any) -> str:
         return result
     if isinstance(result, BaseException):
         return _exception_text(result)
-    if isinstance(result, BaseModel):
-        return json.dumps(result.model_dump(mode="json"), ensure_ascii=False)
-    if isinstance(result, (dict, list)):
-        return json.dumps(result, ensure_ascii=False, default=str)
+    if any(_has_field(result, key) for key in _READABLE_FIELDS):
+        return _readable_body(result)
+    if isinstance(result, (dict, list, BaseModel)):
+        return _json_fallback(result)
     return str(result)
 
 
@@ -330,7 +387,7 @@ def result_text(result: Any, limit: int = 4000) -> str:
         if status == "failed" and summary:
             if not body:
                 body = summary
-            elif body != summary:
+            elif not body.startswith(summary):
                 body = f"{summary}\n\n{body}"
         return _cut(body, limit)
     except Exception:
