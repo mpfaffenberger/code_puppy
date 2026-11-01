@@ -1118,8 +1118,9 @@ async def run_shell_command(
     # Check if we're running as a sub-agent (skip confirmation and run silently)
     running_as_subagent = is_subagent()
 
-    # Only ask for confirmation if we're in an interactive TTY, not in yolo mode,
-    # and NOT running as a sub-agent (sub-agents run without user interaction)
+    # Only ask when someone can answer (approval backend or interactive TTY),
+    # not in yolo mode, and NOT as a sub-agent (sub-agents run without user
+    # interaction). Don't "fix" this back to isatty(): backends work without a TTY.
     if not yolo_mode and not running_as_subagent and can_prompt_for_approval():
         # No local lock — get_user_approval_async serializes parallel prompts
         # internally, so repeated destructive commands queue instead of vanishing.

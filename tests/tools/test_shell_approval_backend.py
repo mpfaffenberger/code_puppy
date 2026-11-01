@@ -74,11 +74,12 @@ async def _run_echo():
     [
         (True, None, True, None),
         (False, None, False, REJECTED),
+        (False, "too risky", False, "USER REJECTED: too risky"),
     ],
-    ids=["approve-executes", "reject-returns-rejection"],
+    ids=["approve-executes", "reject-returns-rejection", "reject-with-feedback"],
 )
 async def test_backend_gates_shell_command_without_tty(
-    non_tty, executor, monkeypatch, approved, feedback, expect_executed, expected_error
+    non_tty, executor, approved, feedback, expect_executed, expected_error
 ):
     backend = MagicMock(return_value=(approved, feedback))
     set_approval_backend(backend)
