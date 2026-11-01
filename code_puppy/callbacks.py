@@ -87,6 +87,7 @@ PhaseType = Literal[
     "feature_capability",
     "transform_model_messages",
     "error_logged",
+    "banner_notice",
 ]
 CallbackFunc = Callable[..., Any]
 
@@ -179,6 +180,7 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "feature_capability": [],
     "transform_model_messages": [],
     "error_logged": [],
+    "banner_notice": [],
 }
 
 logger = logging.getLogger(__name__)
@@ -913,6 +915,18 @@ def on_error_logged(
         context=context,
         include_traceback=include_traceback,
     )
+
+
+def on_banner_notice(banner: dict) -> List[Any]:
+    """Fired by ``code_puppy.banners.emit_notice`` when a plugin emits a notice.
+
+    ``banner`` is the camelCase wire dict from ``Banner.to_wire`` so ACP and
+    other frontends can forward it unchanged. Observers only; return values
+    are ignored. Deliberately synchronous because ``emit_notice`` can run from
+    sync or async code. Subscribers must return promptly and must not raise;
+    the trigger isolates each callback's errors. Core ships no subscriber.
+    """
+    return _trigger_callbacks_sync("banner_notice", banner)
 
 
 def on_awaiting_user_input(awaiting: bool) -> List[Any]:
