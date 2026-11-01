@@ -517,7 +517,11 @@ def get_session_pause_controller(session_id: str) -> PauseController:
 
 
 def drop_session_pause_controller(session_id: str) -> None:
-    """Discard a session's PauseController; no-op if it was never created."""
+    """Discard a session's PauseController; no-op if it was never created.
+
+    Call only after that session's turn has ended: a still-running turn would
+    recreate the controller via get_pause_controller().
+    """
     with _pause_controller_lock:
         _session_controllers.pop(session_id, None)
 

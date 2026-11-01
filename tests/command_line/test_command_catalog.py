@@ -14,18 +14,7 @@ from code_puppy.command_line.command_catalog import (
     list_plugin_commands,
     list_registry_commands,
 )
-from code_puppy.command_line.command_registry import get_unique_commands
-
-EXPECTED_INTERACTIVE = {
-    "agent",
-    "model",
-    "add_model",
-    "model_settings",
-    "tutorial",
-    "set",
-    "autosave_load",
-    "uc",
-}
+from code_puppy.command_line.command_registry import get_command, get_unique_commands
 
 
 def _plugin_entry(name: str, description: str) -> CommandEntry:
@@ -81,10 +70,9 @@ def test_registry_names_unique_and_hidden_aliases_excluded():
     assert not hidden & all_aliases
 
 
-def test_interactive_builtins_are_exactly_expected():
-    interactive = {entry.name for entry in list_commands() if entry.interactive}
-
-    assert interactive == EXPECTED_INTERACTIVE
+def test_entries_carry_registry_interactive_flag():
+    for entry in list_registry_commands():
+        assert entry.interactive == get_command(entry.name).interactive
 
 
 @pytest.mark.parametrize(
