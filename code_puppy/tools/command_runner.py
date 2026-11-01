@@ -33,6 +33,7 @@ from code_puppy.tools.common import (
     generate_group_id,
     get_user_approval_async,
 )
+from code_puppy.tools.file_permission_state import PermissionNotDecided
 from code_puppy.tools.shell_backgrounding import (
     DivertLog,
     background_generation,
@@ -1152,7 +1153,22 @@ async def run_shell_command(
         )
 
         if not confirmed:
-            if user_feedback:
+            if isinstance(user_feedback, PermissionNotDecided):
+                # Nobody chose Reject (cancelled/failed request); don't tell the
+                # model the user said no. Mirrors file_modifications.
+                result = ShellCommandOutput(
+                    success=False,
+                    command=command,
+                    error=(
+                        f"PERMISSION NOT GRANTED: {user_feedback} The command was "
+                        "not run. The user did not reject it; do not say they did."
+                    ),
+                    stdout=None,
+                    stderr=None,
+                    exit_code=None,
+                    execution_time=None,
+                )
+            elif user_feedback:
                 result = ShellCommandOutput(
                     success=False,
                     command=command,

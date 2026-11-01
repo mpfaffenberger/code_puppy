@@ -11,6 +11,7 @@ from code_puppy.tools.common import (
     set_approval_backend,
 )
 from code_puppy.tools.command_runner import ShellCommandOutput
+from code_puppy.tools.file_permission_state import PermissionNotDecided
 from code_puppy.tools.subagent_context import subagent_context
 
 REJECTED = "User rejected the command!"
@@ -96,6 +97,23 @@ async def test_backend_gates_shell_command_without_tty(
         assert result.error == expected_error
     else:
         assert result.success is True
+
+
+async def test_not_decided_denial_is_not_reported_as_user_rejection(non_tty, executor):
+    set_approval_backend(
+        MagicMock(return_value=(False, PermissionNotDecided("Request cancelled.")))
+    )
+
+    result = await _run_echo()
+
+    assert executor.await_count == 0
+    assert result.success is False
+    assert result.error == (
+        "PERMISSION NOT GRANTED: Request cancelled. The command was not run. "
+        "The user did not reject it; do not say they did."
+    )
+    assert "USER REJECTED" not in result.error
+    assert result.user_feedback is None
 
 
 @pytest.mark.parametrize(
