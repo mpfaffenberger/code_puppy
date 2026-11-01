@@ -64,16 +64,17 @@ from code_puppy.tools.subagent_usage_metrics import (
 _active_subagent_tasks: Set[asyncio.Task] = set()
 
 # Sub-agents interrupted by cancellation, drained into the parent's history at
-# the next run start (single seam shared by invoke_agent and /fork). Same-loop
-# populate/drain makes a plain list safe.
-_interrupted_subagents: list[dict] = []
+# the next run start (single seam shared by invoke_agent and /fork). Records are
+# filed per conversation root (None = terminal) so one ACP session never sees
+# another's notes. Same-loop populate/drain makes a plain dict safe.
+_interrupted_subagents: dict[str | None, list[dict]] = {}
 
 
 def record_interrupted_subagent(
     *, agent_name: str, session_id: str, saved_count: int | None
 ) -> None:
     """Remember that ``agent_name``'s session was interrupted."""
-    _interrupted_subagents.append(
+    _interrupted_subagents.setdefault(get_conversation_root_id(), []).append(
         {
             "agent_name": agent_name,
             "session_id": session_id,
@@ -83,10 +84,20 @@ def record_interrupted_subagent(
 
 
 def drain_interrupted_subagents() -> list[dict]:
-    """Return and clear all pending interrupted-subagent records."""
-    drained = list(_interrupted_subagents)
-    _interrupted_subagents.clear()
-    return drained
+    """Return and clear the current conversation root's interrupted records."""
+    return _interrupted_subagents.pop(get_conversation_root_id(), [])
+
+
+def peek_interrupted_subagents(key: str | None = None) -> list[dict]:
+    """Return copies of ``key``'s records (default: current root) without clearing."""
+    if key is None:
+        key = get_conversation_root_id()
+    return [dict(rec) for rec in _interrupted_subagents.get(key, [])]
+
+
+def clear_interrupted_subagents(key: str | None) -> None:
+    """Drop ``key``'s records exactly (``None`` is the terminal bucket)."""
+    _interrupted_subagents.pop(key, None)
 
 
 def _subagent_recursion_blocked() -> bool:
