@@ -360,3 +360,66 @@ def test_memory_error_propagates_and_closes_every_enclosing_span_as_error(
         ],
         False,
     )
+
+
+def _refusal_plugin(root, case):
+    plugin = root / f"p_{case}"
+    if case == "no_files":
+        plugin.mkdir(parents=True)
+    elif case == "bytecode":
+        _write(plugin / "register_callbacks.py")
+        _write(plugin / "__pycache__" / "x.pyc", "")
+    elif case == "init_raises":
+        _write(plugin / "__init__.py", "raise RuntimeError('boom')\n")
+        _write(plugin / "register_callbacks.py")
+    elif case == "init_only_no_spec":
+        _write(plugin / "__init__.py")
+    else:
+        _write(plugin / "register_callbacks.py")
+    return plugin
+
+
+@pytest.mark.parametrize(
+    ("case", "terminal"),
+    [
+        # Refusals that return False without raising end as a skip, never an end.
+        ("no_files", ("skip", "disabled", None)),
+        ("bytecode", ("skip", "disabled", None)),
+        ("no_spec", ("skip", "disabled", None)),
+        ("init_only_no_spec", ("skip", "disabled", None)),
+        ("init_raises", ("error", None, "RuntimeError")),
+    ],
+)
+def test_project_load_refusals_never_end_as_success(
+    traced, world, monkeypatch, tmp_path, case, terminal
+):
+    sink = traced()
+    plugin = _refusal_plugin(tmp_path / "refusals", case)
+    plugins._ensure_project_ns()
+    if case.endswith("no_spec"):
+        monkeypatch.setattr(
+            plugins.importlib.util, "spec_from_file_location", lambda *a, **k: None
+        )
+    loaded = plugins._traced_project_load(plugin, plugin.name)
+    end = sink.events[-1]
+    assert (loaded, end["phase"], end["kind"], end.get("reason")) == (
+        False,
+        "plugin.import",
+        terminal[0],
+        terminal[1],
+    )
+    assert end["attrs"].get("exceptionClass") == terminal[2]
+
+
+def test_hot_load_failure_marks_its_own_span_not_the_enclosing_one(
+    traced, world, monkeypatch
+):
+    sink = traced()
+    monkeypatch.setattr(plugins, "_loaded_plugin_names", {"project": []})
+    with bt.span("cli.handle_args"):
+        loaded = plugins.load_project_plugin_now("p_rt")
+    terminals = {e["phase"]: e["kind"] for e in sink.events if e["kind"] != "start"}
+    assert (loaded, terminals) == (
+        False,
+        {"plugin.import": "error", "cli.handle_args": "end"},
+    )

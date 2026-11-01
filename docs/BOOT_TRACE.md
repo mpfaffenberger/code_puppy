@@ -92,7 +92,10 @@ Unknown attribute keys are dropped. The allowed keys are:
 The recorder uses a bounded queue of 512 events and drops the newest events
 when the queue is full. It never blocks the CLI. When events are dropped, the
 writer emits a `boot.dropped` mark with a top-level `dropped` field. That value
-is the cumulative count of discarded events.
+is the cumulative count of discarded events. The recorder discards events
+produced after shutdown is requested, or after the sink disables itself,
+silently: that leaves no sequence gap and no drop mark, so a lost tail shows up
+as an unmatched start (an incomplete trace) in the report, never as a gap.
 
 A trace is incomplete when any of these conditions occur:
 

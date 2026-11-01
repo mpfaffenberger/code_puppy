@@ -180,6 +180,16 @@ def _count_builtin(plugins_dir: Path, skip_names: set[str]) -> int | None:
     )
 
 
+def _traced_project_load(plugin_dir: Path, plugin_name: str) -> bool:
+    with _import_span("project", plugin_name) as imported:
+        loaded_ok = _load_one_project_plugin(plugin_dir, plugin_name)
+        if not loaded_ok:
+            # Refusals return False without raising; caught exceptions already
+            # marked the span as an error, which wins over skip.
+            imported.skip("disabled")
+    return loaded_ok
+
+
 def _load_user_tier(user_plugins_dir: Path, skip_names: set[str]) -> list[str]:
     # _load_user_plugins skips the active (tier) span when the directory is absent.
     with span("plugins.tier.user") as tier:
@@ -879,13 +889,7 @@ def _load_project_plugins(
                     f"Project plugin '{plugin_name}' shadows builtin plugin of the same name"
                 )
 
-            with _import_span("project", plugin_name) as imported:
-                loaded_ok = _load_one_project_plugin(item, plugin_name)
-                if not loaded_ok:
-                    # Refusals return False without raising; caught exceptions
-                    # already marked the span as an error, which wins over skip.
-                    imported.skip("disabled")
-            if loaded_ok:
+            if _traced_project_load(item, plugin_name):
                 loaded.append(plugin_name)
                 _project_plugin_status[plugin_name] = "loaded"
             else:
@@ -1056,7 +1060,7 @@ def load_project_plugin_now(plugin_name: str) -> bool:
         return True
 
     _ensure_project_ns()
-    if _load_one_project_plugin(plugin_dir, plugin_name):
+    if _traced_project_load(plugin_dir, plugin_name):
         _loaded_plugin_names["project"].append(plugin_name)
         _project_plugin_status[plugin_name] = "loaded"
         return True
