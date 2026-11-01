@@ -551,7 +551,7 @@ def test_exit_is_not_blocked_by_unread_stderr_pipe(tmp_path):
         stderr=subprocess.PIPE,
     )
     try:
-        assert proc.wait(timeout=30) == 0
+        assert proc.wait(timeout=SUBPROCESS_TIMEOUT_S) == 0
     finally:
         proc.kill()
         proc.stderr.close()

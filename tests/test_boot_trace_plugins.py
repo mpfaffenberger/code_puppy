@@ -7,7 +7,8 @@ import pytest
 
 import code_puppy.boot_trace as bt
 from tests.boot_trace_support import (
-    EIGHTEEN,
+    EXTRA_NAMES,
+    SUBPROCESS_TIMEOUT_S,
     HASHED,
     HEX32,
     OFFICIAL,
@@ -114,15 +115,15 @@ def test_initial_registry_is_the_seventy_official_names(traced):
     ) == (70, True, True, True)
 
 
-def test_eighteen_named_plugins_turn_plain_only_after_registration(traced):
+def test_extra_plugins_turn_plain_only_after_registration(traced):
     traced()
-    before = [bt.plugin_attrs("installed", n)["plugin"] for n in EIGHTEEN]
-    bt.register_plugin_names(EIGHTEEN)
-    after = [bt.plugin_attrs("installed", n)["plugin"] for n in EIGHTEEN]
+    before = [bt.plugin_attrs("installed", n)["plugin"] for n in EXTRA_NAMES]
+    bt.register_plugin_names(EXTRA_NAMES)
+    after = [bt.plugin_attrs("installed", n)["plugin"] for n in EXTRA_NAMES]
     assert (
         [bool(HASHED.fullmatch(p)) for p in before],
         after,
-    ) == ([True] * 18, list(EIGHTEEN))
+    ) == ([True] * 18, list(EXTRA_NAMES))
 
 
 @pytest.mark.parametrize(
@@ -185,7 +186,7 @@ E2E_CHILD = textwrap.dedent(
             return 0  # the writer thread creates the file asynchronously
 
     pause = threading.Event()
-    deadline = time.monotonic() + 10.0
+    deadline = time.monotonic() + float(sys.argv[2])
     while line_count() < 5:
         assert time.monotonic() < deadline, "trace never reached 5 lines"
         pause.wait(0.005)
@@ -195,7 +196,9 @@ E2E_CHILD = textwrap.dedent(
 
 def test_file_target_end_to_end_in_subprocess(tmp_path):
     trace = tmp_path / "boot.jsonl"
-    result = _run_py(E2E_CHILD, str(trace), tmp_path, str(trace))
+    result = _run_py(
+        E2E_CHILD, str(trace), tmp_path, str(trace), str(SUBPROCESS_TIMEOUT_S)
+    )
     lines = [
         json.loads(line) for line in trace.read_text(encoding="utf-8").splitlines()
     ]

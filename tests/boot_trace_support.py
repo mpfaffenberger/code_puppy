@@ -97,26 +97,7 @@ OFFICIAL = (
     "yolo_cli",
 )
 
-EIGHTEEN = (
-    "agent_marketplace",
-    "annie_scout",
-    "caffeinate",
-    "cli_overrides",
-    "concord",
-    "confluence",
-    "cp_walmart_skills",
-    "dx_docs",
-    "launchpad_onboarding",
-    "notification_banner",
-    "plugin_marketplace",
-    "setup_doctor",
-    "shell_safety",
-    "skill_marketplace",
-    "token_ratio_learner",
-    "walmart_mcp_marketplace",
-    "walmart_specific",
-    "wide_completion_menu",
-)
+EXTRA_NAMES = tuple(f"extra_plugin_{i:02d}" for i in range(1, 19))
 
 
 class FakeSink:
