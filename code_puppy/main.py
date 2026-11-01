@@ -3,28 +3,63 @@
 This module re-exports the main_entry function from cli_runner for backwards
 compatibility. All the actual logic lives in cli_runner.py.
 
-The neon splash starts BEFORE the cli_runner import below: that import pulls
-in pydantic-ai, prompt_toolkit, rich, and friends (~seconds of cold start),
-which is exactly the window the shimmer covers. ``code_puppy.splash`` is
-stdlib-only by design -- keep it that way, and keep it first.
+The boot-trace root opens first, then the neon splash starts BEFORE the
+cli_runner import below: that import pulls in pydantic-ai, prompt_toolkit,
+rich, and friends (~seconds of cold start), which is exactly the window the
+shimmer covers. ``code_puppy.boot_trace`` and ``code_puppy.splash`` are
+stdlib-only by design -- keep both that way.
 """
 
-from code_puppy.splash import start_splash
+import logging
+import os
+import sys
 
-_splash = start_splash()
+from code_puppy.boot_trace import begin_boot, end_boot, span
+from code_puppy.splash import _NullSplash, start_splash
+
+
+def _splash_skip_reason() -> str:
+    """Name why start_splash() returned its no-op; mirrors the gates in splash.py."""
+    if "--acp" in sys.argv:
+        return "acp"
+    try:
+        if not sys.stdout.isatty():
+            return "non_tty"
+    except Exception:
+        logger = logging.getLogger(__name__)
+        logger.debug("stdout tty probe failed", exc_info=True)
+        return "non_tty"
+    if (
+        os.environ.get("CODE_PUPPY_NO_SPLASH")
+        or os.environ.get("NO_COLOR")
+        or os.environ.get("TERM", "") == "dumb"
+    ):
+        return "env"
+    return "disabled"
+
+
+begin_boot()
+with span("splash") as splash_span:
+    _splash = start_splash()
+    if isinstance(_splash, _NullSplash):
+        splash_span.skip(_splash_skip_reason())
+
 try:
     try:
         # Before the runner import so an import-time crash is recorded too.
-        from code_puppy.error_hooks import install_error_hooks
+        with span("error_hooks"):
+            from code_puppy.error_hooks import install_error_hooks
 
-        install_error_hooks()
+            install_error_hooks()
     except Exception:
-        import logging
-
         logging.getLogger(__name__).debug(
             "installing the error hooks failed", exc_info=True
         )
-    from code_puppy.cli_runner import main_entry
+    with span("runner.import"):
+        from code_puppy.cli_runner import main_entry
+except BaseException as exc:
+    end_boot(exc)
+    raise
 finally:
     _splash.stop()
 

@@ -22,6 +22,7 @@ from pathlib import Path
 from code_puppy import __version__, callbacks, get_core_plugins_version, plugins
 from code_puppy.agents import get_current_agent
 from code_puppy.asyncio_cleanup import install_httpcore2_shutdown_filter
+from code_puppy.boot_trace import begin_boot, end_boot, span
 from code_puppy.i18n import t, use_detected_locale
 from code_puppy.command_line.attachments import (
     parse_prompt_attachments,
@@ -260,20 +261,24 @@ async def main():
         "command", nargs="*", help="Run a single command (deprecated, use -p instead)"
     )
 
-    # Plugins add CLI args via on_register_cli_args (loaded at import time);
-    # duplicate option strings raise here = fail fast.
-    callbacks.on_register_cli_args(parser)
+    with span("cli.parse"):
+        # Plugins add CLI args via on_register_cli_args (loaded at import time);
+        # duplicate option strings raise here = fail fast.
+        with span("cli.register_args"):
+            callbacks.on_register_cli_args(parser)
 
-    args = parser.parse_args()
-    _initialize_locale()
-    if args.disable_ask_user_question:
-        os.environ["CODE_PUPPY_DISABLE_ASK_USER_QUESTION"] = "1"
+        with span("cli.argparse"):
+            args = parser.parse_args()
+        _initialize_locale()
+        if args.disable_ask_user_question:
+            os.environ["CODE_PUPPY_DISABLE_ASK_USER_QUESTION"] = "1"
 
     # Plugins may act on parsed args and short-circuit startup; first dict
     # with handled=True wins (exits with its exit_code).
-    for result in callbacks.on_handle_cli_args(args):
-        if isinstance(result, dict) and result.get("handled"):
-            return result.get("exit_code", 0)
+    with span("cli.handle_args"):
+        for result in callbacks.on_handle_cli_args(args):
+            if isinstance(result, dict) and result.get("handled"):
+                return result.get("exit_code", 0)
 
     from code_puppy.messaging import (
         RichConsoleRenderer,
@@ -1643,6 +1648,8 @@ def _initialize_locale():
 
 def main_entry():
     """Entry point for the installed CLI tool."""
+    # Idempotent: main.py already opened the root; direct callers open it here.
+    begin_boot()
     # Idempotent; covers callers that bypass main.py. Never block startup.
     try:
         install_error_hooks()
@@ -1651,15 +1658,23 @@ def main_entry():
     _force_utf8_stdio()
     # Before anything spawns: fork children inherit fd 2 (see the module).
     install_malloc_noise_guard()
+    rc = None
+    boot_exc = None
     try:
         # Capture main()'s return so plugins / normal paths set the exit status
         # (None → 0 or an int exit code).
         rc = asyncio.run(main())
-    except KeyboardInterrupt:
+    except KeyboardInterrupt as caught:
+        boot_exc = caught
         # Note: Using sys.stderr for crash output - messaging system may not be available
         sys.stderr.write(traceback.format_exc())
         return 0
+    except BaseException as caught:
+        boot_exc = caught
+        raise
     finally:
+        # KeyboardInterrupt stays an error in the boot trace despite the return 0.
+        end_boot(boot_exc, exit_code=rc)
         # Reset terminal on Unix-like systems (not Windows)
         reset_unix_terminal()
     # Guard None -> 0 and propagate to the process exit status.
