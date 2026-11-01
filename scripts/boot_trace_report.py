@@ -53,7 +53,7 @@ BOOT_ID_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
 PLUGIN_RE = re.compile(r"[A-Za-z0-9_.-]{1,64}|h:[0-9a-f]{16}")
 UNSAFE_ID_CHARS = re.compile(r"[^A-Za-z0-9_-]")
 PHASE_ROW = "  {dur:>11}  {status:<26}  {label}"
-PLUGIN_ROW = "  {tier:<9}  {identity:<20}  {dur:>11}  {status}"
+PLUGIN_ROW = "  {tier:<9}  {identity:<{width}}  {dur:>11}  {status}"
 ATTRIBUTION_NOTES = (
     "shared or nested imports are charged to the first importer",
     "import wrappers include ownership finalization and cleanup",
@@ -306,10 +306,15 @@ def _phase_row(pair: Pair) -> str:
     )
 
 
-def _plugin_row(pair: Pair) -> str:
+def _identity(pair: Pair) -> str:
+    return pair.end.plugin or "invalid"
+
+
+def _plugin_row(pair: Pair, width: int) -> str:
     return PLUGIN_ROW.format(
         tier=pair.end.tier or "?",
-        identity=pair.end.plugin or "invalid",
+        identity=_identity(pair),
+        width=width,
         dur=f"{pair.end.dur_ms:.3f}",
         status=_status(pair),
     )
@@ -330,14 +335,22 @@ def _render(summary: _Summary, top: int) -> list[str]:
         PHASE_ROW.format(dur="DURATION_MS", status="STATUS", label="PHASE"),
     ]
     lines += [_phase_row(p) for p in _ranked(phases, top)] or ["  (none)"]
+    shown = _ranked(plugins, top)
+    width = min(
+        MAX_SHOWN_ID, max([len("IDENTITY"), *(len(_identity(p)) for p in shown)])
+    )
     lines += [
         "",
         f"Plugins ({PLUGIN_PHASE}, top {top})",
         PLUGIN_ROW.format(
-            tier="TIER", identity="IDENTITY", dur="DURATION_MS", status="STATUS"
+            tier="TIER",
+            identity="IDENTITY",
+            width=width,
+            dur="DURATION_MS",
+            status="STATUS",
         ),
     ]
-    lines += [_plugin_row(p) for p in _ranked(plugins, top)] or ["  (none)"]
+    lines += [_plugin_row(p, width) for p in shown] or ["  (none)"]
     if not complete:
         counts = " ".join(
             f"{name}={value}" for name, value in sorted(issues.items()) if value

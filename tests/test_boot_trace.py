@@ -45,6 +45,7 @@ DISABLED_VALUES = [
 @pytest.mark.parametrize("value", DISABLED_VALUES)
 def test_disabled_mode_is_a_shared_noop(traced, value):
     assert traced(value) is None
+    assert bt.enabled() is False
     noop = bt.span("a.b")
     with noop as entered:
         inside = (entered is noop, bt.current_span() is noop)
@@ -131,6 +132,7 @@ def test_unset_env_is_silent_and_writes_nothing(tmp_path):
 
 def test_root_span_lifecycle_emits_once(traced):
     sink = traced()
+    assert bt.enabled() is True
     bt.begin_boot()
     bt.begin_boot()
     bt.end_boot()
@@ -352,6 +354,11 @@ def test_body_exception_is_classified_and_propagated_unchanged(
         pytest.param("cached", {"kind": "skip", "reason": "cached"}, 0, id="cached"),
         pytest.param("non_tty", {"kind": "skip", "reason": "non_tty"}, 0, id="non_tty"),
         pytest.param("env", {"kind": "skip", "reason": "env"}, 0, id="env"),
+        pytest.param(
+            "shadowed", {"kind": "skip", "reason": "shadowed"}, 0, id="shadowed"
+        ),
+        pytest.param("refused", {"kind": "skip", "reason": "refused"}, 0, id="refused"),
+        pytest.param("retired", {"kind": "skip", "reason": "retired"}, 0, id="retired"),
         pytest.param("bogus", {"kind": "end"}, 1, id="invalid-reason"),
     ],
 )

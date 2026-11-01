@@ -141,11 +141,19 @@ def _rows(sink):
     return rows
 
 
-def _plugin_row(tier, name, kind, parent, ordinal=None, total=None, **extra):
+def _plugin_row(
+    tier, name, kind, parent, ordinal=None, total=None, reason="disabled", **extra
+):
     attrs = {**bt.plugin_attrs(tier, name), **extra}
     unit = None if total is None else (ordinal, total)
-    reason = "disabled" if kind == "skip" else None
-    return ("plugin.import", kind, parent, attrs, unit, reason)
+    return (
+        "plugin.import",
+        kind,
+        parent,
+        attrs,
+        unit,
+        reason if kind == "skip" else None,
+    )
 
 
 def test_full_load_reports_every_tier_in_order(traced, world):
@@ -175,7 +183,9 @@ def test_full_load_reports_every_tier_in_order(traced, world):
             plug("installed", "ollama", inst, "start", 2, 4),
             plug("installed", "ollama", inst, "end", 2, 4),
             plug("installed", "token_ratio_learner", inst, "start", 3, 4),
-            plug("installed", "token_ratio_learner", inst, "skip", 3, 4),
+            plug(
+                "installed", "token_ratio_learner", inst, "skip", 3, 4, reason="retired"
+            ),
             plug("installed", "z_installed", inst, "start", 4, 4),
             plug("installed", "z_installed", inst, "end", 4, 4),
             (inst, "end", load, {"count": 2}, (4, 4), None),
@@ -197,7 +207,7 @@ def _user_rows(usr, load):
     return [
         (usr, "start", load, {}, None, None),
         _plugin_row("user", "ollama", "start", usr),
-        _plugin_row("user", "ollama", "skip", usr),
+        _plugin_row("user", "ollama", "skip", usr, reason="shadowed"),
         _plugin_row("user", "u_bad", "start", usr),
         _plugin_row("user", "u_bad", "error", usr, **err),
         _plugin_row("user", "u_ok", "start", usr),
@@ -221,11 +231,11 @@ def _project_rows(proj, load):
         plug("p_ok", "start"),
         plug("p_ok", "end"),
         plug("p_pyc", "start"),
-        plug("p_pyc", "skip"),
+        plug("p_pyc", "skip", reason="refused"),
         plug("p_rt", "start"),
         plug("p_rt", "error", outcome="error", exceptionClass="RuntimeError"),
         plug("p_untrusted", "start"),
-        plug("p_untrusted", "skip"),
+        plug("p_untrusted", "skip", reason="refused"),
         (proj, "end", load, {"count": 1}, None, None),
         ("plugins.load", "end", "boot", {}, None, None),
     ]
@@ -383,10 +393,10 @@ def _refusal_plugin(root, case):
     ("case", "terminal"),
     [
         # Refusals that return False without raising end as a skip, never an end.
-        ("no_files", ("skip", "disabled", None)),
-        ("bytecode", ("skip", "disabled", None)),
-        ("no_spec", ("skip", "disabled", None)),
-        ("init_only_no_spec", ("skip", "disabled", None)),
+        ("no_files", ("skip", "refused", None)),
+        ("bytecode", ("skip", "refused", None)),
+        ("no_spec", ("skip", "refused", None)),
+        ("init_only_no_spec", ("skip", "refused", None)),
         ("init_raises", ("error", None, "RuntimeError")),
     ],
 )

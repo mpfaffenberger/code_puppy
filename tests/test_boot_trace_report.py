@@ -97,6 +97,30 @@ def test_terminal_kind_and_valid_outcome_form_the_status(
     assert section_rows(out, "Phases") == [("2.000", status, "cli.parse")]
 
 
+def test_plugin_columns_stay_aligned_for_long_identities(tmp_path, capsys):
+    long_name = "destructive_command_guard"
+    records = numbered(
+        span_pair("plugin.import", 2.0, "1", attrs={"tier": "builtin", "plugin": "acp"})
+        + span_pair(
+            "plugin.import",
+            3.0,
+            "2",
+            attrs={"tier": "installed", "plugin": long_name},
+        )
+    )
+    _, out, _ = run_report(capsys, write_lines(tmp_path, [tagged(r) for r in records]))
+
+    header, *rows = [
+        line
+        for line in out.split("Plugins (")[1].splitlines()[1:]
+        if line.startswith("  ")
+    ][:3]
+    assert [
+        row.index(dur) + len(dur) for row, dur in zip(rows, ("3.000", "2.000"))
+    ] == [header.index("DURATION_MS") + len("DURATION_MS")] * 2
+    assert long_name in rows[0]
+
+
 def test_plugin_rows_list_identity_and_skips_stay_unranked(tmp_path, capsys):
     records = numbered(
         span_pair("plugin.import", 2.0, "1", attrs={"tier": "builtin", "plugin": "acp"})

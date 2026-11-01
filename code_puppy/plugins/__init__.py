@@ -12,7 +12,7 @@ from importlib.metadata import entry_points
 from pathlib import Path
 
 from code_puppy._plugin_i18n_lifecycle import finish_i18n_plugin_load
-from code_puppy.boot_trace import current_span, plugin_attrs, span
+from code_puppy.boot_trace import current_span, enabled, plugin_attrs, span
 from code_puppy.callbacks import (
     _deactivate_loading_transaction,
     _get_loading_transaction,
@@ -169,7 +169,7 @@ def _finish_tier(tier, loaded: list[str], total: int | None = None) -> None:
 
 
 def _count_builtin(plugins_dir: Path, skip_names: set[str]) -> int | None:
-    if not plugin_attrs("builtin", ""):  # empty only while tracing is off
+    if not enabled():
         return None
     return sum(
         1
@@ -186,7 +186,7 @@ def _traced_project_load(plugin_dir: Path, plugin_name: str) -> bool:
         if not loaded_ok:
             # Refusals return False without raising; caught exceptions already
             # marked the span as an error, which wins over skip.
-            imported.skip("disabled")
+            imported.skip("refused")
     return loaded_ok
 
 
@@ -255,7 +255,7 @@ def _load_installed_plugins() -> list[str]:
                 # a while; skip it unconditionally rather than let a dead
                 # learner monkeypatch the shared fallback estimator.
                 logger.debug("Skipping retired plugin %s", plugin_name)
-                _skip_import("installed", plugin_name, "disabled", ordinal, total)
+                _skip_import("installed", plugin_name, "retired", ordinal, total)
                 continue
             try:
                 with _import_scope("installed", plugin_name, ordinal, total):
@@ -412,7 +412,7 @@ def _load_user_plugins(
                     "plugin with the same name is already loaded or scheduled",
                     plugin_name,
                 )
-                _skip_import("user", plugin_name, "disabled")
+                _skip_import("user", plugin_name, "shadowed")
                 continue
 
             callbacks_file = item / "register_callbacks.py"
@@ -870,7 +870,7 @@ def _load_project_plugins(
                     plugin_name,
                     status,
                 )
-                _skip_import("project", plugin_name, "disabled")
+                _skip_import("project", plugin_name, "refused")
                 continue
 
             if is_plugin_disabled(plugin_name):

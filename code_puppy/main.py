@@ -11,38 +11,17 @@ stdlib-only by design -- keep both that way.
 """
 
 import logging
-import os
-import sys
 
 from code_puppy.boot_trace import begin_boot, end_boot, span
-from code_puppy.splash import _NullSplash, start_splash
-
-
-def _splash_skip_reason() -> str:
-    """Name why start_splash() returned its no-op; mirrors the gates in splash.py."""
-    if "--acp" in sys.argv:
-        return "acp"
-    try:
-        if not sys.stdout.isatty():
-            return "non_tty"
-    except Exception:
-        logger = logging.getLogger(__name__)
-        logger.debug("stdout tty probe failed", exc_info=True)
-        return "non_tty"
-    if (
-        os.environ.get("CODE_PUPPY_NO_SPLASH")
-        or os.environ.get("NO_COLOR")
-        or os.environ.get("TERM", "") == "dumb"
-    ):
-        return "env"
-    return "disabled"
+from code_puppy.splash import start_splash
 
 
 begin_boot()
 with span("splash") as splash_span:
     _splash = start_splash()
-    if isinstance(_splash, _NullSplash):
-        splash_span.skip(_splash_skip_reason())
+    skip_reason = getattr(_splash, "reason", None)
+    if skip_reason:
+        splash_span.skip(skip_reason)
 
 try:
     try:

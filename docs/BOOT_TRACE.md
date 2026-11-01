@@ -90,7 +90,7 @@ Unknown attribute keys are dropped. The allowed keys are:
 ## Drop marks, sequence gaps, and incomplete traces
 
 The recorder uses a bounded queue of 512 events and drops the newest events
-when the queue is full. It never blocks the CLI. When events are dropped, the
+when the queue is full. Producers never block the CLI. When events are dropped, the
 writer emits a `boot.dropped` mark with a top-level `dropped` field. That value
 is the cumulative count of discarded events. The recorder discards events
 produced after shutdown is requested, or after the sink disables itself,
@@ -104,8 +104,9 @@ A trace is incomplete when any of these conditions occur:
 - A line is malformed.
 - A span has no terminal event, or a terminal event does not match its start.
 
-An incomplete trace is not a boot failure. The CLI does not wait for the trace
-writer at exit, so the tail of a trace can be lost.
+An incomplete trace is not a boot failure. At exit the CLI waits at most 250 ms
+for the trace writer to drain, so a stalled sink can still lose the tail of a
+trace but can never hang the CLI.
 
 ## Privacy
 

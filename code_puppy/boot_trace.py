@@ -56,7 +56,17 @@ _OUTCOMES = (
     "unavailable",
     "control_exit",
 )
-_SKIP_REASONS = ("acp", "disabled", "not_installed", "cached", "non_tty", "env")
+_SKIP_REASONS = (
+    "acp",
+    "disabled",
+    "not_installed",
+    "cached",
+    "non_tty",
+    "env",
+    "shadowed",
+    "refused",
+    "retired",
+)
 _MAX_INT = 2**53 - 1
 _MAX_NAMES = 128
 
@@ -492,7 +502,7 @@ def begin_boot() -> None:
 
 
 def end_boot(exc: BaseException | None = None, *, exit_code: int | None = None) -> None:
-    """Close the root span (idempotent) and ask the writer to stop; never blocks."""
+    """Close the root span (idempotent) and drain the writer (bounded wait)."""
     if _rec is None:
         return
     try:
@@ -536,6 +546,11 @@ def mark(phase: str, *, parent: str | None = None, attrs: dict | None = None) ->
         _rec.mark(phase, parent, attrs)
     except Exception:
         pass
+
+
+def enabled() -> bool:
+    """True when tracing is on (a recorder exists)."""
+    return _rec is not None
 
 
 def plugin_attrs(tier: str, name: str) -> dict:

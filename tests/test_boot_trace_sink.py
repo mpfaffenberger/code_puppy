@@ -378,6 +378,32 @@ def test_drain_then_exit_ignores_offers_after_stop(monkeypatch, start, pipe):
     assert data == b"".join(_line(i + 1, _ev(i), STDERR_PREFIX) for i in range(3))
 
 
+def test_request_stop_returns_after_the_queue_is_drained(tmp_path, start):
+    target = tmp_path / "trace.jsonl"
+    item = start(str(target))
+    for idx in range(MAX_QUEUE // 2):
+        item.sink.offer(_ev(idx))
+
+    item.sink.request_stop(timeout=TIMEOUT)  # no separate join: the tail must be there
+
+    assert len(target.read_bytes().splitlines()) == MAX_QUEUE // 2
+
+
+def test_request_stop_wait_is_bounded_and_spent_once(monkeypatch, gate, start, pipe):
+    _use_stderr(monkeypatch, pipe.write_fd)
+    item = start("stderr")
+    _hold_first_event(gate, item)
+    try:
+        started = time.monotonic()
+        item.sink.request_stop(timeout=0.05)
+        item.sink.request_stop(timeout=TIMEOUT)  # must not wait a second time
+        assert time.monotonic() - started < TIMEOUT / 2
+        assert item.writer.is_alive()
+    finally:
+        gate.release.set()
+    _finish(item, pipe)
+
+
 def test_next_span_id_is_hex_counter_from_one(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     sink = Sink("relative.jsonl", boot_id=BOOT_ID, t0_ns=T0_NS)

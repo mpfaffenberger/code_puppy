@@ -2,7 +2,8 @@
 
 Producers only append to a bounded in-memory queue under a short lock; one
 daemon writer thread owns every blocking operation (open, encode, os.write).
-A stalled or broken sink can therefore delay or lose trace events, never boot.
+A stalled or broken sink can therefore lose trace events or delay exit by at most
+the bounded drain wait in ``Sink.request_stop``, never hang boot.
 
 Called by: boot_trace :: _create_recorder()
 """
@@ -16,6 +17,7 @@ from collections import deque
 
 MAX_QUEUE = 512
 MAX_LINE = 2048
+DRAIN_TIMEOUT_S = 0.25
 STDERR_PREFIX = b"CODE_PUPPY_BOOT_TRACE "
 
 
@@ -63,10 +65,14 @@ class Sink:
         self._dropped_reported = 0
         self._stopped = False
         self._disabled = False
+        self._thread: threading.Thread | None = None
+        self._drain_waited = False
         try:
-            threading.Thread(
+            thread = threading.Thread(
                 target=self._run, name="boot-trace-writer", daemon=True
-            ).start()
+            )
+            thread.start()
+            self._thread = thread
         except Exception:
             self._disabled = True
 
@@ -99,11 +105,22 @@ class Sink:
             self._dropped += 1
             self._cond.notify()
 
-    def request_stop(self) -> None:
-        """Ask the writer to drain and exit; never joins or flushes."""
+    def request_stop(self, timeout: float = DRAIN_TIMEOUT_S) -> None:
+        """Ask the writer to drain, then wait at most ``timeout`` in total.
+
+        The wait keeps the root ``boot`` terminal (always the queue tail) from
+        being lost when a short-lived run exits; a stalled sink still can't hold
+        boot longer than ``timeout``, however many callers stop us.
+        """
         with self._cond:
             self._stopped = True
             self._cond.notify_all()
+            thread = self._thread
+            if self._drain_waited or thread is None:
+                return
+            self._drain_waited = True
+        if thread is not threading.current_thread():
+            thread.join(timeout)
 
     def _append_drop_mark_locked(self) -> None:
         if self._dropped == self._dropped_reported or len(self._queue) >= MAX_QUEUE:

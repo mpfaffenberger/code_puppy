@@ -5,12 +5,10 @@ run goes through a child process via ``_run_py``.
 """
 
 import json
-import sys
 from collections import namedtuple
 
 import pytest
 
-from code_puppy import error_hooks, splash
 from tests.boot_trace_support import _run_py
 
 PREFIX = "CODE_PUPPY_BOOT_TRACE "
@@ -264,66 +262,3 @@ def test_direct_entry_opens_exactly_one_root(tmp_path):
     starts = [e for e in events if e["phase"] == "boot" and e["kind"] == "start"]
     assert len(starts) == 1
     _assert_terminal(events, "boot", "end", {})
-
-
-class _Stdout:
-    def __init__(self, tty, raises=False):
-        self._tty, self._raises = tty, raises
-
-    def isatty(self):
-        if self._raises:
-            raise OSError("stdout probe failed")
-        return self._tty
-
-
-@pytest.fixture
-def entry_module(monkeypatch):
-    # Importing main runs start_splash() and install_error_hooks() at module scope.
-    class _InertSplash:
-        def stop(self):
-            pass
-
-    monkeypatch.setattr(splash, "start_splash", lambda *a, **k: _InertSplash())
-    monkeypatch.setattr(error_hooks, "install_error_hooks", lambda: None)
-    import code_puppy.main as main_module
-
-    return main_module
-
-
-@pytest.mark.parametrize(
-    ("argv", "stdout", "env", "expected"),
-    [
-        pytest.param(
-            ["pup", "--acp"], _Stdout(True), {}, "acp", id="acp-wins-over-tty"
-        ),
-        pytest.param(["pup"], _Stdout(False), {}, "non_tty", id="not-a-tty"),
-        pytest.param(
-            ["pup"], _Stdout(True, raises=True), {}, "non_tty", id="isatty-raises"
-        ),
-        pytest.param(
-            ["pup"],
-            _Stdout(True),
-            {"CODE_PUPPY_NO_SPLASH": "1"},
-            "env",
-            id="no-splash-env",
-        ),
-        pytest.param(
-            ["pup"], _Stdout(True), {"NO_COLOR": "1"}, "env", id="no-color-env"
-        ),
-        pytest.param(["pup"], _Stdout(True), {"TERM": "dumb"}, "env", id="term-dumb"),
-        pytest.param(
-            ["pup", "-p", "x"], _Stdout(True), {}, "disabled", id="non-interactive-flag"
-        ),
-    ],
-)
-def test_splash_skip_reason_mirrors_splash_gates(
-    entry_module, monkeypatch, argv, stdout, env, expected
-):
-    for key in ("CODE_PUPPY_NO_SPLASH", "NO_COLOR", "TERM"):
-        monkeypatch.delenv(key, raising=False)
-    for key, value in env.items():
-        monkeypatch.setenv(key, value)
-    monkeypatch.setattr(sys, "argv", argv)
-    monkeypatch.setattr(sys, "stdout", stdout)
-
-    assert entry_module._splash_skip_reason() == expected
