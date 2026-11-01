@@ -12,6 +12,7 @@ from importlib.metadata import entry_points
 from pathlib import Path
 
 from code_puppy._plugin_i18n_lifecycle import finish_i18n_plugin_load
+from code_puppy.boot_trace import current_span, plugin_attrs, span
 from code_puppy.callbacks import (
     _deactivate_loading_transaction,
     _get_loading_transaction,
@@ -144,6 +145,49 @@ _loaded_plugin_names: dict[str, list[str]] = {"builtin": [], "user": [], "projec
 _project_plugin_status: dict[str, str] = {}
 
 
+def _import_span(tier: str, name: str, ordinal: int | None = None, total=None):
+    unit = None if total is None else (ordinal, total)
+    return span("plugin.import", attrs=plugin_attrs(tier, name), unit=unit)
+
+
+@contextmanager
+def _import_scope(tier: str, name: str, ordinal=None, total=None):
+    # One span around the import and its ownership transaction (incl. finalization).
+    with _import_span(tier, name, ordinal, total), _plugin_loading_context(name):
+        yield
+
+
+def _skip_import(tier: str, name: str, reason: str, ordinal=None, total=None) -> None:
+    with _import_span(tier, name, ordinal, total) as skipped:
+        skipped.skip(reason)
+
+
+def _finish_tier(tier, loaded: list[str], total: int | None = None) -> None:
+    tier.update(count=len(loaded))
+    if total is not None:
+        tier.set_unit(total, total)
+
+
+def _count_builtin(plugins_dir: Path, skip_names: set[str]) -> int | None:
+    if not plugin_attrs("builtin", ""):  # empty only while tracing is off
+        return None
+    return sum(
+        1
+        for item in plugins_dir.iterdir()
+        if not item.name.startswith("_")
+        and item.name not in skip_names
+        and (item / "register_callbacks.py").exists()
+    )
+
+
+def _load_user_tier(user_plugins_dir: Path, skip_names: set[str]) -> list[str]:
+    # _load_user_plugins skips the active (tier) span when the directory is absent.
+    with span("plugins.tier.user") as tier:
+        loaded = _load_user_plugins(user_plugins_dir, skip_names=skip_names)
+        _finish_tier(tier, loaded)
+    return loaded
+
+
 @contextmanager
 def _plugin_loading_context(plugin_name: str):
     """Track one owner/transaction and atomically finish i18n registration."""
@@ -189,40 +233,46 @@ def _load_installed_plugins() -> list[str]:
     discovered = sorted(
         entry_points(group=PLUGIN_ENTRY_POINT_GROUP), key=lambda item: item.name
     )
-    for entry_point in discovered:
-        plugin_name = entry_point.name
-        if plugin_name == "token_ratio_learner":
-            # Retired: context accounting now anchors to the API's own
-            # reported prompt-token usage (see code_puppy.context_accounting)
-            # instead of a learned chars-per-token ratio. Older installed
-            # core-plugins bundles may still advertise this entry point for
-            # a while; skip it unconditionally rather than let a dead
-            # learner monkeypatch the shared fallback estimator.
-            logger.debug("Skipping retired plugin %s", plugin_name)
-            continue
-        try:
-            with _plugin_loading_context(plugin_name):
-                entry_point.load()
-            loaded.append(plugin_name)
-        except MemoryError:
-            raise
-        except ImportError as exc:
-            log_error(
-                exc,
-                context=f"code_puppy.plugins::_load_installed_plugins: startup/plugins: import the installed plugin {plugin_name}",
-            )
-            logger.warning("Failed to import installed plugin %s: %s", plugin_name, exc)
-        except Exception as exc:
-            log_error(
-                exc,
-                context=f"code_puppy.plugins::_load_installed_plugins: startup/plugins: load the installed plugin {plugin_name}",
-            )
-            logger.error(
-                "Unexpected error loading installed plugin %s: %s",
-                plugin_name,
-                exc,
-                exc_info=True,
-            )
+    total = len(discovered)
+    with span("plugins.tier.installed", unit=(0, total)) as tier:
+        for ordinal, entry_point in enumerate(discovered, 1):
+            plugin_name = entry_point.name
+            if plugin_name == "token_ratio_learner":
+                # Retired: context accounting now anchors to the API's own
+                # reported prompt-token usage (see code_puppy.context_accounting)
+                # instead of a learned chars-per-token ratio. Older installed
+                # core-plugins bundles may still advertise this entry point for
+                # a while; skip it unconditionally rather than let a dead
+                # learner monkeypatch the shared fallback estimator.
+                logger.debug("Skipping retired plugin %s", plugin_name)
+                _skip_import("installed", plugin_name, "disabled", ordinal, total)
+                continue
+            try:
+                with _import_scope("installed", plugin_name, ordinal, total):
+                    entry_point.load()
+                loaded.append(plugin_name)
+            except MemoryError:
+                raise
+            except ImportError as exc:
+                log_error(
+                    exc,
+                    context=f"code_puppy.plugins::_load_installed_plugins: startup/plugins: import the installed plugin {plugin_name}",
+                )
+                logger.warning(
+                    "Failed to import installed plugin %s: %s", plugin_name, exc
+                )
+            except Exception as exc:
+                log_error(
+                    exc,
+                    context=f"code_puppy.plugins::_load_installed_plugins: startup/plugins: load the installed plugin {plugin_name}",
+                )
+                logger.error(
+                    "Unexpected error loading installed plugin %s: %s",
+                    plugin_name,
+                    exc,
+                    exc_info=True,
+                )
+        _finish_tier(tier, loaded, total)
     return loaded
 
 
@@ -237,40 +287,46 @@ def _load_builtin_plugins(
     """
     loaded = []
     skip_names = set(skip_names or ())
+    total = _count_builtin(plugins_dir, skip_names)
+    ordinal = 0
+    unit = None if total is None else (0, total)
+    with span("plugins.tier.builtin", unit=unit) as tier:
+        for item in sorted(plugins_dir.iterdir(), key=lambda entry: entry.name):
+            if item.is_dir() and not item.name.startswith("_"):
+                plugin_name = item.name
+                callbacks_file = item / "register_callbacks.py"
 
-    for item in sorted(plugins_dir.iterdir(), key=lambda entry: entry.name):
-        if item.is_dir() and not item.name.startswith("_"):
-            plugin_name = item.name
-            callbacks_file = item / "register_callbacks.py"
+                if plugin_name in skip_names:
+                    continue
 
-            if plugin_name in skip_names:
-                continue
-
-            if callbacks_file.exists():
-                try:
-                    module_name = f"code_puppy.plugins.{plugin_name}.register_callbacks"
-                    with _plugin_loading_context(plugin_name):
-                        importlib.import_module(module_name)
-                    loaded.append(plugin_name)
-                except MemoryError:
-                    raise
-                except ImportError as e:
-                    log_error(
-                        e,
-                        context=f"code_puppy.plugins::_load_builtin_plugins: startup/plugins: import the builtin plugin {plugin_name}",
-                    )
-                    logger.warning(
-                        f"Failed to import callbacks from built-in plugin {plugin_name}: {e}"
-                    )
-                except Exception as e:
-                    log_error(
-                        e,
-                        context=f"code_puppy.plugins::_load_builtin_plugins: startup/plugins: load the builtin plugin {plugin_name}",
-                    )
-                    logger.error(
-                        f"Unexpected error loading built-in plugin {plugin_name}: {e}"
-                    )
-
+                if callbacks_file.exists():
+                    ordinal += 1
+                    try:
+                        module_name = (
+                            f"code_puppy.plugins.{plugin_name}.register_callbacks"
+                        )
+                        with _import_scope("builtin", plugin_name, ordinal, total):
+                            importlib.import_module(module_name)
+                        loaded.append(plugin_name)
+                    except MemoryError:
+                        raise
+                    except ImportError as e:
+                        log_error(
+                            e,
+                            context=f"code_puppy.plugins::_load_builtin_plugins: startup/plugins: import the builtin plugin {plugin_name}",
+                        )
+                        logger.warning(
+                            f"Failed to import callbacks from built-in plugin {plugin_name}: {e}"
+                        )
+                    except Exception as e:
+                        log_error(
+                            e,
+                            context=f"code_puppy.plugins::_load_builtin_plugins: startup/plugins: load the builtin plugin {plugin_name}",
+                        )
+                        logger.error(
+                            f"Unexpected error loading built-in plugin {plugin_name}: {e}"
+                        )
+        _finish_tier(tier, loaded, total)
     return loaded
 
 
@@ -319,10 +375,12 @@ def _load_user_plugins(
     skip_names = set(skip_names or ())
 
     if not user_plugins_dir.exists():
+        current_span().skip("not_installed")
         return loaded
 
     if not user_plugins_dir.is_dir():
         logger.warning(f"User plugins path is not a directory: {user_plugins_dir}")
+        current_span().skip("not_installed")
         return loaded
 
     # Add user plugins directory to sys.path if not already there
@@ -344,6 +402,7 @@ def _load_user_plugins(
                     "plugin with the same name is already loaded or scheduled",
                     plugin_name,
                 )
+                _skip_import("user", plugin_name, "disabled")
                 continue
 
             callbacks_file = item / "register_callbacks.py"
@@ -364,7 +423,7 @@ def _load_user_plugins(
                     module = importlib.util.module_from_spec(spec)
                     sys.modules[module_name] = module
 
-                    with _plugin_loading_context(plugin_name):
+                    with _import_scope("user", plugin_name):
                         spec.loader.exec_module(module)
                     loaded.append(plugin_name)
 
@@ -401,7 +460,7 @@ def _load_user_plugins(
 
                         module = importlib.util.module_from_spec(spec)
                         sys.modules[module_name] = module
-                        with _plugin_loading_context(plugin_name):
+                        with _import_scope("user", plugin_name):
                             spec.loader.exec_module(module)
                         loaded.append(plugin_name)
 
@@ -708,6 +767,7 @@ def _load_one_project_plugin(plugin_dir: Path, plugin_name: str) -> bool:
                     e,
                     context=f"code_puppy.plugins::_load_one_project_plugin: startup/plugins: import the project plugin {plugin_name}",
                 )
+                current_span().error(type(e).__name__)
                 logger.warning(
                     "Failed to import callbacks from project plugin %s: %s",
                     plugin_name,
@@ -719,6 +779,7 @@ def _load_one_project_plugin(plugin_dir: Path, plugin_name: str) -> bool:
                     e,
                     context=f"code_puppy.plugins::_load_one_project_plugin: startup/plugins: load the project plugin {plugin_name}",
                 )
+                current_span().error(type(e).__name__)
                 logger.error(
                     "Unexpected error loading project plugin %s: %s",
                     plugin_name,
@@ -799,6 +860,7 @@ def _load_project_plugins(
                     plugin_name,
                     status,
                 )
+                _skip_import("project", plugin_name, "disabled")
                 continue
 
             if is_plugin_disabled(plugin_name):
@@ -807,6 +869,7 @@ def _load_project_plugins(
                     "Project plugin '%s' is trusted but disabled — not loading",
                     plugin_name,
                 )
+                _skip_import("project", plugin_name, "disabled")
                 continue
 
             # Warn if a project plugin shadows a builtin (user collisions
@@ -816,7 +879,13 @@ def _load_project_plugins(
                     f"Project plugin '{plugin_name}' shadows builtin plugin of the same name"
                 )
 
-            if _load_one_project_plugin(item, plugin_name):
+            with _import_span("project", plugin_name) as imported:
+                loaded_ok = _load_one_project_plugin(item, plugin_name)
+                if not loaded_ok:
+                    # Refusals return False without raising; caught exceptions
+                    # already marked the span as an error, which wins over skip.
+                    imported.skip("disabled")
+            if loaded_ok:
                 loaded.append(plugin_name)
                 _project_plugin_status[plugin_name] = "loaded"
             else:
@@ -859,6 +928,12 @@ def get_project_plugins_directory() -> Path | None:
 
 
 def load_plugin_callbacks() -> dict[str, list[str]]:
+    """Load plugins from every tier once; see ``_load_plugin_callbacks``."""
+    with span("plugins.load"):
+        return _load_plugin_callbacks()
+
+
+def _load_plugin_callbacks() -> dict[str, list[str]]:
     """Dynamically load register_callbacks.py from all plugin sources.
 
     Loads plugins from:
@@ -879,6 +954,7 @@ def load_plugin_callbacks() -> dict[str, list[str]]:
     # so re-importing would cause duplicate registrations
     if _PLUGINS_LOADED:
         logger.debug("Plugins already loaded, skipping duplicate load")
+        current_span().skip("cached")
         return {"builtin": [], "user": [], "project": []}
 
     plugins_dir = Path(__file__).parent
@@ -900,17 +976,21 @@ def load_plugin_callbacks() -> dict[str, list[str]]:
     legacy_loaded = _load_builtin_plugins(plugins_dir, skip_names=set(installed_loaded))
     builtin_loaded = installed_loaded + legacy_loaded
     user_skip_names = set(builtin_loaded) | project_plugin_names
-    user_loaded = _load_user_plugins(USER_PLUGINS_DIR, skip_names=user_skip_names)
+    user_loaded = _load_user_tier(USER_PLUGINS_DIR, user_skip_names)
 
     # Load project plugins last (highest precedence)
     project_loaded = []
-    if project_plugins_dir is not None:
-        logger.info(f"Loading project plugins from {project_plugins_dir}")
-        project_loaded = _load_project_plugins(
-            project_plugins_dir,
-            builtin_names=set(builtin_loaded),
-            user_names=set(user_loaded),
-        )
+    with span("plugins.tier.project") as tier:
+        if project_plugins_dir is None:
+            tier.skip("not_installed")
+        else:
+            logger.info(f"Loading project plugins from {project_plugins_dir}")
+            project_loaded = _load_project_plugins(
+                project_plugins_dir,
+                builtin_names=set(builtin_loaded),
+                user_names=set(user_loaded),
+            )
+        _finish_tier(tier, project_loaded)
 
     result = {
         "builtin": builtin_loaded,
