@@ -50,3 +50,20 @@ def test_registering_loads_builtins_once_without_recursing(lazy_registry):
 
     assert banners._builtins_loaded is True
     assert has_banner_def("grep") is True
+
+
+def test_failed_builtin_load_is_retried_not_silently_swallowed(
+    lazy_registry, monkeypatch
+):
+    def boom():
+        raise RuntimeError("registration failed")
+
+    monkeypatch.setattr(banner_defs, "register_builtin_banner_defs", boom)
+    for _ in range(2):
+        with pytest.raises(RuntimeError, match="registration failed"):
+            get_banner_def("read_file")
+
+    monkeypatch.undo()
+    monkeypatch.setattr(banners, "_definitions", {})
+    monkeypatch.setattr(banners, "_builtins_loaded", False)
+    assert has_banner_def("read_file")

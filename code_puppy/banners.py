@@ -28,6 +28,11 @@ _TARGET_LIMIT = 60
 _SUMMARY_LIMIT = 300
 
 
+def banner_markup(color: str, text: str) -> str:
+    """Rich markup for a banner label; ``text`` must already be escaped."""
+    return f"[bold white on {color}] {text} [/bold white on {color}]"
+
+
 @dataclass(frozen=True)
 class Banner:
     event: str
@@ -63,12 +68,8 @@ class Banner:
         return {key: value for key, value in wire.items() if value is not None}
 
     def to_markup(self) -> str:
-        # Wrapper matches RichConsoleRenderer._format_banner; label, target and
-        # details are rich-escaped (plugin text), so output differs only on markup.
-        color = config.get_banner_color(self.name)
-        markup = (
-            f"[bold white on {color}] {escape(self.label)} [/bold white on {color}]"
-        )
+        # Label, target and details are rich-escaped: they may be plugin text.
+        markup = banner_markup(config.get_banner_color(self.name), escape(self.label))
         if self.target:
             markup += f" {escape(self.target)}"
         if self.event == "plugin_notice" and self.details:
@@ -104,10 +105,15 @@ def _ensure_builtins() -> None:
     global _builtins_loaded
     if _builtins_loaded:
         return
+    # Set before the call: registration re-enters via register_banner_def.
     _builtins_loaded = True
-    from code_puppy import banner_defs
+    try:
+        from code_puppy import banner_defs
 
-    banner_defs.register_builtin_banner_defs()
+        banner_defs.register_builtin_banner_defs()
+    except BaseException:
+        _builtins_loaded = False  # retry and re-raise instead of silent fallback
+        raise
 
 
 def get_banner_def(tool_name: str) -> BannerDef:

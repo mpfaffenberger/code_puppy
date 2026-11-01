@@ -18,6 +18,7 @@ from rich.rule import Rule
 # Note: Syntax import removed - file content not displayed, only header
 from rich.table import Table
 
+from code_puppy.banners import banner_markup
 from code_puppy.config import (
     get_output_level,
     get_subagent_verbose,
@@ -192,7 +193,7 @@ class RichConsoleRenderer:
             Rich markup string for the banner
         """
         color = self._get_banner_color(banner_name)
-        return f"[bold white on {color}] {text} [/bold white on {color}]"
+        return banner_markup(color, text)
 
     def _format_tool_banner(self, tool_name: str, prefix: str = "") -> str:
         """Banner for a registered tool, with name and label from its BannerDef.

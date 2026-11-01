@@ -236,8 +236,8 @@ emit_notice(notice("docs.index_done", "SYNCED", details="42 pages"))
 
 Register one `BannerDef` for each tool your plugin adds. Loading a plugin tool without a definition logs a warning.
 
-`name` is the first argument of `BannerDef` and is required. A `name` missing from `DEFAULT_BANNER_COLORS` renders with the default colour. To localize the label, set `label_key` to an i18n key from the plugin catalog instead of `label`.
+`name` is the first argument of `BannerDef` and is required. A `name` missing from `DEFAULT_BANNER_COLORS` renders with the default colour. `label` is required and holds the untranslated text. To localize it, also set `label_key` to an i18n key from the plugin catalog; `resolved_label()` then uses `t(label_key)`.
 
 `emit_notice` shows a status line in the terminal and fires the `banner_notice` phase. Subscribers have the signature `(banner: dict) -> None`. The dict uses camelCase wire keys: `v`, `event`, `name`, `label`, `kind`, `title`, `target`, `targetType`, `status`, `details`, `error`, `durationMs`, `exitCode`.
 
-Subscribers must return promptly and must not raise. Core ships no subscriber. `emit_notice` also renders the status line even when a subscriber fails. ACP forwards each notice as a finished `tool_call` update with `_meta.code_puppy.banner`.
+Subscribers must return promptly and must not raise. Core ships no subscriber. `emit_notice` also renders the status line even when a subscriber fails. The ACP plugin in `code_puppy_core_plugins` (not core) forwards each notice as a finished `tool_call` update with `_meta.code_puppy.banner`.
