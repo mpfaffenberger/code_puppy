@@ -22,6 +22,7 @@ from code_puppy._boot_trace_sink import (
     _open,
     _write_all,
 )
+from tests.boot_trace_support import SUBPROCESS_TIMEOUT_S
 
 BOOT_ID = "ab" * 16
 T0_NS = 123_456
@@ -560,5 +561,5 @@ def test_stderr_target_never_writes_stdout(tmp_path):
     proc = _run_child(
         CHILD_STDERR, tmp_path, stdout=subprocess.PIPE, stderr=subprocess.PIPE
     )
-    out, _ = proc.communicate(timeout=30)
+    out, _ = proc.communicate(timeout=SUBPROCESS_TIMEOUT_S)
     assert (proc.returncode, out) == (0, b"")

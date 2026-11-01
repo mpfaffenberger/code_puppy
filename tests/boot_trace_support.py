@@ -20,6 +20,8 @@ HASHED = re.compile(r"h:[0-9a-f]{16}")
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ABS_TARGET = str(REPO_ROOT / "boot-trace.jsonl")
 TIMEOUT = 10.0
+# Safety ceiling only (cold imports take 10-30 s on loaded hosts); never an assertion.
+SUBPROCESS_TIMEOUT_S = 180
 
 # Pinned from the reviewed official plugin list (70 names, one per line).
 OFFICIAL = (
@@ -213,6 +215,6 @@ def _run_py(code, value, tmp_path, *args):
         cwd=cwd,
         capture_output=True,
         text=True,
-        timeout=30,
+        timeout=SUBPROCESS_TIMEOUT_S,
         check=False,
     )
