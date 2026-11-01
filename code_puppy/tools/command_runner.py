@@ -28,7 +28,11 @@ from code_puppy.messaging import (  # Structured messaging types
     emit_warning,
     get_message_bus,
 )
-from code_puppy.tools.common import generate_group_id, get_user_approval_async
+from code_puppy.tools.common import (
+    can_prompt_for_approval,
+    generate_group_id,
+    get_user_approval_async,
+)
 from code_puppy.tools.shell_backgrounding import (
     DivertLog,
     background_generation,
@@ -1116,7 +1120,7 @@ async def run_shell_command(
 
     # Only ask for confirmation if we're in an interactive TTY, not in yolo mode,
     # and NOT running as a sub-agent (sub-agents run without user interaction)
-    if not yolo_mode and not running_as_subagent and sys.stdin.isatty():
+    if not yolo_mode and not running_as_subagent and can_prompt_for_approval():
         # No local lock — get_user_approval_async serializes parallel prompts
         # internally, so repeated destructive commands queue instead of vanishing.
 

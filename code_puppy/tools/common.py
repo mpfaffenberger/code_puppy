@@ -101,6 +101,11 @@ def get_approval_backend() -> Optional[ApprovalBackend]:
     return _APPROVAL_BACKEND
 
 
+def can_prompt_for_approval() -> bool:
+    """Embedders without a TTY (e.g. ACP) ask through the backend instead of stdin."""
+    return get_approval_backend() is not None or _stdin_supports_interactive_approval()
+
+
 def _approval_message_text(content) -> str:
     """Flatten Rich ``Text``/``str`` approval content to plain text."""
     plain = getattr(content, "plain", None)
