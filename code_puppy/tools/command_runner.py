@@ -1004,102 +1004,6 @@ async def run_shell_command(
                 emit_info(f"[dim]\U0001f527 command rewritten by {reason}[/dim]")
                 command = new_command
 
-    # Handle background execution - runs command detached and returns immediately
-    # This happens BEFORE user confirmation since we don't wait for the command
-    if background:
-        # Create temp log file for output
-        log_file = tempfile.NamedTemporaryFile(
-            mode="w",
-            prefix="shell_bg_",
-            suffix=".log",
-            delete=False,  # Keep file so agent can read it later
-        )
-        log_file_path = log_file.name
-
-        try:
-            # CREATE_NO_WINDOW: own hidden console so the background tree
-            # can't stomp our console input mode.
-            if sys.platform.startswith("win"):
-                creationflags = (
-                    subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
-                )
-                process = subprocess.Popen(
-                    command,
-                    shell=True,
-                    stdout=log_file,
-                    stderr=subprocess.STDOUT,
-                    stdin=subprocess.DEVNULL,
-                    cwd=cwd,
-                    env=_child_process_env(),
-                    creationflags=creationflags,
-                )
-            else:
-                process = subprocess.Popen(
-                    command,
-                    shell=True,
-                    stdout=log_file,
-                    stderr=subprocess.STDOUT,
-                    stdin=subprocess.DEVNULL,
-                    cwd=cwd,
-                    env=_child_process_env(),
-                    start_new_session=True,  # Fully detach on POSIX
-                )
-
-            log_file.close()  # Close our handle, process keeps writing
-
-            # Emit UI messages so user sees what happened
-            bus = get_message_bus()
-            bus.emit(
-                ShellStartMessage(
-                    command=command,
-                    cwd=cwd,
-                    timeout=0,  # No timeout for background processes
-                    background=True,
-                )
-            )
-
-            # Emit info about background execution
-            emit_info(
-                f"Background process started (PID: {process.pid}) - no timeout, runs until complete"
-            )
-            emit_info(f"Output logging to: {log_file.name}")
-
-            # Return immediately - don't wait, don't block
-            return ShellCommandOutput(
-                success=True,
-                command=command,
-                stdout=None,
-                stderr=None,
-                exit_code=None,
-                execution_time=0.0,
-                background=True,
-                log_file=log_file.name,
-                pid=process.pid,
-            )
-        except Exception as e:
-            try:
-                log_file.close()
-            except Exception:
-                pass
-            # Clean up the temp file on error since no process will write to it
-            try:
-                os.unlink(log_file_path)
-            except OSError:
-                pass
-            # Emit error message so user sees what happened
-            emit_error(f"Failed to start background process: {e}")
-            return ShellCommandOutput(
-                success=False,
-                command=command,
-                error=f"Failed to start background process: {e}",
-                stdout=None,
-                stderr=None,
-                exit_code=None,
-                execution_time=None,
-                background=True,
-            )
-
-    # Rest of the existing function continues...
     if not command or not command.strip():
         emit_error("Command cannot be empty", message_group=group_id)
         return ShellCommandOutput(
@@ -1192,6 +1096,102 @@ async def run_shell_command(
             return result
     else:
         time.time()
+
+    # Handle background execution - runs command detached and returns immediately.
+    # Runs AFTER the approval gate above: a detached command is at least as risky
+    # as one we wait on, and backends (e.g. ACP) must be asked for both.
+    if background:
+        # Create temp log file for output
+        log_file = tempfile.NamedTemporaryFile(
+            mode="w",
+            prefix="shell_bg_",
+            suffix=".log",
+            delete=False,  # Keep file so agent can read it later
+        )
+        log_file_path = log_file.name
+
+        try:
+            # CREATE_NO_WINDOW: own hidden console so the background tree
+            # can't stomp our console input mode.
+            if sys.platform.startswith("win"):
+                creationflags = (
+                    subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
+                )
+                process = subprocess.Popen(
+                    command,
+                    shell=True,
+                    stdout=log_file,
+                    stderr=subprocess.STDOUT,
+                    stdin=subprocess.DEVNULL,
+                    cwd=cwd,
+                    env=_child_process_env(),
+                    creationflags=creationflags,
+                )
+            else:
+                process = subprocess.Popen(
+                    command,
+                    shell=True,
+                    stdout=log_file,
+                    stderr=subprocess.STDOUT,
+                    stdin=subprocess.DEVNULL,
+                    cwd=cwd,
+                    env=_child_process_env(),
+                    start_new_session=True,  # Fully detach on POSIX
+                )
+
+            log_file.close()  # Close our handle, process keeps writing
+
+            # Emit UI messages so user sees what happened
+            bus = get_message_bus()
+            bus.emit(
+                ShellStartMessage(
+                    command=command,
+                    cwd=cwd,
+                    timeout=0,  # No timeout for background processes
+                    background=True,
+                )
+            )
+
+            # Emit info about background execution
+            emit_info(
+                f"Background process started (PID: {process.pid}) - no timeout, runs until complete"
+            )
+            emit_info(f"Output logging to: {log_file.name}")
+
+            # Return immediately - don't wait, don't block
+            return ShellCommandOutput(
+                success=True,
+                command=command,
+                stdout=None,
+                stderr=None,
+                exit_code=None,
+                execution_time=0.0,
+                background=True,
+                log_file=log_file.name,
+                pid=process.pid,
+            )
+        except Exception as e:
+            try:
+                log_file.close()
+            except Exception:
+                pass
+            # Clean up the temp file on error since no process will write to it
+            try:
+                os.unlink(log_file_path)
+            except OSError:
+                pass
+            # Emit error message so user sees what happened
+            emit_error(f"Failed to start background process: {e}")
+            return ShellCommandOutput(
+                success=False,
+                command=command,
+                error=f"Failed to start background process: {e}",
+                stdout=None,
+                stderr=None,
+                exit_code=None,
+                execution_time=None,
+                background=True,
+            )
 
     # Execute the command - sub-agents run silently without keyboard context
     return await _execute_shell_command(

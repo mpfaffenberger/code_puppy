@@ -99,6 +99,31 @@ async def test_backend_gates_shell_command_without_tty(
         assert result.success is True
 
 
+@pytest.mark.parametrize(
+    "approved", [True, False], ids=["approve-spawns", "reject-blocks"]
+)
+async def test_backend_gates_background_command(non_tty, monkeypatch, approved):
+    popen = MagicMock(return_value=MagicMock(pid=4242))
+    monkeypatch.setattr(command_runner.subprocess, "Popen", popen)
+    monkeypatch.setattr(
+        "code_puppy.callbacks.on_run_shell_command", AsyncMock(return_value=[])
+    )
+    backend = MagicMock(return_value=(approved, None))
+    set_approval_backend(backend)
+
+    result = await command_runner.run_shell_command(
+        MagicMock(), "echo hi", background=True
+    )
+
+    backend.assert_called_once()
+    assert popen.call_count == (1 if approved else 0)
+    assert result.success is approved
+    if approved:
+        assert result.background is True
+    else:
+        assert result.error == REJECTED
+
+
 async def test_not_decided_denial_is_not_reported_as_user_rejection(non_tty, executor):
     set_approval_backend(
         MagicMock(return_value=(False, PermissionNotDecided("Request cancelled.")))

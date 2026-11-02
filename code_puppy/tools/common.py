@@ -102,7 +102,11 @@ def get_approval_backend() -> Optional[ApprovalBackend]:
 
 
 def can_prompt_for_approval() -> bool:
-    """Embedders without a TTY (e.g. ACP) ask through the backend instead of stdin."""
+    """True when an approval can be asked: a backend is installed or stdin is interactive.
+
+    Plugins (e.g. ACP) feature-detect this to know core gates shell commands;
+    don't rename or narrow it without updating them.
+    """
     return get_approval_backend() is not None or _stdin_supports_interactive_approval()
 
 
