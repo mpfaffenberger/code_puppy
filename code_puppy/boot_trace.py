@@ -69,6 +69,7 @@ _SKIP_REASONS = (
 )
 _MAX_INT = 2**53 - 1
 _MAX_NAMES = 128
+_HEARTBEAT_INTERVAL_S = 1.0
 
 # Names of the official core-plugin entry points; tests pin this list.
 _OFFICIAL_PLUGINS = (
@@ -327,6 +328,7 @@ class _Recorder:
         self.began = False
         self.root: _LiveSpan | None = None
         self.root_id: str | None = None
+        self.heartbeat = None
         self.sink = _boot_trace_sink.Sink(
             target, boot_id=self.boot_id, t0_ns=self.t0_ns
         )
@@ -350,6 +352,8 @@ class _Recorder:
         unit=None,
         reason=None,
     ) -> None:
+        if self.heartbeat is not None:
+            self.heartbeat.note_activity()
         event = {"v": 1, "bootId": self.boot_id, "phase": phase, "span": span_id}
         if parent is not None:
             event["parent"] = parent
@@ -427,6 +431,14 @@ class _Recorder:
             root._start(push=False)
             self.root, self.root_id = root, root.id
         self.mark("py.main_reached", None, None)
+        # Lazy: the heartbeat module is never imported while tracing is off.
+        from code_puppy import _boot_trace_heartbeat
+
+        self.heartbeat = _boot_trace_heartbeat.Heartbeat(
+            lambda: self.mark("boot.heartbeat", self.root_id, None),
+            interval_s=_HEARTBEAT_INTERVAL_S,
+        )
+        self.heartbeat.start()
 
     def mark(self, phase, parent, attrs) -> None:
         if not _valid_phase(phase):
@@ -506,6 +518,8 @@ def end_boot(exc: BaseException | None = None, *, exit_code: int | None = None) 
     if _rec is None:
         return
     try:
+        if _rec.heartbeat is not None:
+            _rec.heartbeat.stop()  # before the root terminal
         if _rec.root is not None:
             _rec.root.finish(exc, exit_code)
     except Exception:

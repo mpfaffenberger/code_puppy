@@ -69,6 +69,18 @@ Here is an example from the schema:
 Optional `unit` values give progress within a batch, as `{"n":..,"of":..}`.
 They are not an overall percentage.
 
+### Heartbeat
+
+A single long import can emit nothing for tens of seconds. To show the process
+is alive, the recorder emits `boot.heartbeat`: a `mark` with empty `attrs`, whose
+`parent` is the `boot` root span. It appears about once per second, and only
+when nothing else was emitted for half a second. It runs from just after
+`py.main_reached` until the root span ends or 300 seconds pass, whichever comes
+first.
+
+A heartbeat proves liveness only. It carries no percentage and no progress.
+Consumers must tolerate it and ignore it when pairing spans.
+
 ### Allowed attributes
 
 Unknown attribute keys are dropped. The allowed keys are:
