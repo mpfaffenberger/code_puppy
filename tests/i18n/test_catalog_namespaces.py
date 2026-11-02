@@ -60,6 +60,7 @@ _NAMESPACES = {
         35,
     ),
     "tools.common.approval": (("tools.common.approval.",), 12),
+    "tools.shell": (("tools.shell.",), 14),
     "renderer": (("renderer.",), 26),
     "model_factory": (("model_factory.",), 15),
     "agent_menu": (("agent_menu.",), 10),
