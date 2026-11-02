@@ -109,6 +109,25 @@ def test_plugin_callback_shapes_become_plugin_entries(
     assert plugin_tail == [_plugin_entry(name, desc) for name, desc in expected]
 
 
+def test_list_commands_dedupes_names_first_entry_wins(monkeypatch):
+    registry_name = list_registry_commands()[0].name
+    monkeypatch.setattr(
+        callbacks,
+        "on_custom_command_help",
+        lambda: [
+            [("dup", "first"), (registry_name, "shadows registry")],
+            [("dup", "second")],
+        ],
+    )
+
+    entries = list_commands()
+
+    names = [entry.name for entry in entries]
+    assert len(names) == len(set(names))
+    assert [e.description for e in entries if e.name == "dup"] == ["first"]
+    assert next(e for e in entries if e.name == registry_name).category != "plugin"
+
+
 def test_failing_callback_yields_no_plugin_entries(monkeypatch):
     def boom():
         raise RuntimeError("plugin is broken")

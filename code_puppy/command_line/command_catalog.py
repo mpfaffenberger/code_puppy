@@ -84,4 +84,12 @@ def list_plugin_commands() -> list[CommandEntry]:
 
 
 def list_commands() -> list[CommandEntry]:
-    return list_registry_commands() + list_plugin_commands()
+    """Registry commands, then plugin commands; first entry per name wins.
+
+    Plugins can advertise one command twice (a skill listed by two plugins).
+    Registry-first, then callback order, matches the order dispatch tries them.
+    """
+    unique: dict[str, CommandEntry] = {}
+    for entry in list_registry_commands() + list_plugin_commands():
+        unique.setdefault(entry.name, entry)
+    return list(unique.values())

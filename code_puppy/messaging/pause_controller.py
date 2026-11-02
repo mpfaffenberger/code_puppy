@@ -532,7 +532,7 @@ def _current_conversation_root_id() -> Optional[str]:
         from code_puppy.tools.subagent_context import get_conversation_root_id
 
         return get_conversation_root_id()
-    except Exception:
+    except ImportError:
         return None
 
 
@@ -540,7 +540,10 @@ def get_pause_controller() -> PauseController:
     """Return the current session's controller, or the process-wide one.
 
     The process-wide singleton is used when no conversation root id is set
-    (the terminal CLI).
+    (the terminal CLI). Code acting for an ACP session must therefore run
+    inside that session's ``set_conversation_root_id`` scope, or call
+    ``get_session_pause_controller(session_id)`` explicitly; outside any scope
+    it silently gets the shared controller.
     """
     root_id = _current_conversation_root_id()
     if root_id is not None:
