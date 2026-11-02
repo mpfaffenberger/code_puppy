@@ -1646,14 +1646,18 @@ def get_user_agents_directory() -> str:
 def get_project_agents_directory() -> Optional[str]:
     """Get the project-local agents directory path.
 
-    Looks for a .code_puppy/agents/ directory in the current working directory.
+    Looks for a .code_puppy/agents/ directory in the active working directory
+    (see tools.common.get_working_directory()).
     Unlike get_user_agents_directory(), this does NOT create the directory
     if it doesn't exist -- the team must create it intentionally.
 
     Returns:
         Path to the project's agents directory if it exists, or None.
     """
-    project_agents_dir = os.path.join(os.getcwd(), ".code_puppy", "agents")
+    # Lazy: config.py must not import tools at module load time.
+    from code_puppy.tools.common import get_working_directory
+
+    project_agents_dir = os.path.join(get_working_directory(), ".code_puppy", "agents")
     if os.path.isdir(project_agents_dir):
         return project_agents_dir
     return None

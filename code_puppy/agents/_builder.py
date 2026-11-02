@@ -61,6 +61,7 @@ from code_puppy.events.bridge import CapabilityEventBridge
 from code_puppy.messaging import emit_error, emit_info, emit_warning
 from code_puppy.model_factory import ModelFactory, make_model_settings
 from code_puppy.model_utils import static_then_runtime
+from code_puppy.tools.common import get_working_directory
 
 if TYPE_CHECKING:
     from code_puppy.model_utils import PreparedPrompt
@@ -111,9 +112,10 @@ def load_puppy_rules() -> Optional[str]:
             break
 
     project_rules: Optional[str] = None
+    project_base = Path(get_working_directory())
 
     # Priority 1: Check .code_puppy/ directory (preferred location)
-    code_puppy_dir = Path(_CODE_PUPPY_DIR)
+    code_puppy_dir = project_base / _CODE_PUPPY_DIR
     if code_puppy_dir.is_dir():
         for name in _AGENT_RULE_FILES:
             candidate = code_puppy_dir / name
@@ -123,7 +125,7 @@ def load_puppy_rules() -> Optional[str]:
                     continue
                 project_rules = _truncate_agents_md(
                     text,
-                    source=f"project {candidate}",
+                    source=f"project {Path(_CODE_PUPPY_DIR) / name}",
                     max_chars=max_chars,
                 )
                 break
@@ -131,14 +133,14 @@ def load_puppy_rules() -> Optional[str]:
     # Priority 2: Fallback to project root
     if project_rules is None:
         for name in _AGENT_RULE_FILES:
-            candidate = Path(name)
+            candidate = project_base / name
             if candidate.exists() and not _same_file(candidate, global_file):
                 text = _read_rules_text(candidate)
                 if text is None:
                     continue
                 project_rules = _truncate_agents_md(
                     text,
-                    source=f"project {candidate}",
+                    source=f"project {name}",
                     max_chars=max_chars,
                 )
                 break
