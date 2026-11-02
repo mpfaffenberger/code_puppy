@@ -20,6 +20,11 @@ HASHED = re.compile(r"h:[0-9a-f]{16}")
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ABS_TARGET = str(REPO_ROOT / "boot-trace.jsonl")
 TIMEOUT = 10.0
+# In-process traced tests assert exact event lists, so the real 1 s heartbeat
+# must never fire inside one: a slow runner would inject a boot.heartbeat mark.
+# The heartbeat's own behavior is covered by child processes in
+# tests/test_boot_trace_heartbeat.py.
+IDLE_HEARTBEAT_INTERVAL_S = 3600.0
 # Safety ceiling only (cold imports take 10-30 s on loaded hosts); never an assertion.
 SUBPROCESS_TIMEOUT_S = 180
 
@@ -143,6 +148,13 @@ def make_clock(monkeypatch):
     return c
 
 
+def stop_heartbeat():
+    """Stop the live recorder's heartbeat; a reload alone would orphan its thread."""
+    heartbeat = getattr(getattr(bt, "_rec", None), "heartbeat", None)
+    if heartbeat is not None:
+        heartbeat.stop()
+
+
 def traced_loader():
     """Yield a loader that reloads the recorder with a fake sink.
 
@@ -151,6 +163,7 @@ def traced_loader():
 
     def load(target=ABS_TARGET, sink_cls=FakeSink):
         cls = type("Fake", (sink_cls,), {"created": []})
+        stop_heartbeat()
         with pytest.MonkeyPatch.context() as mp:
             if target is None:
                 mp.delenv(ENV, raising=False)
@@ -158,9 +171,11 @@ def traced_loader():
                 mp.setenv(ENV, target)
             mp.setattr(sink_mod, "Sink", cls)
             importlib.reload(bt)
+        bt._HEARTBEAT_INTERVAL_S = IDLE_HEARTBEAT_INTERVAL_S
         return cls.created[-1] if cls.created else None
 
     yield load
+    stop_heartbeat()
     with pytest.MonkeyPatch.context() as mp:
         mp.delenv(ENV, raising=False)
         importlib.reload(bt)

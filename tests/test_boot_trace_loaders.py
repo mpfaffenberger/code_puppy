@@ -125,7 +125,9 @@ def _rows(sink):
     phase_of = {e["span"]: e["phase"] for e in sink.events}
     rows = []
     for e in sink.events:
-        if e["phase"] in ("boot", "py.main_reached"):
+        # boot.heartbeat is liveness only; docs/BOOT_TRACE.md tells consumers to
+        # ignore it when pairing spans, and a slow runner can emit one mid-load.
+        if e["phase"] in ("boot", "py.main_reached", "boot.heartbeat"):
             continue
         unit = e.get("unit")
         rows.append(

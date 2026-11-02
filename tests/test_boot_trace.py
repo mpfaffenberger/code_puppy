@@ -2,17 +2,25 @@
 
 import json
 import textwrap
+import threading
+import time
 
 import pytest
 
 import code_puppy.boot_trace as bt
 from tests.boot_trace_support import (
+    IDLE_HEARTBEAT_INTERVAL_S,
+    TIMEOUT,
     _e,
     _run_py,
     _shape,
     make_clock,
     traced_loader,
 )
+
+
+def _live_heartbeat_threads() -> list:
+    return [t for t in threading.enumerate() if t.name == "boot-trace-heartbeat"]
 
 
 @pytest.fixture
@@ -128,6 +136,29 @@ def test_unset_env_is_silent_and_writes_nothing(tmp_path):
 
 
 # --- root span -----------------------------------------------------------------
+
+
+def test_reloading_the_recorder_leaves_no_heartbeat_thread_or_beat_behind(traced):
+    """Every traced test reloads the module; the old heartbeat must not survive it."""
+    traced()
+    bt.begin_boot()
+    first = bt._rec.heartbeat
+    # Pinned by the fixture so a slow runner cannot inject a beat into the
+    # exact-event assertions throughout these suites.
+    pinned = bt._HEARTBEAT_INTERVAL_S
+
+    sink = traced()  # as if a second traced test ran in the same session
+    bt.begin_boot()
+
+    deadline = time.monotonic() + TIMEOUT
+    while len(_live_heartbeat_threads()) > 1 and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert (pinned, len(_live_heartbeat_threads()), first is bt._rec.heartbeat) == (
+        IDLE_HEARTBEAT_INTERVAL_S,
+        1,
+        False,
+    )
+    assert [e["phase"] for e in sink.events] == ["boot", "py.main_reached"]
 
 
 def test_root_span_lifecycle_emits_once(traced):
