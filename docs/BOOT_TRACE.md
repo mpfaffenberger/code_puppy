@@ -73,8 +73,9 @@ They are not an overall percentage.
 
 A single long import can emit nothing for tens of seconds. To show the process
 is alive, the recorder emits `boot.heartbeat`: a `mark` with empty `attrs`, whose
-`parent` is the `boot` root span. It appears about once per second, and only
-when nothing else was emitted for half a second. It runs from just after
+`parent` is the `boot` root span. It appears at most once per second, and only
+when nothing else was emitted for half a second, so the gap between signals in a
+quiet phase can reach about two seconds. It runs from just after
 `py.main_reached` until the root span ends or 300 seconds pass, whichever comes
 first.
 
