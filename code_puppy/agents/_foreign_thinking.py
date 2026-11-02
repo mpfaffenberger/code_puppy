@@ -27,7 +27,9 @@ _ANTHROPIC_MODULE = "pydantic_ai.models.anthropic"
 def _is_anthropic(model: Model) -> bool:
     # An AnthropicModel cannot exist until its module is imported, so an unloaded
     # module means no match. This keeps the Anthropic SDK off the startup path.
-    anthropic_model = getattr(sys.modules.get(_ANTHROPIC_MODULE), "AnthropicModel", None)
+    anthropic_model = getattr(
+        sys.modules.get(_ANTHROPIC_MODULE), "AnthropicModel", None
+    )
     if anthropic_model is None:
         return False
     while isinstance(model, WrapperModel):
