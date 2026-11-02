@@ -390,7 +390,7 @@ def _load_user_plugins(
 
     if not user_plugins_dir.is_dir():
         logger.warning(f"User plugins path is not a directory: {user_plugins_dir}")
-        current_span().skip("not_installed")
+        current_span().skip("refused")  # a misconfiguration, not an absent tier
         return loaded
 
     # Add user plugins directory to sys.path if not already there

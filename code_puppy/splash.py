@@ -208,7 +208,7 @@ class _NullSplash:
     ``reason`` names the gate that declined the splash, for boot tracing.
     """
 
-    def __init__(self, reason: str = "disabled") -> None:
+    def __init__(self, reason: str) -> None:
         self.reason = reason
 
     def stop(self) -> None:
@@ -349,7 +349,7 @@ def _skip_reason(argv: list[str]) -> str | None:
     if "--acp" in argv:
         return "acp"
     if not all(arg in _INTERACTIVE_ARGS for arg in argv[1:]):
-        return "disabled"
+        return "non_interactive"
     return None
 
 
@@ -395,9 +395,9 @@ def start_splash(stream=None, force: bool = False):
             # honest left to draw: stay silent, never clip art.
             size = shutil.get_terminal_size(fallback=(80, 24))
             if size.columns < _PAW_WIDTH + 2 or size.lines < len(_PAW) + 2:
-                return _NullSplash()
+                return _NullSplash("terminal")
         if not _enable_windows_vt(stream):
-            return _NullSplash()
+            return _NullSplash("terminal")
         return _Splash(stream)
     except Exception:
-        return _NullSplash()
+        return _NullSplash("terminal")

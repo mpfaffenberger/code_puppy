@@ -105,6 +105,13 @@ def test_disabled_import_loads_only_the_module(tmp_path, value):
     )
 
 
+def test_variable_is_consumed_so_children_do_not_inherit_it(tmp_path):
+    probe = "import os, code_puppy.boot_trace as bt; print(bt.enabled(), os.environ.get('CODE_PUPPY_BOOT_TRACE'))"
+    result = _run_py(probe, str(tmp_path / "t.jsonl"), tmp_path)
+
+    assert (result.returncode, result.stdout.strip()) == (0, "True None")
+
+
 def test_stderr_target_also_loads_the_sink(tmp_path):
     result = _run_py(IMPORT_CHILD, "stderr", tmp_path)
     delta = set(json.loads(result.stdout))

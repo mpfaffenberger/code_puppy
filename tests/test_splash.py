@@ -58,7 +58,7 @@ class TestGating:
         ("argv", "env", "expected"),
         [
             (["pup", "--acp"], {}, "acp"),
-            (["pup", "-p", "x"], {}, "disabled"),
+            (["pup", "-p", "x"], {}, "non_interactive"),
             (["pup"], {"CODE_PUPPY_NO_SPLASH": "1"}, "env"),
             (["pup"], {"NO_COLOR": "1"}, "env"),
             (["pup"], {"TERM": "dumb"}, "env"),
@@ -91,6 +91,7 @@ class TestGating:
         )
         result = splash.start_splash(stream=FakeTty())
         assert isinstance(result, splash._NullSplash)
+        assert result.reason == "terminal"
         result.stop()  # harmless no-op
 
 

@@ -342,14 +342,16 @@ def test_missing_user_and_project_dirs_skip_without_inventing_totals(
     ]
 
 
-def test_user_path_that_is_a_file_is_a_not_installed_skip(traced, world, tmp_path):
+def test_user_path_that_is_a_file_is_a_refused_skip_not_an_absent_tier(
+    traced, world, tmp_path
+):
     sink = traced()
     not_a_dir = _write(tmp_path / "plain-file")
     assert (plugins._load_user_tier(not_a_dir, set()), _rows(sink)) == (
         [],
         [
             ("plugins.tier.user", "start", None, {}, None, None),
-            ("plugins.tier.user", "skip", None, {"count": 0}, None, "not_installed"),
+            ("plugins.tier.user", "skip", None, {"count": 0}, None, "refused"),
         ],
     )
 

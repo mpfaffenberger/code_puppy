@@ -2,8 +2,10 @@
 
 Unset/empty/``0``/``off`` disables everything; ``stderr`` streams tagged JSONL
 to a dup of fd 2; an absolute path creates a new JSONL file. Anything else is
-silently disabled. The variable is read once, at first import. While disabled
-this module imports only ``os`` and every call returns a shared no-op.
+silently disabled. The variable is read once, at first import, and removed from
+``os.environ`` so child processes never inherit it (a ``stderr`` child would
+interleave its own trace lines into captured tool output). While disabled this
+module imports only ``os`` and every call returns a shared no-op.
 
 Recorder faults never reach callers; exceptions leaving a ``with span(...)``
 block always propagate unchanged. Delivery is lossy by design: see
@@ -23,7 +25,7 @@ def _resolve_target(raw: str | None) -> str | None:
     return None
 
 
-_TARGET = _resolve_target(os.environ.get(_ENV_VAR))
+_TARGET = _resolve_target(os.environ.pop(_ENV_VAR, None))
 
 if _TARGET is not None:
     import atexit
@@ -66,6 +68,8 @@ _SKIP_REASONS = (
     "shadowed",
     "refused",
     "retired",
+    "non_interactive",
+    "terminal",
 )
 _MAX_INT = 2**53 - 1
 _MAX_NAMES = 128

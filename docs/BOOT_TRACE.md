@@ -17,8 +17,15 @@ trace events go:
 | Unset, empty, `0`, or `off` | Tracing is disabled. |
 | Anything else | Tracing is silently disabled. |
 
-Tracing reads the variable once, when the boot-trace module first loads. Relative
-paths and `~` are not expanded. Use an absolute path.
+Tracing reads the variable once, when the boot-trace module first loads, and then
+removes it from the process environment. Child processes, such as shell commands
+an agent runs, don't inherit it and don't start their own trace. Relative paths
+and `~` are not expanded. Use an absolute path.
+
+For interactive runs, prefer a file. In `stderr` mode, another writer that
+leaves a partial line on standard error (for example, spinner frames that end in
+a carriage return) can glue the next trace line onto it. The report ignores that
+line and marks the trace incomplete.
 
 ## File output rules
 
