@@ -1,5 +1,6 @@
 """Tests for code_puppy.banners: wire shape, terminal markup, titles, failure status, notices."""
 
+import logging
 import sys
 import threading
 import types
@@ -153,8 +154,18 @@ def test_markup_matches_terminal_renderer_bracket_format_byte_for_byte(fixed_col
 
 
 def test_markup_escapes_target_so_it_renders_literally(fixed_colour):
-    markup = _banner(target="[red]x[/red]", target_type="path").to_markup()
-    assert Text.from_markup(markup).plain == " READ FILE  [red]x[/red]"
+    markup = _banner(target="[red]x", target_type="path").to_markup()
+    assert Text.from_markup(markup).plain == " READ FILE  [red]x"
+
+
+def test_markup_target_matches_the_title_target(fixed_colour):
+    target = "first line\n" + LONG + "\nthird"
+    banner = _banner(target=target, target_type="text")
+    assert Text.from_markup(banner.to_markup()).plain == " READ FILE  first line"
+    assert (
+        banner.to_markup()
+        == _banner(target="first line", target_type="text").to_markup()
+    )
 
 
 def test_markup_escapes_label_so_brackets_render_literally(fixed_colour):
@@ -254,6 +265,7 @@ TITLE_CASES = [
     ),
     ("grep", {"pattern": "p" * 70}, f"GREP {'p' * 59}…", "p" * 70),
     ("grep", {"pattern": "", "directory": "src"}, "GREP src", "src"),
+    ("grep", {"pattern": "a\nb"}, "GREP a", "a\nb"),
 ]
 TITLE_IDS = [
     "path-basename",
@@ -269,6 +281,7 @@ TITLE_IDS = [
     "command-skips-leading-blank-lines",
     "query-cut-to-60",
     "first-non-empty-target-arg-wins",
+    "query-first-line-only",
 ]
 
 
@@ -295,6 +308,11 @@ def test_call_falls_back_when_definition_lookup_breaks(monkeypatch):
         title="READ_FILE",
         status="in_progress",
     )
+
+
+class _UnprintableError(Exception):
+    def __str__(self):
+        raise RuntimeError("no text")
 
 
 STATUS_CASES = [
@@ -324,6 +342,12 @@ STATUS_CASES = [
     ),
     (_shell(success=False, timeout=True), ("failed", "timed out")),
     (_shell(), ("completed", None)),
+    ({"error": logging.getLogger("x").error}, ("completed", None)),
+    (
+        types.SimpleNamespace(error=print, success=False),
+        ("failed", "tool reported failure"),
+    ),
+    (_UnprintableError(), ("failed", "_UnprintableError")),
 ]
 STATUS_IDS = [
     "exception",
@@ -349,6 +373,9 @@ STATUS_IDS = [
     "shell-stderr",
     "shell-timeout",
     "shell-ok",
+    "callable-error-ignored",
+    "callable-error-with-success-false",
+    "exception-whose-str-raises",
 ]
 
 

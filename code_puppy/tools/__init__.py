@@ -183,7 +183,9 @@ def _warn_if_no_banner(tool_name: str) -> None:
         logger.debug("banner definition check failed for %s", tool_name, exc_info=True)
         return
     _banner_warned_tools.add(tool_name)
-    logger.warning(
+    # DEBUG, not WARNING: core configures no log handler, so a warning would print
+    # plugin-author advice on every end user's stderr.
+    logger.debug(
         "Plugin tool %r has no banner definition; register one with "
         "code_puppy.banners.register_banner_def so the terminal and ACP show it consistently.",
         tool_name,

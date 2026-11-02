@@ -234,7 +234,7 @@ register_banner_def(
 emit_notice(notice("docs.index_done", "SYNCED", details="42 pages"))
 ```
 
-Register one `BannerDef` for each tool your plugin adds. Loading a plugin tool without a definition logs a warning.
+Register one `BannerDef` for each tool your plugin adds. Loading a plugin tool without a definition logs a debug message.
 
 `name` is the first argument of `BannerDef` and is required. A `name` missing from `DEFAULT_BANNER_COLORS` renders with the default colour. `label` is required and holds the untranslated text. To localize it, also set `label_key` to an i18n key from the plugin catalog; `resolved_label()` then uses `t(label_key)`.
 

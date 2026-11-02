@@ -23,10 +23,14 @@ def _plugin(name):
 
 
 def _warnings_for(caplog, name):
+    # DEBUG on purpose: core installs no handler, so WARNING would reach every user's stderr.
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
     return [
         r
         for r in caplog.records
-        if r.levelno == logging.WARNING and name in r.getMessage()
+        if r.levelno == logging.DEBUG
+        and name in r.getMessage()
+        and "no banner definition" in r.getMessage()
     ]
 
 
@@ -51,7 +55,7 @@ def banner_state():
 def test_plugin_tool_without_banner_def_warns_and_registers(caplog):
     name = "acp_banner_probe_plain"
     with (
-        caplog.at_level(logging.WARNING, logger="code_puppy.tools"),
+        caplog.at_level(logging.DEBUG, logger="code_puppy.tools"),
         patch("code_puppy.tools.on_register_tools", return_value=_plugin(name)),
     ):
         _load_plugin_tools()
@@ -66,7 +70,7 @@ def test_plugin_tool_with_banner_def_does_not_warn(caplog):
         name, BannerDef(name=name, label="DEFINED", kind="other")
     )
     with (
-        caplog.at_level(logging.WARNING, logger="code_puppy.tools"),
+        caplog.at_level(logging.DEBUG, logger="code_puppy.tools"),
         patch("code_puppy.tools.on_register_tools", return_value=_plugin(name)),
     ):
         _load_plugin_tools()
@@ -78,7 +82,7 @@ def test_plugin_tool_with_banner_def_does_not_warn(caplog):
 def test_repeated_loads_warn_once(caplog):
     name = "acp_banner_probe_plain"
     with (
-        caplog.at_level(logging.WARNING, logger="code_puppy.tools"),
+        caplog.at_level(logging.DEBUG, logger="code_puppy.tools"),
         patch("code_puppy.tools.on_register_tools", return_value=_plugin(name)),
     ):
         _load_plugin_tools()
@@ -90,7 +94,7 @@ def test_repeated_loads_warn_once(caplog):
 def test_banner_lookup_failure_still_registers_tool(caplog):
     name = "acp_banner_probe_raises"
     with (
-        caplog.at_level(logging.WARNING, logger="code_puppy.tools"),
+        caplog.at_level(logging.DEBUG, logger="code_puppy.tools"),
         patch("code_puppy.banners.has_banner_def", side_effect=RuntimeError("boom")),
         patch("code_puppy.tools.on_register_tools", return_value=_plugin(name)),
     ):

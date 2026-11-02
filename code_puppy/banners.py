@@ -1,8 +1,9 @@
 """Banner contract: one definition per tool call, tool result or plugin notice.
 
 The terminal renders a ``Banner`` as Rich markup and ACP sends ``to_wire()``,
-so titles and labels cannot drift between the two. Wire names are fixed by the
-ACP-05 spec; keep ``Banner.to_wire`` keys in sync with it.
+so titles and labels cannot drift between the two. Wire names are the contract
+with ACP clients; keep ``Banner.to_wire`` keys in sync with the ACP plugin
+(``code_puppy_core_plugins/acp/README.md``).
 
 Depends on: config.get_banner_color() for the terminal colour; i18n.t() for labels.
 Called by: tools and plugins via banner_for_call / banner_for_result / emit_notice.
@@ -13,6 +14,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
 from dataclasses import dataclass
 from typing import Any
 
@@ -71,7 +73,8 @@ class Banner:
         # Label, target and details are rich-escaped: they may be plugin text.
         markup = banner_markup(config.get_banner_color(self.name), escape(self.label))
         if self.target:
-            markup += f" {escape(self.target)}"
+            display = _display_target(self.target, self.target_type)
+            markup += f" {escape(display)}"
         if self.event == "plugin_notice" and self.details:
             markup += f" [dim]{escape(self.details)}[/dim]"
         return markup
@@ -92,6 +95,8 @@ class BannerDef:
 
 _definitions: dict[str, BannerDef] = {}
 _builtins_loaded = False
+_builtins_loading = False
+_builtins_lock = threading.RLock()
 
 
 def register_banner_def(tool_name: str, definition: BannerDef) -> None:
@@ -102,18 +107,23 @@ def register_banner_def(tool_name: str, definition: BannerDef) -> None:
 
 def _ensure_builtins() -> None:
     # Lazy: banner_defs registers through this module, so a top-level import would cycle.
-    global _builtins_loaded
+    global _builtins_loaded, _builtins_loading
     if _builtins_loaded:
         return
-    # Set before the call: registration re-enters via register_banner_def.
-    _builtins_loaded = True
-    try:
-        from code_puppy import banner_defs
+    # Other threads wait on the lock until the registry is complete. The loading flag
+    # stops same-thread re-entry from register_banner_def; a failure leaves both flags
+    # unset so every lookup retries and raises instead of silently falling back.
+    with _builtins_lock:
+        if _builtins_loaded or _builtins_loading:
+            return
+        _builtins_loading = True
+        try:
+            from code_puppy import banner_defs
 
-        banner_defs.register_builtin_banner_defs()
-    except BaseException:
-        _builtins_loaded = False  # retry and re-raise instead of silent fallback
-        raise
+            banner_defs.register_builtin_banner_defs()
+            _builtins_loaded = True
+        finally:
+            _builtins_loading = False
 
 
 def get_banner_def(tool_name: str) -> BannerDef:
@@ -134,13 +144,11 @@ def _cut(text: str, limit: int) -> str:
 
 
 def _display_target(target: str, target_type: str | None) -> str:
+    lines = target.strip().splitlines()
+    first_line = lines[0] if lines else ""
     if target_type == "path":
-        return _cut(os.path.basename(target) or target, _TARGET_LIMIT)
-    if target_type == "command":
-        lines = target.strip().splitlines()
-        first_line = lines[0] if lines else ""
-        return _cut(first_line, _TARGET_LIMIT)
-    return _cut(target, _TARGET_LIMIT)
+        first_line = os.path.basename(first_line) or first_line
+    return _cut(first_line, _TARGET_LIMIT)
 
 
 def _title(label: str, target: str | None, target_type: str | None) -> str:
@@ -253,6 +261,12 @@ def _field(result: Any, key: str) -> Any:
         return None
 
 
+def _error_field(result: Any) -> Any:
+    # An `error` method (a Logger, SDK response objects) is not a failure marker.
+    error = _field(result, "error")
+    return None if callable(error) else error
+
+
 def _is_int(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
 
@@ -286,7 +300,7 @@ def _failure_summary(result: Any) -> str:
         return _cut(
             f"{summary}: {stderr_line}" if stderr_line else summary, _SUMMARY_LIMIT
         )
-    error = _field(result, "error")
+    error = _error_field(result)
     if error:
         return _one_line(str(error))
     if stderr_line:
@@ -299,7 +313,7 @@ def _failure_summary(result: Any) -> str:
 def _classify(result: Any) -> tuple[str, str | None]:
     if isinstance(result, BaseException):
         return "failed", _one_line(_exception_text(result))
-    if _field(result, "error"):
+    if _error_field(result):
         return "failed", _failure_summary(result)
     if _field(result, "success") is False:
         return "failed", _failure_summary(result)
@@ -316,6 +330,8 @@ def result_status(result: Any) -> tuple[str, str | None]:
         return _classify(result)
     except Exception:
         logger.debug("result_status failed", exc_info=True)
+        if isinstance(result, BaseException):
+            return "failed", type(result).__name__
         return "completed", None
 
 
