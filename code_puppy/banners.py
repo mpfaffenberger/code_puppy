@@ -140,7 +140,24 @@ def has_banner_def(tool_name: str) -> bool:
 
 
 def _cut(text: str, limit: int) -> str:
+    if limit <= 0:
+        return ""
     return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def _report_failure(error: Exception, context: str) -> None:
+    """Record an unexpected banner failure in errors.log; callers keep their fallback.
+
+    Use for true exceptions only; expected probing stays at DEBUG. ``context`` must be
+    static: never put tool arguments or results in it.
+    """
+    logger.debug("%s failed", context, exc_info=True)
+    try:
+        from code_puppy.error_logging import log_error
+
+        log_error(error, context=context)
+    except Exception:
+        logger.debug("banner failure could not be logged", exc_info=True)
 
 
 def _display_target(target: str, target_type: str | None) -> str:
@@ -182,8 +199,8 @@ def _tool_banner(event: str, tool_name: str, tool_args: Any, **fields: Any) -> B
             target_type=definition.target_type,
             **fields,
         )
-    except Exception:
-        logger.debug("banner build failed for %s", tool_name, exc_info=True)
+    except Exception as error:
+        _report_failure(error, "code_puppy.banners::_tool_banner")
         return Banner(
             event=event,
             name=tool_name,
@@ -242,14 +259,14 @@ def emit_notice(banner: Banner) -> None:
         from code_puppy.messaging.message_queue import emit_info
 
         emit_info(Text.from_markup(banner.to_markup()))
-    except Exception:
-        logger.debug("banner terminal render failed", exc_info=True)
+    except Exception as error:
+        _report_failure(error, "code_puppy.banners::emit_notice terminal render")
     try:
         from code_puppy import callbacks
 
         callbacks.on_banner_notice(banner.to_wire())
-    except Exception:
-        logger.debug("banner_notice callbacks failed", exc_info=True)
+    except Exception as error:
+        _report_failure(error, "code_puppy.banners::emit_notice banner_notice phase")
 
 
 def _field(result: Any, key: str) -> Any:
@@ -328,8 +345,8 @@ def _classify(result: Any) -> tuple[str, str | None]:
 def result_status(result: Any) -> tuple[str, str | None]:
     try:
         return _classify(result)
-    except Exception:
-        logger.debug("result_status failed", exc_info=True)
+    except Exception as error:
+        _report_failure(error, "code_puppy.banners::result_status")
         if isinstance(result, BaseException):
             return "failed", type(result).__name__
         return "completed", None
@@ -410,9 +427,9 @@ def result_text(result: Any, limit: int = 4000) -> str:
             elif not body.startswith(summary):
                 body = f"{summary}\n\n{body}"
         return _cut(body, limit)
-    except Exception:
-        logger.debug("result_text failed", exc_info=True)
+    except Exception as error:
+        _report_failure(error, "code_puppy.banners::result_text")
         try:
-            return repr(result)
+            return _cut(repr(result), limit)
         except Exception:
             return ""

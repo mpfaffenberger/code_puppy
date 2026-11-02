@@ -204,7 +204,7 @@ class RichConsoleRenderer:
 
         definition = get_banner_def(tool_name)
         return self._format_banner(
-            definition.name, prefix + definition.resolved_label()
+            definition.name, escape_rich_markup(prefix + definition.resolved_label())
         )
 
     def _should_suppress_subagent_output(self) -> bool:

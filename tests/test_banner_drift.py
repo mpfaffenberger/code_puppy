@@ -409,3 +409,39 @@ def test_list_agents_reads_name_and_label_from_definition(
 
     text = emitted.call_args.args[0]
     assert (" PROBE LABEL ", "bold white on magenta") in _styled(text)
+
+
+# A plugin label may hold Rich tags; both integration points must show it literally.
+BRACKETED_LABELS = [
+    pytest.param("PLUGIN [/bold white on blue]", id="unmatched-closing-tag"),
+    pytest.param("A [b]bold[/b]", id="matched-tags"),
+]
+
+
+@pytest.mark.parametrize("label", BRACKETED_LABELS)
+def test_renderer_shows_bracketed_label_literally(banner_colours, monkeypatch, label):
+    probe = BannerDef("probe_key", label, "other")
+    monkeypatch.setattr(banners, "get_banner_def", lambda _tool_name: probe)
+    message = FileContentMessage(path=FILE, content="x", total_lines=1, num_tokens=1)
+
+    printed = _render(message, "_render_file_content")
+
+    banner_line = next(
+        line
+        for line in printed.splitlines()
+        if line.lstrip().startswith("[bold white on")
+    )
+    assert Text.from_markup(banner_line).plain.startswith(f" {label} ")
+
+
+@pytest.mark.parametrize("label", BRACKETED_LABELS)
+def test_list_agents_shows_bracketed_label_literally(
+    banner_colours, monkeypatch, list_agents_tool, label
+):
+    tool, emitted = list_agents_tool
+    probe = BannerDef("probe_key", label, "other")
+    monkeypatch.setattr(banners, "get_banner_def", lambda _tool_name: probe)
+
+    tool(None)
+
+    assert emitted.call_args.args[0].plain.startswith(f"\n {label}  Found 1 agent(s).")

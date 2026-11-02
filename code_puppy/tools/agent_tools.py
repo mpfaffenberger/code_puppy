@@ -268,6 +268,7 @@ def register_list_agents(agent):
         # Generate a group ID for this tool execution
         group_id = generate_group_id("list_agents")
 
+        from rich.markup import escape
         from rich.text import Text
 
         from code_puppy.banners import get_banner_def
@@ -298,7 +299,7 @@ def register_list_agents(agent):
             agent_count = len(agents)
             emit_info(
                 Text.from_markup(
-                    f"\n{banner_markup(list_agents_color, list_agents_label)} "
+                    f"\n{banner_markup(list_agents_color, escape(list_agents_label))} "
                     f"[dim]Found {agent_count} agent(s).[/dim]"
                 ),
                 message_group=group_id,

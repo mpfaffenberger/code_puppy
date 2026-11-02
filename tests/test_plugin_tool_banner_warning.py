@@ -91,7 +91,9 @@ def test_repeated_loads_warn_once(caplog):
     assert len(_warnings_for(caplog, name)) == 1
 
 
-def test_banner_lookup_failure_still_registers_tool(caplog):
+def test_banner_lookup_failure_still_registers_tool_and_is_logged_once(
+    caplog, error_log
+):
     name = "acp_banner_probe_raises"
     with (
         caplog.at_level(logging.DEBUG, logger="code_puppy.tools"),
@@ -102,3 +104,4 @@ def test_banner_lookup_failure_still_registers_tool(caplog):
 
     assert TOOL_REGISTRY[name] is _noop
     assert _warnings_for(caplog, name) == []
+    assert error_log() == ["code_puppy.tools::_warn_if_no_banner"]

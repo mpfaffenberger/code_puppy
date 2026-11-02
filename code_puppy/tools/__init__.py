@@ -179,8 +179,12 @@ def _warn_if_no_banner(tool_name: str) -> None:
 
         if has_banner_def(tool_name):
             return
-    except Exception:
+    except Exception as error:
+        # True failure (e.g. banner_defs broken): needs a record, not just a debug line.
+        from code_puppy.error_logging import log_error
+
         logger.debug("banner definition check failed for %s", tool_name, exc_info=True)
+        log_error(error, context="code_puppy.tools::_warn_if_no_banner")
         return
     _banner_warned_tools.add(tool_name)
     # DEBUG, not WARNING: core configures no log handler, so a warning would print

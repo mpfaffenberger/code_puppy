@@ -11,7 +11,7 @@ from rich.console import Console
 from rich.text import Text
 
 import code_puppy
-from code_puppy import banners, callbacks, config
+from code_puppy import banners, callbacks, config, error_logging
 from code_puppy.banners import (
     Banner,
     BannerDef,
@@ -310,6 +310,44 @@ def test_call_falls_back_when_definition_lookup_breaks(monkeypatch):
     )
 
 
+def test_unexpected_banner_failure_is_logged_once_and_keeps_the_fallback(
+    monkeypatch, error_log
+):
+    def broken(tool_name):
+        raise RuntimeError("registry corrupt")
+
+    monkeypatch.setattr(banners, "get_banner_def", broken)
+
+    banner = banner_for_call("read_file", {"file_path": "secret.txt"})
+
+    assert banner.title == "READ_FILE"
+    assert error_log() == ["code_puppy.banners::_tool_banner"]
+
+
+def test_control_flow_exceptions_propagate_and_are_not_logged(monkeypatch, error_log):
+    def interrupted(tool_name):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(banners, "get_banner_def", interrupted)
+
+    with pytest.raises(KeyboardInterrupt):
+        banner_for_call("read_file", {})
+    assert error_log() == []
+
+
+def test_failing_error_sink_never_breaks_the_banner(monkeypatch):
+    def broken(tool_name):
+        raise RuntimeError("registry corrupt")
+
+    def broken_sink(error, context=None, include_traceback=True):
+        raise OSError("disk gone")
+
+    monkeypatch.setattr(banners, "get_banner_def", broken)
+    monkeypatch.setattr(error_logging, "log_error", broken_sink)
+
+    assert banner_for_call("read_file", {}).title == "READ_FILE"
+
+
 class _UnprintableError(Exception):
     def __str__(self):
         raise RuntimeError("no text")
@@ -420,13 +458,23 @@ def test_result_text_renders_readable_text(result, expected):
         (4000, 4000, "x" * 4000),
         (4001, 4000, "x" * 3999 + "…"),
         (20, 10, "x" * 9 + "…"),
+        (20, 1, "…"),
+        (20, 0, ""),
+        (20, -5, ""),
     ],
-    ids=["default-limit-exact", "default-limit-cut", "custom-limit"],
+    ids=[
+        "default-limit-exact",
+        "default-limit-cut",
+        "custom-limit",
+        "limit-one",
+        "limit-zero",
+        "limit-negative",
+    ],
 )
 def test_result_text_caps_total_length_at_limit(text_length, limit, expected):
     text = result_text("x" * text_length, limit=limit)
     assert text == expected
-    assert len(text) <= limit
+    assert len(text) <= max(limit, 0)
 
 
 def test_failed_text_starts_with_summary_then_readable_body():
@@ -439,15 +487,27 @@ def test_failed_text_is_not_duplicated_when_body_equals_summary():
 
 
 class _Unprintable:
+    def __init__(self, text="<unprintable>"):
+        self.text = text
+
     def __str__(self):
         raise RuntimeError("no str")
 
     def __repr__(self):
-        return "<unprintable>"
+        return self.text
 
 
-def test_result_text_never_raises_and_falls_back_to_repr():
-    assert result_text(_Unprintable()) == "<unprintable>"
+@pytest.mark.parametrize(
+    ("text", "limit", "expected"),
+    [
+        ("<unprintable>", 4000, "<unprintable>"),
+        ("r" * 10_000, 10, "r" * 9 + "…"),
+        ("r" * 10_000, 0, ""),
+    ],
+    ids=["short-repr", "long-repr-is-capped", "zero-budget"],
+)
+def test_result_text_never_raises_and_caps_the_repr_fallback(text, limit, expected):
+    assert result_text(_Unprintable(text), limit=limit) == expected
 
 
 def test_result_banner_for_failed_shell_carries_status_error_and_exit_code(registry):
