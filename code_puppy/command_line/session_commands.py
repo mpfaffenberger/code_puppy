@@ -5,12 +5,18 @@ discovered by the command registry system.
 """
 
 import logging
+import unicodedata
 from pathlib import Path
 
 from code_puppy.command_line.command_registry import register_command
 from code_puppy.config import AUTOSAVE_DIR
 from code_puppy.i18n import t
-from code_puppy.session_storage import list_sessions, load_session
+from code_puppy.session_storage import (
+    build_session_paths,
+    list_sessions,
+    load_session,
+    set_user_title,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -46,19 +52,21 @@ def get_commands_help():
 
 @register_command(
     name="session",
-    description="Show or rotate autosave session ID",
-    usage="/session [id|new]",
+    description="Show, rotate, or rename the autosave session",
+    usage="/session [id|new|rename <title>]",
     aliases=["s"],
     category="session",
     detailed_help="""
     Manage autosave sessions.
 
     Commands:
-      /session        Show current session ID
-      /session id     Show current session ID
-      /session new    Create new session and rotate ID
+      /session                  Show current session ID
+      /session id               Show current session ID
+      /session new              Create new session and rotate ID
+      /session rename <title>   Give the current session a permanent title
 
-    Sessions are used for auto-saving conversation history.
+    Sessions are used for auto-saving conversation history. Automatic
+    naming never replaces a title you set with /session rename.
     """,
 )
 def handle_session_command(command: str) -> bool:
@@ -85,8 +93,53 @@ def handle_session_command(command: str) -> bool:
         new_name = rotate_session_name()
         emit_success(t("cmd.session.new", name=new_name))
         return True
+    if tokens[1] == "rename":
+        _rename_current_session(command)
+        return True
     emit_warning(t("cmd.session.usage"))
     return True
+
+
+def _clean_title(raw: str) -> str:
+    """Drop control/format characters (Unicode C*) and collapse whitespace.
+
+    The session browser paints titles as raw ANSI, so an ESC byte would
+    reach the terminal.
+    """
+    kept = "".join(
+        char
+        for char in raw
+        if char.isspace() or not unicodedata.category(char).startswith("C")
+    )
+    return " ".join(kept.split())
+
+
+def _rename_current_session(command: str) -> None:
+    from code_puppy.command_line.session_browser_data import _TITLE_MAX
+    from code_puppy.config import get_current_session_name
+    from code_puppy.messaging import emit_error, emit_success, emit_warning
+
+    parts = command.split(maxsplit=2)
+    title = _clean_title(parts[2]) if len(parts) > 2 else ""
+    if not title:
+        emit_warning(t("cmd.session.rename_empty"))
+        return
+    if len(title) > _TITLE_MAX:
+        emit_warning(
+            t("cmd.session.rename_too_long", length=len(title), limit=_TITLE_MAX)
+        )
+        return
+    base_dir = Path(AUTOSAVE_DIR)
+    session_name = get_current_session_name()
+    paths = build_session_paths(base_dir, session_name)
+    # No saved history yet: refuse rather than leave an orphan sidecar.
+    if not (paths.json_path.exists() or paths.pickle_path.exists()):
+        emit_warning(t("cmd.session.rename_unsaved"))
+        return
+    if not set_user_title(base_dir, session_name, title):
+        emit_error(t("cmd.session.rename_failed"))
+        return
+    emit_success(t("cmd.session.renamed", title=title))
 
 
 @register_command(

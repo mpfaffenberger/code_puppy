@@ -12,15 +12,13 @@ Legacy-session policy (deliberate, see repo notes):
   resumed legacy session self-heals on its next autosave, so the
   bucket drains through normal use and retention.
 * Titles are derived lazily from message content and cached back into
-  the metadata sidecar (``title``/``subtitle`` keys). A later save may
-  rewrite the sidecar without them; they simply get re-derived.
+  the metadata sidecar (``title``/``subtitle`` keys). save_session keeps
+  them; a title marked user-owned (``title_source``) is never re-derived
+  or replaced -- see session_storage :: merge_sidecar().
 """
 
 from __future__ import annotations
 
-import json
-import os
-import tempfile
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from io import StringIO
@@ -29,23 +27,18 @@ from typing import Dict, List, Optional, Tuple
 
 from code_puppy.session_storage import (
     build_session_paths,
+    has_user_title,
     list_sessions,
     load_session,
+    merge_sidecar,
 )
+from code_puppy.session_storage import read_sidecar as _get_session_metadata
 
 UNSCOPED_KEY = "(unscoped)"
 _TITLE_MAX = 64
 # A leading user text longer than this is treated as injected context
 # (harness preambles, resume summaries), not something a human typed.
 _CONTEXT_LENGTH = 400
-
-
-def _get_session_metadata(base_dir: Path, session_name: str) -> dict:
-    try:
-        with (base_dir / f"{session_name}_meta.json").open(encoding="utf-8") as file:
-            return json.load(file)
-    except Exception:
-        return {}
 
 
 def _get_session_entries(base_dir: Path) -> List[Tuple[str, dict]]:
@@ -355,33 +348,6 @@ def delete_session(base_dir: Path, session_name: str) -> bool:
         return False
 
 
-def merge_sidecar(base_dir: Path, session_name: str, updates: dict) -> bool:
-    """Atomically merge ``updates`` into a session's metadata sidecar.
-
-    Re-reads the sidecar first so concurrent writers (autosave, title
-    derivation, naming plugins) only clobber the keys they own. Returns
-    False instead of raising -- sidecar enrichment is decorative.
-    """
-    meta_path = base_dir / f"{session_name}_meta.json"
-    try:
-        merged = dict(_get_session_metadata(base_dir, session_name))
-        merged.update(updates)
-        fd, tmp_name = tempfile.mkstemp(prefix=".meta_", dir=str(meta_path.parent))
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as file:
-                json.dump(merged, file, indent=2)
-            os.replace(tmp_name, meta_path)
-        except Exception:
-            try:
-                os.unlink(tmp_name)
-            except OSError:
-                pass
-            raise
-        return True
-    except Exception:
-        return False
-
-
 def cache_titles_back(base_dir: Path, entry: SessionEntry) -> None:
     """Merge derived title/subtitle into the sidecar. Best-effort, atomic."""
     updates = {"title": entry.meta.get("title", "")}
@@ -391,12 +357,14 @@ def cache_titles_back(base_dir: Path, entry: SessionEntry) -> None:
 
 
 def ensure_titles(base_dir: Path, entry: SessionEntry) -> bool:
-    """Derive+cache titles for ``entry`` when missing. Returns True on change.
+    """Derive+cache titles for ``entry`` when missing and not user-owned. True on change.
 
     Loads the full session, so callers should invoke this lazily (visible
     rows) or from a background thread -- never in a paint loop for the
     whole store.
     """
+    if has_user_title(entry.meta):
+        return False
     if isinstance(entry.meta.get("title"), str) and entry.meta["title"]:
         return False
     try:
