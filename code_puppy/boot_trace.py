@@ -74,6 +74,7 @@ _SKIP_REASONS = (
 _MAX_INT = 2**53 - 1
 _MAX_NAMES = 128
 _HEARTBEAT_INTERVAL_S = 1.0
+_READY_PHASE = "cli.prompt_ready"  # emitted by callbacks.on_prompt_ready
 
 # Names of the official core-plugin entry points; tests pin this list.
 _OFFICIAL_PLUGINS = (
@@ -123,6 +124,7 @@ _OFFICIAL_PLUGINS = (
     "openrouter_oauth",
     "plugin_list",
     "pop_command",
+    "prewarm_sdks",
     "profiles",
     "prompt_newline",
     "prune",
@@ -448,6 +450,8 @@ class _Recorder:
         if not _valid_phase(phase):
             self.reject()
             return
+        if phase == _READY_PHASE and self.heartbeat is not None:
+            self.heartbeat.stop()  # first idle prompt: boot is over
         span_id = self.sink.next_span_id()
         now_ns = time.monotonic_ns()
         self.emit(

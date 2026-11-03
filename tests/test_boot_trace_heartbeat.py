@@ -222,6 +222,33 @@ print(
 )
 """
 
+READY_PROBE = """
+import threading
+import time
+import code_puppy.boot_trace as bt
+
+bt._HEARTBEAT_INTERVAL_S = 0.02
+bt.begin_boot()
+enough = threading.Event()
+real_mark, beats = bt._rec.mark, []
+
+
+def counting(phase, parent, attrs):
+    real_mark(phase, parent, attrs)
+    if phase == "boot.heartbeat":
+        beats.append(1)
+        if len(beats) >= 2:
+            enough.set()
+
+
+bt._rec.mark = counting
+assert enough.wait(120), "no heartbeat during the idle gap"
+bt.mark("cli.prompt_ready")
+bt.mark("cli.prompt_ready")
+time.sleep(0.3)  # 15 intervals: a heartbeat that kept running would show up
+bt.end_boot()
+"""
+
 
 @pytest.fixture(scope="module")
 def traced_events(tmp_path_factory):
@@ -294,4 +321,21 @@ def test_report_rankings_and_status_are_unchanged_by_heartbeats(tmp_path, capsys
     # The raw ``events:`` count legitimately includes the marks; nothing else may differ.
     assert re.sub(r"events: \d+", "events: N", beat_out) == re.sub(
         r"events: \d+", "events: N", plain_out
+    )
+
+
+def test_first_idle_prompt_marks_ready_and_stops_the_heartbeat(tmp_path):
+    trace = tmp_path / "trace.jsonl"
+
+    result = _run_py(READY_PROBE, str(trace), tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    events = [json.loads(line) for line in trace.read_text().splitlines()]
+    ready = [e["seq"] for e in events if e["phase"] == "cli.prompt_ready"]
+    beats = [e["seq"] for e in events if e["phase"] == "boot.heartbeat"]
+    assert (len(ready), len(beats) >= 2, max(beats) < ready[0], result.stdout) == (
+        2,
+        True,
+        True,
+        "",
     )

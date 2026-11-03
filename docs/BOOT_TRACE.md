@@ -83,11 +83,21 @@ is alive, the recorder emits `boot.heartbeat`: a `mark` with empty `attrs`, whos
 `parent` is the `boot` root span. It appears at most once per second, and only
 when nothing else was emitted for half a second, so the gap between signals in a
 quiet phase can reach about two seconds. It runs from just after
-`py.main_reached` until the root span ends or 300 seconds pass, whichever comes
-first.
+`py.main_reached` until the first `cli.prompt_ready` mark, the end of the root
+span, or 300 seconds, whichever comes first.
 
 A heartbeat proves liveness only. It carries no percentage and no progress.
 Consumers must tolerate it and ignore it when pairing spans.
+
+### Ready marker
+
+The interactive CLI emits a `cli.prompt_ready` mark, with empty `attrs`, each
+time the idle prompt is about to block for input. The first one means startup
+is over, and it stops the heartbeat. Later ones are one line per prompt.
+
+An ACP session never reaches an interactive prompt, so it emits no
+`cli.prompt_ready` mark and the heartbeat runs until the 300 second cap. For ACP,
+readiness is the host's own measurement of the `session/new` response.
 
 ### Allowed attributes
 
@@ -195,7 +205,7 @@ these rules:
   The CLI's `tMonoMs` clock is unrelated to the host clock. Don't compare them.
 - Treat `tWallMs` as diagnostic only. The wall clock can jump. Never subtract
   it to compute a duration or a percentage.
-- Don't treat `boot` or `cli.handle_args` as readiness. They span the session
+- Don't treat `boot`, `cli.handle_args`, or the end of `runner.import` as readiness. They span the session
   lifetime. For an ACP session, the duration is not startup duration.
 - Expect bounded lines. Lines over 2,048 bytes are dropped and counted.
 - Tolerate damaged lines, missing events, unknown phases, unknown attributes,
@@ -217,3 +227,8 @@ Read these caveats before you act on a ranking:
 - The ranking does not show whether time is spent on CPU, disk, antivirus, or
   network work. Use other measurements for that.
 - ACP session duration is not startup duration.
+- Provider SDK imports (for example the Anthropic SDK) are lazy. They don't run
+  during `runner.import`. They run at first use, or in the background prewarm
+  thread that starts after the first interactive prompt. The trace doesn't
+  cover either, so a first model call can be slower than the boot trace
+  suggests. An ACP session never starts the prewarm thread.

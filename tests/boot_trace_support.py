@@ -76,6 +76,7 @@ OFFICIAL = (
     "openrouter_oauth",
     "plugin_list",
     "pop_command",
+    "prewarm_sdks",
     "profiles",
     "prompt_newline",
     "prune",

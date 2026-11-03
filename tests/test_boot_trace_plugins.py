@@ -33,7 +33,12 @@ def traced(clock):
 
 @pytest.mark.parametrize(
     ("tier", "name"),
-    [("installed", "ollama"), ("builtin", "acp"), ("installed", "yolo_cli")],
+    [
+        ("installed", "ollama"),
+        ("builtin", "acp"),
+        ("installed", "yolo_cli"),
+        ("builtin", "prewarm_sdks"),
+    ],
 )
 def test_official_name_on_installed_or_builtin_is_plain(traced, tier, name):
     traced()
@@ -102,7 +107,7 @@ def test_hash_differs_between_processes(tmp_path):
     ) == (True, ["user", "user"], True)
 
 
-def test_initial_registry_is_the_seventy_official_names(traced):
+def test_initial_registry_is_the_seventy_one_official_names(traced):
     traced()
     installed = [bt.plugin_attrs("installed", n)["plugin"] for n in OFFICIAL]
     builtin = [bt.plugin_attrs("builtin", n)["plugin"] for n in OFFICIAL]
@@ -112,7 +117,7 @@ def test_initial_registry_is_the_seventy_official_names(traced):
         installed == list(OFFICIAL),
         builtin == list(OFFICIAL),
         all(HASHED.fullmatch(p) for p in user),
-    ) == (70, True, True, True)
+    ) == (71, True, True, True)
 
 
 def test_extra_plugins_turn_plain_only_after_registration(traced):
@@ -159,7 +164,7 @@ def test_registry_cap_is_128_including_official(traced):
         for n in new
     ]
     assert (shape, bt.plugin_attrs("user", "new_000")["plugin"] == "new_000") == (
-        ["plain"] * 58 + ["hashed"] * 12,
+        ["plain"] * 57 + ["hashed"] * 13,
         False,
     )
 
