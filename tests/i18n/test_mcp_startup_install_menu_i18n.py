@@ -36,7 +36,7 @@ _MODULES = (blocking_startup, install_menu)
 _LOCALES = sorted(
     path.stem for path in (Path(catalog.__file__).parent / "locales").glob("*.json")
 )
-_AGENTS_COMMAND = "/agents \u2192 B"
+_AGENTS_COMMAND = "/agents → B"
 
 # key -> real kwargs. One row per catalog key; none of these are plural.
 _REAL_PARAMS = {
@@ -254,20 +254,20 @@ _GOLDEN_STARTUP = {
         "MCP srv: listening on stdio",
         'MCP srv:   File "srv.py", line 1',
         "MCP server 'srv' didn't start. Run /mcp logs srv to investigate, "
-        "or unbind it via /agents \u2192 B.",
+        "or unbind it via /agents → B.",
     ],
     "es": [
         "MCP srv: listening on stdio",
         'MCP srv:   File "srv.py", line 1',
-        "El servidor MCP 'srv' no se inici\u00f3. Ejecuta /mcp logs srv para "
-        "investigar o desvinc\u00falalo con /agents \u2192 B.",
+        "El servidor MCP 'srv' no se inició. Ejecuta /mcp logs srv para "
+        "investigar o desvincúlalo con /agents → B.",
     ],
     "fr-CA": [
         "MCP srv : listening on stdio",
         'MCP srv :   File "srv.py", line 1',
-        "Le serveur MCP \u00ab srv \u00bb n\u2019a pas d\u00e9marr\u00e9. "
-        "Ex\u00e9cutez /mcp logs srv pour enqu\u00eater, ou dissociez-le via "
-        "/agents \u2192 B.",
+        "Le serveur MCP « srv » n’a pas démarré. "
+        "Exécutez /mcp logs srv pour enquêter, ou dissociez-le via "
+        "/agents → B.",
     ],
 }
 _STARTUP_SHAPE = [
@@ -284,13 +284,13 @@ _GOLDEN_INSTALL_MENU = {
         "No MCP server catalog available.",
     ],
     "es": [
-        "No se encontraron categor\u00edas en el cat\u00e1logo de servidores",
-        "El cat\u00e1logo de servidores no est\u00e1 disponible: boom",
-        "Error al cargar el cat\u00e1logo de servidores: boom",
-        "No hay ning\u00fan cat\u00e1logo de servidores MCP disponible.",
+        "No se encontraron categorías en el catálogo de servidores",
+        "El catálogo de servidores no está disponible: boom",
+        "Error al cargar el catálogo de servidores: boom",
+        "No hay ningún catálogo de servidores MCP disponible.",
     ],
     "fr-CA": [
-        "Aucune cat\u00e9gorie trouv\u00e9e dans le catalogue de serveurs",
+        "Aucune catégorie trouvée dans le catalogue de serveurs",
         "Catalogue de serveurs non disponible : boom",
         "Erreur de chargement du catalogue de serveurs : boom",
         "Aucun catalogue de serveurs MCP disponible.",
