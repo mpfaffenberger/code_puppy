@@ -18,6 +18,7 @@ from pydantic_ai import RunContext
 from rich.text import Text
 
 from code_puppy.callbacks import on_run_shell_command_output
+from code_puppy.i18n import t
 from code_puppy.messaging import (  # Structured messaging types
     AgentReasoningMessage,
     ShellOutputMessage,
@@ -47,6 +48,10 @@ from code_puppy.tools.win_shell_io import (
 # Maximum line length for shell command output to prevent massive token usage
 # This helps avoid exceeding model context limits when commands produce very long lines
 MAX_LINE_LENGTH = 256
+
+# Shortcut names are passed into translated banners as placeholders, so a
+# translator can never rename the key the user actually has to press.
+_SIGINT_SHORTCUT = "Ctrl-C"
 
 
 def _truncate_line(line: str) -> str:
@@ -198,7 +203,7 @@ def _kill_process_group(proc: subprocess.Popen) -> None:
             except Exception:
                 pass
     except Exception as e:
-        emit_error(f"Kill process error: {e}")
+        emit_error(t("tools.shell.kill_failed", error=e))
 
 
 def kill_all_running_shell_processes() -> int:
@@ -385,7 +390,7 @@ def _shell_command_keyboard_context():
 
 def _handle_ctrl_x_press() -> None:
     """Chord Ctrl+X Ctrl+X (bare Ctrl+X headless): kill all shells."""
-    emit_warning("\nCtrl+X -- interrupting all shell commands...")
+    emit_warning("\n" + t("tools.shell.interrupting_all", shortcut="Ctrl+X"))
     kill_all_running_shell_processes()
 
 
@@ -396,7 +401,7 @@ def _handle_ctrl_b_press() -> None:
     ``background=True`` result immediately while the process keeps
     running with its remaining output diverted to a log file.
     """
-    emit_warning("\nCtrl+X Ctrl+B -- backgrounding all shell commands...")
+    emit_warning("\n" + t("tools.shell.backgrounding_all", shortcut="Ctrl+X Ctrl+B"))
     request_background_all()
 
 
@@ -487,7 +492,7 @@ def _shell_sigint_handler(_sig, _frame):
         # so the UI responds instantly instead of after every shell dies.
         _tear_down_live_panels()
         emit_warning(
-            "\nCtrl-C detected! Stopping the agent (shells + all sub-agents)..."
+            "\n" + t("tools.shell.sigint_stopping_agent", shortcut=_SIGINT_SHORTCUT)
         )
         # 3: the slow, blocking part -- panel is already gone, banner is shown.
         kill_all_running_shell_processes()
@@ -501,7 +506,9 @@ def _shell_sigint_handler(_sig, _frame):
     else:
         # Headless / tool-only invocation with no active agent run to cancel.
         _tear_down_live_panels()
-        emit_warning("\nCtrl-C detected! Interrupting all shell commands...")
+        emit_warning(
+            "\n" + t("tools.shell.sigint_interrupting", shortcut=_SIGINT_SHORTCUT)
+        )
         kill_all_running_shell_processes()
 
 
@@ -726,7 +733,7 @@ def run_shell_command_streaming(
         except Exception:
             pass  # closed/invalid pipe: nothing left to read
 
-    def cleanup_process_and_threads(timeout_type: str = "unknown"):
+    def cleanup_process_and_threads():
         nonlocal stdout_thread, stderr_thread
 
         def nuclear_kill(proc):
@@ -741,21 +748,18 @@ def run_shell_command_streaming(
 
             _unregister_process(process)
 
-            if stdout_thread and stdout_thread.is_alive():
-                stdout_thread.join(timeout=3)
-                if stdout_thread.is_alive() and not silent:
-                    emit_warning(
-                        f"stdout reader thread failed to terminate after {timeout_type} timeout",
-                        message_group=group_id,
-                    )
-
-            if stderr_thread and stderr_thread.is_alive():
-                stderr_thread.join(timeout=3)
-                if stderr_thread.is_alive() and not silent:
-                    emit_warning(
-                        f"stderr reader thread failed to terminate after {timeout_type} timeout",
-                        message_group=group_id,
-                    )
+            # Stream names are technical identifiers, never translated.
+            for stream, thread in (
+                ("stdout", stdout_thread),
+                ("stderr", stderr_thread),
+            ):
+                if thread and thread.is_alive():
+                    thread.join(timeout=3)
+                    if thread.is_alive() and not silent:
+                        emit_warning(
+                            t("tools.shell.reader_stuck", stream=stream),
+                            message_group=group_id,
+                        )
 
             # Only after the joins: closing under a live reader can deadlock.
             _close_pipes(process, (stdout_thread, stderr_thread))
@@ -763,7 +767,7 @@ def run_shell_command_streaming(
         except Exception as e:
             if not silent:
                 emit_warning(
-                    f"Error during process cleanup: {e}", message_group=group_id
+                    t("tools.shell.cleanup_failed", error=e), message_group=group_id
                 )
 
         execution_time = time.time() - start_time
@@ -849,10 +853,10 @@ def run_shell_command_streaming(
             if current_time - last_output_time[0] > timeout:
                 if not silent:
                     emit_error(
-                        "Process killed: inactivity timeout reached",
+                        t("tools.shell.inactivity_timeout"),
                         message_group=group_id,
                     )
-                return cleanup_process_and_threads("inactivity")
+                return cleanup_process_and_threads()
 
             time.sleep(0.1)
 
@@ -995,8 +999,18 @@ async def run_shell_command(
             if not isinstance(new_command, str) or not new_command.strip():
                 continue  # ignore empty / non-string rewrites defensively
             if new_command != command:
-                reason = result.get("rewrite_reason", "plugin")
-                emit_info(f"[dim]\U0001f527 command rewritten by {reason}[/dim]")
+                # Same fallback as before: only an ABSENT reason means "plugin";
+                # a present one (even empty/None) is shown as given.
+                if "rewrite_reason" in result:
+                    notice = t(
+                        "tools.shell.command_rewritten",
+                        reason=result["rewrite_reason"],
+                    )
+                else:
+                    notice = t("tools.shell.command_rewritten_by_plugin")
+                # Text(), not markup: neither the catalog nor a plugin's reason
+                # may be parsed as Rich markup.
+                emit_info(Text(notice, style="dim"))
                 command = new_command
 
     # Handle background execution - runs command detached and returns immediately
@@ -1054,10 +1068,8 @@ async def run_shell_command(
             )
 
             # Emit info about background execution
-            emit_info(
-                f"Background process started (PID: {process.pid}) - no timeout, runs until complete"
-            )
-            emit_info(f"Output logging to: {log_file.name}")
+            emit_info(t("tools.shell.background_started", pid=process.pid))
+            emit_info(t("tools.shell.background_log", path=log_file.name))
 
             # Return immediately - don't wait, don't block
             return ShellCommandOutput(
@@ -1082,7 +1094,7 @@ async def run_shell_command(
             except OSError:
                 pass
             # Emit error message so user sees what happened
-            emit_error(f"Failed to start background process: {e}")
+            emit_error(t("tools.shell.background_failed", error=e))
             return ShellCommandOutput(
                 success=False,
                 command=command,
@@ -1096,7 +1108,7 @@ async def run_shell_command(
 
     # Rest of the existing function continues...
     if not command or not command.strip():
-        emit_error("Command cannot be empty", message_group=group_id)
+        emit_error(t("tools.shell.empty_command"), message_group=group_id)
         return ShellCommandOutput(
             success=False,
             command=command,

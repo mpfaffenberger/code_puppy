@@ -6,6 +6,7 @@ from typing import Any, Dict
 from pydantic_ai import RunContext
 
 from code_puppy import config
+from code_puppy.i18n import ngettext, t
 from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 from code_puppy.tools.common import atomic_write_text, generate_group_id
 
@@ -23,7 +24,7 @@ async def save_workflow(name: str, content: str) -> Dict[str, Any]:
     """Save a browser workflow as a markdown file."""
     group_id = generate_group_id("save_workflow", name)
     emit_info(
-        f"SAVE WORKFLOW 💾 name='{name}'",
+        t("browser.automation.save_workflow", details=f"name='{name}'"),
         message_group=group_id,
     )
 
@@ -63,7 +64,7 @@ async def save_workflow(name: str, content: str) -> Dict[str, Any]:
         atomic_write_text(str(workflow_path), content)
 
         emit_success(
-            f"Workflow saved successfully: {workflow_path}",
+            t("browser.automation.workflow_saved", path=workflow_path),
             message_group=group_id,
         )
 
@@ -76,7 +77,7 @@ async def save_workflow(name: str, content: str) -> Dict[str, Any]:
 
     except Exception as e:
         emit_error(
-            f"Failed to save workflow: {e}",
+            t("browser.automation.workflow_save_failed", error=str(e)),
             message_group=group_id,
         )
         return {"success": False, "error": str(e), "name": name}
@@ -86,7 +87,7 @@ async def list_workflows() -> Dict[str, Any]:
     """List all available browser workflows."""
     group_id = generate_group_id("list_workflows")
     emit_info(
-        "LIST WORKFLOWS",
+        t("browser.automation.list_workflows"),
         message_group=group_id,
     )
 
@@ -109,13 +110,19 @@ async def list_workflows() -> Dict[str, Any]:
                     }
                 )
             except Exception as e:
-                emit_warning(f"Could not read {workflow_file}: {e}")
+                emit_warning(
+                    t(
+                        "browser.automation.workflow_unreadable",
+                        path=workflow_file,
+                        error=str(e),
+                    )
+                )
 
         # Sort by modification time (newest first)
         workflows.sort(key=lambda x: x["modified"], reverse=True)
 
         emit_success(
-            f"Found {len(workflows)} workflow(s)",
+            ngettext("browser.automation.workflows_found", len(workflows)),
             message_group=group_id,
         )
 
@@ -128,7 +135,7 @@ async def list_workflows() -> Dict[str, Any]:
 
     except Exception as e:
         emit_error(
-            f"Failed to list workflows: {e}",
+            t("browser.automation.workflows_list_failed", error=str(e)),
             message_group=group_id,
         )
         return {"success": False, "error": str(e)}
@@ -138,7 +145,7 @@ async def read_workflow(name: str) -> Dict[str, Any]:
     """Read a saved browser workflow."""
     group_id = generate_group_id("read_workflow", name)
     emit_info(
-        f"READ WORKFLOW name='{name}'",
+        t("browser.automation.read_workflow", details=f"name='{name}'"),
         message_group=group_id,
     )
 
@@ -153,7 +160,7 @@ async def read_workflow(name: str) -> Dict[str, Any]:
 
         if not workflow_path.exists():
             emit_error(
-                f"Workflow not found: {name}",
+                t("browser.automation.workflow_not_found", name=name),
                 message_group=group_id,
             )
             return {
@@ -167,7 +174,7 @@ async def read_workflow(name: str) -> Dict[str, Any]:
             content = f.read()
 
         emit_success(
-            f"Workflow read successfully: {len(content)} characters",
+            ngettext("browser.automation.workflow_read", len(content)),
             message_group=group_id,
         )
 
@@ -181,7 +188,7 @@ async def read_workflow(name: str) -> Dict[str, Any]:
 
     except Exception as e:
         emit_error(
-            f"Failed to read workflow: {e}",
+            t("browser.automation.workflow_read_failed", error=str(e)),
             message_group=group_id,
         )
         return {"success": False, "error": str(e), "name": name}

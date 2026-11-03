@@ -32,6 +32,8 @@ _NAMESPACES = {
     "mcp.install_wizard": (("mcp.install_wizard.",), 31),
     "mcp.edit": (("mcp.edit.",), 8),
     "mcp.server": (("mcp.server.",), 41),
+    "mcp.startup": (("mcp.startup.",), 2),
+    "mcp.install_menu": (("mcp.install_menu.",), 4),
     "oauth": (
         (
             "oauth.server.",
@@ -60,9 +62,11 @@ _NAMESPACES = {
         35,
     ),
     "tools.common.approval": (("tools.common.approval.",), 12),
+    "tools.shell": (("tools.shell.",), 14),
     "renderer": (("renderer.",), 26),
     "model_factory": (("model_factory.",), 15),
     "agent_menu": (("agent_menu.",), 10),
+    "browser.automation": (("browser.automation.",), 37),
     "browser.interaction": (("browser.interaction.",), 18),
     "browser.navigation": (("browser.navigation.",), 8),
     "browser.control": (("browser.control.",), 9),
