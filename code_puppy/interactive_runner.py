@@ -4,12 +4,14 @@ interactive_support.py; prompt_runner.py::run_prompt_with_attachments().
 """
 
 import asyncio
+import logging
 import os
 import signal
 import sys
 import time
 from pathlib import Path
 
+from code_puppy import callbacks
 from code_puppy.command_line.attachments import parse_prompt_attachments
 from code_puppy.config import (
     AUTOSAVE_DIR,
@@ -36,6 +38,9 @@ from code_puppy.terminal_utils import (
 )
 
 
+logger = logging.getLogger(__name__)
+
+
 async def interactive_mode(message_renderer, initial_command: str = None) -> None:
     """Run the agent in interactive mode."""
     from code_puppy.command_line.command_handler import handle_command
@@ -45,11 +50,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
     from code_puppy.messaging import emit_info, emit_system_message
 
-    # Pass a Text object (not a plain str): the SYSTEM renderer escapes Rich
-    # markup in plain strings before printing (see renderers.py), so inline
-    # "[bold]...[/bold]" in the i18n string would show up as literal
-    # brackets. A Text object bypasses that string branch entirely and
-    # renders as one line, actually bold.
+    # Text bypasses the SYSTEM renderer's escaping of plain-string Rich markup.
     emit_system_message(Text(t("cli.help.press_tab"), style="bold"))
     # Tell the user how relentless the puppy is configured to be.
     from code_puppy.config import get_agency_level, get_speculative_code_mode_enabled
@@ -62,8 +63,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         else "cli.speculation.off"
     )
     emit_info(t(speculation_key))
-    # Print truecolor warning LAST so it's the most visible thing on startup
-    # Big ugly red box should be impossible to miss!
+    # Print the truecolor warning last so it's visible on startup.
     print_truecolor_warning(display_console)
 
     # Shell pass-through for initial_command: !<cmd> bypasses the agent
@@ -86,8 +86,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         emit_info(t("cli.initial_command.processing", command=initial_command))
 
         try:
-            # Skip the run UI if a tool is already waiting for user input
-            # (the input prompt owns the terminal in that case).
+            # A tool waiting for input owns the terminal; skip the run UI.
             try:
                 from code_puppy.tools.command_runner import is_awaiting_user_input
 
@@ -131,33 +130,33 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     record_terminal_session(get_current_session_name(), overwrite=False)
     # Track the current agent task for cancellation on quit
     current_agent_task = None
-    # Classic prompt: timestamp of the last idle Ctrl+C, for the
-    # double-tap-to-quit gesture (persistent mode tracks its own in run_ui).
+    # Classic idle Ctrl+C timestamp; persistent mode tracks double-taps in run_ui.
     last_idle_ctrl_c = 0.0
 
-    # Baseline SIGINT guard for the REPL's whole life: Ctrl+C = cancel (Ctrl+D
-    # quits); without it, a fast double-tap in the handler gap raises
-    # KeyboardInterrupt and exits the process. Deliberately never restored.
+    # Lifetime SIGINT guard: Ctrl+C cancels, Ctrl+D quits. Never restore it;
+    # a fast double-tap in the handler gap would otherwise exit the process.
     try:
         signal.signal(signal.SIGINT, _interactive_sigint_guard)
     except (ValueError, OSError):
-        pass
+        logger.debug(
+            "code_puppy.interactive_runner::interactive_mode: startup/interactive-init: install the baseline SIGINT guard",
+            exc_info=True,
+        )
 
-    # Field diagnostics: `kill -USR2 <pid>` dumps thread + asyncio-task
-    # stacks to ~/.code_puppy/stackdumps/ — the conviction kit for wedged
-    # cancellations (a frozen REPL can't be introspected any other way).
+    # `kill -USR2 <pid>` dumps thread/task stacks to ~/.code_puppy/stackdumps/.
     try:
         from code_puppy.diagnostics import install_stack_dump_handler
 
         install_stack_dump_handler(asyncio.get_running_loop())
     except Exception:
-        pass  # diagnostics must never block the REPL
+        # diagnostics must never block the REPL
+        logger.debug(
+            "code_puppy.interactive_runner::interactive_mode: startup/interactive-init: install the SIGUSR2 stack-dump handler",
+            exc_info=True,
+        )
 
-    # ------------------------------------------------------------------
-    # Persistent-prompt mode: the bottom-bar editor is THE prompt (idle AND
-    # running) — pinned input row, output scrolls above. Classic path behind
-    # rollback flag / non-TTY auto-degrade (see _use_persistent_prompt).
-    # ------------------------------------------------------------------
+    # Persistent mode pins one editor for idle/running input, with output above.
+    # The rollback flag and non-TTY detection retain the classic prompt.
     persistent_prompt = False
     if _use_persistent_prompt():
         try:
@@ -168,6 +167,10 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 prompt_prefix=_prefix, prefix_sgrs=_prefix_sgrs
             )
         except Exception:
+            logger.debug(
+                "code_puppy.interactive_runner::interactive_mode: startup/interactive-init: start the persistent bottom-bar prompt UI",
+                exc_info=True,
+            )
             persistent_prompt = False  # degrade to classic on any failure
 
     while True:
@@ -207,10 +210,10 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 else:
                     # Raises EOFError on Ctrl+D-with-empty-buffer, which the
                     # existing quit branch below handles.
+                    callbacks.on_prompt_ready()
                     task = await wait_for_idle_submission()
-                    # Echo the user's text (bold, '> ') into scrollback — the editor
-                    # clears its row on submit, and repainting the full prompt chrome
-                    # doubled every line's noise. Text() so bracket-y input renders as-is.
+                    # Echo into scrollback after submit clears the editor row;
+                    # Text preserves literal brackets without duplicating prompt chrome.
                     emit_info(_prompt_echo_text(task))
             else:
                 # Classic (non-TTY / rollback) prompt: plain blocking input.
@@ -218,6 +221,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 # the featured path; this branch exists for pipes, CI, and
                 # the CODE_PUPPY_CLASSIC_PROMPT escape hatch.
                 reset_windows_terminal_ansi()
+                callbacks.on_prompt_ready()
                 task = input(">>> ")
                 # Classic input has no editor: capture history here, even for
                 # shell/slash/exit commands that return before agent dispatch.
@@ -388,9 +392,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
                             display_resumed_history(history)
                         else:
-                            # No TTY, no picker: the old text-prompt fallback
-                            # was an interactive prompt in a non-interactive
-                            # environment. Point at the explicit flag instead.
+                            # Non-TTY: point to the explicit flag, not an input prompt.
                             from code_puppy.messaging import emit_warning
 
                             emit_warning(t("cli.autosave.tui_required"))
@@ -417,8 +419,6 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             turn_error = None
 
             try:
-                # No need to get agent directly - use manager's run methods
-
                 # Use our custom helper to enable attachment handling with
                 # the bottom-bar run UI active for the duration.
                 result, current_agent_task = await run_prompt_with_attachments(

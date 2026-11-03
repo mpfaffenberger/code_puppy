@@ -17,6 +17,7 @@ from pathlib import Path
 from code_puppy import __version__, callbacks, get_core_plugins_version
 from code_puppy.asyncio_cleanup import install_httpcore2_shutdown_filter
 from code_puppy.config import ensure_config_exists, initialize_command_history_file
+from code_puppy.error_logging import log_error
 from code_puppy.http_utils import find_available_port
 from code_puppy.i18n import t, use_detected_locale
 from code_puppy.interactive_runner import interactive_mode
@@ -319,6 +320,10 @@ async def main():
             # Model is valid, show confirmation (already set earlier)
             emit_system_message(t("cli.model.using", model=model_name))
         except Exception as e:
+            log_error(
+                e,
+                context="code_puppy.cli_entry::main: startup/model: validate the --model value against models.json",
+            )
             emit_error(t("cli.model.validate_error", error=str(e)))
             sys.exit(1)
 
@@ -344,6 +349,10 @@ async def main():
             set_current_agent(agent_name)
             emit_system_message(t("cli.agent.using", agent=agent_name))
         except Exception as e:
+            log_error(
+                e,
+                context="code_puppy.cli_entry::main: startup/agent: resolve and set the --agent value",
+            )
             emit_error(t("cli.agent.set_error", error=str(e)))
             sys.exit(1)
 
@@ -380,9 +389,12 @@ async def main():
         from code_puppy.session_migration import sweep_contexts_to_autosaves
 
         sweep_contexts_to_autosaves()
-    except Exception:
+    except Exception as exc:
         # Sweep failure must never block startup -- it logs internally.
-        pass
+        log_error(
+            exc,
+            context="code_puppy.cli_entry::main: startup/session-migration: sweep legacy contexts into autosaves",
+        )
 
     # One-time format migration: legacy pickle sessions -> versioned JSON
     # envelopes (idempotent via marker file). Runs after the location sweep so
@@ -391,9 +403,12 @@ async def main():
         from code_puppy.session_format_migration import sweep_legacy_pickle_sessions
 
         sweep_legacy_pickle_sessions()
-    except Exception:
+    except Exception as exc:
         # Never block startup; failures are logged/warned internally.
-        pass
+        log_error(
+            exc,
+            context="code_puppy.cli_entry::main: startup/session-migration: migrate legacy pickle sessions to versioned JSON",
+        )
 
     await callbacks.on_startup()
 
@@ -483,9 +498,16 @@ async def main():
                         )
 
                         display_resumed_history(history)
-                    except Exception:
-                        pass
+                    except Exception as render_exc:
+                        log_error(
+                            render_exc,
+                            context="code_puppy.cli_entry::main: startup/resume: re-render resumed session history",
+                        )
         except Exception as e:
+            log_error(
+                e,
+                context="code_puppy.cli_entry::main: startup/resume: load and apply the resumed session history",
+            )
             emit_error(t("cli.resume.failed", target=resume_target, error=e))
             sys.exit(1)
 

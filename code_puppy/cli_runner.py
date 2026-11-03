@@ -18,11 +18,13 @@ from code_puppy.pydantic_patches import apply_all_patches
 apply_all_patches()
 
 import asyncio
+import logging
 import sys
 import traceback
 
 from code_puppy import plugins
 from code_puppy.cli_entry import apply_quick_resume, main
+from code_puppy.error_hooks import install_error_hooks
 from code_puppy.interactive_runner import interactive_mode
 from code_puppy.interactive_support import (
     _save_autosave_snapshot,
@@ -36,6 +38,8 @@ from code_puppy.prompt_runner import (
     run_prompt_with_attachments,
 )
 from code_puppy.terminal_utils import reset_unix_terminal
+
+logger = logging.getLogger(__name__)
 
 plugins.load_plugin_callbacks()
 
@@ -64,11 +68,19 @@ def _force_utf8_stdio():
         try:
             stream.reconfigure(encoding="utf-8", errors="replace")
         except Exception:
-            pass
+            logger.debug(
+                "code_puppy.cli_runner::_force_utf8_stdio: startup/stdio: reconfigure stdout/stderr to UTF-8",
+                exc_info=True,
+            )
 
 
 def main_entry():
     """Entry point for the installed CLI tool."""
+    # Idempotent; covers callers that bypass main.py. Never block startup.
+    try:
+        install_error_hooks()
+    except Exception:
+        logger.debug("installing the uncaught-exception hooks failed", exc_info=True)
     _force_utf8_stdio()
     # Before anything spawns: fork children inherit fd 2 (see the module).
     install_malloc_noise_guard()

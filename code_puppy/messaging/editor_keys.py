@@ -24,6 +24,7 @@ CTRL_E = "\x05"  # end of (logical) line
 # NOTE: Ctrl+K can be remapped to the cancel key; then the listener swallows it
 # before the editor (kill-to-end won't fire). With the ctrl+c default it reaches us.
 CTRL_K = "\x0b"
+CTRL_L = "\x0c"  # clear the screen (the bar repaints itself)
 CTRL_R = "\x12"
 CTRL_U = "\x15"
 CTRL_V = "\x16"  # smart paste fallback (most terminals bracket-paste first)

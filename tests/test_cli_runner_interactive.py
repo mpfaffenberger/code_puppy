@@ -38,6 +38,26 @@ class TestInteractiveMode:
         )
 
     @pytest.mark.anyio
+    async def test_classic_prompt_ready_fires_before_each_input(self):
+        ready = MagicMock()
+        submissions = iter(["", "/exit"])
+
+        def read_input(*_args):
+            assert ready.call_count == read_input.calls + 1
+            read_input.calls += 1
+            return next(submissions)
+
+        read_input.calls = 0
+        await _run_interactive(
+            _mock_renderer(),
+            _interactive_patches(),
+            read_input,
+            extra_patches={"code_puppy.callbacks.on_prompt_ready": ready},
+        )
+
+        assert ready.call_count == 2
+
+    @pytest.mark.anyio
     async def test_startup_shows_single_press_tab_line(self):
         """Startup used to dump ~12 tip lines; now it's one pointer to the
         Tab overlay. That content moved, it isn't gone."""

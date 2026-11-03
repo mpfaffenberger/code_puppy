@@ -9,7 +9,6 @@ from typing import Any, Dict, Optional
 # ``openai`` (~200ms cold) and ``anthropic`` (~170ms cold) each drag in
 # their whole surface, and a run only ever talks to one provider family.
 # Cold-start TTFT pays for every eager import in this module.
-from pydantic_ai.profiles.anthropic import AnthropicModelProfile
 from pydantic_ai.profiles.openai import OpenAIModelProfile
 from pydantic_ai.settings import ModelSettings
 
@@ -222,29 +221,11 @@ def _thinking_tags_profile(
             openai_responses_supports_reasoning_context=True,
             openai_supports_encrypted_reasoning_content=True,
             openai_supports_reasoning=True,
-            openai_reasoning_enabled_by_default=True,
+            thinking_enabled_by_default=True,
             openai_supports_reasoning_effort_none=True,
         )
 
     return OpenAIModelProfile(**profile_kwargs) if profile_kwargs else None
-
-
-def forced_tool_choice_profile(
-    model_name: str, model_config: dict[str, Any]
-) -> AnthropicModelProfile | None:
-    """Work around pydantic-ai 2.51.0's incomplete forced-tool-choice table.
-
-    See ``code_puppy.model_utils.anthropic_forced_tool_choice_unsupported``
-    for the full story. Returns None for every model except the known
-    gaps, so callers can pass this straight through as ``profile=``
-    without an extra None-check.
-    """
-    from code_puppy.model_utils import anthropic_forced_tool_choice_unsupported
-
-    actual_model_id = str(model_config.get("name", model_name))
-    if anthropic_forced_tool_choice_unsupported(model_name, actual_model_id):
-        return AnthropicModelProfile(anthropic_supports_forced_tool_choice=False)
-    return None
 
 
 def _strict_openai_profile(
@@ -256,9 +237,9 @@ def _strict_openai_profile(
     """Build a profile for custom OpenAI-compatible endpoints (SGLang, vLLM, etc.).
 
     Strict backends reject more than one leading system message with
-    ``System message must be at the beginning.`` After compaction the wire
-    format has two: the compaction summary ``SystemPromptPart`` and the
-    agent's per-turn ``instruction_parts``.  Setting
+    ``System message must be at the beginning.`` The wire format can carry
+    several: a leading ``SystemPromptPart`` and the agent's per-turn
+    ``instruction_parts``.  Setting
     ``openai_chat_supports_multiple_system_messages=False`` makes
     pydantic-ai's ``_merge_leading_system_messages`` concatenate them into
     one, which every backend accepts.
@@ -1020,7 +1001,6 @@ class ModelFactory:
             return AnthropicModel(
                 model_name=model_config["name"],
                 provider=provider,
-                profile=forced_tool_choice_profile(model_name, model_config),
             )
 
         elif model_type == "custom_anthropic":
@@ -1076,7 +1056,6 @@ class ModelFactory:
             return AnthropicModel(
                 model_name=model_config["name"],
                 provider=provider,
-                profile=forced_tool_choice_profile(model_name, model_config),
             )
         # NOTE: 'claude_code' model type is now handled by the claude_code_oauth plugin
         # via the register_model_type callback. See plugins/claude_code_oauth/register_callbacks.py

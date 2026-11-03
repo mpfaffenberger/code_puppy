@@ -221,12 +221,11 @@ def test_custom_timeout_config(
     assert model is not None
 
 
-# --- Regression tests: 'System message must be at the beginning.' after auto-compact.
+# --- Regression tests: 'System message must be at the beginning.'
 # Strict OpenAI-compatible backends (SGLang, vLLM) reject >1 leading system
-# message. After SummarizingCompaction the wire format has two: the
-# compaction-summary SystemPromptPart + the agent's per-turn
-# instruction_parts. The profile must set
-# openai_chat_supports_multiple_system_messages=False so pydantic-ai's
+# message. A second leading SystemPromptPart (e.g. plugin-added context) plus
+# the agent's per-turn instruction_parts would put two on the wire. The profile
+# must set openai_chat_supports_multiple_system_messages=False so pydantic-ai's
 # _merge_leading_system_messages joins them into one.
 
 
@@ -443,10 +442,10 @@ def test_strict_openai_profile_rejects_non_bool():
 
 @pytest.mark.asyncio
 async def test_wire_format_merges_leading_system_messages():
-    """Integration test: after compaction, the wire format has exactly one system message.
+    """Integration test: leading system prompts reach the wire as one message.
 
-    This directly proves the bug is fixed — two leading SystemPromptParts +
-    instruction_parts produce one merged system message on the wire, not two.
+    A leading SystemPromptPart + instruction_parts produce one merged system
+    message on the wire, not two.
     """
     from pydantic_ai.messages import (
         InstructionPart,
@@ -470,10 +469,10 @@ async def test_wire_format_merges_leading_system_messages():
             profile=_strict_openai_profile("qwen-sglang", {}),
         )
 
-        # Simulate a post-compaction history: summary + preserved turns
+        # A leading system prompt followed by preserved turns
         messages = [
             ModelRequest(
-                parts=[SystemPromptPart(content="[compaction-summary] Previous work.")]
+                parts=[SystemPromptPart(content="[plugin-context] Previous work.")]
             ),
             ModelRequest(parts=[UserPromptPart(content="What is 2+2?")]),
             ModelResponse(parts=[TextPart(content="4")], model_name="qwen-sglang"),
@@ -498,7 +497,7 @@ async def test_wire_format_merges_leading_system_messages():
         f"Expected exactly 1 system message after merge, got {len(system_roles)}"
     )
     content = system_roles[0].get("content", "")
-    assert "[compaction-summary]" in content
+    assert "[plugin-context]" in content
     assert "You are a helpful assistant." in content
 
 

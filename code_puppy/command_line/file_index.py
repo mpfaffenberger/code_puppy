@@ -20,7 +20,7 @@ import os
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Iterable, List, Optional
 
 # Cap so we don't blow up RAM on absurdly huge repos. 200k paths is plenty
 # for fuzzy ranking; anything beyond that is almost certainly noise.
@@ -34,8 +34,9 @@ class Index:
 
     root: str
     paths: tuple[str, ...] = field(default_factory=tuple)
-    lowered: tuple[str, ...] = field(default_factory=tuple)
     basenames_lower: tuple[str, ...] = field(default_factory=tuple)
+    dirs: tuple[str, ...] = field(default_factory=tuple)
+    dir_basenames_lower: tuple[str, ...] = field(default_factory=tuple)
 
 
 _EMPTY_INDEX = Index(root="")
@@ -126,16 +127,32 @@ def _run_ripgrep(root: str) -> Optional[List[str]]:
     return read_paths(rg, root, MAX_INDEXED_PATHS, INDEX_BUILD_TIMEOUT_SECONDS)
 
 
+def _ancestor_dirs(paths: Iterable[str]) -> List[str]:
+    # rg --files emits files only; every ancestor of an emitted file is a
+    # non-ignored directory, so this inherits rg's ignore rules for free.
+    found: set[str] = set()
+    for path in paths:
+        parent = os.path.dirname(path)
+        while parent and parent not in found:
+            found.add(parent)
+            parent = os.path.dirname(parent)
+    return sorted(found)
+
+
+def _basenames_lower(paths: Iterable[str]) -> tuple[str, ...]:
+    return tuple(os.path.basename(p).lower() for p in paths)
+
+
 def _make_index(root: str, paths: List[str]) -> Index:
     # Normalize once up front so every fuzzy lookup is a cheap tuple read.
     normalized = tuple(paths)
-    lowered = tuple(p.lower() for p in normalized)
-    basenames = tuple(os.path.basename(p).lower() for p in normalized)
+    dirs = tuple(_ancestor_dirs(normalized))
     return Index(
         root=root,
         paths=normalized,
-        lowered=lowered,
-        basenames_lower=basenames,
+        basenames_lower=_basenames_lower(normalized),
+        dirs=dirs,
+        dir_basenames_lower=_basenames_lower(dirs),
     )
 
 

@@ -147,8 +147,8 @@ class ClaudeCacheAsyncClient(ClaudeOAuthTransport, httpx2.AsyncClient):
             text = first.get("text") if isinstance(first, dict) else None
             if text == CLAUDE_CODE_SYSTEM_PROMPT:
                 return None
-            # Compaction adds a SystemPromptPart that the SDK joins to the
-            # signature. A matching prefix is not a standalone identity block.
+            # Adjacent system prompts can be joined to the signature by the
+            # SDK. A matching prefix is not a standalone identity block.
             # Keep metadata (including cache_control) on the remainder so its
             # cache boundary still follows all the original content.
             if isinstance(text, str) and text.startswith(CLAUDE_CODE_SYSTEM_PROMPT):

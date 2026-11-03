@@ -12,7 +12,7 @@ _REASONING_PROFILE_KEYS = (
     "openai_responses_supports_reasoning_context",
     "openai_supports_encrypted_reasoning_content",
     "openai_supports_reasoning",
-    "openai_reasoning_enabled_by_default",
+    "thinking_enabled_by_default",
     "openai_supports_reasoning_effort_none",
 )
 

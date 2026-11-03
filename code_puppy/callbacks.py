@@ -6,9 +6,22 @@ import traceback
 from contextlib import nullcontext
 from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Literal, Optional, Set, Tuple
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Dict,
+    List,
+    Literal,
+    Optional,
+    Set,
+    Tuple,
+)
 
-from pydantic_ai.messages import ModelMessage
+if TYPE_CHECKING:
+    from pydantic_ai.messages import ModelMessage
+
+from code_puppy.error_logging import log_error
 
 PhaseType = Literal[
     "startup",
@@ -85,6 +98,7 @@ PhaseType = Literal[
     "feature_capability",
     "transform_model_messages",
     "error_logged",
+    "prompt_ready",
 ]
 CallbackFunc = Callable[..., Any]
 
@@ -177,6 +191,7 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "feature_capability": [],
     "transform_model_messages": [],
     "error_logged": [],
+    "prompt_ready": [],
 }
 
 logger = logging.getLogger(__name__)
@@ -197,6 +212,34 @@ BLOCKING_PHASES: frozenset = frozenset({"pre_tool_call", "run_shell_command"})
 # by callable: the same helper may be registered on several phases with
 # different policies, and one phase's choice must not leak into another.
 _fail_closed_callbacks: Set[Tuple[PhaseType, CallbackFunc]] = set()
+
+# Phases whose callback failures also go to errors.log. Others, such as
+# ``stream_event``, fire per event and repeat throttling is not in this change.
+_STARTUP_PHASES = frozenset(
+    {"register_cli_args", "handle_cli_args", "version_check", "startup"}
+)
+_SYNC_STARTUP_CONTEXT = (
+    "code_puppy.callbacks::_trigger_callbacks_sync: startup/cli-args: "
+    "run a startup-phase callback registered by a plugin"
+)
+_ASYNC_STARTUP_CONTEXT = (
+    "code_puppy.callbacks::_trigger_callbacks: startup/plugin-startup: "
+    "run a startup-phase async callback registered by a plugin"
+)
+
+
+def _log_startup_failure(
+    phase: PhaseType, callback: CallbackFunc, error: Exception, context: str
+) -> None:
+    """Record a callback failure in errors.log when *phase* is a startup phase.
+
+    Called by: ``_trigger_callbacks_sync``, ``_trigger_callbacks``.
+    """
+    if phase in _STARTUP_PHASES:
+        # Not repr(callback): the default would be evaluated even when __name__ exists,
+        # and a throwing __repr__ would replace the failure being reported.
+        name = getattr(callback, "__name__", type(callback).__name__)
+        log_error(error, context=f"{context} ({phase}, {name})")
 
 
 def _failure_result(
@@ -572,6 +615,7 @@ def _trigger_callbacks_sync(
                 f"Callback {callback.__name__} failed in phase '{phase}': {e}\n"
                 f"{traceback.format_exc()}"
             )
+            _log_startup_failure(phase, callback, e, _SYNC_STARTUP_CONTEXT)
             if raise_on_error:
                 raise
             if (phase, callback) in _fail_closed_callbacks:
@@ -610,6 +654,7 @@ async def _trigger_callbacks(phase: PhaseType, *args, **kwargs) -> List[Any]:
                 f"Async callback {callback.__name__} failed in phase '{phase}': {e}\n"
                 f"{traceback.format_exc()}"
             )
+            _log_startup_failure(phase, callback, e, _ASYNC_STARTUP_CONTEXT)
             if (phase, callback) in _fail_closed_callbacks:
                 results.append(_failure_result(callback, phase, e))
             else:
@@ -903,6 +948,15 @@ def on_awaiting_user_input(awaiting: bool) -> List[Any]:
     return _trigger_callbacks_sync("awaiting_user_input", awaiting)
 
 
+def on_prompt_ready() -> List[Any]:
+    """Fired each time the interactive idle prompt is about to block for input.
+
+    Observers only, sync and fire-and-forget. Fires once per idle prompt, so
+    observers must tolerate repeat calls.
+    """
+    return _trigger_callbacks_sync("prompt_ready")
+
+
 async def on_file_permission_async(
     context: Any,
     file_path: str,
@@ -1087,7 +1141,7 @@ async def on_stream_event(
 
 
 async def on_transform_model_messages(
-    agent_name: str | None, messages: List[ModelMessage]
+    agent_name: str | None, messages: "List[ModelMessage]"
 ) -> List[Any]:
     """Let plugins mutate the final outbound model messages in place."""
     return await _trigger_callbacks("transform_model_messages", agent_name, messages)
