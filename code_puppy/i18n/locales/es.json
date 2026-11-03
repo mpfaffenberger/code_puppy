@@ -253,6 +253,7 @@
   "cli.attachments.empty_prompt": "Las instrucciones están vacías tras quitar los adjuntos; añade instrucciones y vuelve a intentarlo.",
   "cli.attachments.files": "archivos: {count}",
   "cli.attachments.urls": "URL: {count}",
+  "cli.autosave.compact_suggestion": "Esta sesión reanudada tiene aproximadamente {tokens} tokens, por encima del umbral de compactación de {threshold}. Considera ejecutar /compact antes de continuar.",
   "cli.autosave.headless_unsupported": "/autosave_load requiere el modo interactivo; usa -r SESSION en modo sin interfaz.",
   "cli.autosave.load_cancelled": "Carga del guardado automático cancelada",
   "cli.autosave.load_failed": "No se pudo cargar el guardado automático: {error}",

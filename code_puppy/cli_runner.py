@@ -1175,6 +1175,12 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                             )
 
                             display_resumed_history(history)
+
+                            from code_puppy.resume_advice import suggest_compaction
+
+                            suggest_compaction(
+                                total_tokens, agent._get_model_context_length()
+                            )
                         else:
                             # No TTY, no picker: the old text-prompt fallback
                             # was an interactive prompt in a non-interactive

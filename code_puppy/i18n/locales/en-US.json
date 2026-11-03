@@ -253,6 +253,7 @@
   "cli.attachments.empty_prompt": "Prompt is empty after removing attachments; add instructions and retry.",
   "cli.attachments.files": "files: {count}",
   "cli.attachments.urls": "urls: {count}",
+  "cli.autosave.compact_suggestion": "This resumed session has approximately {tokens} tokens, above the compaction threshold of {threshold}. Consider running /compact before continuing.",
   "cli.autosave.headless_unsupported": "/autosave_load requires interactive mode; use -r SESSION in headless mode.",
   "cli.autosave.load_cancelled": "Autosave load cancelled",
   "cli.autosave.load_failed": "Failed to load autosave: {error}",
