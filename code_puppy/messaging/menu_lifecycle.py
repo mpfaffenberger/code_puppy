@@ -14,7 +14,6 @@ _LEGACY_CLOSE_NOTICES = frozenset(
         "\u2713 Exited tutorial",
         "Exited custom server form",
         "Exited config settings menu",
-        "Exited MCP server browser",
         "Exited UC tool browser",
         "Queue is empty",
         "\U0001f3a8 Theme unchanged.",
