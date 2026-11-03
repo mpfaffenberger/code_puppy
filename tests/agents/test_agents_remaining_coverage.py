@@ -104,6 +104,57 @@ def test_web_retriever():
     assert "plaintext passwords" in lowered
 
 
+@pytest.mark.parametrize(
+    ("module_path", "class_name", "other_agent", "deliverable"),
+    [
+        (
+            "code_puppy.agents.agent_qa_kitten",
+            "QualityAssuranceKittenAgent",
+            "web-retriever",
+            "a verdict or a description",
+        ),
+        (
+            "code_puppy.agents.agent_web_retriever",
+            "WebRetrieverAgent",
+            "qa-kitten",
+            "extracted data",
+        ),
+    ],
+)
+def test_browser_agent_descriptions_state_deliverable_and_override(
+    module_path, class_name, other_agent, deliverable
+):
+    """list_agents shows only descriptions, so each must say when to pick it,
+    that a named agent wins, that the other agent failing allows it, and
+    which agent to use instead."""
+    import importlib
+
+    agent = getattr(importlib.import_module(module_path), class_name)()
+    description = " ".join(agent.description.split())
+    for required in (
+        f"when the deliverable is {deliverable}",
+        "when the user names it",
+        f"{other_agent} has failed",
+        f"use {other_agent}",
+    ):
+        assert required in description
+
+
+def test_browser_agent_descriptions_drop_overlapping_claims():
+    """Regression: web-retriever once claimed every interactive browser task and
+    qa-kitten once read as testing-only, so the default agent over-picked
+    web-retriever. qa-kitten also keeps its trusted-pages-only limit."""
+    from code_puppy.agents.agent_qa_kitten import QualityAssuranceKittenAgent
+    from code_puppy.agents.agent_web_retriever import WebRetrieverAgent
+
+    web = " ".join(WebRetrieverAgent().description.split()).lower()
+    for stale in ("browser automation", "fill out this form", "log into this site"):
+        assert stale not in web
+    qa = " ".join(QualityAssuranceKittenAgent().description.split())
+    assert "Trusted local, test, or staging pages only" in qa
+    assert "authenticated retrieval" in qa
+
+
 def test_code_puppy_prompt_omits_web_retriever_guidance():
     """Keep web-retriever routing policy out of Code Puppy's prompt."""
     from code_puppy.agents.agent_code_puppy import CodePuppyAgent
@@ -166,7 +217,14 @@ def test_planning_agent_routes_scraping_but_allows_direct_curl():
     from code_puppy.agents.agent_planning import PlanningAgent
 
     prompt = PlanningAgent().get_system_prompt()
-    assert "web-retriever" in prompt
+    assert (
+        "Browser testing and interactive inspection (verdict or description of a page): qa-kitten"
+        in prompt
+    )
+    assert (
+        "Scraping, crawling, bulk lookups, saving extracted data: web-retriever"
+        in prompt
+    )
     assert "simple one-shot curl/wget requests do not require delegation" in prompt
 
 

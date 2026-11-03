@@ -17,13 +17,11 @@ class WebRetrieverAgent(BaseAgent):
     @property
     def description(self) -> str:
         return (
-            "Web scraping, browser automation, and data extraction specialist. "
-            "Navigates websites, fills forms, clicks through multi-step flows, "
-            "scrapes/crawls pages, and extracts structured data (to JSON/CSV/"
-            "markdown) using Playwright. Use for: scrape this site, extract data "
-            "from this page, automate this web workflow, crawl these URLs, fill "
-            "out this form, log into this site and grab X. NOT for test "
-            "assertions/visual QA - see qa-kitten for that."
+            "Gets data out of websites: scrape, crawl, paginate, run bulk lookups, "
+            "monitor pages, fill forms in bulk, and save results to JSON, CSV, "
+            "markdown or files. Choose it when the deliverable is extracted data, "
+            "when the user names it, or when qa-kitten has failed. Not for judging "
+            "whether a page works or looks right: use qa-kitten."
         )
 
     def get_available_tools(self) -> list[str]:
