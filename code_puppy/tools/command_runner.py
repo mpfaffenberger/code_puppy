@@ -29,7 +29,12 @@ from code_puppy.messaging import (  # Structured messaging types
     emit_warning,
     get_message_bus,
 )
-from code_puppy.tools.common import generate_group_id, get_user_approval_async
+from code_puppy.tools.common import (
+    generate_group_id,
+    get_user_approval_async,
+    get_working_directory,
+    resolve_path,
+)
 from code_puppy.tools.shell_backgrounding import (
     DivertLog,
     background_generation,
@@ -934,7 +939,7 @@ def _normalize_cwd(cwd: str | None) -> str | None:
     LLMs sometimes serialize a null working directory as the literal strings
     ``"null"``/``"none"`` (or whitespace) because the tool schema advertises a
     string. Passing those to ``subprocess.Popen`` explodes with
-    ``FileNotFoundError: 'null'`` — normalize them to None (inherit our cwd).
+    ``FileNotFoundError: 'null'`` — normalize them to None (run in the active working directory).
     """
     if cwd is None:
         return None
@@ -942,6 +947,19 @@ def _normalize_cwd(cwd: str | None) -> str | None:
     if not stripped or stripped.lower() in ("null", "none"):
         return None
     return stripped
+
+
+def _resolve_cwd(cwd: str | None) -> str | None:
+    """Anchor ``cwd`` to the session folder when a working-directory override is set.
+
+    Terminal mode (override equals the process folder) returns the normalized
+    value untouched, so the approval panel and banner output do not change.
+    """
+    cwd = _normalize_cwd(cwd)
+    base = get_working_directory()
+    if base == os.getcwd():
+        return cwd
+    return resolve_path(cwd) if cwd else base
 
 
 def _child_process_env() -> dict[str, str]:
@@ -964,7 +982,7 @@ async def run_shell_command(
     timeout: int = 60,
     background: bool = False,
 ) -> ShellCommandOutput:
-    cwd = _normalize_cwd(cwd)
+    cwd = _resolve_cwd(cwd)
 
     # Generate unique group_id for this command execution
     group_id = generate_group_id("shell_command", command)

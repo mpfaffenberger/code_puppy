@@ -99,6 +99,7 @@ def handle_show_command(command: str) -> bool:
     description="Set puppy config (e.g., /set yolo_mode true) or launch interactive menu",
     usage="/set [key [value]]",
     category="config",
+    interactive=True,
 )
 def handle_set_command(command: str) -> bool:
     """Set configuration values, or launch the interactive picker."""

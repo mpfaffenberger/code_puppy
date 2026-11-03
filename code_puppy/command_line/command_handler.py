@@ -16,7 +16,10 @@ def get_commands_help():
     """
     from rich.text import Text
 
-    from code_puppy.command_line.command_registry import get_unique_commands
+    from code_puppy.command_line.command_catalog import (
+        list_plugin_commands,
+        list_registry_commands,
+    )
 
     # Ensure plugins are loaded so custom help can register
     _ensure_plugins_loaded()
@@ -24,46 +27,9 @@ def get_commands_help():
     lines: list[Text] = []
     # No global header needed - user already knows they're viewing help
 
-    # Collect all built-in commands (registered + legacy)
-    builtin_cmds: list[tuple[str, str]] = []
-
-    # Get registered commands (all categories are built-in)
-    registered_commands = get_unique_commands()
-    for cmd_info in sorted(registered_commands, key=lambda c: c.name):
-        builtin_cmds.append((cmd_info.usage, cmd_info.description))
-
-    # Get custom commands from plugins
-    custom_entries: list[tuple[str, str]] = []
-    try:
-        from code_puppy import callbacks
-
-        custom_help_results = callbacks.on_custom_command_help()
-        for res in custom_help_results:
-            if not res:
-                continue
-            # Format 1: Tuple with (command_name, description)
-            if isinstance(res, tuple) and len(res) == 2:
-                cmd_name = str(res[0])
-                custom_entries.append((f"/{cmd_name}", str(res[1])))
-            # Format 2: List of tuples or strings
-            elif isinstance(res, list):
-                # Check if it's a list of tuples (preferred format)
-                if res and isinstance(res[0], tuple) and len(res[0]) == 2:
-                    for item in res:
-                        if isinstance(item, tuple) and len(item) == 2:
-                            cmd_name = str(item[0])
-                            custom_entries.append((f"/{cmd_name}", str(item[1])))
-                # Format 3: List of strings (legacy format)
-                # Extract command from first line like "/command_name - Description"
-                elif res and isinstance(res[0], str) and res[0].startswith("/"):
-                    first_line = res[0]
-                    if " - " in first_line:
-                        parts = first_line.split(" - ", 1)
-                        cmd_name = parts[0].lstrip("/").strip()
-                        description = parts[1].strip()
-                        custom_entries.append((f"/{cmd_name}", description))
-    except Exception:
-        pass
+    # Built-in commands (registered + legacy) and plugin-advertised commands
+    builtin_cmds = [(e.usage, e.description) for e in list_registry_commands()]
+    custom_entries = [(e.usage, e.description) for e in list_plugin_commands()]
 
     # Calculate global column width (longest command across ALL sections + padding)
     all_commands = builtin_cmds + custom_entries
