@@ -20,6 +20,7 @@ class CommandInfo:
     hidden_aliases: List[str] = field(default_factory=list)
     category: str = "core"
     detailed_help: Optional[str] = None
+    interactive: bool = False
 
     def __post_init__(self):
         """Set default usage if not provided."""
@@ -61,6 +62,7 @@ def register_command(
     hidden_aliases: Optional[List[str]] = None,
     category: str = "core",
     detailed_help: Optional[str] = None,
+    interactive: bool = False,
 ):
     """Decorator to register a command handler.
 
@@ -80,6 +82,8 @@ def register_command(
             These are executable but omitted from completions/help.
         category: Grouping category ("core", "session", "config", etc.)
         detailed_help: Optional detailed help text for /help <command>
+        interactive: True when the bare command opens a picker/menu/wizard or
+            needs a TTY, so a headless client such as ACP can flag it.
 
     Example:
         >>> @register_command(
@@ -107,6 +111,7 @@ def register_command(
             hidden_aliases=hidden_aliases or [],
             category=category,
             detailed_help=detailed_help,
+            interactive=interactive,
         )
 
         # Register primary name

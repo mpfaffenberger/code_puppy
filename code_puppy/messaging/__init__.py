@@ -77,7 +77,9 @@ from .bottom_bar import (
 from .line_editor import RunningLineEditor
 from .pause_controller import (
     PauseController,
+    drop_session_pause_controller,
     get_pause_controller,
+    get_session_pause_controller,
     reset_pause_controller,
 )
 from .message_queue import (
@@ -259,7 +261,9 @@ __all__ = [
     "AnyCommand",
     # Pause controller
     "PauseController",
+    "drop_session_pause_controller",
     "get_pause_controller",
+    "get_session_pause_controller",
     "reset_pause_controller",
     # Bottom bar (scroll-region prompt)
     "BottomBar",
