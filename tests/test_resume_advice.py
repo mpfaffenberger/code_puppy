@@ -16,13 +16,10 @@ from tests.test_cli_runner_full_coverage import (
 
 
 @pytest.mark.parametrize(
-    "tokens,expected", [(0, False), (84999, False), (85000, False), (85001, True)]
+    "tokens,expected", [(0, False), (49999, False), (50000, False), (50001, True)]
 )
 def test_threshold_boundary(tokens, expected):
-    with (
-        patch.object(resume_advice, "get_compaction_threshold", return_value=0.85),
-        patch.object(resume_advice, "emit_warning") as warning,
-    ):
+    with patch.object(resume_advice, "emit_warning") as warning:
         resume_advice.suggest_compaction(tokens, 100000)
     assert warning.called is expected
     if expected:
@@ -30,14 +27,11 @@ def test_threshold_boundary(tokens, expected):
 
 
 @pytest.mark.parametrize("locale", ["en-US", "es", "fr-CA", "qps-ploc"])
-def test_configured_threshold_and_localization(locale):
+def test_half_context_threshold_and_localization(locale):
     previous_locale = get_locale()
     set_locale(locale)
     try:
-        with (
-            patch.object(resume_advice, "get_compaction_threshold", return_value=0.5),
-            patch.object(resume_advice, "emit_warning") as warning,
-        ):
+        with patch.object(resume_advice, "emit_warning") as warning:
             resume_advice.suggest_compaction(10001, 20000)
         warning.assert_called_once_with(
             t(
@@ -55,8 +49,8 @@ def test_configured_threshold_and_localization(locale):
 @pytest.mark.parametrize(
     "tokens,agent_context,expected",
     [
-        (85000, 100000, False),
-        (85001, 100000, True),
+        (50000, 100000, False),
+        (50001, 100000, True),
         (90000, 100000, True),
         (90000, 200000, False),
     ],
@@ -80,7 +74,12 @@ async def test_resume_suggests_without_changing_history(
     tty.isatty.return_value = True
     warning = MagicMock()
     with (
-        patch.object(resume_advice, "get_compaction_threshold", return_value=0.85),
+        patch(
+            "code_puppy.config.get_compaction_threshold",
+            side_effect=AssertionError(
+                "Resume advice must not read auto-compaction settings"
+            ),
+        ),
         patch("code_puppy.config.get_global_model_name", return_value="global-model"),
         patch(
             "code_puppy.model_factory.ModelFactory.load_config",
