@@ -27,10 +27,11 @@ try:
         logging.getLogger(__name__).debug(
             "installing the error hooks failed", exc_info=True
         )
-    # Plugin setup that must precede the heavy imports; never raises.
-    from code_puppy.early_startup import run_early_startup
+    # Plugin setup that must precede the heavy imports. Failed hooks are
+    # recorded in errors.log before the runner import; never raises.
+    from code_puppy.early_startup import report_failures, run_early_startup
 
-    run_early_startup()
+    report_failures(run_early_startup())
     from code_puppy.cli_runner import main_entry
 finally:
     _splash.stop()

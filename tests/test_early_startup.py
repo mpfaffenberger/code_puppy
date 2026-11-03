@@ -19,7 +19,7 @@ PKG = "early_pkg"
 
 def _write(path: Path, text: str = "") -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text)
+    path.write_text(text, encoding="utf-8")
 
 
 @pytest.fixture
@@ -71,7 +71,7 @@ def test_runs_every_hook_in_name_order(plugins):
     _add_hook(plugins, "a")
     _add_hook(plugins, "c")
 
-    early_startup.run_early_startup()
+    assert early_startup.run_early_startup() == []
 
     assert _calls() == ["a", "b", "c"]
 
@@ -82,10 +82,12 @@ def test_failing_hook_is_logged_and_does_not_stop_the_others(plugins, caplog):
     _add_hook(plugins, "c")
 
     with caplog.at_level("DEBUG", logger=early_startup.logger.name):
-        early_startup.run_early_startup()
+        failures = early_startup.run_early_startup()
 
     assert _calls() == ["a", "b", "c"]
     assert "early startup hook of plugin 'b' failed" in caplog.text
+    assert [name for name, _ in failures] == ["b"]
+    assert isinstance(failures[0][1], RuntimeError)
 
 
 def test_hook_that_cannot_even_be_imported_is_skipped(plugins):
@@ -94,9 +96,47 @@ def test_hook_that_cannot_even_be_imported_is_skipped(plugins):
     _write(plugins / "b" / "early_startup.py", "raise ImportError('missing dep')\n")
     _add_hook(plugins, "c")
 
-    early_startup.run_early_startup()
+    failures = early_startup.run_early_startup()
 
     assert _calls() == ["a", "c"]
+    assert [name for name, _ in failures] == ["b"]
+    assert isinstance(failures[0][1], ImportError)
+
+
+def _record_log_error(monkeypatch) -> list[tuple[BaseException, str | None]]:
+    logged: list[tuple[BaseException, str | None]] = []
+    monkeypatch.setattr(
+        "code_puppy.error_logging.log_error",
+        lambda error, context=None, **_: logged.append((error, context)),
+    )
+    return logged
+
+
+def test_report_failures_records_each_failure_in_the_error_log(monkeypatch):
+    logged = _record_log_error(monkeypatch)
+    boom, missing = RuntimeError("boom"), ImportError("missing dep")
+
+    early_startup.report_failures([("b", boom), ("d", missing)])
+
+    assert [error for error, _ in logged] == [boom, missing]
+    assert "early startup hook of plugin 'b' failed" in logged[0][1]
+    assert "early startup hook of plugin 'd' failed" in logged[1][1]
+
+
+def test_report_failures_with_nothing_to_report_is_a_no_op(monkeypatch):
+    logged = _record_log_error(monkeypatch)
+
+    assert early_startup.report_failures([]) is None
+    assert logged == []
+
+
+def test_report_failures_never_raises(monkeypatch):
+    def _broken_log_error(*args, **kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr("code_puppy.error_logging.log_error", _broken_log_error)
+
+    early_startup.report_failures([("b", RuntimeError("boom"))])
 
 
 def test_ctrl_c_during_a_hook_still_propagates(plugins):
@@ -176,7 +216,18 @@ def test_main_runs_the_hook_inside_the_splash_before_the_runner_import(
     error_hooks = types.ModuleType("code_puppy.error_hooks")
     error_hooks.install_error_hooks = lambda: events.append("error_hooks")
     early = types.ModuleType("code_puppy.early_startup")
-    early.run_early_startup = lambda: events.append("early_startup")
+    sentinel = [("some_plugin", RuntimeError("boom"))]
+
+    def _run_early_startup():
+        events.append("early_startup")
+        return sentinel
+
+    def _report_failures(failures):
+        assert failures is sentinel
+        events.append("report_failures")
+
+    early.run_early_startup = _run_early_startup
+    early.report_failures = _report_failures
     for module in (
         splash,
         error_hooks,
@@ -191,6 +242,7 @@ def test_main_runs_the_hook_inside_the_splash_before_the_runner_import(
         "splash.start",
         "error_hooks",
         "early_startup",
+        "report_failures",
         "cli_runner import",
         "splash.stop",
     ]

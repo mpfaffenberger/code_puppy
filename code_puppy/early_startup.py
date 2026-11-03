@@ -16,11 +16,16 @@ with a zero-argument ``run()``. The rules:
 * The plugin enable/disable list is not consulted (configuration is not loaded
   yet), so a hook that needs a kill switch should read its own environment
   variable.
-* A hook that raises is logged at debug level and skipped; startup continues.
-  ``KeyboardInterrupt`` and ``SystemExit`` still propagate.
+* A hook that raises is skipped and recorded in ``errors.log`` via
+  :func:`report_failures`; startup continues. ``main.py`` calls it right after
+  the hooks and before the heavy import, so even a later import crash leaves
+  the hook failure on record. ``KeyboardInterrupt`` and ``SystemExit`` still
+  propagate.
 
 This module is stdlib-only by design, like ``code_puppy.splash`` -- do not
-import anything else from ``code_puppy`` here.
+import anything else from ``code_puppy`` here. The lazy
+``code_puppy.error_logging`` import inside :func:`report_failures` is the
+deliberate exception; it only runs when a hook actually failed.
 """
 
 from __future__ import annotations
@@ -52,11 +57,37 @@ def discover() -> list[str]:
         return []
 
 
-def run_early_startup() -> None:
-    """Run every discovered plugin's ``run()``, in name order. Never raises."""
+def run_early_startup() -> list[tuple[str, Exception]]:
+    """Run every discovered plugin's ``run()``, in name order. Never raises.
+
+    Returns ``(plugin name, exception)`` for each hook that failed, for
+    :func:`report_failures`.
+    """
+    failures: list[tuple[str, Exception]] = []
     for name in discover():
         try:
             module = importlib.import_module(f"{_PLUGINS_PACKAGE}.{name}.early_startup")
             module.run()
-        except Exception:
+        except Exception as exc:
             logger.debug("early startup hook of plugin %r failed", name, exc_info=True)
+            failures.append((name, exc))
+    return failures
+
+
+def report_failures(failures: list[tuple[str, Exception]]) -> None:
+    """Record failed hooks in ``errors.log``. Never raises."""
+    if not failures:
+        return
+    try:
+        from code_puppy.error_logging import log_error
+
+        for name, exc in failures:
+            log_error(
+                exc,
+                context=(
+                    "code_puppy.early_startup::run_early_startup: "
+                    f"early startup hook of plugin {name!r} failed"
+                ),
+            )
+    except Exception:
+        logger.debug("reporting early startup hook failures failed", exc_info=True)

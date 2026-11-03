@@ -40,7 +40,7 @@ def run() -> None:
   or `.` are skipped.
 - **No enable/disable list.** Configuration is not loaded yet, so the plugin disable list is not
   consulted. If your hook needs an opt-out, read your own environment variable.
-- **Failures are contained.** A hook that raises is logged at debug level and skipped; the
+- **Failures are contained.** A hook that raises is recorded in `errors.log` and skipped; the
   remaining hooks and startup carry on. `KeyboardInterrupt` and `SystemExit` still propagate.
 - **Order** is alphabetical by plugin directory name. Do not depend on another plugin's hook.
 
