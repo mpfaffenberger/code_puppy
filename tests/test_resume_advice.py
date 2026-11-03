@@ -6,7 +6,7 @@ import pytest
 
 from code_puppy import resume_advice
 from code_puppy.i18n import format_number, get_locale, set_locale, t
-from tests.test_cli_runner_full_coverage import (
+from tests.cli_runner_fixtures import (
     _interactive_patches,
     _mock_parse_result,
     _mock_renderer,
@@ -96,7 +96,7 @@ async def test_resume_suggests_without_changing_history(
             _scripted_input("/resume"),
             agent=agent,
             extra_patches={
-                "code_puppy.cli_runner.parse_prompt_attachments": MagicMock(
+                "code_puppy.interactive_runner.parse_prompt_attachments": MagicMock(
                     return_value=_mock_parse_result("/resume")
                 ),
                 "sys.stdin": tty,

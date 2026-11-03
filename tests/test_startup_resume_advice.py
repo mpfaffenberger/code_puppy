@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from code_puppy import resume_advice
-from tests.test_cli_runner_full_coverage import TestMain as _MainHarness
+from tests.test_cli_runner_resume_render import _run_main
 
 
 @pytest.mark.parametrize("resume_args", [["-r", "my-session"], ["-qr"]])
@@ -28,11 +28,11 @@ async def test_startup_resume_advice(resume_args, tokens, expected, headless, tm
     if headless:
         argv.extend(["-p", "hello"])
     with patch.object(resume_advice, "emit_warning", warning):
-        await _MainHarness()._run_main(
+        await _run_main(
             argv,
-            extra_patches={
-                "code_puppy.cli_runner.interactive_mode": AsyncMock(),
-                "code_puppy.cli_runner.execute_single_prompt": AsyncMock(),
+            {
+                "code_puppy.cli_entry.interactive_mode": AsyncMock(),
+                "code_puppy.cli_entry.execute_single_prompt": AsyncMock(),
                 "code_puppy.agents.agent_manager.get_current_agent": MagicMock(
                     return_value=agent
                 ),
@@ -48,7 +48,7 @@ async def test_startup_resume_advice(resume_args, tokens, expected, headless, tm
                     return_value=str(tmp_path / "my-session.json")
                 ),
                 "code_puppy.command_line.autosave_menu.display_resumed_history": preview,
-                "code_puppy.cli_runner._save_autosave_snapshot": MagicMock(),
+                "code_puppy.cli_entry._save_autosave_snapshot": MagicMock(),
                 "pyfiglet.figlet_format": MagicMock(return_value="LOGO\n\n"),
                 "sys.stdout": tty,
             },
@@ -67,9 +67,9 @@ async def test_startup_resume_advice(resume_args, tokens, expected, headless, tm
 async def test_failed_startup_resume_does_not_suggest(resume_args, tmp_path):
     with patch.object(resume_advice, "emit_warning") as warning:
         with pytest.raises(SystemExit) as exit_info:
-            await _MainHarness()._run_main(
+            await _run_main(
                 ["code-puppy", *resume_args],
-                extra_patches={
+                {
                     "code_puppy.session_lifecycle.resolve_or_create_resume_target": MagicMock(
                         return_value=("my-session", tmp_path, False)
                     ),
