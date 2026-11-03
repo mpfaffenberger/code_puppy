@@ -69,6 +69,8 @@ _NAMESPACES = {
     "mcp.state": (("mcp.state.",), 7),
     "mcp.list": (("mcp.list.",), 11),
     "mcp.status": (("mcp.status.",), 22),
+    "mcp.logs": (("mcp.logs.",), 18),
+    "mcp.search": (("mcp.search.",), 14),
 }
 
 _PREFIXES = [prefixes for prefixes, _ in _NAMESPACES.values()]

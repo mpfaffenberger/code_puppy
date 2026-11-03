@@ -404,10 +404,57 @@
     "other": "📊 Summary: {running}/{count} servers running"
   },
   "mcp.list.title": "🔌 MCP Server Status Dashboard",
+  "mcp.logs.clear_failed": "Error clearing logs: {error}",
+  "mcp.logs.cleared": {
+    "one": "🗑️  Cleared {count} log file for {server}",
+    "other": "🗑️  Cleared {count} log files for {server}"
+  },
+  "mcp.logs.file": "Log file: {path}",
+  "mcp.logs.get_failed": "Error getting logs: {error}",
+  "mcp.logs.invalid_lines": "Invalid number '{value}', using default: {default}",
+  "mcp.logs.lines": {
+    "one": "{count} line",
+    "other": "{count} lines"
+  },
+  "mcp.logs.lines_not_positive": "Lines must be positive, using default: {default}",
+  "mcp.logs.list_title": "📋 Servers with logs:\n",
+  "mcp.logs.more_hint": "💡 Use {all_command} to see all logs, or {count_command} for specific count",
+  "mcp.logs.no_logs_for": "📋 No logs found for server: {server}\nLog file: `{path}`",
+  "mcp.logs.none_found": "📋 No MCP server logs found.\nLogs are created when servers are started.",
+  "mcp.logs.nothing_to_clear": "No logs to clear for server: {server}",
+  "mcp.logs.rotated": {
+    "one": "(+{count} rotated)",
+    "other": "(+{count} rotated)"
+  },
+  "mcp.logs.server_entry": "  • {server} - {lines}, {size}{rotated}",
+  "mcp.logs.server_not_found": "Server '{server}' not found and has no logs.",
+  "mcp.logs.title_all": {
+    "one": "📋 Logs for {server} (all {count} line)",
+    "other": "📋 Logs for {server} (all {count} lines)"
+  },
+  "mcp.logs.title_last": {
+    "one": "📋 Logs for {server} (last {showing} of {count} line)",
+    "other": "📋 Logs for {server} (last {showing} of {count} lines)"
+  },
+  "mcp.logs.usage": "\nUsage: {command}",
   "mcp.oauth.header_conflict": "OAuth cannot be combined with an Authorization header. Remove the header or disable OAuth.",
   "mcp.oauth.https_required": "OAuth requires an HTTPS server URL (HTTP is allowed for loopback servers only), without embedded credentials.",
   "mcp.oauth.invalid_method": "HTTP MCP auth must be 'oauth' or omitted. For API keys, use headers instead.",
   "mcp.oauth.prompt": "Use browser-based OAuth authentication?",
+  "mcp.search.column.category": "Category",
+  "mcp.search.column.description": "Description",
+  "mcp.search.column.id": "ID",
+  "mcp.search.column.name": "Name",
+  "mcp.search.column.tags": "Tags",
+  "mcp.search.details_label": "For details:",
+  "mcp.search.failed": "Error searching servers: {error}",
+  "mcp.search.install_label": "To install:",
+  "mcp.search.legend": "\n✓ = Verified  ⭐ = Popular",
+  "mcp.search.no_results": "No servers found matching your search",
+  "mcp.search.popular_title": "Popular MCP Servers:\n",
+  "mcp.search.registry_unavailable": "Server registry not available",
+  "mcp.search.searching": "Searching for: {query}\n",
+  "mcp.search.try": "Try: {examples}",
   "mcp.server.agent_reloaded": "Agent reloaded with updated servers",
   "mcp.server.already_running": "{server}: already running",
   "mcp.server.available": "Available servers: {servers}",
