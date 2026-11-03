@@ -935,7 +935,7 @@ def _normalize_cwd(cwd: str | None) -> str | None:
     LLMs sometimes serialize a null working directory as the literal strings
     ``"null"``/``"none"`` (or whitespace) because the tool schema advertises a
     string. Passing those to ``subprocess.Popen`` explodes with
-    ``FileNotFoundError: 'null'`` — normalize them to None (inherit our cwd).
+    ``FileNotFoundError: 'null'`` — normalize them to None (run in the active working directory).
     """
     if cwd is None:
         return None
