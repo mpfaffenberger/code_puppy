@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import importlib.metadata
 import json
+import threading
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
@@ -36,6 +37,19 @@ ENCODING_JSON = "json"
 # Sidecar suffixes that share the ``.json`` extension with session envelopes
 # and must never be listed as sessions themselves.
 _SIDECAR_STEM_SUFFIXES = ("_meta", "_acp")
+
+# ``title_source`` in ``<session>_meta.json`` names who owns ``title``: absent
+# means automatic. Only set_user_title() writes USER_TITLE_SOURCE, and
+# merge_sidecar() never lets an automatic writer replace that title.
+TITLE_SOURCE_KEY = "title_source"
+USER_TITLE_SOURCE = "user"
+# Enrichment that titlers and namers add through merge_sidecar(); save_session()
+# carries it over and rebuilds every other sidecar key.
+_PRESERVED_SIDECAR_KEYS = ("title", "subtitle", "tags", "ai_named_at", TITLE_SOURCE_KEY)
+_GUARDED_TITLE_KEYS = ("title", TITLE_SOURCE_KEY)
+# Serializes in-process sidecar read-modify-writes: autosave, rename, the
+# namer worker thread, and the session browser's title-prewarm thread.
+_SIDECAR_LOCK = threading.Lock()
 
 SessionHistory = List[Any]
 TokenEstimator = Callable[[Any], int]
@@ -221,6 +235,83 @@ def decode_envelope(envelope: dict[str, Any]) -> SessionHistory:
     return validate_messages_jsonable(messages)
 
 
+def _log_storage_error(exc: BaseException, context: str) -> None:
+    """Log an unexpected failure once; a failing logger never changes the result."""
+    try:
+        from code_puppy.error_logging import log_error
+
+        log_error(exc, context=context)
+    except Exception:
+        pass
+
+
+def _load_sidecar(base_dir: Path, session_name: str) -> dict[str, Any] | None:
+    """Parsed sidecar: ``{}`` when absent, ``None`` when corrupt or not an object.
+
+    Unexpected I/O errors (e.g. ``PermissionError``) propagate so callers
+    can tell an unreadable sidecar from a corrupt one.
+    """
+    path = build_session_paths(base_dir, session_name).metadata_path
+    try:
+        with path.open(encoding="utf-8") as file:
+            data = json.load(file)
+    except FileNotFoundError:
+        return {}
+    except ValueError:  # JSONDecodeError and UnicodeDecodeError
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def read_sidecar(base_dir: Path, session_name: str) -> dict[str, Any]:
+    """Return a session's metadata sidecar; ``{}`` if missing, unreadable, or not an object."""
+    try:
+        return _load_sidecar(base_dir, session_name) or {}
+    except Exception as exc:
+        _log_storage_error(exc, "session_storage::read_sidecar: sidecar read failed")
+        return {}
+
+
+def has_user_title(meta: dict[str, Any]) -> bool:
+    """True when ``/session rename`` owns the title (see TITLE_SOURCE_KEY)."""
+    return meta.get(TITLE_SOURCE_KEY) == USER_TITLE_SOURCE
+
+
+def merge_sidecar(base_dir: Path, session_name: str, updates: dict[str, Any]) -> bool:
+    """Atomically merge ``updates`` into a session's sidecar; False on failure.
+
+    Re-reads under the lock so concurrent writers only replace keys they own.
+    Over a user-owned title, updates that don't claim user ownership lose
+    ``title``/``title_source``. An existing but unreadable sidecar is left
+    untouched (ownership unknown); the next save_session() rewrites it.
+    """
+    meta_path = build_session_paths(base_dir, session_name).metadata_path
+    try:
+        with _SIDECAR_LOCK:
+            current = _load_sidecar(base_dir, session_name)
+            if current is None:
+                return False
+            if has_user_title(current) and not has_user_title(updates):
+                updates = {
+                    key: value
+                    for key, value in updates.items()
+                    if key not in _GUARDED_TITLE_KEYS
+                }
+            _write_json_atomically(meta_path, {**current, **updates})
+        return True
+    except Exception as exc:
+        _log_storage_error(
+            exc, "session_storage::merge_sidecar: sidecar read or write failed"
+        )
+        return False
+
+
+def set_user_title(base_dir: Path, session_name: str, title: str) -> bool:
+    """Persist ``title`` as user-owned so no automatic writer replaces it."""
+    return merge_sidecar(
+        base_dir, session_name, {"title": title, TITLE_SOURCE_KEY: USER_TITLE_SOURCE}
+    )
+
+
 def save_session(
     *,
     history: SessionHistory,
@@ -251,7 +342,25 @@ def save_session(
         scope_key=scope_key,
     )
 
-    _write_json_atomically(paths.metadata_path, metadata.as_serialisable())
+    with _SIDECAR_LOCK:
+        sidecar = metadata.as_serialisable()
+        try:
+            existing = _load_sidecar(base_dir, session_name) or {}
+        except Exception as exc:
+            # An unreadable sidecar's ownership is unknown, so leave it untouched.
+            _log_storage_error(
+                exc,
+                "session_storage::save_session: sidecar read failed; metadata left untouched",
+            )
+            return metadata
+        # A title the session browser derived from prompts is rebuilt on every
+        # save so it can't go stale; only user or namer enrichment is carried.
+        owned = has_user_title(existing) or isinstance(existing.get("ai_named_at"), int)
+        kept = existing if owned else {}
+        sidecar.update(
+            {key: kept[key] for key in _PRESERVED_SIDECAR_KEYS if key in kept}
+        )
+        _write_json_atomically(paths.metadata_path, sidecar)
     return metadata
 
 

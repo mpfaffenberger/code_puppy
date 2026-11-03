@@ -12,8 +12,8 @@ idempotent and NEVER raises, but failures are not silent:
   correctness layer silently degraded (e.g. tool-call hooks not firing).
 
 Logging uses the stdlib ``logging`` module, NOT ``code_puppy.messaging``:
-patches apply at the very top of ``cli_runner`` before the messaging
-system is up (see cli_runner.py lines 6-9).
+patches apply during ``code_puppy.cli_runner`` facade startup, before the
+messaging system is up.
 
 Usage:
     from code_puppy.pydantic_patches import apply_all_patches

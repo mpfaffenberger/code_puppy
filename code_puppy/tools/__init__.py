@@ -1,9 +1,15 @@
+import logging
 import os
 import sys
 
 from code_puppy.callbacks import on_register_agent_tools, on_register_tools
 from code_puppy.messaging import emit_warning
 from code_puppy.tools._lazy import lazy_registration
+
+logger = logging.getLogger(__name__)
+
+# _load_plugin_tools runs on every agent tool registration; warn once per tool.
+_banner_warned_tools: set[str] = set()
 
 register_list_agents = lazy_registration(
     "code_puppy.tools.agent_tools", "register_list_agents"
@@ -158,9 +164,36 @@ def _load_plugin_tools() -> None:
                     register_func = tool_def["register_func"]
                     if callable(register_func):
                         TOOL_REGISTRY[tool_name] = register_func
+                        _warn_if_no_banner(tool_name)
     except Exception:
         # Don't let plugin failures break core functionality
         pass
+
+
+def _warn_if_no_banner(tool_name: str) -> None:
+    # Advisory only: a failing banner lookup must never block tool registration.
+    if tool_name in _banner_warned_tools:
+        return
+    try:
+        from code_puppy.banners import has_banner_def
+
+        if has_banner_def(tool_name):
+            return
+    except Exception as error:
+        # True failure (e.g. banner_defs broken): needs a record, not just a debug line.
+        from code_puppy.error_logging import log_error
+
+        logger.debug("banner definition check failed for %s", tool_name, exc_info=True)
+        log_error(error, context="code_puppy.tools::_warn_if_no_banner")
+        return
+    _banner_warned_tools.add(tool_name)
+    # DEBUG, not WARNING: core configures no log handler, so a warning would print
+    # plugin-author advice on every end user's stderr.
+    logger.debug(
+        "Plugin tool %r has no banner definition; register one with "
+        "code_puppy.banners.register_banner_def so the terminal and ACP show it consistently.",
+        tool_name,
+    )
 
 
 def has_extended_thinking_active(model_name: str | None = None) -> bool:

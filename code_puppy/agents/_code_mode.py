@@ -25,7 +25,6 @@ the current agent.
 
 from __future__ import annotations
 
-import os
 import warnings
 from pathlib import Path, PureWindowsPath
 from typing import Any, Callable, List, Sequence
@@ -43,6 +42,7 @@ from code_puppy.agents._code_mode_session import FileReplStore, repl_path_for
 from code_puppy.agents._wire_tool_names import StreamedToolNameNormalizer
 from code_puppy.capabilities.eager_timing import EagerTiming
 from code_puppy.config import get_speculative_code_mode_enabled
+from code_puppy.tools.common import get_working_directory
 
 # Code Puppy owns terminal output, including when observability is disabled.
 pydantic_ai.BANNER_ENABLED = False
@@ -238,7 +238,7 @@ def build_speculative_code_mode(
     speculate = DeclaredSpeculation(
         [name for name in SANDBOXED_READ_ONLY_TOOLS if name in agent_tools]
     )
-    workspace = os.getcwd()
+    workspace = get_working_directory()
     mount_path = sandbox_mount_path(workspace)
     return [
         CodeMode(

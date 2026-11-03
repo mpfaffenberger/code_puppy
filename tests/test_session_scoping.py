@@ -262,16 +262,16 @@ class TestCliRunnerHereFlag:
         from code_puppy.session_lifecycle import ResumeTargetError
 
         return {
-            "code_puppy.cli_runner.find_available_port": MagicMock(return_value=8090),
-            "code_puppy.cli_runner.ensure_config_exists": MagicMock(),
-            "code_puppy.cli_runner.validate_cancel_agent_key": MagicMock(),
-            "code_puppy.cli_runner.initialize_command_history_file": MagicMock(),
-            "code_puppy.cli_runner.default_version_mismatch_behavior": MagicMock(),
-            "code_puppy.cli_runner.print_truecolor_warning": MagicMock(),
+            "code_puppy.cli_entry.find_available_port": MagicMock(return_value=8090),
+            "code_puppy.cli_entry.ensure_config_exists": MagicMock(),
+            "code_puppy.cli_entry.validate_cancel_agent_key": MagicMock(),
+            "code_puppy.cli_entry.initialize_command_history_file": MagicMock(),
+            "code_puppy.cli_entry.default_version_mismatch_behavior": MagicMock(),
+            "code_puppy.interactive_runner.print_truecolor_warning": MagicMock(),
             "code_puppy.cli_runner.reset_unix_terminal": MagicMock(),
-            "code_puppy.cli_runner.reset_windows_terminal_ansi": MagicMock(),
-            "code_puppy.cli_runner.reset_windows_terminal_full": MagicMock(),
-            "code_puppy.cli_runner.callbacks": MagicMock(
+            "code_puppy.interactive_runner.reset_windows_terminal_ansi": MagicMock(),
+            "code_puppy.interactive_runner.reset_windows_terminal_full": MagicMock(),
+            "code_puppy.cli_entry.callbacks": MagicMock(
                 on_startup=AsyncMock(),
                 on_shutdown=AsyncMock(),
                 on_version_check=AsyncMock(),

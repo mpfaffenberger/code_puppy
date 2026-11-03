@@ -20,7 +20,7 @@ BOOT_SCRIPT = textwrap.dedent(
     """
     import sys
 
-    from code_puppy import cli_runner
+    from code_puppy import cli_entry
     from code_puppy.main import main_entry
 
     mode = sys.argv[1]
@@ -32,7 +32,7 @@ BOOT_SCRIPT = textwrap.dedent(
         raise KeyboardInterrupt
 
     if mode != "version":
-        cli_runner.ensure_config_exists = fail
+        cli_entry.ensure_config_exists = fail
     main_entry()
     """
 )

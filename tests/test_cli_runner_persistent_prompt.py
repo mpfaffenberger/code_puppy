@@ -9,7 +9,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-import code_puppy.cli_runner as cli_runner
+# Import the facade first so apply_all_patches() runs before the direct
+# submodule import below pulls in pydantic_ai unpatched (see prior review).
+import code_puppy.cli_runner  # noqa: F401
+import code_puppy.interactive_runner as cli_runner
 
 
 @pytest.fixture
@@ -81,6 +84,32 @@ async def test_persistent_submission_is_echoed_then_exit(monkeypatch, renderer):
     assert not any(">>> /exit" in str(m) for m in infos)  # chrome not echoed
     assert any("Goodbye" in s for s in successes)
     assert stopped  # persistent UI torn down after the loop
+
+
+@pytest.mark.asyncio
+async def test_prompt_ready_skips_queued_turn_and_precedes_idle_wait(
+    monkeypatch, renderer
+):
+    _drive_interactive(monkeypatch, [])
+    ready = MagicMock()
+    queue = MagicMock()
+    queue.pop_next_steer_queued.side_effect = ["", None]
+
+    async def wait_for_input():
+        ready.assert_called_once_with()
+        raise EOFError
+
+    monkeypatch.setattr("code_puppy.callbacks.on_prompt_ready", ready)
+    monkeypatch.setattr(
+        "code_puppy.messaging.pause_controller.get_pause_controller", lambda: queue
+    )
+    monkeypatch.setattr(
+        "code_puppy.messaging.run_ui.wait_for_idle_submission", wait_for_input
+    )
+    await asyncio.wait_for(cli_runner.interactive_mode(renderer), 10.0)
+
+    ready.assert_called_once_with()
+    assert queue.pop_next_steer_queued.call_count == 2
 
 
 @pytest.mark.asyncio

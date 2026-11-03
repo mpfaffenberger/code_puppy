@@ -8,6 +8,7 @@ hook that runs coroutine test functions using the stdlib's asyncio.
 import asyncio
 import inspect
 import os
+import re
 import subprocess
 import tempfile
 from copy import deepcopy
@@ -34,6 +35,21 @@ def _isolate_shared_provider_credentials(monkeypatch, request):
 
     monkeypatch.setattr(shared_credentials, "save", save)
     return values
+
+
+@pytest.fixture
+def error_log(tmp_path, monkeypatch):
+    """Redirect errors.log to a temp file; returns a reader of its Context lines."""
+    from code_puppy import error_logging
+
+    log_file = tmp_path / "errors.log"
+    monkeypatch.setattr(error_logging, "LOGS_DIR", str(tmp_path))
+    monkeypatch.setattr(error_logging, "ERROR_LOG_FILE", str(log_file))
+    return lambda: re.findall(
+        r"^Context: (.*)$",
+        log_file.read_text() if log_file.exists() else "",
+        flags=re.MULTILINE,
+    )
 
 
 # Config paths resolve at import time, before fixtures run - point every XDG category
