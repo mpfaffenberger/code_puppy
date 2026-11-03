@@ -86,6 +86,54 @@
   "browser.interaction.text_set": "Texto escrito en el elemento: {selector}",
   "browser.interaction.uncheck": "DESMARCAR ELEMENTO EN EL NAVEGADOR ☐️ {details}",
   "browser.interaction.unchecked": "Elemento desmarcado: {selector}",
+  "browser.locator.find_buttons": "BUSCAR BOTONES EN EL NAVEGADOR 🔘 {details}",
+  "browser.locator.find_by_label": "BUSCAR POR ETIQUETA EN EL NAVEGADOR 🏷️ {details}",
+  "browser.locator.find_by_placeholder": "BUSCAR POR MARCADOR DE POSICIÓN EN EL NAVEGADOR {details}",
+  "browser.locator.find_by_role": "BUSCAR POR ROL EN EL NAVEGADOR 🎨 {details}",
+  "browser.locator.find_by_test_id": "BUSCAR POR TEST-ID EN EL NAVEGADOR {details}",
+  "browser.locator.find_by_text": "BUSCAR POR TEXTO EN EL NAVEGADOR {details}",
+  "browser.locator.find_links": "BUSCAR ENLACES EN EL NAVEGADOR 🔗 {details}",
+  "browser.locator.found_buttons": {
+    "one": "Se encontró {count} botón",
+    "other": "Se encontraron {count} botones"
+  },
+  "browser.locator.found_buttons_matching": {
+    "one": "Se encontró {count} botón que contiene '{filter}'",
+    "other": "Se encontraron {count} botones que contienen '{filter}'"
+  },
+  "browser.locator.found_by_label": {
+    "one": "Se encontró {count} elemento con la etiqueta '{label}'",
+    "other": "Se encontraron {count} elementos con la etiqueta '{label}'"
+  },
+  "browser.locator.found_by_placeholder": {
+    "one": "Se encontró {count} elemento con el marcador de posición '{placeholder}'",
+    "other": "Se encontraron {count} elementos con el marcador de posición '{placeholder}'"
+  },
+  "browser.locator.found_by_role": {
+    "one": "Se encontró {count} elemento con el rol '{role}'",
+    "other": "Se encontraron {count} elementos con el rol '{role}'"
+  },
+  "browser.locator.found_by_test_id": {
+    "one": "Se encontró {count} elemento con el test-id '{test_id}'",
+    "other": "Se encontraron {count} elementos con el test-id '{test_id}'"
+  },
+  "browser.locator.found_by_text": {
+    "one": "Se encontró {count} elemento que contiene el texto '{text}'",
+    "other": "Se encontraron {count} elementos que contienen el texto '{text}'"
+  },
+  "browser.locator.found_by_xpath": {
+    "one": "Se encontró {count} elemento con el XPath '{xpath}'",
+    "other": "Se encontraron {count} elementos con el XPath '{xpath}'"
+  },
+  "browser.locator.found_links": {
+    "one": "Se encontró {count} enlace",
+    "other": "Se encontraron {count} enlaces"
+  },
+  "browser.locator.found_links_matching": {
+    "one": "Se encontró {count} enlace que contiene '{filter}'",
+    "other": "Se encontraron {count} enlaces que contienen '{filter}'"
+  },
+  "browser.locator.xpath_query": "CONSULTA XPATH EN EL NAVEGADOR {details}",
   "browser.navigation.failed": "No se pudo navegar: {error}",
   "browser.navigation.go_back": "PÁGINA ANTERIOR DEL NAVEGADOR ⬅️",
   "browser.navigation.go_forward": "PÁGINA SIGUIENTE DEL NAVEGADOR ➡️",
@@ -94,6 +142,35 @@
   "browser.navigation.page_info": "OBTENER INFORMACIÓN DE LA PÁGINA DEL NAVEGADOR 📌",
   "browser.navigation.reload": "RECARGAR PÁGINA DEL NAVEGADOR 🔄 {details}",
   "browser.navigation.wait_for_load": "ESPERAR CARGA DEL NAVEGADOR {details}",
+  "browser.screenshot.banner": "CAPTURA DE PANTALLA DEL NAVEGADOR 📷 {details}",
+  "browser.screenshot.failed": "No se pudo capturar la pantalla: {error}",
+  "browser.screenshot.no_page": "No hay ninguna página activa en el navegador. Primero abre una página web.",
+  "browser.screenshot.not_visible": "El elemento '{selector}' no está visible",
+  "browser.screenshot.saved": "Captura de pantalla guardada: {path}",
+  "browser.semantic.check": "MARCAR ELEMENTO EN EL NAVEGADOR ({strategy}) {target}",
+  "browser.semantic.check_failed": "No se pudo marcar: {error}",
+  "browser.semantic.checked": "Elemento marcado: {target}",
+  "browser.semantic.click": "HACER CLIC EN EL NAVEGADOR ({strategy}) {target}",
+  "browser.semantic.click_failed": "No se pudo hacer clic: {error}",
+  "browser.semantic.clicked": "Se hizo clic en {target}",
+  "browser.semantic.fill": "ESCRIBIR TEXTO EN EL NAVEGADOR ({strategy}) {target}",
+  "browser.semantic.fill_failed": "No se pudo escribir el texto: {error}",
+  "browser.semantic.filled": "Texto escrito en {target}",
+  "browser.semantic.no_match": "Ningún elemento coincide con {target}",
+  "browser.snapshot.banner": "INSTANTÁNEA DE LA PÁGINA EN EL NAVEGADOR: recopilando el estado del DOM",
+  "browser.snapshot.buttons": {
+    "one": "{count} botón",
+    "other": "{count} botones"
+  },
+  "browser.snapshot.done": "Instantánea: {buttons}, {links}, {inputs}",
+  "browser.snapshot.inputs": {
+    "one": "{count} campo",
+    "other": "{count} campos"
+  },
+  "browser.snapshot.links": {
+    "one": "{count} enlace",
+    "other": "{count} enlaces"
+  },
   "cfg.agent.not_found": "Agente '{agent}' no encontrado",
   "cfg.listing.available_models": "Modelos disponibles:",
   "cfg.listing.builtin_agents": "Agentes integrados disponibles:",

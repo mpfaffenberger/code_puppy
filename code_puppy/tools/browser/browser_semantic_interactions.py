@@ -11,11 +11,32 @@ from typing import Any, Dict, Optional
 
 from pydantic_ai import RunContext
 
+from code_puppy.i18n import t
 from code_puppy.messaging import emit_error, emit_info, emit_success
 from code_puppy.tools.common import generate_group_id
 
 from .browser_locator_resolver import describe_target, resolve_locator
 from .browser_manager import get_session_browser_manager
+
+# action -> (banner, success, failure) keys for terminal messages. Results
+# returned to the model stay English.
+_MESSAGE_KEYS = {
+    "click": (
+        "browser.semantic.click",
+        "browser.semantic.clicked",
+        "browser.semantic.click_failed",
+    ),
+    "fill": (
+        "browser.semantic.fill",
+        "browser.semantic.filled",
+        "browser.semantic.fill_failed",
+    ),
+    "check": (
+        "browser.semantic.check",
+        "browser.semantic.checked",
+        "browser.semantic.check_failed",
+    ),
+}
 
 
 async def _act_on_semantic(
@@ -33,9 +54,12 @@ async def _act_on_semantic(
     duplicate the resolve-wait-act-diagnose dance (DRY).
     """
     target = describe_target(strategy, value, name)
+    if action not in _MESSAGE_KEYS:  # pragma: no cover - guarded by callers
+        return {"success": False, "error": f"Unknown action {action!r}"}
+    banner_key, success_key, failure_key = _MESSAGE_KEYS[action]
     group_id = generate_group_id(f"browser_{action}_by_{strategy}", target)
     emit_info(
-        f"BROWSER {action.upper()} BY {strategy.upper()}  {target}",
+        t(banner_key, strategy=strategy.upper(), target=target),
         message_group=group_id,
     )
     try:
@@ -54,9 +78,14 @@ async def _act_on_semantic(
 
         # Deterministic "no match" error instead of a raw Playwright timeout.
         if await locator.count() == 0:
-            msg = f"No element matched {target}"
-            emit_error(msg, message_group=group_id)
-            return {"success": False, "error": msg, "target": target}
+            emit_error(
+                t("browser.semantic.no_match", target=target), message_group=group_id
+            )
+            return {
+                "success": False,
+                "error": f"No element matched {target}",
+                "target": target,
+            }
 
         await element.wait_for(state="visible", timeout=timeout)
 
@@ -64,12 +93,10 @@ async def _act_on_semantic(
             await element.click(timeout=timeout)
         elif action == "fill":
             await element.fill(text or "", timeout=timeout)
-        elif action == "check":
+        else:  # "check"; unknown actions returned before the banner
             await element.check(timeout=timeout)
-        else:  # pragma: no cover - guarded by callers
-            return {"success": False, "error": f"Unknown action {action!r}"}
 
-        emit_success(f"{action} on {target}", message_group=group_id)
+        emit_success(t(success_key, target=target), message_group=group_id)
         result: Dict[str, Any] = {
             "success": True,
             "action": action,
@@ -81,7 +108,7 @@ async def _act_on_semantic(
         return result
 
     except Exception as e:
-        emit_error(f"{action} failed: {str(e)}", message_group=group_id)
+        emit_error(t(failure_key, error=e), message_group=group_id)
         return {"success": False, "error": str(e), "target": target}
 
 

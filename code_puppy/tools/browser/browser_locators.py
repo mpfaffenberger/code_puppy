@@ -4,6 +4,7 @@ from typing import Any, Dict, Optional
 
 from pydantic_ai import RunContext
 
+from code_puppy.i18n import ngettext, t
 from code_puppy.messaging import emit_info, emit_success
 from code_puppy.tools.common import generate_group_id
 
@@ -19,7 +20,7 @@ async def find_by_role(
     """Find elements by ARIA role."""
     group_id = generate_group_id("browser_find_by_role", f"{role}_{name or 'any'}")
     emit_info(
-        f"BROWSER FIND BY ROLE 🎨 role={role} name={name}",
+        t("browser.locator.find_by_role", details=f"role={role} name={name}"),
         message_group=group_id,
     )
     try:
@@ -47,7 +48,7 @@ async def find_by_role(
                 elements.append({"index": i, "text": text, "visible": True})
 
         emit_success(
-            f"Found {count} elements with role '{role}'",
+            ngettext("browser.locator.found_by_role", count, role=role),
             message_group=group_id,
         )
 
@@ -71,7 +72,7 @@ async def find_by_text(
     """Find elements containing specific text."""
     group_id = generate_group_id("browser_find_by_text", text[:50])
     emit_info(
-        f"BROWSER FIND BY TEXT text='{text}' exact={exact}",
+        t("browser.locator.find_by_text", details=f"text='{text}' exact={exact}"),
         message_group=group_id,
     )
     try:
@@ -99,7 +100,7 @@ async def find_by_text(
                 )
 
         emit_success(
-            f"Found {count} elements containing text '{text}'",
+            ngettext("browser.locator.found_by_text", count, text=text),
             message_group=group_id,
         )
 
@@ -123,7 +124,7 @@ async def find_by_label(
     """Find form elements by their associated label text."""
     group_id = generate_group_id("browser_find_by_label", text[:50])
     emit_info(
-        f"BROWSER FIND BY LABEL 🏷️ label='{text}' exact={exact}",
+        t("browser.locator.find_by_label", details=f"label='{text}' exact={exact}"),
         message_group=group_id,
     )
     try:
@@ -162,7 +163,7 @@ async def find_by_label(
                 )
 
         emit_success(
-            f"Found {count} elements with label '{text}'",
+            ngettext("browser.locator.found_by_label", count, label=text),
             message_group=group_id,
         )
 
@@ -186,7 +187,10 @@ async def find_by_placeholder(
     """Find elements by placeholder text."""
     group_id = generate_group_id("browser_find_by_placeholder", text[:50])
     emit_info(
-        f"BROWSER FIND BY PLACEHOLDER placeholder='{text}' exact={exact}",
+        t(
+            "browser.locator.find_by_placeholder",
+            details=f"placeholder='{text}' exact={exact}",
+        ),
         message_group=group_id,
     )
     try:
@@ -221,7 +225,7 @@ async def find_by_placeholder(
                 )
 
         emit_success(
-            f"Found {count} elements with placeholder '{text}'",
+            ngettext("browser.locator.found_by_placeholder", count, placeholder=text),
             message_group=group_id,
         )
 
@@ -244,7 +248,7 @@ async def find_by_test_id(
     """Find elements by test ID attribute."""
     group_id = generate_group_id("browser_find_by_test_id", test_id)
     emit_info(
-        f"BROWSER FIND BY TEST ID test_id='{test_id}'",
+        t("browser.locator.find_by_test_id", details=f"test_id='{test_id}'"),
         message_group=group_id,
     )
     try:
@@ -278,7 +282,7 @@ async def find_by_test_id(
                 )
 
         emit_success(
-            f"Found {count} elements with test-id '{test_id}'",
+            ngettext("browser.locator.found_by_test_id", count, test_id=test_id),
             message_group=group_id,
         )
 
@@ -300,7 +304,7 @@ async def run_xpath_query(
     """Find elements using XPath selector."""
     group_id = generate_group_id("browser_xpath_query", xpath[:100])
     emit_info(
-        f"BROWSER XPATH QUERY xpath='{xpath}'",
+        t("browser.locator.xpath_query", details=f"xpath='{xpath}'"),
         message_group=group_id,
     )
     try:
@@ -339,7 +343,7 @@ async def run_xpath_query(
                 )
 
         emit_success(
-            f"Found {count} elements with XPath '{xpath}'",
+            ngettext("browser.locator.found_by_xpath", count, xpath=xpath),
             message_group=group_id,
         )
 
@@ -355,7 +359,7 @@ async def find_buttons(
     """Find all button elements on the page."""
     group_id = generate_group_id("browser_find_buttons", text_filter or "all")
     emit_info(
-        f"BROWSER FIND BUTTONS 🔘 filter='{text_filter or 'none'}'",
+        t("browser.locator.find_buttons", details=f"filter='{text_filter or 'none'}'"),
         message_group=group_id,
     )
     try:
@@ -383,8 +387,13 @@ async def find_buttons(
         filtered_count = len(buttons)
 
         emit_success(
-            f"Found {filtered_count} buttons"
-            + (f" containing '{text_filter}'" if text_filter else ""),
+            ngettext(
+                "browser.locator.found_buttons_matching",
+                filtered_count,
+                filter=text_filter,
+            )
+            if text_filter
+            else ngettext("browser.locator.found_buttons", filtered_count),
             message_group=group_id,
         )
 
@@ -406,7 +415,7 @@ async def find_links(
     """Find all link elements on the page."""
     group_id = generate_group_id("browser_find_links", text_filter or "all")
     emit_info(
-        f"BROWSER FIND LINKS 🔗 filter='{text_filter or 'none'}'",
+        t("browser.locator.find_links", details=f"filter='{text_filter or 'none'}'"),
         message_group=group_id,
     )
     try:
@@ -436,8 +445,13 @@ async def find_links(
         filtered_count = len(links)
 
         emit_success(
-            f"Found {filtered_count} links"
-            + (f" containing '{text_filter}'" if text_filter else ""),
+            ngettext(
+                "browser.locator.found_links_matching",
+                filtered_count,
+                filter=text_filter,
+            )
+            if text_filter
+            else ngettext("browser.locator.found_links", filtered_count),
             message_group=group_id,
         )
 
