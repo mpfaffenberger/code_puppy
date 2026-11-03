@@ -243,3 +243,79 @@ def test_ensure_titles_never_derives_over_user_title(tmp_path, title):
         assert ensure_titles(tmp_path, entry) is False
     assert entry.meta["title"] == title
     assert path.read_bytes() == before
+
+
+LOG_ERROR = "code_puppy.error_logging.log_error"
+_real_open = Path.open
+
+
+def _deny_sidecar_read(self, mode="r", *args, **kwargs):
+    if self.name.endswith("_meta.json") and "r" in mode:
+        raise PermissionError("denied")
+    return _real_open(self, mode, *args, **kwargs)
+
+
+class TestStorageErrorLogging:
+    def test_unreadable_owned_sidecar_survives_autosave(self, tmp_path):
+        path = _write_sidecar(tmp_path, {"title": "Secret title", **USER})
+        before = path.read_bytes()
+        with (
+            patch.object(Path, "open", _deny_sidecar_read),
+            patch(LOG_ERROR) as log_error,
+        ):
+            metadata = _save(tmp_path)
+        assert path.read_bytes() == before
+        assert "Secret title" not in str(log_error.call_args)
+        assert _sidecar(tmp_path)[TITLE_SOURCE_KEY] == USER_TITLE_SOURCE
+        assert log_error.call_count == 1
+        assert metadata.session_name == "s"
+        assert metadata.json_path.exists()
+
+    def test_failed_write_logs_once_and_releases_lock(self, tmp_path):
+        with (
+            patch.object(
+                session_storage, "_write_json_atomically", side_effect=OSError("disk")
+            ),
+            patch(LOG_ERROR) as log_error,
+        ):
+            assert set_user_title(tmp_path, "s", "Secret title") is False
+        assert log_error.call_count == 1
+        assert "Secret title" not in str(log_error.call_args)
+        assert session_storage._SIDECAR_LOCK.acquire(blocking=False)
+        session_storage._SIDECAR_LOCK.release()
+        assert set_user_title(tmp_path, "s", "Mine") is True
+
+    def test_read_sidecar_logs_unexpected_error_once(self, tmp_path):
+        _write_sidecar(tmp_path, {"title": "Mine", **USER})
+        with (
+            patch.object(Path, "open", _deny_sidecar_read),
+            patch(LOG_ERROR) as log_error,
+        ):
+            assert read_sidecar(tmp_path, "s") == {}
+        assert log_error.call_count == 1
+
+    @pytest.mark.parametrize("contents", [None, "{broken", "[1, 2]"])
+    def test_expected_conditions_are_not_logged(self, tmp_path, contents):
+        if contents is not None:
+            _write_sidecar(tmp_path, contents)
+        with patch(LOG_ERROR) as log_error:
+            merge_sidecar(tmp_path, "s", {"tags": []})
+            read_sidecar(tmp_path, "s")
+            _save(tmp_path)
+        assert log_error.call_count == 0
+        assert _sidecar(tmp_path)["message_count"] == 2
+
+    def test_failing_logger_does_not_change_results(self, tmp_path):
+        with (
+            patch(LOG_ERROR, side_effect=RuntimeError("logger down")),
+            patch.object(
+                session_storage, "_write_json_atomically", side_effect=OSError("disk")
+            ),
+        ):
+            assert set_user_title(tmp_path, "s", "Mine") is False
+        _write_sidecar(tmp_path, {"title": "Mine", **USER})
+        with (
+            patch(LOG_ERROR, side_effect=RuntimeError("logger down")),
+            patch.object(Path, "open", _deny_sidecar_read),
+        ):
+            assert _save(tmp_path).session_name == "s"

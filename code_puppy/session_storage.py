@@ -235,22 +235,40 @@ def decode_envelope(envelope: dict[str, Any]) -> SessionHistory:
     return validate_messages_jsonable(messages)
 
 
+def _log_storage_error(exc: BaseException, context: str) -> None:
+    """Log an unexpected failure once; a failing logger never changes the result."""
+    try:
+        from code_puppy.error_logging import log_error
+
+        log_error(exc, context=context)
+    except Exception:
+        pass
+
+
 def _load_sidecar(base_dir: Path, session_name: str) -> dict[str, Any] | None:
-    """Parsed sidecar: ``{}`` when absent, ``None`` when unreadable or not an object."""
+    """Parsed sidecar: ``{}`` when absent, ``None`` when corrupt or not an object.
+
+    Unexpected I/O errors (e.g. ``PermissionError``) propagate so callers
+    can tell an unreadable sidecar from a corrupt one.
+    """
     path = build_session_paths(base_dir, session_name).metadata_path
     try:
         with path.open(encoding="utf-8") as file:
             data = json.load(file)
     except FileNotFoundError:
         return {}
-    except Exception:
+    except ValueError:  # JSONDecodeError and UnicodeDecodeError
         return None
     return data if isinstance(data, dict) else None
 
 
 def read_sidecar(base_dir: Path, session_name: str) -> dict[str, Any]:
     """Return a session's metadata sidecar; ``{}`` if missing, unreadable, or not an object."""
-    return _load_sidecar(base_dir, session_name) or {}
+    try:
+        return _load_sidecar(base_dir, session_name) or {}
+    except Exception as exc:
+        _log_storage_error(exc, "session_storage::read_sidecar: sidecar read failed")
+        return {}
 
 
 def has_user_title(meta: dict[str, Any]) -> bool:
@@ -280,7 +298,10 @@ def merge_sidecar(base_dir: Path, session_name: str, updates: dict[str, Any]) ->
                 }
             _write_json_atomically(meta_path, {**current, **updates})
         return True
-    except Exception:
+    except Exception as exc:
+        _log_storage_error(
+            exc, "session_storage::merge_sidecar: sidecar read or write failed"
+        )
         return False
 
 
@@ -323,7 +344,15 @@ def save_session(
 
     with _SIDECAR_LOCK:
         sidecar = metadata.as_serialisable()
-        existing = read_sidecar(base_dir, session_name)
+        try:
+            existing = _load_sidecar(base_dir, session_name) or {}
+        except Exception as exc:
+            # An unreadable sidecar's ownership is unknown, so leave it untouched.
+            _log_storage_error(
+                exc,
+                "session_storage::save_session: sidecar read failed; metadata left untouched",
+            )
+            return metadata
         # A title the session browser derived from prompts is rebuilt on every
         # save so it can't go stale; only user or namer enrichment is carried.
         owned = has_user_title(existing) or isinstance(existing.get("ai_named_at"), int)
