@@ -215,6 +215,7 @@ def test_root_opens_before_splash_and_hooks_and_closes_after_handle(run_entry):
         _seq(events, "splash", "start"),
         _seq(events, "splash", "skip"),
         _seq(events, "error_hooks", "start"),
+        _seq(events, "early_startup", "start"),
         _seq(events, "runner.import", "start"),
         _seq(events, "cli.handle_args", "start"),
         _seq(events, "cli.handle_args", "end"),
