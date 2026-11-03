@@ -17,11 +17,20 @@ from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 
-from code_puppy import callbacks, cli_runner, error_hooks, error_logging
+# Apply patches before importing the implementation modules directly.
+from code_puppy import cli_runner
+from code_puppy import (
+    callbacks,
+    cli_entry,
+    error_hooks,
+    error_logging,
+    interactive_runner,
+)
 from code_puppy.i18n import t
 from tests.test_cli_runner_resume_render import _resume_patches, _run_main
 
-CTX = "code_puppy.cli_runner::"
+CTX = "code_puppy.cli_entry::"
+ENTRY_CTX = "code_puppy.cli_runner::"
 HOOK_CONTEXT = error_hooks._MAIN_CONTEXT
 
 
@@ -85,7 +94,7 @@ async def test_session_migration_failure_is_recorded_and_startup_continues(
     extra = _quiet_sweeps(
         **{
             target: MagicMock(side_effect=_boom()),
-            "code_puppy.cli_runner.execute_single_prompt": execute,
+            "code_puppy.cli_entry.execute_single_prompt": execute,
         }
     )
 
@@ -194,7 +203,7 @@ def _resume_extra(**overrides) -> dict:
     stdout.isatty.return_value = True
     extra = _quiet_sweeps(
         **{
-            "code_puppy.cli_runner.interactive_mode": AsyncMock(),
+            "code_puppy.cli_entry.interactive_mode": AsyncMock(),
             "pyfiglet.figlet_format": MagicMock(return_value="LOGO\n\n"),
             "sys.stdout": stdout,
         }
@@ -213,7 +222,7 @@ async def test_resumed_history_render_failure_is_recorded_and_startup_continues(
             "code_puppy.command_line.autosave_menu.display_resumed_history": MagicMock(
                 side_effect=_boom()
             ),
-            "code_puppy.cli_runner.interactive_mode": interactive,
+            "code_puppy.cli_entry.interactive_mode": interactive,
         }
     )
 
@@ -342,7 +351,7 @@ def test_utf8_reconfigure_failure_is_debug_only(isolated_log, caplog):
     assert (
         messages
         == [
-            f"{CTX}_force_utf8_stdio: startup/stdio: reconfigure stdout/stderr to UTF-8"
+            f"{ENTRY_CTX}_force_utf8_stdio: startup/stdio: reconfigure stdout/stderr to UTF-8"
         ]
         * 2
     )
@@ -350,10 +359,16 @@ def test_utf8_reconfigure_failure_is_debug_only(isolated_log, caplog):
 
 
 def test_cli_runner_startup_context_count_is_pinned():
-    source = Path(cli_runner.__file__).read_text()
-    startup = re.findall(rf'"({re.escape(CTX)}[^"]*startup/[^"]+)"', source)
+    source = "\n".join(
+        Path(module.__file__).read_text()
+        for module in (cli_entry, cli_runner, interactive_runner)
+    )
+    startup = re.findall(
+        r'"(code_puppy\.(?:cli_entry|cli_runner|interactive_runner)::[^"\n]*startup/[^"\n]+)"',
+        source,
+    )
 
     assert len(startup) == 10, (
-        "cli_runner has 6 ERROR + 4 DEBUG startup sites pinned in "
+        "The split runner has 6 ERROR + 4 DEBUG startup sites pinned in "
         "tests/data/error_pipeline_sites.tsv; add or remove the TSV row with the site"
     )
