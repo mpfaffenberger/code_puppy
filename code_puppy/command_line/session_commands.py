@@ -98,7 +98,7 @@ def handle_session_command(command: str) -> bool:
         emit_success(t("cmd.session.new", name=new_name))
         return True
     if tokens[1] == "rename":
-        _rename_current_session(command)
+        rename_from_command(command)
         return True
     emit_warning(t("cmd.session.usage"))
     return True
@@ -127,32 +127,49 @@ def _clean_title(raw: str) -> str:
     return cleaned if has_visible else ""
 
 
-def _rename_current_session(command: str) -> None:
+def rename_from_command(
+    command: str, session_name: str | None = None, base_dir: Path | None = None
+) -> bool:
+    """Run ``/session rename <title>`` on ``session_name`` (default: the current CLI session).
+
+    ``base_dir`` defaults to the autosave directory; ACP keeps its sessions in a
+    subdirectory. Returns False without doing anything when ``command`` isn't a
+    rename. Messages go to the message bus like any slash command.
+    Called by: handle_session_command(); code_puppy_core_plugins acp/persistence.py ::
+    rename_session() (ACP sessions aren't the CLI's current session)
+    """
     from code_puppy.command_line.session_browser_data import _TITLE_MAX
     from code_puppy.config import get_current_session_name
     from code_puppy.messaging import emit_error, emit_success, emit_warning
 
     parts = command.split(maxsplit=2)
+    # One leading slash, like the dispatcher: `//session ...` is a file path.
+    if len(parts) < 2 or parts[1] != "rename" or not parts[0].startswith("/"):
+        return False
+    if parts[0][1:].lower() not in ("session", "s"):
+        return False
     title = _clean_title(parts[2]) if len(parts) > 2 else ""
     if not title:
         emit_warning(t("cmd.session.rename_empty"))
-        return
+        return True
     if len(title) > _TITLE_MAX:
         emit_warning(
             t("cmd.session.rename_too_long", length=len(title), limit=_TITLE_MAX)
         )
-        return
-    base_dir = Path(AUTOSAVE_DIR)
-    session_name = get_current_session_name()
+        return True
+    base_dir = base_dir or Path(AUTOSAVE_DIR)
+    if session_name is None:
+        session_name = get_current_session_name()
     paths = build_session_paths(base_dir, session_name)
     # No saved history yet: refuse rather than leave an orphan sidecar.
     if not (paths.json_path.exists() or paths.pickle_path.exists()):
         emit_warning(t("cmd.session.rename_unsaved"))
-        return
+        return True
     if not set_user_title(base_dir, session_name, title):
         emit_error(t("cmd.session.rename_failed"))
-        return
+        return True
     emit_success(t("cmd.session.renamed", title=title))
+    return True
 
 
 @register_command(

@@ -14,10 +14,14 @@ from code_puppy.command_line.session_browser_data import (
     build_entries,
     ensure_titles,
 )
-from code_puppy.command_line.session_commands import handle_session_command
+from code_puppy.command_line.session_commands import (
+    handle_session_command,
+    rename_from_command,
+)
 from code_puppy.session_storage import has_user_title, save_session
 
 NAME = "auto_session_rename_test"
+OTHER = "other_session"
 
 
 def _history() -> list:
@@ -29,6 +33,10 @@ def _history() -> list:
 
 def _meta(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _snapshot(base_dir: Path) -> dict[str, bytes]:
+    return {p.name: p.read_bytes() for p in base_dir.iterdir() if p.is_file()}
 
 
 @pytest.fixture
@@ -55,6 +63,19 @@ def sidecar_path(autosave_dir):
         auto_saved=True,
     )
     return autosave_dir / f"{NAME}_meta.json"
+
+
+@pytest.fixture
+def other_sidecar(autosave_dir, sidecar_path):
+    save_session(
+        history=_history(),
+        session_name=OTHER,
+        base_dir=autosave_dir,
+        timestamp="2026-01-02T00:00:00",
+        token_estimator=lambda _m: 1,
+        auto_saved=True,
+    )
+    return autosave_dir / f"{OTHER}_meta.json"
 
 
 @pytest.fixture
@@ -148,6 +169,91 @@ def test_rename_reports_unreadable_sidecar(sidecar_path, emitted):
     handle_session_command("/session rename Mine")
     emitted["error"].assert_called_once_with("cmd.session.rename_failed|{}")
     assert sidecar_path.read_text(encoding="utf-8") == "{broken"
+
+
+@pytest.mark.parametrize(
+    "command", ["/session rename Mine", "/s rename Mine", "/SESSION rename Mine"]
+)
+def test_rename_from_command_targets_explicit_session(
+    sidecar_path, other_sidecar, emitted, command
+):
+    current_before = sidecar_path.read_bytes()
+    assert rename_from_command(command, session_name=OTHER) is True
+    meta = _meta(other_sidecar)
+    assert (meta["title"], has_user_title(meta)) == ("Mine", True)
+    assert sidecar_path.read_bytes() == current_before
+    emitted["success"].assert_called_once_with(
+        f"cmd.session.renamed|{ {'title': 'Mine'} }"
+    )
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "/session",
+        "/session id",
+        "/session renamed x",
+        "/clear",
+        "/model rename x",
+        "//session rename x",
+        "session rename x",
+        "",
+        "   ",
+    ],
+)
+def test_rename_from_command_ignores_non_rename(
+    autosave_dir, sidecar_path, emitted, command
+):
+    before = _snapshot(autosave_dir)
+    assert rename_from_command(command) is False
+    assert _snapshot(autosave_dir) == before
+    emitted["success"].assert_not_called()
+    emitted["warning"].assert_not_called()
+    emitted["error"].assert_not_called()
+
+
+def test_rename_explicit_unsaved_session_warns_and_writes_nothing(
+    autosave_dir, sidecar_path, emitted
+):
+    before = _snapshot(autosave_dir)
+    assert (
+        rename_from_command("/session rename Mine", session_name="ghost_session")
+        is True
+    )
+    emitted["warning"].assert_called_once_with("cmd.session.rename_unsaved|{}")
+    emitted["success"].assert_not_called()
+    assert _snapshot(autosave_dir) == before
+
+
+def test_rename_explicit_base_dir_leaves_autosave_dir_alone(
+    autosave_dir, sidecar_path, emitted
+):
+    # ACP keeps its sessions in a subdirectory of the autosave directory.
+    acp_dir = autosave_dir / "acp"
+    save_session(
+        history=_history(),
+        session_name=OTHER,
+        base_dir=acp_dir,
+        timestamp="2026-01-02T00:00:00",
+        token_estimator=lambda _m: 1,
+    )
+    before = _snapshot(autosave_dir)
+    assert (
+        rename_from_command(
+            "/session rename Mine", session_name=OTHER, base_dir=acp_dir
+        )
+        is True
+    )
+    meta = _meta(acp_dir / f"{OTHER}_meta.json")
+    assert (meta["title"], has_user_title(meta)) == ("Mine", True)
+    assert _snapshot(autosave_dir) == before  # files only; acp/ is a subdirectory
+
+
+def test_rename_explicit_session_empty_title_warns(other_sidecar, emitted):
+    before = other_sidecar.read_bytes()
+    assert rename_from_command("/session rename", session_name=OTHER) is True
+    emitted["warning"].assert_called_once_with("cmd.session.rename_empty|{}")
+    assert other_sidecar.read_bytes() == before
 
 
 def test_help_and_usage_list_rename():
