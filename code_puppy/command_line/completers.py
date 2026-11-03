@@ -270,6 +270,36 @@ class AgentCompleter(Completer):
                 )
 
 
+class SessionCompleter(Completer):
+    """Completes ``/session`` subcommands; the rename title is free text."""
+
+    _SUBCOMMANDS = (
+        ("id", "show current session ID"),
+        ("new", "start a new autosave session"),
+        ("rename", "set a permanent session title"),
+    )
+
+    def __init__(self, trigger: str = "/session"):
+        self.trigger = trigger
+
+    def get_completions(self, document, complete_event):
+        text_before_cursor = document.text_before_cursor
+        if not text_before_cursor.lstrip().startswith(self.trigger + " "):
+            return
+        trigger_end = text_before_cursor.find(self.trigger) + len(self.trigger) + 1
+        partial = text_before_cursor[trigger_end:].lstrip()
+        if " " in partial:
+            return
+        for name, meta in self._SUBCOMMANDS:
+            if name.startswith(partial):
+                yield Completion(
+                    name,
+                    start_position=-len(partial),
+                    display=name,
+                    display_meta=meta,
+                )
+
+
 def _read_slash_catalog() -> list[dict[str, str]]:
     """Load registered and plugin command help without filtering or reordering."""
     catalog = []
@@ -366,6 +396,8 @@ def build_completer_stack() -> Completer:
             AgentCompleter(trigger="/a"),
             AgentCompleter(trigger="/switch-agent"),
             AgentCompleter(trigger="/sa"),
+            SessionCompleter(trigger="/session"),
+            SessionCompleter(trigger="/s"),
             AgentCompleter(trigger="/fork", prefix="@"),
             ModelNameCompleter(trigger="/fork", prefix="@"),
             MCPCompleter(trigger="/mcp"),
