@@ -314,7 +314,7 @@
   "cmd.session.rename_empty": "Enter a title: /session rename <title>",
   "cmd.session.rename_failed": "Couldn't save the session title. Try again after the next autosave.",
   "cmd.session.rename_too_long": "That title has {length} characters. Use {limit} or fewer.",
-  "cmd.session.rename_unsaved": "This session isn't saved yet. Rename it after it's autosaved.",
+  "cmd.session.rename_unsaved": "This session isn't saved yet. Rename it once it's saved.",
   "cmd.session.renamed": "Session renamed: {title}",
   "cmd.session.usage": "Usage: /session [id|new|rename <title>]",
   "cmd.truncate.already_short": "History already has {current} messages, which is <= {n}. Nothing to truncate.",

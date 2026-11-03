@@ -235,15 +235,22 @@ def decode_envelope(envelope: dict[str, Any]) -> SessionHistory:
     return validate_messages_jsonable(messages)
 
 
-def read_sidecar(base_dir: Path, session_name: str) -> dict[str, Any]:
-    """Return a session's metadata sidecar; ``{}`` if missing, unreadable, or not an object."""
+def _load_sidecar(base_dir: Path, session_name: str) -> dict[str, Any] | None:
+    """Parsed sidecar: ``{}`` when absent, ``None`` when unreadable or not an object."""
+    path = build_session_paths(base_dir, session_name).metadata_path
     try:
-        path = build_session_paths(base_dir, session_name).metadata_path
         with path.open(encoding="utf-8") as file:
             data = json.load(file)
-    except Exception:
+    except FileNotFoundError:
         return {}
-    return data if isinstance(data, dict) else {}
+    except Exception:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def read_sidecar(base_dir: Path, session_name: str) -> dict[str, Any]:
+    """Return a session's metadata sidecar; ``{}`` if missing, unreadable, or not an object."""
+    return _load_sidecar(base_dir, session_name) or {}
 
 
 def has_user_title(meta: dict[str, Any]) -> bool:
@@ -262,8 +269,8 @@ def merge_sidecar(base_dir: Path, session_name: str, updates: dict[str, Any]) ->
     meta_path = build_session_paths(base_dir, session_name).metadata_path
     try:
         with _SIDECAR_LOCK:
-            current = read_sidecar(base_dir, session_name)
-            if not current and meta_path.exists():
+            current = _load_sidecar(base_dir, session_name)
+            if current is None:
                 return False
             if has_user_title(current) and not has_user_title(updates):
                 updates = {
@@ -317,8 +324,12 @@ def save_session(
     with _SIDECAR_LOCK:
         sidecar = metadata.as_serialisable()
         existing = read_sidecar(base_dir, session_name)
+        # A title the session browser derived from prompts is rebuilt on every
+        # save so it can't go stale; only user or namer enrichment is carried.
+        owned = has_user_title(existing) or isinstance(existing.get("ai_named_at"), int)
+        kept = existing if owned else {}
         sidecar.update(
-            {key: existing[key] for key in _PRESERVED_SIDECAR_KEYS if key in existing}
+            {key: kept[key] for key in _PRESERVED_SIDECAR_KEYS if key in kept}
         )
         _write_json_atomically(paths.metadata_path, sidecar)
     return metadata

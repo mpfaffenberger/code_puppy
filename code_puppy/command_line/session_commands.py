@@ -20,6 +20,10 @@ from code_puppy.session_storage import (
 
 logger = logging.getLogger(__name__)
 
+# Bidi embeddings/overrides (U+202A-202E) and isolates (U+2066-2069) can
+# reorder how a title displays.
+_BIDI_CONTROLS = frozenset(map(chr, (*range(0x202A, 0x202F), *range(0x2066, 0x206A))))
+
 
 def _parse_quick_resume_target(command: str) -> str:
     """Extract the optional PATH arg from a ``/quick-resume`` command string.
@@ -101,17 +105,26 @@ def handle_session_command(command: str) -> bool:
 
 
 def _clean_title(raw: str) -> str:
-    """Drop control/format characters (Unicode C*) and collapse whitespace.
+    """Drop terminal-unsafe characters and collapse whitespace.
 
-    The session browser paints titles as raw ANSI, so an ESC byte would
-    reach the terminal.
+    The session browser paints titles as raw ANSI, so control characters
+    (ESC) and bidi overrides must go. Joiners, marks and tag characters stay:
+    emoji sequences and Persian/Indic words depend on them.
     """
     kept = "".join(
         char
         for char in raw
-        if char.isspace() or not unicodedata.category(char).startswith("C")
+        if char.isspace()
+        or not (unicodedata.category(char) in ("Cc", "Cs") or char in _BIDI_CONTROLS)
     )
-    return " ".join(kept.split())
+    cleaned = " ".join(kept.split())
+    # Joiners alone (e.g. a zero-width space) would make an invisible title.
+    has_visible = any(
+        not unicodedata.category(char).startswith("C")
+        for char in cleaned
+        if not char.isspace()
+    )
+    return cleaned if has_visible else ""
 
 
 def _rename_current_session(command: str) -> None:

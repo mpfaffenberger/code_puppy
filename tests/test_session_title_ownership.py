@@ -78,6 +78,20 @@ class TestSaveSessionKeepsEnrichment:
         assert _sidecar(tmp_path) == {**metadata.as_serialisable(), **enrichment}
 
     @pytest.mark.parametrize(
+        ("existing", "kept"),
+        [
+            ({"title": "derived", "subtitle": "derived"}, {}),
+            ({"title": "t", "ai_named_at": 2}, {"title": "t", "ai_named_at": 2}),
+            ({"title": "t", **USER}, {"title": "t", **USER}),
+        ],
+        ids=["browser-derived-rebuilt", "namer-kept", "user-kept"],
+    )
+    def test_only_owned_titles_are_carried_over(self, tmp_path, existing, kept):
+        _write_sidecar(tmp_path, existing)
+        metadata = _save(tmp_path)
+        assert _sidecar(tmp_path) == {**metadata.as_serialisable(), **kept}
+
+    @pytest.mark.parametrize(
         "contents",
         [None, "{broken", "[1, 2]", ""],
         ids=["missing", "corrupt", "list", "empty"],
@@ -174,6 +188,11 @@ class TestMergeSidecarOwnership:
     def test_missing_sidecar_is_created(self, tmp_path):
         assert merge_sidecar(tmp_path, "s", {"title": "T"}) is True
         assert _sidecar(tmp_path) == {"title": "T"}
+
+    def test_empty_object_sidecar_is_valid_not_corrupt(self, tmp_path):
+        _write_sidecar(tmp_path, {})
+        assert set_user_title(tmp_path, "s", "Mine") is True
+        assert _sidecar(tmp_path) == {"title": "Mine", **USER}
 
     def test_stale_automatic_write_after_rename_keeps_user_title(self, tmp_path):
         # Namer race at the core layer: rename lands, then an in-flight writer commits.

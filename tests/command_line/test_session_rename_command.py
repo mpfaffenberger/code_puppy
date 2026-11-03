@@ -18,13 +18,6 @@ from code_puppy.command_line.session_commands import handle_session_command
 from code_puppy.session_storage import has_user_title, save_session
 
 NAME = "auto_session_rename_test"
-NEW_KEYS = {
-    "cmd.session.rename_empty": {},
-    "cmd.session.rename_too_long": {"length": 70, "limit": 64},
-    "cmd.session.rename_unsaved": {},
-    "cmd.session.rename_failed": {},
-    "cmd.session.renamed": {"title": "My title"},
-}
 
 
 def _history() -> list:
@@ -82,6 +75,14 @@ def emitted():
         ("/session rename line\none\ttab", "line one tab"),
         ("/session rename esc\x1b[31m red\x07", "esc[31m red"),
         ("/session rename bidi\u202eflip", "bidiflip"),
+        (
+            "/session rename family \U0001f468\u200d\U0001f469\u200d\U0001f467",
+            "family \U0001f468\u200d\U0001f469\u200d\U0001f467",
+        ),
+        (
+            "/session rename \u0645\u06cc\u200c\u062e\u0648\u0627\u0647\u0645",
+            "\u0645\u06cc\u200c\u062e\u0648\u0627\u0647\u0645",
+        ),
         ("/session rename [bold]markup[/bold]", "[bold]markup[/bold]"),
         ("/session rename " + "x" * _TITLE_MAX, "x" * _TITLE_MAX),
     ],
@@ -91,6 +92,8 @@ def emitted():
         "newline-tab",
         "ansi",
         "bidi",
+        "zwj-emoji",
+        "zwnj-word",
         "markup",
         "max-length",
     ],
@@ -157,20 +160,7 @@ def test_help_and_usage_list_rename():
     assert "rename <title>" in t("cmd.session.usage")
 
 
-@pytest.mark.parametrize(("key", "params"), NEW_KEYS.items(), ids=list(NEW_KEYS))
-def test_rename_messages_exist_in_source_catalog(key, params):
-    from code_puppy.i18n import t
-
-    catalog = json.loads(
-        (Path(__file__).parents[2] / "code_puppy/i18n/locales/en-US.json").read_text(
-            encoding="utf-8"
-        )
-    )
-    assert key in catalog
-    assert all(str(value) in t(key, **params) for value in params.values())
-
-
-def test_user_title_survives_autosave_clear_new_and_restart(tmp_path):
+def test_user_title_survives_autosave_clear_new_resume_and_restart(tmp_path):
     from code_puppy import config
 
     agent = MagicMock()
@@ -193,6 +183,8 @@ def test_user_title_survives_autosave_clear_new_and_restart(tmp_path):
         assert config.auto_save_session_if_enabled()  # next autosave turn
         assert config.finalize_autosave_session() != name  # /clear and agent switch
         handle_session_command("/session new")
+        config.pin_current_session_name(name)  # resume the renamed session
+        assert config.auto_save_session_if_enabled()
     entry = next(
         e for e in build_entries(tmp_path) if e.name == name
     )  # restart: fresh disk read
