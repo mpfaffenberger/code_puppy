@@ -67,15 +67,35 @@ work, with every tool call that step needs:
 """
 
 
-def mount_note(host_path: str, mount_path: str) -> str:
+_MOUNT_MODE_NOTES = {
+    "overlay": "Mount mode: overlay (this overrides the read-write mount described\n"
+    "above). `pathlib` reads the real files; writes stay in memory and never\n"
+    "reach the host. Use the file tools to change project files.\n",
+    "read-only": "Mount mode: read-only (this overrides the read-write mount\n"
+    "described above). `pathlib` reads the real files; writes raise\n"
+    "`PermissionError`. Use the file tools to change project files.\n",
+}
+
+_NO_MOUNT_NOTE = (
+    "\nNo workspace mount (this overrides the read-write mount described above):\n"
+    "`pathlib` sees only in-memory scratch files, not the project. Use\n"
+    "`read_file`, `grep`, `list_files` and the file tools for project files.\n"
+)
+
+
+def mount_note(host_path: str, mount_path: str, mount_mode: str = "read-write") -> str:
     """Where the workspace lives in the sandbox, spelled out for the model."""
+    if mount_mode == "none":
+        return _NO_MOUNT_NOTE
     if mount_path == host_path:
-        return f"\nWorkspace mount: `{mount_path}` (same as the host path).\n"
-    return (
-        f"\nWorkspace mount: `{mount_path}` is the host directory `{host_path}`.\n"
-        "Tool functions (`read_file`, `grep`, shell, ...) take host paths;\n"
-        "`pathlib` inside the sandbox takes mount paths.\n"
-    )
+        note = f"\nWorkspace mount: `{mount_path}` (same as the host path).\n"
+    else:
+        note = (
+            f"\nWorkspace mount: `{mount_path}` is the host directory `{host_path}`.\n"
+            "Tool functions (`read_file`, `grep`, shell, ...) take host paths;\n"
+            "`pathlib` inside the sandbox takes mount paths.\n"
+        )
+    return note + _MOUNT_MODE_NOTES.get(mount_mode, "")
 
 
 @dataclass
@@ -84,6 +104,7 @@ class CodeModeGuidance(AbstractCapability[Any]):
 
     host_path: str
     mount_path: str
+    mount_mode: str = "read-write"
 
     def get_instructions(self) -> list[str | Callable[[], str]]:
         # The guidance is a static instruction part and the workspace path a dynamic one:
@@ -93,4 +114,4 @@ class CodeModeGuidance(AbstractCapability[Any]):
         return [CODE_MODE_GUIDANCE, self._mount_note]
 
     def _mount_note(self) -> str:
-        return mount_note(self.host_path, self.mount_path)
+        return mount_note(self.host_path, self.mount_path, self.mount_mode)

@@ -380,3 +380,136 @@ class TestBuilderIntegration:
     def test_flag_off_keeps_native_tools(self, flag):
         flag["enabled"] = False
         assert not self._code_modes(self._build(CodePuppyAgent()))
+
+
+class TestCodeModeMount:
+    """``code_mode_mount`` picks how the workspace is mounted (issue #982)."""
+
+    @pytest.fixture
+    def mount_setting(self, monkeypatch):
+        state = {"value": None}
+        monkeypatch.setattr(
+            "code_puppy.config.get_value",
+            lambda key: state["value"] if key == "code_mode_mount" else None,
+        )
+        return state
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            (None, "read-write"),
+            ("", "read-write"),
+            ("read-write", "read-write"),
+            ("overlay", "overlay"),
+            (" Read-Only ", "read-only"),
+            ("none", "none"),
+            ("bogus", "read-write"),
+        ],
+    )
+    def test_getter_defaults_to_read_write(self, mount_setting, raw, expected):
+        from code_puppy.config import get_code_mode_mount
+
+        mount_setting["value"] = raw
+        assert get_code_mode_mount() == expected
+
+    @pytest.mark.parametrize("mode", ["read-write", "overlay", "read-only"])
+    def test_mount_uses_the_configured_mode(self, flag, monkeypatch, mode):
+        monkeypatch.setattr(
+            "code_puppy.agents._code_mode.get_code_mode_mount", lambda: mode
+        )
+        code_mode, *_, guidance = build_speculative_code_mode(["read_file"])
+
+        assert code_mode.mount.mode == mode
+        assert guidance.mount_mode == mode
+
+    def test_none_builds_without_a_mount(self, flag, monkeypatch):
+        monkeypatch.setattr(
+            "code_puppy.agents._code_mode.get_code_mode_mount", lambda: "none"
+        )
+        code_mode, *_, guidance = build_speculative_code_mode(["read_file"])
+
+        assert code_mode.mount is None
+        assert code_mode.os_access is not None
+        assert guidance.mount_mode == "none"
+
+    def test_default_prompt_is_byte_identical(self):
+        """read-write adds nothing: static guidance plus the plain mount note."""
+        same = _rendered(CodeModeGuidance("/home/p", "/home/p"))
+        assert same == (
+            CODE_MODE_GUIDANCE
+            + "\nWorkspace mount: `/home/p` (same as the host path).\n"
+        )
+        translated = _rendered(
+            CodeModeGuidance(r"C:\p", "/c/p", mount_mode="read-write")
+        )
+        assert translated == (
+            CODE_MODE_GUIDANCE
+            + "\nWorkspace mount: `/c/p` is the host directory `C:\\p`.\n"
+            "Tool functions (`read_file`, `grep`, shell, ...) take host paths;\n"
+            "`pathlib` inside the sandbox takes mount paths.\n"
+        )
+
+    @pytest.mark.parametrize("mode", ["overlay", "read-only", "none"])
+    def test_restricted_modes_leave_the_static_guidance_alone(self, mode):
+        parts = CodeModeGuidance("/home/p", "/home/p", mount_mode=mode)
+        assert parts.get_instructions()[0] is CODE_MODE_GUIDANCE
+        assert "overrides the read-write mount" in _rendered(parts)
+
+    @pytest.mark.parametrize(
+        ("mode", "phrase"),
+        [
+            ("overlay", "writes stay in memory"),
+            ("read-only", "`PermissionError`"),
+        ],
+    )
+    def test_guidance_names_a_restricted_mode(self, mode, phrase):
+        text = _rendered(CodeModeGuidance("/home/p", "/home/p", mount_mode=mode))
+        assert "`/home/p`" in text
+        assert phrase in text
+
+    def test_guidance_without_a_mount_points_at_the_tools(self):
+        text = _rendered(CodeModeGuidance("/home/p", "/home/p", mount_mode="none"))
+        assert "No workspace mount" in text
+        assert "`/home/p`" not in text
+        assert "`read_file`" in text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("mode", "expect"),
+    [
+        ("read-write", "True"),
+        ("overlay", "False"),
+        ("read-only", "PermissionError"),
+        ("none", "False"),
+    ],
+)
+async def test_sandbox_write_respects_code_mode_mount(
+    flag, monkeypatch, tmp_path, mode, expect
+):
+    """A pathlib write reaches the host only in ``read-write`` mode."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "code_puppy.agents._code_mode.get_code_mode_mount", lambda: mode
+    )
+    mount = sandbox_mount_path(str(tmp_path))
+    code = (
+        "import pathlib\n"
+        "try:\n"
+        f"    pathlib.Path({mount!r} + '/probe.txt').write_text('x')\n"
+        "    result = 'wrote'\n"
+        "except PermissionError:\n"
+        "    result = 'PermissionError'\n"
+        "except OSError:\n"
+        "    result = 'OSError'\n"
+        "result"
+    )
+
+    output = await _run_snippet(code)
+    on_host = (tmp_path / "probe.txt").exists()
+
+    if expect == "PermissionError":
+        assert "PermissionError" in output
+        assert not on_host
+    else:
+        assert str(on_host) == expect

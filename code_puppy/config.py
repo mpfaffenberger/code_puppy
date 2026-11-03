@@ -173,6 +173,20 @@ def get_speculative_code_mode_enabled() -> bool:
     return get_truthy_bool_value("enable_speculative_code_mode", False)
 
 
+CODE_MODE_MOUNT_CHOICES = ("read-write", "overlay", "read-only", "none")
+
+
+def get_code_mode_mount() -> str:
+    """How speculative CodeMode mounts the workspace (default ``read-write``).
+
+    ``overlay`` keeps snippet writes in memory, ``read-only`` makes them raise
+    ``PermissionError``, and ``none`` drops the mount so every file access goes
+    through the (hooked) tool functions. Unknown values fall back to the default.
+    """
+    value = (get_value("code_mode_mount") or "").strip().lower()
+    return value if value in CODE_MODE_MOUNT_CHOICES else "read-write"
+
+
 def set_speculative_code_mode_enabled(enabled: bool) -> None:
     """Persist the speculative CodeMode switch (Ctrl+X Ctrl+S toggles it).
 

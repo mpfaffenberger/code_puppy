@@ -164,6 +164,11 @@ typing — speculative and eager time summed into that one total. Press the
 chord again to go back to plain tool calls. Off by default; full details in
 [`docs/SPECULATION_STATUS.md`](docs/SPECULATION_STATUS.md).
 
+Snippets reach the working directory through a read-write mount by default.
+`/set code_mode_mount overlay` keeps their writes in memory, `read-only` makes
+them fail, and `none` removes the mount so every file access goes through the
+(hooked) tool functions.
+
 ### Meta Muse OAuth
 
 Code Puppy can use the same Meta account login as Muse Code. If Muse is already
