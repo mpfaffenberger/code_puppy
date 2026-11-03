@@ -60,6 +60,12 @@ agents (`.code_puppy/agents/`) and skills (`.code_puppy/skills/`).
 - **Namespaced imports:** `project_plugins.<name>.register_callbacks` in
   `sys.modules`, so they never collide with user plugins.
 
+## Early Startup Hook
+
+An in-tree plugin that must run setup *before* the heavy imports (e.g. fixing proxy/cert env vars)
+ships `code_puppy/plugins/<name>/early_startup.py` with a zero-arg `run()`. It runs inside the
+splash window; keep it stdlib-only. Details: `docs/EARLY_STARTUP.md`.
+
 ## Available Hooks
 
 `register_callback("<hook>", func)` — deduplicated, async hooks accept sync or async functions.
