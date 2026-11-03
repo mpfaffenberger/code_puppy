@@ -4,10 +4,35 @@ from typing import Any, Dict, Optional
 
 from pydantic_ai import RunContext
 
-from code_puppy.messaging import emit_error, emit_info, emit_success
+from code_puppy.i18n import ngettext, t
+from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 from code_puppy.tools.common import generate_group_id
 
 from .browser_manager import get_session_browser_manager
+
+# Terminal messages are whole sentences per direction and per state, so no
+# English argument value is ever spliced into a translation. Results returned
+# to the model stay English.
+# direction -> sentence; both maps cover exactly the directions scroll_page handles.
+_PAGE_SCROLLED_KEYS = {
+    "down": "browser.automation.scrolled_page_down",
+    "up": "browser.automation.scrolled_page_up",
+    "left": "browser.automation.scrolled_page_left",
+    "right": "browser.automation.scrolled_page_right",
+}
+_ELEMENT_SCROLLED_KEYS = {
+    "down": "browser.automation.scrolled_element_down",
+    "up": "browser.automation.scrolled_element_up",
+    "left": "browser.automation.scrolled_element_left",
+    "right": "browser.automation.scrolled_element_right",
+}
+# Playwright rejects any other state before wait_for() returns.
+_WAIT_STATE_KEYS = {
+    "attached": "browser.automation.element_now_attached",
+    "detached": "browser.automation.element_now_detached",
+    "hidden": "browser.automation.element_now_hidden",
+    "visible": "browser.automation.element_now_visible",
+}
 
 
 async def execute_javascript(
@@ -17,7 +42,10 @@ async def execute_javascript(
     """Execute JavaScript code in the browser context."""
     group_id = generate_group_id("browser_execute_js", script[:100])
     emit_info(
-        f"BROWSER EXECUTE JS 📜 script='{script[:100]}{'...' if len(script) > 100 else ''}'",
+        t(
+            "browser.automation.execute_js",
+            details=f"script='{script[:100]}{'...' if len(script) > 100 else ''}'",
+        ),
         message_group=group_id,
     )
     try:
@@ -32,12 +60,14 @@ async def execute_javascript(
         # The timeout arg to this function is kept for API compatibility but unused
         result = await page.evaluate(script)
 
-        emit_success("JavaScript executed successfully", message_group=group_id)
+        emit_success(t("browser.automation.js_executed"), message_group=group_id)
 
         return {"success": True, "script": script, "result": result}
 
     except Exception as e:
-        emit_error(f"JavaScript execution failed: {str(e)}", message_group=group_id)
+        emit_error(
+            t("browser.automation.js_failed", error=str(e)), message_group=group_id
+        )
         return {"success": False, "error": str(e), "script": script}
 
 
@@ -50,7 +80,10 @@ async def scroll_page(
     target = element_selector or "page"
     group_id = generate_group_id("browser_scroll", f"{direction}_{amount}_{target}")
     emit_info(
-        f"BROWSER SCROLL direction={direction} amount={amount} target='{target}'",
+        t(
+            "browser.automation.scroll",
+            details=f"direction={direction} amount={amount} target='{target}'",
+        ),
         message_group=group_id,
     )
     try:
@@ -118,7 +151,20 @@ async def scroll_page(
             })
         """)
 
-        emit_success(f"Scrolled {target} {direction}", message_group=group_id)
+        direction_key = direction.lower()
+        if direction_key not in _PAGE_SCROLLED_KEYS:
+            # No direction branch matched, so no directional scroll happened.
+            emit_warning(
+                t("browser.automation.scroll_direction_unknown", direction=direction),
+                message_group=group_id,
+            )
+        elif element_selector:
+            emit_success(
+                t(_ELEMENT_SCROLLED_KEYS[direction_key], selector=element_selector),
+                message_group=group_id,
+            )
+        else:
+            emit_success(t(_PAGE_SCROLLED_KEYS[direction_key]), message_group=group_id)
 
         return {
             "success": True,
@@ -144,7 +190,7 @@ async def scroll_to_element(
     """Scroll to bring an element into view."""
     group_id = generate_group_id("browser_scroll_to_element", selector[:100])
     emit_info(
-        f"BROWSER SCROLL TO ELEMENT 🎯 selector='{selector}'",
+        t("browser.automation.scroll_to_element", details=f"selector='{selector}'"),
         message_group=group_id,
     )
     try:
@@ -161,7 +207,10 @@ async def scroll_to_element(
         # Check if element is now visible
         is_visible = await element.is_visible()
 
-        emit_success(f"Scrolled to element: {selector}", message_group=group_id)
+        emit_success(
+            t("browser.automation.scrolled_to_element", selector=selector),
+            message_group=group_id,
+        )
 
         return {"success": True, "selector": selector, "visible": is_visible}
 
@@ -174,9 +223,10 @@ async def set_viewport_size(
     height: int,
 ) -> Dict[str, Any]:
     """Set the viewport size."""
-    group_id = generate_group_id("browser_set_viewport", f"{width}x{height}")
+    size = f"{width}x{height}"
+    group_id = generate_group_id("browser_set_viewport", size)
     emit_info(
-        f"BROWSER SET VIEWPORT 🖥️ size={width}x{height}",
+        t("browser.automation.set_viewport", details=f"size={size}"),
         message_group=group_id,
     )
     try:
@@ -189,7 +239,7 @@ async def set_viewport_size(
         await page.set_viewport_size({"width": width, "height": height})
 
         emit_success(
-            f"Set viewport size to {width}x{height}",
+            t("browser.automation.viewport_set", size=size),
             message_group=group_id,
         )
 
@@ -207,7 +257,10 @@ async def wait_for_element(
     """Wait for an element to reach a specific state."""
     group_id = generate_group_id("browser_wait_for_element", f"{selector[:50]}_{state}")
     emit_info(
-        f"BROWSER WAIT FOR ELEMENT selector='{selector}' state={state} timeout={timeout}ms",
+        t(
+            "browser.automation.wait_for_element",
+            details=f"selector='{selector}' state={state} timeout={timeout}ms",
+        ),
         message_group=group_id,
     )
     try:
@@ -220,7 +273,9 @@ async def wait_for_element(
         element = page.locator(selector).first
         await element.wait_for(state=state, timeout=timeout)
 
-        emit_success(f"Element {selector} is now {state}", message_group=group_id)
+        emit_success(
+            t(_WAIT_STATE_KEYS[state], selector=selector), message_group=group_id
+        )
 
         return {"success": True, "selector": selector, "state": state}
 
@@ -238,7 +293,10 @@ async def highlight_element(
         "browser_highlight_element", f"{selector[:50]}_{color}"
     )
     emit_info(
-        f"BROWSER HIGHLIGHT ELEMENT 🔦 selector='{selector}' color={color}",
+        t(
+            "browser.automation.highlight_element",
+            details=f"selector='{selector}' color={color}",
+        ),
         message_group=group_id,
     )
     try:
@@ -263,7 +321,10 @@ async def highlight_element(
 
         await element.evaluate(highlight_script)
 
-        emit_success(f"Highlighted element: {selector}", message_group=group_id)
+        emit_success(
+            t("browser.automation.element_highlighted", selector=selector),
+            message_group=group_id,
+        )
 
         return {"success": True, "selector": selector, "color": color}
 
@@ -275,7 +336,7 @@ async def clear_highlights() -> Dict[str, Any]:
     """Clear all element highlights."""
     group_id = generate_group_id("browser_clear_highlights")
     emit_info(
-        "BROWSER CLEAR HIGHLIGHTS 🧹",
+        t("browser.automation.clear_highlights"),
         message_group=group_id,
     )
     try:
@@ -301,7 +362,10 @@ async def clear_highlights() -> Dict[str, Any]:
 
         count = await page.evaluate(clear_script)
 
-        emit_success(f"Cleared {count} highlights", message_group=group_id)
+        emit_success(
+            ngettext("browser.automation.highlights_cleared", count),
+            message_group=group_id,
+        )
 
         return {"success": True, "cleared_count": count}
 

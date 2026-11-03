@@ -99,6 +99,52 @@
   "banner.browser_xpath_query": "BROWSER XPATH QUERY",
   "banner.list_available_models": "LIST MODELS",
   "banner.load_image_for_analysis": "LOAD IMAGE",
+  "browser.automation.clear_highlights": "BROWSER CLEAR HIGHLIGHTS 🧹",
+  "browser.automation.element_highlighted": "Highlighted element: {selector}",
+  "browser.automation.element_now_attached": "Element {selector} is now attached",
+  "browser.automation.element_now_detached": "Element {selector} is now detached",
+  "browser.automation.element_now_hidden": "Element {selector} is now hidden",
+  "browser.automation.element_now_visible": "Element {selector} is now visible",
+  "browser.automation.execute_js": "BROWSER EXECUTE JS 📜 {details}",
+  "browser.automation.highlight_element": "BROWSER HIGHLIGHT ELEMENT 🔦 {details}",
+  "browser.automation.highlights_cleared": {
+    "one": "Cleared {count} highlight",
+    "other": "Cleared {count} highlights"
+  },
+  "browser.automation.js_executed": "JavaScript executed successfully",
+  "browser.automation.js_failed": "JavaScript execution failed: {error}",
+  "browser.automation.list_workflows": "LIST WORKFLOWS",
+  "browser.automation.read_workflow": "READ WORKFLOW {details}",
+  "browser.automation.save_workflow": "SAVE WORKFLOW 💾 {details}",
+  "browser.automation.scroll": "BROWSER SCROLL {details}",
+  "browser.automation.scroll_direction_unknown": "Unknown scroll direction: '{direction}'",
+  "browser.automation.scroll_to_element": "BROWSER SCROLL TO ELEMENT 🎯 {details}",
+  "browser.automation.scrolled_element_down": "Scrolled element '{selector}' down",
+  "browser.automation.scrolled_element_left": "Scrolled element '{selector}' left",
+  "browser.automation.scrolled_element_right": "Scrolled element '{selector}' right",
+  "browser.automation.scrolled_element_up": "Scrolled element '{selector}' up",
+  "browser.automation.scrolled_page_down": "Scrolled page down",
+  "browser.automation.scrolled_page_left": "Scrolled page left",
+  "browser.automation.scrolled_page_right": "Scrolled page right",
+  "browser.automation.scrolled_page_up": "Scrolled page up",
+  "browser.automation.scrolled_to_element": "Scrolled to element: {selector}",
+  "browser.automation.set_viewport": "BROWSER SET VIEWPORT 🖥️ {details}",
+  "browser.automation.viewport_set": "Set viewport size to {size}",
+  "browser.automation.wait_for_element": "BROWSER WAIT FOR ELEMENT {details}",
+  "browser.automation.workflow_not_found": "Workflow not found: {name}",
+  "browser.automation.workflow_read": {
+    "one": "Workflow read successfully: {count} character",
+    "other": "Workflow read successfully: {count} characters"
+  },
+  "browser.automation.workflow_read_failed": "Failed to read workflow: {error}",
+  "browser.automation.workflow_save_failed": "Failed to save workflow: {error}",
+  "browser.automation.workflow_saved": "Workflow saved successfully: {path}",
+  "browser.automation.workflow_unreadable": "Could not read {path}: {error}",
+  "browser.automation.workflows_found": {
+    "one": "Found {count} workflow",
+    "other": "Found {count} workflows"
+  },
+  "browser.automation.workflows_list_failed": "Failed to list workflows: {error}",
   "browser.chromium.install_failed": "Chromium is missing and automatic installation failed (exit code {exit_code}). Run this command and retry:\n{command}\n\nInstaller output:\n{output}",
   "browser.chromium.install_no_output": "No installer output was produced.",
   "browser.chromium.install_start_failed": "Chromium is missing and its installer could not start: {error}\nRun this command and retry:\n{command}",
@@ -132,6 +178,54 @@
   "browser.interaction.text_set": "Set text in element: {selector}",
   "browser.interaction.uncheck": "BROWSER UNCHECK ☐️ {details}",
   "browser.interaction.unchecked": "Unchecked element: {selector}",
+  "browser.locator.find_buttons": "BROWSER FIND BUTTONS 🔘 {details}",
+  "browser.locator.find_by_label": "BROWSER FIND BY LABEL 🏷️ {details}",
+  "browser.locator.find_by_placeholder": "BROWSER FIND BY PLACEHOLDER {details}",
+  "browser.locator.find_by_role": "BROWSER FIND BY ROLE 🎨 {details}",
+  "browser.locator.find_by_test_id": "BROWSER FIND BY TEST ID {details}",
+  "browser.locator.find_by_text": "BROWSER FIND BY TEXT {details}",
+  "browser.locator.find_links": "BROWSER FIND LINKS 🔗 {details}",
+  "browser.locator.found_buttons": {
+    "one": "Found {count} button",
+    "other": "Found {count} buttons"
+  },
+  "browser.locator.found_buttons_matching": {
+    "one": "Found {count} button containing '{filter}'",
+    "other": "Found {count} buttons containing '{filter}'"
+  },
+  "browser.locator.found_by_label": {
+    "one": "Found {count} element with label '{label}'",
+    "other": "Found {count} elements with label '{label}'"
+  },
+  "browser.locator.found_by_placeholder": {
+    "one": "Found {count} element with placeholder '{placeholder}'",
+    "other": "Found {count} elements with placeholder '{placeholder}'"
+  },
+  "browser.locator.found_by_role": {
+    "one": "Found {count} element with role '{role}'",
+    "other": "Found {count} elements with role '{role}'"
+  },
+  "browser.locator.found_by_test_id": {
+    "one": "Found {count} element with test-id '{test_id}'",
+    "other": "Found {count} elements with test-id '{test_id}'"
+  },
+  "browser.locator.found_by_text": {
+    "one": "Found {count} element containing text '{text}'",
+    "other": "Found {count} elements containing text '{text}'"
+  },
+  "browser.locator.found_by_xpath": {
+    "one": "Found {count} element with XPath '{xpath}'",
+    "other": "Found {count} elements with XPath '{xpath}'"
+  },
+  "browser.locator.found_links": {
+    "one": "Found {count} link",
+    "other": "Found {count} links"
+  },
+  "browser.locator.found_links_matching": {
+    "one": "Found {count} link containing '{filter}'",
+    "other": "Found {count} links containing '{filter}'"
+  },
+  "browser.locator.xpath_query": "BROWSER XPATH QUERY {details}",
   "browser.navigation.failed": "Navigation failed: {error}",
   "browser.navigation.go_back": "BROWSER GO BACK ⬅️",
   "browser.navigation.go_forward": "BROWSER GO FORWARD ➡️",
@@ -140,6 +234,35 @@
   "browser.navigation.page_info": "BROWSER GET PAGE INFO 📌",
   "browser.navigation.reload": "BROWSER RELOAD 🔄 {details}",
   "browser.navigation.wait_for_load": "BROWSER WAIT FOR LOAD {details}",
+  "browser.screenshot.banner": "BROWSER SCREENSHOT 📷 {details}",
+  "browser.screenshot.failed": "Screenshot failed: {error}",
+  "browser.screenshot.no_page": "No active browser page. Navigate to a webpage first.",
+  "browser.screenshot.not_visible": "Element '{selector}' is not visible",
+  "browser.screenshot.saved": "Screenshot saved: {path}",
+  "browser.semantic.check": "BROWSER CHECK BY {strategy}  {target}",
+  "browser.semantic.check_failed": "check failed: {error}",
+  "browser.semantic.checked": "check on {target}",
+  "browser.semantic.click": "BROWSER CLICK BY {strategy}  {target}",
+  "browser.semantic.click_failed": "click failed: {error}",
+  "browser.semantic.clicked": "click on {target}",
+  "browser.semantic.fill": "BROWSER FILL BY {strategy}  {target}",
+  "browser.semantic.fill_failed": "fill failed: {error}",
+  "browser.semantic.filled": "fill on {target}",
+  "browser.semantic.no_match": "No element matched {target}",
+  "browser.snapshot.banner": "BROWSER PAGE SNAPSHOT  gathering DOM state",
+  "browser.snapshot.buttons": {
+    "one": "{count} button",
+    "other": "{count} buttons"
+  },
+  "browser.snapshot.done": "Snapshot: {buttons}, {links}, {inputs}",
+  "browser.snapshot.inputs": {
+    "one": "{count} input",
+    "other": "{count} inputs"
+  },
+  "browser.snapshot.links": {
+    "one": "{count} link",
+    "other": "{count} links"
+  },
   "cfg.agent.not_found": "Agent '{agent}' not found",
   "cfg.listing.available_models": "Available models:",
   "cfg.listing.builtin_agents": "Available built-in agents:",
@@ -405,6 +528,10 @@
   "mcp.install.no_description": "No description available",
   "mcp.install.no_server_found": "No server found matching '{server}'",
   "mcp.install.registry_unavailable": "Server registry not available",
+  "mcp.install_menu.catalog_unavailable": "Server catalog not available: {error}",
+  "mcp.install_menu.load_error": "Error loading server catalog: {error}",
+  "mcp.install_menu.no_catalog": "No MCP server catalog available.",
+  "mcp.install_menu.no_categories": "No categories found in server catalog",
   "mcp.install_wizard.already_set": "Already set",
   "mcp.install_wizard.cancelled": "Installation cancelled",
   "mcp.install_wizard.catalog_unavailable": "Server catalog not available",
@@ -450,10 +577,57 @@
     "other": "📊 Summary: {running}/{count} servers running"
   },
   "mcp.list.title": "🔌 MCP Server Status Dashboard",
+  "mcp.logs.clear_failed": "Error clearing logs: {error}",
+  "mcp.logs.cleared": {
+    "one": "🗑️  Cleared {count} log file for {server}",
+    "other": "🗑️  Cleared {count} log files for {server}"
+  },
+  "mcp.logs.file": "Log file: {path}",
+  "mcp.logs.get_failed": "Error getting logs: {error}",
+  "mcp.logs.invalid_lines": "Invalid number '{value}', using default: {default}",
+  "mcp.logs.lines": {
+    "one": "{count} line",
+    "other": "{count} lines"
+  },
+  "mcp.logs.lines_not_positive": "Lines must be positive, using default: {default}",
+  "mcp.logs.list_title": "📋 Servers with logs:\n",
+  "mcp.logs.more_hint": "💡 Use {all_command} to see all logs, or {count_command} for specific count",
+  "mcp.logs.no_logs_for": "📋 No logs found for server: {server}\nLog file: `{path}`",
+  "mcp.logs.none_found": "📋 No MCP server logs found.\nLogs are created when servers are started.",
+  "mcp.logs.nothing_to_clear": "No logs to clear for server: {server}",
+  "mcp.logs.rotated": {
+    "one": "(+{count} rotated)",
+    "other": "(+{count} rotated)"
+  },
+  "mcp.logs.server_entry": "  • {server} - {lines}, {size}{rotated}",
+  "mcp.logs.server_not_found": "Server '{server}' not found and has no logs.",
+  "mcp.logs.title_all": {
+    "one": "📋 Logs for {server} (all {count} line)",
+    "other": "📋 Logs for {server} (all {count} lines)"
+  },
+  "mcp.logs.title_last": {
+    "one": "📋 Logs for {server} (last {showing} of {count} line)",
+    "other": "📋 Logs for {server} (last {showing} of {count} lines)"
+  },
+  "mcp.logs.usage": "\nUsage: {command}",
   "mcp.oauth.header_conflict": "OAuth cannot be combined with an Authorization header. Remove the header or disable OAuth.",
   "mcp.oauth.https_required": "OAuth requires an HTTPS server URL (HTTP is allowed for loopback servers only), without embedded credentials.",
   "mcp.oauth.invalid_method": "HTTP MCP auth must be 'oauth' or omitted. For API keys, use headers instead.",
   "mcp.oauth.prompt": "Use browser-based OAuth authentication?",
+  "mcp.search.column.category": "Category",
+  "mcp.search.column.description": "Description",
+  "mcp.search.column.id": "ID",
+  "mcp.search.column.name": "Name",
+  "mcp.search.column.tags": "Tags",
+  "mcp.search.details_label": "For details:",
+  "mcp.search.failed": "Error searching servers: {error}",
+  "mcp.search.install_label": "To install:",
+  "mcp.search.legend": "\n✓ = Verified  ⭐ = Popular",
+  "mcp.search.no_results": "No servers found matching your search",
+  "mcp.search.popular_title": "Popular MCP Servers:\n",
+  "mcp.search.registry_unavailable": "Server registry not available",
+  "mcp.search.searching": "Searching for: {query}\n",
+  "mcp.search.try": "Try: {examples}",
   "mcp.server.agent_reloaded": "Agent reloaded with updated servers",
   "mcp.server.already_running": "{server}: already running",
   "mcp.server.available": "Available servers: {servers}",
@@ -519,6 +693,8 @@
     "other": "✓ Also unbound from {count} agents: {agents}"
   },
   "mcp.server.usage": "Usage: /mcp {command} <server_name>",
+  "mcp.startup.not_started": "MCP server '{server}' didn't start. Run {logs_command} to investigate, or unbind it via {agents_command}.",
+  "mcp.startup.stderr_line": "MCP {server}: {line}",
   "mcp.state.error": "⚠ Err",
   "mcp.state.quarantined": "⏸ Quar",
   "mcp.state.running": "✓ Run",
@@ -818,6 +994,20 @@
   "tools.common.approval.rejected_feedback": "Rejected with feedback!",
   "tools.common.approval.tell": "Tell {puppy_name} what to change:",
   "tools.common.approval.telling_feedback": "Telling {puppy_name}: \"{feedback}\"",
+  "tools.shell.background_failed": "Failed to start background process: {error}",
+  "tools.shell.background_log": "Output logging to: {path}",
+  "tools.shell.background_started": "Background process started (PID: {pid}) - no timeout, runs until complete",
+  "tools.shell.backgrounding_all": "{shortcut} -- backgrounding all shell commands...",
+  "tools.shell.cleanup_failed": "Error during process cleanup: {error}",
+  "tools.shell.command_rewritten": "🔧 command rewritten by {reason}",
+  "tools.shell.command_rewritten_by_plugin": "🔧 command rewritten by plugin",
+  "tools.shell.empty_command": "Command cannot be empty",
+  "tools.shell.inactivity_timeout": "Process killed: inactivity timeout reached",
+  "tools.shell.interrupting_all": "{shortcut} -- interrupting all shell commands...",
+  "tools.shell.kill_failed": "Kill process error: {error}",
+  "tools.shell.reader_stuck": "{stream} reader thread failed to terminate after inactivity timeout",
+  "tools.shell.sigint_interrupting": "{shortcut} detected! Interrupting all shell commands...",
+  "tools.shell.sigint_stopping_agent": "{shortcut} detected! Stopping the agent (shells + all sub-agents)...",
   "tools.streaming_progress": "{tool} ~{count} tokens",
   "version.core_plugins": "Core plugins version: {version}",
   "version.core_plugins_unknown": "Core plugins version: unknown",

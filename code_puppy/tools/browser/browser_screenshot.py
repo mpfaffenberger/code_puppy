@@ -12,6 +12,7 @@ from typing import Any, Dict, Optional, Union
 
 from pydantic_ai import BinaryContent, RunContext, ToolReturn
 
+from code_puppy.i18n import t
 from code_puppy.messaging import emit_error, emit_info, emit_success
 from code_puppy.tools.common import generate_group_id
 
@@ -35,7 +36,11 @@ async def _capture_screenshot(
     save_screenshot: bool = True,
     group_id: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Internal screenshot capture function."""
+    """Internal screenshot capture function.
+
+    When ``group_id`` is set, it also reports the outcome (saved, or why the
+    capture failed) to the terminal; the returned dict stays English.
+    """
     try:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
 
@@ -43,6 +48,11 @@ async def _capture_screenshot(
         if element_selector:
             element = await page.locator(element_selector).first
             if not await element.is_visible():
+                if group_id:
+                    emit_error(
+                        t("browser.screenshot.not_visible", selector=element_selector),
+                        message_group=group_id,
+                    )
                 return {
                     "success": False,
                     "error": f"Element '{element_selector}' is not visible",
@@ -66,12 +76,15 @@ async def _capture_screenshot(
 
             if group_id:
                 emit_success(
-                    f"Screenshot saved: {screenshot_path}", message_group=group_id
+                    t("browser.screenshot.saved", path=screenshot_path),
+                    message_group=group_id,
                 )
 
         return result
 
     except Exception as e:
+        if group_id:
+            emit_error(t("browser.screenshot.failed", error=e), message_group=group_id)
         return {"success": False, "error": str(e)}
 
 
@@ -99,16 +112,21 @@ async def take_screenshot(
     """
     target = element_selector or ("full_page" if full_page else "viewport")
     group_id = generate_group_id("browser_screenshot", target)
-    emit_info(f"BROWSER SCREENSHOT 📷 target={target}", message_group=group_id)
+    emit_info(
+        t("browser.screenshot.banner", details=f"target={target}"),
+        message_group=group_id,
+    )
 
     try:
         browser_manager = get_session_browser_manager()
         page = await browser_manager.get_current_page()
 
         if not page:
-            error_msg = "No active browser page. Navigate to a webpage first."
-            emit_error(error_msg, message_group=group_id)
-            return {"success": False, "error": error_msg}
+            emit_error(t("browser.screenshot.no_page"), message_group=group_id)
+            return {
+                "success": False,
+                "error": "No active browser page. Navigate to a webpage first.",
+            }
 
         result = await _capture_screenshot(
             page,
@@ -118,8 +136,8 @@ async def take_screenshot(
             group_id=group_id,
         )
 
+        # _capture_screenshot has already reported the failure.
         if not result["success"]:
-            emit_error(result.get("error", "Screenshot failed"), message_group=group_id)
             return {"success": False, "error": result.get("error")}
 
         screenshot_path = result.get("screenshot_path", "(not saved)")
@@ -146,9 +164,8 @@ async def take_screenshot(
         )
 
     except Exception as e:
-        error_msg = f"Screenshot failed: {str(e)}"
-        emit_error(error_msg, message_group=group_id)
-        return {"success": False, "error": error_msg}
+        emit_error(t("browser.screenshot.failed", error=e), message_group=group_id)
+        return {"success": False, "error": f"Screenshot failed: {str(e)}"}
 
 
 def register_take_screenshot_and_analyze(agent):
