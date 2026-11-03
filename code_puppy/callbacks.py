@@ -6,9 +6,20 @@ import traceback
 from contextlib import nullcontext
 from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Literal, Optional, Set, Tuple
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Dict,
+    List,
+    Literal,
+    Optional,
+    Set,
+    Tuple,
+)
 
-from pydantic_ai.messages import ModelMessage
+if TYPE_CHECKING:
+    from pydantic_ai.messages import ModelMessage
 
 from code_puppy.error_logging import log_error
 
@@ -87,6 +98,7 @@ PhaseType = Literal[
     "feature_capability",
     "transform_model_messages",
     "error_logged",
+    "prompt_ready",
 ]
 CallbackFunc = Callable[..., Any]
 
@@ -179,6 +191,7 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "feature_capability": [],
     "transform_model_messages": [],
     "error_logged": [],
+    "prompt_ready": [],
 }
 
 logger = logging.getLogger(__name__)
@@ -935,6 +948,15 @@ def on_awaiting_user_input(awaiting: bool) -> List[Any]:
     return _trigger_callbacks_sync("awaiting_user_input", awaiting)
 
 
+def on_prompt_ready() -> List[Any]:
+    """Fired each time the interactive idle prompt is about to block for input.
+
+    Observers only, sync and fire-and-forget. Fires once per idle prompt, so
+    observers must tolerate repeat calls.
+    """
+    return _trigger_callbacks_sync("prompt_ready")
+
+
 async def on_file_permission_async(
     context: Any,
     file_path: str,
@@ -1119,7 +1141,7 @@ async def on_stream_event(
 
 
 async def on_transform_model_messages(
-    agent_name: str | None, messages: List[ModelMessage]
+    agent_name: str | None, messages: "List[ModelMessage]"
 ) -> List[Any]:
     """Let plugins mutate the final outbound model messages in place."""
     return await _trigger_callbacks("transform_model_messages", agent_name, messages)

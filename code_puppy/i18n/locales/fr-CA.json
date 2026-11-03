@@ -53,6 +53,52 @@
   "ask_user_question.question.select_multiple": "(sélection multiple)",
   "ask_user_question.render.error": "[erreur de rendu : {error_type} : {error}]",
   "ask_user_question.timeout.warning": "Délai dans {remaining}s - appuyez sur une touche pour continuer",
+  "browser.automation.clear_highlights": "EFFACER LES SURLIGNAGES DANS LE NAVIGATEUR 🧹",
+  "browser.automation.element_highlighted": "Élément surligné : {selector}",
+  "browser.automation.element_now_attached": "L’élément {selector} est maintenant dans le DOM",
+  "browser.automation.element_now_detached": "L’élément {selector} n’est plus dans le DOM",
+  "browser.automation.element_now_hidden": "L’élément {selector} est maintenant masqué",
+  "browser.automation.element_now_visible": "L’élément {selector} est maintenant visible",
+  "browser.automation.execute_js": "EXÉCUTER DU JS DANS LE NAVIGATEUR 📜 {details}",
+  "browser.automation.highlight_element": "SURLIGNER UN ÉLÉMENT DANS LE NAVIGATEUR 🔦 {details}",
+  "browser.automation.highlights_cleared": {
+    "one": "{count} surlignage effacé",
+    "other": "{count} surlignages effacés"
+  },
+  "browser.automation.js_executed": "JavaScript exécuté avec succès",
+  "browser.automation.js_failed": "Échec de l’exécution du JavaScript : {error}",
+  "browser.automation.list_workflows": "LISTER LES FLUX DE TRAVAIL",
+  "browser.automation.read_workflow": "LIRE LE FLUX DE TRAVAIL {details}",
+  "browser.automation.save_workflow": "ENREGISTRER LE FLUX DE TRAVAIL 💾 {details}",
+  "browser.automation.scroll": "FAIRE DÉFILER DANS LE NAVIGATEUR {details}",
+  "browser.automation.scroll_direction_unknown": "Direction de défilement inconnue : « {direction} »",
+  "browser.automation.scroll_to_element": "FAIRE DÉFILER JUSQU’À L’ÉLÉMENT DANS LE NAVIGATEUR 🎯 {details}",
+  "browser.automation.scrolled_element_down": "Défilement de l’élément « {selector} » vers le bas",
+  "browser.automation.scrolled_element_left": "Défilement de l’élément « {selector} » vers la gauche",
+  "browser.automation.scrolled_element_right": "Défilement de l’élément « {selector} » vers la droite",
+  "browser.automation.scrolled_element_up": "Défilement de l’élément « {selector} » vers le haut",
+  "browser.automation.scrolled_page_down": "Défilement de la page vers le bas",
+  "browser.automation.scrolled_page_left": "Défilement de la page vers la gauche",
+  "browser.automation.scrolled_page_right": "Défilement de la page vers la droite",
+  "browser.automation.scrolled_page_up": "Défilement de la page vers le haut",
+  "browser.automation.scrolled_to_element": "Défilement jusqu’à l’élément : {selector}",
+  "browser.automation.set_viewport": "DÉFINIR LA FENÊTRE D’AFFICHAGE DU NAVIGATEUR 🖥️ {details}",
+  "browser.automation.viewport_set": "Taille de la fenêtre d’affichage définie à {size}",
+  "browser.automation.wait_for_element": "ATTENDRE UN ÉLÉMENT DANS LE NAVIGATEUR {details}",
+  "browser.automation.workflow_not_found": "Flux de travail introuvable : {name}",
+  "browser.automation.workflow_read": {
+    "one": "Flux de travail lu avec succès : {count} caractère",
+    "other": "Flux de travail lu avec succès : {count} caractères"
+  },
+  "browser.automation.workflow_read_failed": "Échec de la lecture du flux de travail : {error}",
+  "browser.automation.workflow_save_failed": "Échec de l’enregistrement du flux de travail : {error}",
+  "browser.automation.workflow_saved": "Flux de travail enregistré avec succès : {path}",
+  "browser.automation.workflow_unreadable": "Impossible de lire {path} : {error}",
+  "browser.automation.workflows_found": {
+    "one": "{count} flux de travail trouvé",
+    "other": "{count} flux de travail trouvés"
+  },
+  "browser.automation.workflows_list_failed": "Impossible de lister les flux de travail : {error}",
   "browser.chromium.install_failed": "Chromium n’est pas installé et l’installation automatique a échoué (code de sortie {exit_code}). Exécutez cette commande et réessayez :\n{command}\n\nSortie de l’installateur :\n{output}",
   "browser.chromium.install_no_output": "L’installateur n’a produit aucune sortie.",
   "browser.chromium.install_start_failed": "Chromium n’est pas installé et son installateur n’a pas pu démarrer : {error}\nExécutez cette commande et réessayez :\n{command}",
@@ -86,6 +132,54 @@
   "browser.interaction.text_set": "Texte saisi dans l’élément : {selector}",
   "browser.interaction.uncheck": "DÉCOCHER DANS LE NAVIGATEUR ☐️ {details}",
   "browser.interaction.unchecked": "Élément décoché : {selector}",
+  "browser.locator.find_buttons": "RECHERCHER LES BOUTONS DANS LE NAVIGATEUR 🔘 {details}",
+  "browser.locator.find_by_label": "RECHERCHER PAR ÉTIQUETTE DANS LE NAVIGATEUR 🏷️ {details}",
+  "browser.locator.find_by_placeholder": "RECHERCHER PAR TEXTE INDICATIF DANS LE NAVIGATEUR {details}",
+  "browser.locator.find_by_role": "RECHERCHER PAR RÔLE DANS LE NAVIGATEUR 🎨 {details}",
+  "browser.locator.find_by_test_id": "RECHERCHER PAR TEST-ID DANS LE NAVIGATEUR {details}",
+  "browser.locator.find_by_text": "RECHERCHER PAR TEXTE DANS LE NAVIGATEUR {details}",
+  "browser.locator.find_links": "RECHERCHER LES LIENS DANS LE NAVIGATEUR 🔗 {details}",
+  "browser.locator.found_buttons": {
+    "one": "{count} bouton trouvé",
+    "other": "{count} boutons trouvés"
+  },
+  "browser.locator.found_buttons_matching": {
+    "one": "{count} bouton trouvé contenant « {filter} »",
+    "other": "{count} boutons trouvés contenant « {filter} »"
+  },
+  "browser.locator.found_by_label": {
+    "one": "{count} élément trouvé avec l’étiquette « {label} »",
+    "other": "{count} éléments trouvés avec l’étiquette « {label} »"
+  },
+  "browser.locator.found_by_placeholder": {
+    "one": "{count} élément trouvé avec le texte indicatif « {placeholder} »",
+    "other": "{count} éléments trouvés avec le texte indicatif « {placeholder} »"
+  },
+  "browser.locator.found_by_role": {
+    "one": "{count} élément trouvé avec le rôle « {role} »",
+    "other": "{count} éléments trouvés avec le rôle « {role} »"
+  },
+  "browser.locator.found_by_test_id": {
+    "one": "{count} élément trouvé avec le test-id « {test_id} »",
+    "other": "{count} éléments trouvés avec le test-id « {test_id} »"
+  },
+  "browser.locator.found_by_text": {
+    "one": "{count} élément trouvé contenant le texte « {text} »",
+    "other": "{count} éléments trouvés contenant le texte « {text} »"
+  },
+  "browser.locator.found_by_xpath": {
+    "one": "{count} élément trouvé avec le XPath « {xpath} »",
+    "other": "{count} éléments trouvés avec le XPath « {xpath} »"
+  },
+  "browser.locator.found_links": {
+    "one": "{count} lien trouvé",
+    "other": "{count} liens trouvés"
+  },
+  "browser.locator.found_links_matching": {
+    "one": "{count} lien trouvé contenant « {filter} »",
+    "other": "{count} liens trouvés contenant « {filter} »"
+  },
+  "browser.locator.xpath_query": "REQUÊTE XPATH DANS LE NAVIGATEUR {details}",
   "browser.navigation.failed": "Échec de la navigation : {error}",
   "browser.navigation.go_back": "PAGE PRÉCÉDENTE DU NAVIGATEUR ⬅️",
   "browser.navigation.go_forward": "PAGE SUIVANTE DU NAVIGATEUR ➡️",
@@ -94,6 +188,35 @@
   "browser.navigation.page_info": "OBTENIR LES INFORMATIONS DE LA PAGE DU NAVIGATEUR 📌",
   "browser.navigation.reload": "RECHARGER LA PAGE DU NAVIGATEUR 🔄 {details}",
   "browser.navigation.wait_for_load": "ATTENDRE LE CHARGEMENT DU NAVIGATEUR {details}",
+  "browser.screenshot.banner": "CAPTURE D’ÉCRAN DU NAVIGATEUR 📷 {details}",
+  "browser.screenshot.failed": "Échec de la capture d’écran : {error}",
+  "browser.screenshot.no_page": "Aucune page active dans le navigateur. Ouvrez d’abord une page Web.",
+  "browser.screenshot.not_visible": "L’élément « {selector} » n’est pas visible",
+  "browser.screenshot.saved": "Capture d’écran enregistrée : {path}",
+  "browser.semantic.check": "COCHER DANS LE NAVIGATEUR ({strategy}) {target}",
+  "browser.semantic.check_failed": "Impossible de cocher l’élément : {error}",
+  "browser.semantic.checked": "Élément coché : {target}",
+  "browser.semantic.click": "CLIQUER DANS LE NAVIGATEUR ({strategy}) {target}",
+  "browser.semantic.click_failed": "Échec du clic : {error}",
+  "browser.semantic.clicked": "Clic effectué sur {target}",
+  "browser.semantic.fill": "SAISIR DU TEXTE DANS LE NAVIGATEUR ({strategy}) {target}",
+  "browser.semantic.fill_failed": "Échec de la saisie du texte : {error}",
+  "browser.semantic.filled": "Texte saisi dans {target}",
+  "browser.semantic.no_match": "Aucun élément ne correspond à {target}",
+  "browser.snapshot.banner": "INSTANTANÉ DE LA PAGE DANS LE NAVIGATEUR : collecte de l’état du DOM",
+  "browser.snapshot.buttons": {
+    "one": "{count} bouton",
+    "other": "{count} boutons"
+  },
+  "browser.snapshot.done": "Instantané : {buttons}, {links}, {inputs}",
+  "browser.snapshot.inputs": {
+    "one": "{count} champ",
+    "other": "{count} champs"
+  },
+  "browser.snapshot.links": {
+    "one": "{count} lien",
+    "other": "{count} liens"
+  },
   "cfg.agent.not_found": "Agent '{agent}' introuvable",
   "cfg.listing.available_models": "Modèles disponibles :",
   "cfg.listing.builtin_agents": "Agents intégrés disponibles :",
@@ -359,6 +482,10 @@
   "mcp.install.no_description": "Aucune description disponible",
   "mcp.install.no_server_found": "Aucun serveur ne correspond à « {server} »",
   "mcp.install.registry_unavailable": "Registre de serveurs indisponible",
+  "mcp.install_menu.catalog_unavailable": "Catalogue de serveurs non disponible : {error}",
+  "mcp.install_menu.load_error": "Erreur de chargement du catalogue de serveurs : {error}",
+  "mcp.install_menu.no_catalog": "Aucun catalogue de serveurs MCP disponible.",
+  "mcp.install_menu.no_categories": "Aucune catégorie trouvée dans le catalogue de serveurs",
   "mcp.install_wizard.already_set": "Déjà configurée",
   "mcp.install_wizard.cancelled": "Installation annulée",
   "mcp.install_wizard.catalog_unavailable": "Catalogue de serveurs non disponible",
@@ -404,10 +531,57 @@
     "other": "📊 Résumé : {running}/{count} serveurs en cours d’exécution"
   },
   "mcp.list.title": "🔌 Tableau de bord de l’état des serveurs MCP",
+  "mcp.logs.clear_failed": "Erreur lors de l’effacement des journaux : {error}",
+  "mcp.logs.cleared": {
+    "one": "🗑️  {count} fichier journal effacé pour {server}",
+    "other": "🗑️  {count} fichiers journaux effacés pour {server}"
+  },
+  "mcp.logs.file": "Fichier journal : {path}",
+  "mcp.logs.get_failed": "Erreur lors de la récupération des journaux : {error}",
+  "mcp.logs.invalid_lines": "Nombre invalide « {value} », valeur par défaut utilisée : {default}",
+  "mcp.logs.lines": {
+    "one": "{count} ligne",
+    "other": "{count} lignes"
+  },
+  "mcp.logs.lines_not_positive": "Le nombre de lignes doit être positif, valeur par défaut utilisée : {default}",
+  "mcp.logs.list_title": "📋 Serveurs avec journaux :\n",
+  "mcp.logs.more_hint": "💡 Utilisez {all_command} pour voir tous les journaux ou {count_command} pour un nombre précis",
+  "mcp.logs.no_logs_for": "📋 Aucun journal trouvé pour le serveur : {server}\nFichier journal : `{path}`",
+  "mcp.logs.none_found": "📋 Aucun journal de serveur MCP trouvé.\nLes journaux sont créés au démarrage des serveurs.",
+  "mcp.logs.nothing_to_clear": "Aucun journal à effacer pour le serveur : {server}",
+  "mcp.logs.rotated": {
+    "one": "(+{count} archivé)",
+    "other": "(+{count} archivés)"
+  },
+  "mcp.logs.server_entry": "  • {server} - {lines}, {size}{rotated}",
+  "mcp.logs.server_not_found": "Serveur « {server} » introuvable et sans journaux.",
+  "mcp.logs.title_all": {
+    "one": "📋 Journaux de {server} ({count} ligne au total)",
+    "other": "📋 Journaux de {server} ({count} lignes au total)"
+  },
+  "mcp.logs.title_last": {
+    "one": "📋 Journaux de {server} (dernière ligne : {showing} sur {count})",
+    "other": "📋 Journaux de {server} (dernières lignes : {showing} sur {count})"
+  },
+  "mcp.logs.usage": "\nUtilisation : {command}",
   "mcp.oauth.header_conflict": "OAuth ne peut pas être combiné avec un en-tête Authorization. Retirez l’en-tête ou désactivez OAuth.",
   "mcp.oauth.https_required": "OAuth nécessite une URL de serveur HTTPS (HTTP est autorisé uniquement pour les serveurs en boucle locale), sans identifiants intégrés.",
   "mcp.oauth.invalid_method": "La méthode d’authentification MCP HTTP doit être 'oauth' ou être omise. Pour les clés d’API, utilisez plutôt des en-têtes.",
   "mcp.oauth.prompt": "Utiliser l’authentification OAuth dans le navigateur?",
+  "mcp.search.column.category": "Catégorie",
+  "mcp.search.column.description": "Description",
+  "mcp.search.column.id": "ID",
+  "mcp.search.column.name": "Nom",
+  "mcp.search.column.tags": "Étiquettes",
+  "mcp.search.details_label": "Pour plus de détails :",
+  "mcp.search.failed": "Erreur lors de la recherche de serveurs : {error}",
+  "mcp.search.install_label": "Pour installer :",
+  "mcp.search.legend": "\n✓ = Vérifié  ⭐ = Populaire",
+  "mcp.search.no_results": "Aucun serveur ne correspond à votre recherche",
+  "mcp.search.popular_title": "Serveurs MCP populaires :\n",
+  "mcp.search.registry_unavailable": "Registre de serveurs indisponible",
+  "mcp.search.searching": "Recherche : {query}\n",
+  "mcp.search.try": "Essayez : {examples}",
   "mcp.server.agent_reloaded": "Agent rechargé avec les serveurs mis à jour",
   "mcp.server.already_running": "{server} : déjà en cours d’exécution",
   "mcp.server.available": "Serveurs disponibles : {servers}",
@@ -473,6 +647,8 @@
     "other": "✓ Également dissocié de {count} agents : {agents}"
   },
   "mcp.server.usage": "Utilisation : /mcp {command} <server_name>",
+  "mcp.startup.not_started": "Le serveur MCP « {server} » n’a pas démarré. Exécutez {logs_command} pour enquêter, ou dissociez-le via {agents_command}.",
+  "mcp.startup.stderr_line": "MCP {server} : {line}",
   "mcp.state.error": "⚠ Erreur",
   "mcp.state.quarantined": "⏸ Quarantaine",
   "mcp.state.running": "✓ Actif",
@@ -772,6 +948,20 @@
   "tools.common.approval.rejected_feedback": "Refusé avec commentaires!",
   "tools.common.approval.tell": "Dites à {puppy_name} quoi modifier :",
   "tools.common.approval.telling_feedback": "Message à {puppy_name} : « {feedback} »",
+  "tools.shell.background_failed": "Impossible de démarrer le processus en arrière-plan : {error}",
+  "tools.shell.background_log": "Sortie journalisée dans : {path}",
+  "tools.shell.background_started": "Processus en arrière-plan démarré (PID : {pid}) - sans limite de temps, s’exécute jusqu’à la fin",
+  "tools.shell.backgrounding_all": "{shortcut} -- mise en arrière-plan de toutes les commandes shell...",
+  "tools.shell.cleanup_failed": "Erreur lors du nettoyage du processus : {error}",
+  "tools.shell.command_rewritten": "🔧 commande réécrite par {reason}",
+  "tools.shell.command_rewritten_by_plugin": "🔧 commande réécrite par un module d’extension",
+  "tools.shell.empty_command": "La commande ne peut pas être vide",
+  "tools.shell.inactivity_timeout": "Processus arrêté de force : délai d’inactivité atteint",
+  "tools.shell.interrupting_all": "{shortcut} -- interruption de toutes les commandes shell...",
+  "tools.shell.kill_failed": "Erreur lors de l’arrêt forcé du processus : {error}",
+  "tools.shell.reader_stuck": "Le fil de lecture {stream} ne s’est pas terminé après l’expiration du délai d’inactivité",
+  "tools.shell.sigint_interrupting": "{shortcut} détecté! Interruption de toutes les commandes shell...",
+  "tools.shell.sigint_stopping_agent": "{shortcut} détecté! Arrêt de l’agent (shells et tous les sous-agents)...",
   "tools.streaming_progress": "{tool} ~{count} jetons",
   "version.core_plugins": "Version des modules d’extension principaux : {version}",
   "version.core_plugins_unknown": "Version des modules d’extension principaux : inconnue",

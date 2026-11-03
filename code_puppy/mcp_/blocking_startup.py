@@ -20,6 +20,7 @@ from typing import Any, List, Optional, Sequence
 from fastmcp.client.transports import StdioTransport
 from pydantic_ai.mcp import MCPToolset
 
+from code_puppy.i18n import t
 from code_puppy.mcp_.mcp_logs import get_log_file_path, rotate_log_if_needed, write_log
 from code_puppy.messaging import emit_info
 
@@ -105,7 +106,11 @@ class StderrFileCapture:
                     self.captured_lines.append(line)
                     if self.emit_to_user:
                         emit_info(
-                            f"MCP {self.server_name}: {line}",
+                            t(
+                                "mcp.startup.stderr_line",
+                                server=self.server_name,
+                                line=line,
+                            ),
                             message_group=self.message_group,
                         )
         except Exception:
@@ -218,10 +223,14 @@ class BlockingStdioToolset(MCPToolset):
 
             # Point the user to /mcp logs; error_details stay out of the prompt
             # (already in the log file — no stack-trace spam on every run).
+            # Commands are placeholders so translations cannot break them.
             emit_info(
-                f"MCP server '{self.server_name}' didn't start. "
-                f"Run [cyan]/mcp logs {self.server_name}[/cyan] to investigate, "
-                f"or unbind it via [cyan]/agents → B[/cyan].",
+                t(
+                    "mcp.startup.not_started",
+                    server=self.server_name,
+                    logs_command=f"/mcp logs {self.server_name}",
+                    agents_command="/agents → B",
+                ),
                 style="yellow",
                 message_group=self.message_group,
             )
@@ -281,97 +290,3 @@ class BlockingStdioToolset(MCPToolset):
     def is_ready(self) -> bool:
         """Check if server is ready without blocking."""
         return self._ready_event.is_set() and self._init_error is None
-
-
-class StartupMonitor:
-    """
-    Monitor for tracking multiple server startups.
-
-    This class helps coordinate startup of multiple MCP servers
-    and ensures all are ready before proceeding.
-    """
-
-    def __init__(self, message_group: Optional[uuid.UUID] = None):
-        self.servers = {}
-        self.startup_times = {}
-        self.message_group = message_group or uuid.uuid4()
-
-    def add_server(self, name: str, server: BlockingStdioToolset):
-        """Add a server to monitor."""
-        self.servers[name] = server
-
-    async def wait_all_ready(self, timeout: float = 30.0) -> dict:
-        """
-        Wait for all servers to be ready.
-
-        Args:
-            timeout: Maximum time to wait for all servers
-
-        Returns:
-            Dictionary of server names to ready status
-        """
-        import time
-
-        results = {}
-
-        # Create tasks for all servers
-        async def wait_server(name: str, server: BlockingStdioToolset):
-            start = time.time()
-            try:
-                await server.wait_until_ready(timeout)
-                self.startup_times[name] = time.time() - start
-                results[name] = True
-                emit_info(
-                    f"   {name}: Ready in {self.startup_times[name]:.2f}s",
-                    style="dim green",
-                    message_group=self.message_group,
-                )
-            except Exception as e:
-                self.startup_times[name] = time.time() - start
-                results[name] = False
-                emit_info(
-                    f"   {name}: Failed after {self.startup_times[name]:.2f}s - {e}",
-                    style="dim red",
-                    message_group=self.message_group,
-                )
-
-        # Wait for all servers in parallel
-        emit_info(
-            f"Waiting for {len(self.servers)} MCP servers to initialize...",
-            style="cyan",
-            message_group=self.message_group,
-        )
-
-        tasks = [
-            asyncio.create_task(wait_server(name, server))
-            for name, server in self.servers.items()
-        ]
-
-        await asyncio.gather(*tasks, return_exceptions=True)
-
-        # Report summary
-        ready_count = sum(1 for r in results.values() if r)
-        total_count = len(results)
-
-        if ready_count == total_count:
-            emit_info(
-                f"All {total_count} servers ready!",
-                style="green bold",
-                message_group=self.message_group,
-            )
-        else:
-            emit_info(
-                f"{ready_count}/{total_count} servers ready",
-                style="yellow",
-                message_group=self.message_group,
-            )
-
-        return results
-
-    def get_startup_report(self) -> str:
-        """Get a report of startup times."""
-        lines = ["Server Startup Times:"]
-        for name, time_taken in self.startup_times.items():
-            status = "[ok]" if self.servers[name].is_ready() else "[failed]"
-            lines.append(f"  {status} {name}: {time_taken:.2f}s")
-        return "\n".join(lines)
