@@ -968,9 +968,8 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 # the featured path; this branch exists for pipes, CI, and
                 # the CODE_PUPPY_CLASSIC_PROMPT escape hatch.
                 reset_windows_terminal_ansi()
-                print(">>> ", end="", flush=True)
                 callbacks.on_prompt_ready()
-                task = input()
+                task = input(">>> ")
                 # Classic input has no editor: capture history here, even for
                 # shell/slash/exit commands that return before agent dispatch.
                 save_command_to_history(task)
