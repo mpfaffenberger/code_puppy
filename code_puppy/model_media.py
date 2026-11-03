@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+from code_puppy.error_logging import log_error
 from code_puppy.model_factory import ModelFactory
 from code_puppy.models_dev_parser import (
     ModelInfo,
@@ -30,12 +31,22 @@ _index_cache: Optional[
 def supported_binary_media_types(model_name: str | None) -> list[str]:
     """Binary document media types ``model_name`` accepts, or ``[]`` if unknown.
 
-    Never raises: any failure resolves to "unknown".
+    Never raises: any failure resolves to "unknown" and is logged once.
+    Control-flow exceptions (``BaseException``) propagate unlogged.
     """
     try:
         return _resolve(model_name)
-    except Exception:
+    except Exception as exc:
+        _report(exc, "model_media::supported_binary_media_types: lookup failed")
         return []
+
+
+def _report(exc: Exception, context: str) -> None:
+    # A failing logger must never change the fail-soft result.
+    try:
+        log_error(exc, context=context)
+    except Exception:
+        pass
 
 
 def _resolve(model_name: str | None) -> list[str]:
@@ -83,7 +94,9 @@ def _index(
 def _catalog_entry(model_name: str) -> Optional[dict]:
     try:
         entry = ModelFactory.load_config().get(model_name)
-    except Exception:
+    except Exception as exc:
+        # Swallowed here, so the outer handler never sees it: one record.
+        _report(exc, "model_media::_catalog_entry: catalog load failed")
         return None
     return entry if isinstance(entry, dict) else None
 

@@ -11,6 +11,7 @@ import re
 from dataclasses import dataclass
 
 from code_puppy.command_line.help_catalog import _parse_custom_command_result
+from code_puppy.error_logging import log_error
 
 
 @dataclass(frozen=True)
@@ -58,7 +59,11 @@ def list_registry_commands() -> list[CommandEntry]:
 
 
 def list_plugin_commands() -> list[CommandEntry]:
-    """Commands advertised through ``on_custom_command_help()``; fail-soft to []."""
+    """Commands advertised through ``on_custom_command_help()``.
+
+    Fail-soft to []: an unexpected failure is logged once; control-flow
+    exceptions (``BaseException``) propagate.
+    """
     try:
         from code_puppy import callbacks
 
@@ -67,7 +72,13 @@ def list_plugin_commands() -> list[CommandEntry]:
             for result in callbacks.on_custom_command_help()
             for pair in _parse_custom_command_result(result)
         ]
-    except Exception:
+    except Exception as exc:
+        try:
+            log_error(
+                exc, context="command_catalog::list_plugin_commands: callbacks failed"
+            )
+        except Exception:
+            pass  # a failing logger must never change the fail-soft result
         return []
     return [
         CommandEntry(

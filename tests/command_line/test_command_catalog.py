@@ -8,6 +8,7 @@ import sys
 import pytest
 
 from code_puppy import callbacks
+from code_puppy.command_line import command_catalog
 from code_puppy.command_line.command_catalog import (
     CommandEntry,
     _hint_from_usage,
@@ -128,13 +129,63 @@ def test_list_commands_dedupes_names_first_entry_wins(monkeypatch):
     assert next(e for e in entries if e.name == registry_name).category != "plugin"
 
 
-def test_failing_callback_yields_no_plugin_entries(monkeypatch):
-    def boom():
-        raise RuntimeError("plugin is broken")
+@pytest.fixture
+def logged(monkeypatch):
+    """Capture log_error calls so tests never write the real errors.log."""
+    calls = []
+    monkeypatch.setattr(
+        command_catalog,
+        "log_error",
+        lambda exc, context=None: calls.append((exc, context)),
+    )
+    return calls
 
-    monkeypatch.setattr(callbacks, "on_custom_command_help", boom)
+
+def _raising(exc):
+    def _raise():
+        raise exc
+
+    return _raise
+
+
+def test_failing_callback_yields_no_plugin_entries_and_logs_once(monkeypatch, logged):
+    error = RuntimeError("plugin is broken")
+    monkeypatch.setattr(callbacks, "on_custom_command_help", _raising(error))
 
     assert list_plugin_commands() == []
+    assert logged == [
+        (error, "command_catalog::list_plugin_commands: callbacks failed")
+    ]
+
+
+def test_failing_logger_does_not_change_plugin_commands(monkeypatch):
+    def bad_logger(*_args, **_kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(command_catalog, "log_error", bad_logger)
+    monkeypatch.setattr(
+        callbacks, "on_custom_command_help", _raising(RuntimeError("boom"))
+    )
+
+    assert list_plugin_commands() == []
+
+
+def test_control_flow_exception_propagates_unlogged(monkeypatch, logged):
+    monkeypatch.setattr(
+        callbacks, "on_custom_command_help", _raising(KeyboardInterrupt())
+    )
+
+    with pytest.raises(KeyboardInterrupt):
+        list_plugin_commands()
+    assert logged == []
+
+
+@pytest.mark.parametrize("callback_result", [[], [None, 42]])
+def test_empty_or_junk_callbacks_are_not_errors(monkeypatch, logged, callback_result):
+    monkeypatch.setattr(callbacks, "on_custom_command_help", lambda: callback_result)
+
+    assert list_plugin_commands() == []
+    assert logged == []
 
 
 # Plugin discovery is stubbed in the subprocess: it costs ~57s cold and is the

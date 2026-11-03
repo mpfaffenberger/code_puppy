@@ -42,6 +42,16 @@ def _model(provider, model_id, input_modalities):
     )
 
 
+@pytest.fixture(autouse=True)
+def logged(monkeypatch):
+    """Capture log_error calls so tests never write the real errors.log."""
+    calls = []
+    monkeypatch.setattr(
+        model_media, "log_error", lambda exc, context=None: calls.append((exc, context))
+    )
+    return calls
+
+
 @pytest.fixture
 def use(monkeypatch):
     """Install a fake registry and catalog; returns a setter for both."""
@@ -171,3 +181,71 @@ def test_bundled_snapshot_lookup_by_extra_model_key(
     monkeypatch.setattr(ModelFactory, "load_config", lambda: {})
     key = extra_model_key(provider, model_id)
     assert model_media.supported_binary_media_types(key) == expected
+
+
+_LOOKUP_CTX = "model_media::supported_binary_media_types: lookup failed"
+_CATALOG_CTX = "model_media::_catalog_entry: catalog load failed"
+
+
+def _fail_at(monkeypatch, registry, site, exc):
+    """Make ``site`` raise ``exc``; "catalog" needs a name only the catalog resolves."""
+
+    def _raise(*_args):
+        raise exc
+
+    if site == "registry":
+        monkeypatch.setattr(model_media, "get_registry", _raise)
+    else:
+        monkeypatch.setattr(model_media, "get_registry", lambda: registry)
+        monkeypatch.setattr(ModelFactory, "load_config", _raise)
+
+
+_SITES = [("registry", _LOOKUP_CTX), ("catalog", _CATALOG_CTX)]
+
+
+@pytest.mark.parametrize(("site", "context"), _SITES)
+def test_unexpected_failure_is_logged_once_with_static_context(
+    monkeypatch, registry, logged, site, context
+):
+    error = RuntimeError("boom for /private/path")
+    _fail_at(monkeypatch, registry, site, error)
+
+    assert model_media.supported_binary_media_types("alias-model") == []
+    assert logged == [(error, context)]
+
+
+@pytest.mark.parametrize("site", ["registry", "catalog"])
+def test_failing_logger_does_not_change_result(monkeypatch, registry, site):
+    def _bad_logger(*_args, **_kwargs):
+        raise OSError("disk full")
+
+    _fail_at(monkeypatch, registry, site, RuntimeError("boom"))
+    monkeypatch.setattr(model_media, "log_error", _bad_logger)
+    assert model_media.supported_binary_media_types("alias-model") == []
+
+
+@pytest.mark.parametrize("site", ["registry", "catalog"])
+def test_control_flow_exceptions_propagate_unlogged(
+    monkeypatch, registry, logged, site
+):
+    _fail_at(monkeypatch, registry, site, KeyboardInterrupt())
+    with pytest.raises(KeyboardInterrupt):
+        model_media.supported_binary_media_types("alias-model")
+    assert logged == []
+
+
+@pytest.mark.parametrize(
+    ("registry_arg", "catalog", "model_name"),
+    [
+        ("registry", {}, "nope-nothing"),  # unknown
+        ("registry", {"alias": {"name": "split"}}, "alias"),  # ambiguous
+        (None, {"alias": {"name": "gemini-pdf"}}, "alias"),  # no registry
+        ("registry", {}, None),  # empty name
+    ],
+)
+def test_ordinary_unknown_models_are_not_errors(
+    use, registry, logged, registry_arg, catalog, model_name
+):
+    use(registry=registry if registry_arg else None, catalog=catalog)
+    assert model_media.supported_binary_media_types(model_name) == []
+    assert logged == []
