@@ -753,9 +753,36 @@ class TestMapModelResponse:
             model_name="m",
         )
         result = model._map_model_response(resp)
-        assert result["parts"][0]["thought"] is True
-        assert result["parts"][0]["thoughtSignature"] == "sig123"
-        assert result["parts"][1]["thoughtSignature"] == "sig123"
+        # Thought text is never replayed; its signature rides on the call.
+        assert result["parts"] == [
+            {
+                "function_call": {"name": "fn", "args": {}, "id": "tc1"},
+                "thoughtSignature": "sig123",
+            }
+        ]
+
+    def test_parallel_tool_calls_sign_only_the_first(self, model):
+        resp = ModelResponse(
+            parts=[
+                ThinkingPart(content="plan", signature="sig789"),
+                ToolCallPart(tool_name="a", args={}, tool_call_id="tc1"),
+                ToolCallPart(tool_name="b", args={}, tool_call_id="tc2"),
+                ToolCallPart(tool_name="c", args={}, tool_call_id="tc3"),
+            ],
+            model_name="m",
+        )
+        result = model._map_model_response(resp)
+        assert [p.get("thoughtSignature") for p in result["parts"]] == [
+            "sig789",
+            None,
+            None,
+        ]
+        assert [p["function_call"]["id"] for p in result["parts"]] == [
+            "tc1",
+            "tc2",
+            "tc3",
+        ]
+        assert not any("thought" in p for p in result["parts"])
 
     def test_thinking_then_text(self, model):
         resp = ModelResponse(
@@ -766,7 +793,7 @@ class TestMapModelResponse:
             model_name="m",
         )
         result = model._map_model_response(resp)
-        assert result["parts"][1]["thoughtSignature"] == "sig456"
+        assert result["parts"] == [{"text": "answer", "thoughtSignature": "sig456"}]
 
     def test_thinking_no_signature(self, model):
         resp = ModelResponse(
@@ -778,7 +805,7 @@ class TestMapModelResponse:
         )
         result = model._map_model_response(resp)
         # No signature -> bypass
-        assert result["parts"][1]["thoughtSignature"] == BYPASS_THOUGHT_SIGNATURE
+        assert result["parts"][0]["thoughtSignature"] == BYPASS_THOUGHT_SIGNATURE
 
     def test_text_without_pending_signature(self, model):
         resp = ModelResponse(
@@ -795,6 +822,13 @@ class TestMapModelResponse:
         )
         result = model._map_model_response(resp)
         assert result is None
+
+    def test_thinking_only_response_maps_to_none(self, model):
+        resp = ModelResponse(
+            parts=[ThinkingPart(content="hmm", signature="sig")],
+            model_name="m",
+        )
+        assert model._map_model_response(resp) is None
 
 
 # --- Request ---

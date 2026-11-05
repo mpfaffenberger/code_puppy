@@ -326,11 +326,13 @@ class GeminiModel(Model):
     def _map_model_response(self, m: ModelResponse) -> dict[str, Any] | None:
         """Map a ModelResponse to Gemini content format.
 
-        For Gemini thinking models, we need to track thought signatures from
-        ThinkingParts and apply them to subsequent function_call parts.
+        Thought text is never replayed. A ThinkingPart's signature (or the
+        bypass) goes on the next text part or the first function_call; later
+        parallel calls carry none.
         """
         parts: list[dict[str, Any]] = []
         pending_signature: str | None = None
+        seen_function_call = False
 
         for item in m.parts:
             if isinstance(item, ToolCallPart):
@@ -341,13 +343,16 @@ class GeminiModel(Model):
                         "id": item.tool_call_id,
                     }
                 }
-                # Gemini thinking models REQUIRE thoughtSignature on function calls
-                # Use pending signature from thinking or bypass signature
-                part_dict["thoughtSignature"] = (
-                    pending_signature
-                    if pending_signature is not None
-                    else BYPASS_THOUGHT_SIGNATURE
-                )
+                # Gemini thinking models REQUIRE thoughtSignature on the first
+                # function call of a turn; parallel calls after it must not
+                # repeat it (the gateway 400s intermittently when they do).
+                if not seen_function_call:
+                    part_dict["thoughtSignature"] = (
+                        pending_signature
+                        if pending_signature is not None
+                        else BYPASS_THOUGHT_SIGNATURE
+                    )
+                    seen_function_call = True
                 parts.append(part_dict)
             elif isinstance(item, TextPart):
                 part_dict = {"text": item.content}
@@ -358,15 +363,10 @@ class GeminiModel(Model):
                 parts.append(part_dict)
             elif isinstance(item, ThinkingPart):
                 if item.content:
-                    part_dict = {"text": item.content, "thought": True}
-                    if item.signature:
-                        part_dict["thoughtSignature"] = item.signature
-                        # Store signature for subsequent parts
-                        pending_signature = item.signature
-                    else:
-                        # No signature on thinking part, use bypass
-                        pending_signature = BYPASS_THOUGHT_SIGNATURE
-                    parts.append(part_dict)
+                    # Thought text is never replayed (`thought: true` parts make
+                    # the gateway 400 intermittently); only its signature is,
+                    # on the next function call or text part.
+                    pending_signature = item.signature or BYPASS_THOUGHT_SIGNATURE
 
         if not parts:
             return None
