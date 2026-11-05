@@ -10,7 +10,6 @@ readme = "README.md"
 requires-python = ">=3.11,<3.15"
 dependencies = [
     "code-puppy-core-plugins>=0.0.103",
-    "logfire>=4.0",
     "pydantic-ai-slim[openai,anthropic,mcp]==2.64.0",
     "pydantic-ai-harness[code-mode]==0.64.0",
     # Imported directly by code_puppy.agents; range mirrors pydantic-ai-harness[code-mode].
@@ -84,9 +83,6 @@ HomePage = "https://github.com/mpfaffenberger/code_puppy"
 [project.scripts]
 code-puppy = "code_puppy.main:main_entry"
 pup = "code_puppy.main:main_entry"
-
-[tool.logfire]
-ignore_no_config = true
 
 [tool.hatch.build]
 packages = ["code_puppy"]

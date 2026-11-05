@@ -86,6 +86,7 @@ from code_puppy.agents._token_limit_hint import resolve_model_name
 from code_puppy.agents.event_stream_handler import event_stream_handler
 from code_puppy.agents.run_invocation import ModelCall, run_with_exception_retry
 from code_puppy.callbacks import (
+    on_agent_event_stream_start,
     on_agent_run_cancel,
     on_agent_run_context,
     on_agent_run_end,
@@ -824,14 +825,12 @@ async def _run_with_mcp_impl(
         # if no text actually streamed.
         use_streaming = get_enable_streaming()
 
-        async def _observed_event_stream_handler(ctx: Any, events: Any) -> Any:
-            from code_puppy.observability import capture_agent_context
-
-            capture_agent_context(group_id)
+        async def _hooked_event_stream_handler(ctx: Any, events: Any) -> Any:
+            on_agent_event_stream_start(group_id)
             return await event_stream_handler(ctx, events)
 
         detector: Optional[StreamingTextDetector] = (
-            StreamingTextDetector(_observed_event_stream_handler)
+            StreamingTextDetector(_hooked_event_stream_handler)
             if use_streaming
             else None
         )
@@ -1015,9 +1014,6 @@ async def _run_with_mcp_impl(
             if unexpected:
                 raise unexpected[0] from other
         finally:
-            from code_puppy.observability import clear_agent_context
-
-            clear_agent_context(group_id)
             agent._message_history = _history.prune_interrupted_tool_calls(
                 agent._message_history
             )

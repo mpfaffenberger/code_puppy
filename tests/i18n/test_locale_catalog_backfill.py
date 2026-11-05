@@ -77,7 +77,6 @@ def test_mcp_help_preserves_executable_commands(locale):
         ("cli.prompt_toolkit.install_error", ("prompt_toolkit",)),
         ("cli.version.update_disabled", ("NO_VERSION_UPDATE", "1", "true")),
         ("cmd.refresh_models.unmatched", ("models.dev",)),
-        ("logfire.missing_package", ("enable_logfire", "logfire", "code-puppy")),
         ("mcp.custom_install.no_marketplace", ("/mcp install",)),
         ("mcp.oauth.invalid_method", ("'oauth'",)),
         ("mcp.oauth.header_conflict", ("Authorization",)),

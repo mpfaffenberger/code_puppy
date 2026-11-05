@@ -266,13 +266,6 @@ async def main():
 
     ensure_config_exists()
 
-    # Opt-in Logfire observability — a no-op unless enable_logfire (or
-    # CODE_PUPPY_ENABLE_LOGFIRE) is set. Must run before agents spin up so
-    # pydantic-ai instrumentation catches every run.
-    from code_puppy.observability import configure_logfire
-
-    configure_logfire()
-
     # Validate cancel_agent_key configuration early
     try:
         validate_cancel_agent_key()
