@@ -6,6 +6,7 @@ that weren't covered by the existing test_file_operations_extended.py tests.
 
 import os
 import subprocess
+import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -408,6 +409,31 @@ class TestListFilesRipgrepHandling:
         assert result.error is None
         assert "file1.txt" in result.content
         assert "file2.py" in result.content
+
+    def test_non_recursive_listing_does_not_probe_hanging_path_shim(
+        self, tmp_path, monkeypatch
+    ):
+        """A listing that never uses rg must not launch its health probe."""
+        from code_puppy.tools import ripgrep
+
+        marker = tmp_path / "shim-launched"
+        shim = tmp_path / "rg"
+        shim.write_text(
+            f"#!{sys.executable}\n"
+            "from pathlib import Path\n"
+            "import time\n"
+            f"Path({str(marker)!r}).write_text('launched')\n"
+            "time.sleep(20)\n"
+        )
+        shim.chmod(0o755)
+        monkeypatch.setattr(ripgrep.shutil, "which", lambda _name: str(shim))
+        monkeypatch.setattr(ripgrep, "_HEALTH_CHECK_TIMEOUT_SECONDS", 0.05)
+        monkeypatch.setattr(ripgrep, "_failed_probe", None)
+
+        result = _list_files(None, str(tmp_path), recursive=False)
+
+        assert result.error is None
+        assert not marker.exists()
 
     @patch("subprocess.run")
     def test_list_files_general_exception(self, mock_run, tmp_path):

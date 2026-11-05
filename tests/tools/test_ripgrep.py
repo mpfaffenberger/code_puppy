@@ -10,6 +10,11 @@ import pytest
 from code_puppy.tools import ripgrep
 
 
+@pytest.fixture(autouse=True)
+def reset_failed_probe(monkeypatch):
+    monkeypatch.setattr(ripgrep, "_failed_probe", None)
+
+
 @pytest.fixture
 def interpreter_dir(tmp_path, monkeypatch):
     """Pretend the interpreter lives in tmp_path, with nothing on PATH."""
@@ -52,6 +57,39 @@ def test_falls_back_to_binary_beside_interpreter(interpreter_dir, name):
 
 def test_none_when_missing_everywhere(interpreter_dir):
     assert ripgrep.find_ripgrep() is None
+
+
+def test_failed_probe_is_reused_until_the_shim_changes(tmp_path, monkeypatch):
+    shim = tmp_path / "rg-shim"
+    marker = tmp_path / "probes"
+    bundled = tmp_path / "rg"
+    bundled.touch()
+    real_python = sys.executable
+    monkeypatch.setattr(sys, "executable", str(tmp_path / "python"))
+    monkeypatch.setattr(ripgrep.shutil, "which", lambda _name: str(shim))
+    monkeypatch.setattr(ripgrep, "_HEALTH_CHECK_TIMEOUT_SECONDS", 0.5)
+
+    def write_shim(*, succeeds):
+        exit_line = (
+            "print('ripgrep 1.0')" if succeeds else "import time\ntime.sleep(20)"
+        )
+        shim.write_text(
+            f"#!{real_python}\n"
+            "from pathlib import Path\n"
+            f"with Path({str(marker)!r}).open('a') as stream:\n"
+            "    stream.write('probe\\n')\n"
+            f"{exit_line}\n"
+        )
+        shim.chmod(0o755)
+
+    write_shim(succeeds=False)
+    assert ripgrep.find_ripgrep() == str(bundled)
+    assert ripgrep.find_ripgrep() == str(bundled)
+    assert marker.read_text().splitlines() == ["probe"]
+
+    write_shim(succeeds=True)
+    assert ripgrep.find_ripgrep() == str(shim)
+    assert marker.read_text().splitlines() == ["probe", "probe"]
 
 
 def test_executable_works_true_for_a_real_runnable_binary():

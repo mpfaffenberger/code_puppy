@@ -23,6 +23,26 @@ _BUNDLED_NAMES = ("rg", "rg.exe")
 # anything that hangs this long is not one we want to shell out to per call.
 _HEALTH_CHECK_TIMEOUT_SECONDS = 2
 
+# Remember only the most recent failed probe. The stat fingerprint invalidates
+# the entry when a shim is replaced or repaired at the same path, while keeping
+# repeated calls from paying the full timeout for one unchanged broken shim.
+_failed_probe: tuple[str, tuple[int, int, int, int, int, int] | None] | None = None
+
+
+def _executable_fingerprint(path: str) -> tuple[int, int, int, int, int, int] | None:
+    try:
+        stat = os.stat(path)
+    except OSError:
+        return None
+    return (
+        stat.st_dev,
+        stat.st_ino,
+        stat.st_mode,
+        stat.st_size,
+        stat.st_mtime_ns,
+        stat.st_ctime_ns,
+    )
+
 
 def _executable_works(path: str) -> bool:
     """Best-effort check that ``path`` is an ``rg`` that actually runs.
@@ -51,9 +71,16 @@ def find_ripgrep() -> str | None:
     chance -- we'd rather hand back a working ``rg`` from an unexpected
     place than a dead one from the expected place.
     """
+    global _failed_probe
+
     on_path = shutil.which("rg")
-    if on_path and _executable_works(on_path):
-        return on_path
+    if on_path:
+        probe = (on_path, _executable_fingerprint(on_path))
+        if probe != _failed_probe:
+            if _executable_works(on_path):
+                _failed_probe = None
+                return on_path
+            _failed_probe = probe
 
     interpreter_dir = os.path.dirname(sys.executable)
     for name in _BUNDLED_NAMES:
