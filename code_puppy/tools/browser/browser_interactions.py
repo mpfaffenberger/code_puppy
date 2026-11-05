@@ -4,10 +4,16 @@ from typing import Any, Dict, List, Optional
 
 from pydantic_ai import RunContext
 
+from code_puppy.i18n import t
 from code_puppy.messaging import emit_error, emit_info, emit_success
 from code_puppy.tools.common import generate_group_id
 
 from .browser_manager import get_session_browser_manager
+
+
+def _target(selector: str) -> str:
+    """Echo the selector argument in a banner; argument names stay untranslated."""
+    return f"selector='{selector}'"
 
 
 async def click_element(
@@ -20,7 +26,7 @@ async def click_element(
     """Click on an element."""
     group_id = generate_group_id("browser_click", selector[:100])
     emit_info(
-        f"BROWSER CLICK 🖱️ selector='{selector}' button={button}",
+        t("browser.interaction.click", details=f"{_target(selector)} button={button}"),
         message_group=group_id,
     )
     try:
@@ -49,12 +55,16 @@ async def click_element(
 
         await element.click(**click_options)
 
-        emit_success(f"Clicked element: {selector}", message_group=group_id)
+        emit_success(
+            t("browser.interaction.clicked", selector=selector), message_group=group_id
+        )
 
         return {"success": True, "selector": selector, "action": f"{button}_click"}
 
     except Exception as e:
-        emit_error(f"Click failed: {str(e)}", message_group=group_id)
+        emit_error(
+            t("browser.interaction.click_failed", error=str(e)), message_group=group_id
+        )
         return {"success": False, "error": str(e), "selector": selector}
 
 
@@ -66,7 +76,7 @@ async def double_click_element(
     """Double-click on an element."""
     group_id = generate_group_id("browser_double_click", selector[:100])
     emit_info(
-        f"BROWSER DOUBLE CLICK 🖱️🖱️ selector='{selector}'",
+        t("browser.interaction.double_click", details=_target(selector)),
         message_group=group_id,
     )
     try:
@@ -80,7 +90,10 @@ async def double_click_element(
         await element.wait_for(state="visible", timeout=timeout)
         await element.dblclick(force=force, timeout=timeout)
 
-        emit_success(f"Double-clicked element: {selector}", message_group=group_id)
+        emit_success(
+            t("browser.interaction.double_clicked", selector=selector),
+            message_group=group_id,
+        )
 
         return {"success": True, "selector": selector, "action": "double_click"}
 
@@ -96,7 +109,7 @@ async def hover_element(
     """Hover over an element."""
     group_id = generate_group_id("browser_hover", selector[:100])
     emit_info(
-        f"BROWSER HOVER 👆 selector='{selector}'",
+        t("browser.interaction.hover", details=_target(selector)),
         message_group=group_id,
     )
     try:
@@ -110,7 +123,9 @@ async def hover_element(
         await element.wait_for(state="visible", timeout=timeout)
         await element.hover(force=force, timeout=timeout)
 
-        emit_success(f"Hovered over element: {selector}", message_group=group_id)
+        emit_success(
+            t("browser.interaction.hovered", selector=selector), message_group=group_id
+        )
 
         return {"success": True, "selector": selector, "action": "hover"}
 
@@ -127,7 +142,10 @@ async def set_element_text(
     """Set text in an input element."""
     group_id = generate_group_id("browser_set_text", f"{selector[:50]}_{text[:30]}")
     emit_info(
-        f"BROWSER SET TEXT selector='{selector}' text='{text[:50]}{'...' if len(text) > 50 else ''}'",
+        t(
+            "browser.interaction.set_text",
+            details=f"{_target(selector)} text='{text[:50]}{'...' if len(text) > 50 else ''}'",
+        ),
         message_group=group_id,
     )
     try:
@@ -145,7 +163,9 @@ async def set_element_text(
 
         await element.fill(text, timeout=timeout)
 
-        emit_success(f"Set text in element: {selector}", message_group=group_id)
+        emit_success(
+            t("browser.interaction.text_set", selector=selector), message_group=group_id
+        )
 
         return {
             "success": True,
@@ -155,7 +175,10 @@ async def set_element_text(
         }
 
     except Exception as e:
-        emit_error(f"Set text failed: {str(e)}", message_group=group_id)
+        emit_error(
+            t("browser.interaction.set_text_failed", error=str(e)),
+            message_group=group_id,
+        )
         return {"success": False, "error": str(e), "selector": selector, "text": text}
 
 
@@ -166,7 +189,7 @@ async def get_element_text(
     """Get text content from an element."""
     group_id = generate_group_id("browser_get_text", selector[:100])
     emit_info(
-        f"BROWSER GET TEXT selector='{selector}'",
+        t("browser.interaction.get_text", details=_target(selector)),
         message_group=group_id,
     )
     try:
@@ -194,7 +217,7 @@ async def get_element_value(
     """Get value from an input element."""
     group_id = generate_group_id("browser_get_value", selector[:100])
     emit_info(
-        f"BROWSER GET VALUE 📎 selector='{selector}'",
+        t("browser.interaction.get_value", details=_target(selector)),
         message_group=group_id,
     )
     try:
@@ -223,12 +246,16 @@ async def select_option(
     timeout: int = 10000,
 ) -> Dict[str, Any]:
     """Select an option in a dropdown/select element."""
-    option_desc = value or label or str(index) if index is not None else "unknown"
+    # Same precedence as the selection below, so the banner names what is selected.
+    requested = next((str(x) for x in (value, label, index) if x is not None), None)
     group_id = generate_group_id(
-        "browser_select_option", f"{selector[:50]}_{option_desc}"
+        "browser_select_option", f"{selector[:50]}_{requested}"
     )
+    details = _target(selector)
+    if requested is not None:
+        details += f" option='{requested}'"
     emit_info(
-        f"BROWSER SELECT OPTION selector='{selector}' option='{option_desc}'",
+        t("browser.interaction.select_option", details=details),
         message_group=group_id,
     )
     try:
@@ -258,7 +285,11 @@ async def select_option(
             }
 
         emit_success(
-            f"Selected option in {selector}: {selection}",
+            t(
+                "browser.interaction.option_selected",
+                selector=selector,
+                selection=selection,
+            ),
             message_group=group_id,
         )
 
@@ -275,7 +306,7 @@ async def check_element(
     """Check a checkbox or radio button."""
     group_id = generate_group_id("browser_check", selector[:100])
     emit_info(
-        f"BROWSER CHECK ☑️ selector='{selector}'",
+        t("browser.interaction.check", details=_target(selector)),
         message_group=group_id,
     )
     try:
@@ -289,7 +320,9 @@ async def check_element(
         await element.wait_for(state="visible", timeout=timeout)
         await element.check(timeout=timeout)
 
-        emit_success(f"Checked element: {selector}", message_group=group_id)
+        emit_success(
+            t("browser.interaction.checked", selector=selector), message_group=group_id
+        )
 
         return {"success": True, "selector": selector, "action": "check"}
 
@@ -304,7 +337,7 @@ async def uncheck_element(
     """Uncheck a checkbox."""
     group_id = generate_group_id("browser_uncheck", selector[:100])
     emit_info(
-        f"BROWSER UNCHECK ☐️ selector='{selector}'",
+        t("browser.interaction.uncheck", details=_target(selector)),
         message_group=group_id,
     )
     try:
@@ -318,7 +351,10 @@ async def uncheck_element(
         await element.wait_for(state="visible", timeout=timeout)
         await element.uncheck(timeout=timeout)
 
-        emit_success(f"Unchecked element: {selector}", message_group=group_id)
+        emit_success(
+            t("browser.interaction.unchecked", selector=selector),
+            message_group=group_id,
+        )
 
         return {"success": True, "selector": selector, "action": "uncheck"}
 

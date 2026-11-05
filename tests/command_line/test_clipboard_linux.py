@@ -170,48 +170,6 @@ class TestHasImageLinuxEdgeCases:
             assert has_image_in_clipboard() is True
 
 
-class TestImageResizing:
-    """Tests for image resizing functionality."""
-
-    @pytest.mark.parametrize(
-        "width, height",
-        [
-            (5000, 5000),  # large square image triggers resize
-            (1000, 10000),  # height over budget
-            (10000, 1000),  # width over budget
-        ],
-    )
-    def test_large_image_triggers_resize(self, width, height):
-        """Test that large images trigger resize."""
-        from code_puppy.command_line.clipboard import _resize_image_if_needed
-
-        mock_image = MagicMock()
-        mock_image.width = width
-        mock_image.height = height
-
-        call_count = [0]
-
-        def save_side_effect(buffer, **kwargs):
-            # First save: simulate large image (20MB); then resized (5MB).
-            if call_count[0] == 0:
-                buffer.write(b"\x00" * (20 * 1024 * 1024))
-            else:
-                buffer.write(b"\x00" * (5 * 1024 * 1024))
-            call_count[0] += 1
-
-        mock_image.save.side_effect = save_side_effect
-        resized_mock = MagicMock()
-        mock_image.resize.return_value = resized_mock
-
-        with patch("code_puppy.command_line.clipboard.Image") as mock_image_module:
-            mock_image_module.Image = type(mock_image)
-            mock_image_module.Resampling.LANCZOS = "lanczos"
-            result = _resize_image_if_needed(mock_image, 10 * 1024 * 1024)  # 10MB limit
-
-        assert mock_image.resize.called
-        assert result is resized_mock
-
-
 class TestLinuxClipboardSupport:
     """Tests for Linux clipboard support via xclip/wl-paste."""
 

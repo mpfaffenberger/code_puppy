@@ -20,21 +20,37 @@ from typing import TYPE_CHECKING, Any, Generator
 if TYPE_CHECKING:
     from code_puppy.agents.base_agent import BaseAgent
 
-__all__ = ["executing_agent_context", "get_executing_agent"]
+__all__ = [
+    "executing_agent_context",
+    "get_executing_agent",
+    "get_execution_output_type",
+]
 
 _executing_agent: ContextVar[Any | None] = ContextVar("executing_agent", default=None)
+_execution_output_type: ContextVar[Any] = ContextVar(
+    "execution_output_type", default=str
+)
 
 
 @contextmanager
-def executing_agent_context(agent: Any) -> Generator[None, None, None]:
-    """Make ``agent`` visible to work spawned within this async context."""
+def executing_agent_context(
+    agent: Any, *, output_type: Any = str
+) -> Generator[None, None, None]:
+    """Expose the agent and invocation output contract to async-safe hooks."""
     token = _executing_agent.set(agent)
+    output_token = _execution_output_type.set(output_type)
     try:
         yield
     finally:
+        _execution_output_type.reset(output_token)
         _executing_agent.reset(token)
 
 
 def get_executing_agent() -> "BaseAgent | None":
     """Return the agent owning this execution context, if there is one."""
     return _executing_agent.get()
+
+
+def get_execution_output_type() -> Any:
+    """Return the invocation's output contract, or ``str`` outside a run."""
+    return _execution_output_type.get()

@@ -1,0 +1,42 @@
+name: Multimodal provider contract
+
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  explicit-provider-routes:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+      - name: Install frozen dependencies
+        run: uv sync --frozen
+      - name: Offline provider and native attachment gates
+        env:
+          CI: '1'
+          CODE_PUPPY_TEST_FAST: '1'
+        run: >-
+          uv run --frozen pytest --no-cov -q
+          tests/test_multimodal_provider_contract.py
+          tests/test_responses_route_contract.py
+          tests/test_responses_stream_contract.py
+          tests/test_model_factory_reasoning.py
+          tests/agents/test_code_mode_native_content.py
+      - name: Lint new provider contracts
+        run: >-
+          uv run --frozen ruff check
+          tests/test_multimodal_provider_contract.py
+          tests/test_responses_route_contract.py
+          tests/test_responses_stream_contract.py

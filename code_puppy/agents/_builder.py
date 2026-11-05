@@ -21,20 +21,34 @@ from pydantic_ai.capabilities import ProcessHistory
 from code_puppy.agents._code_mode import (
     bind_declared_speculation,
     build_speculative_code_mode,
+    main_repl_path,
 )
 from code_puppy.agents._compaction import HistoryCompaction
+from code_puppy.agents._mcp import (  # noqa: F401 -- compatibility imports
+    _autostart_bound_servers,
+    _iter_autostart_targets,
+    _warn_missing_server,
+    _with_runtime_mcp_toolsets,
+    autostart_bound_servers_async,
+    filter_conflicting_mcp_tools,
+    load_mcp_servers,
+    reload_mcp_servers,
+)
 from code_puppy.agents._model_message_transform import build_model_message_transform
-from code_puppy.agents._subagent_recursion import build_subagent_recursion_guard
 from code_puppy.agents._output_limits import (
     build_response_clamp,
     build_tool_output_limits,
 )
+from code_puppy.agents._rules import (  # noqa: F401 -- compatibility imports
+    _friendly_path,
+    _read_rules_text,
+    _same_file,
+    _truncate_agents_md,
+)
 from code_puppy.agents._steer_processor import make_steer_history_processor
+from code_puppy.agents._subagent_recursion import build_subagent_recursion_guard
 from code_puppy.agents.event_stream_handler import event_stream_handler
-from code_puppy.events.bridge import CapabilityEventBridge
 from code_puppy.callbacks import (
-    on_pre_mcp_autostart,
-    on_pre_mcp_autostart_sync,
     on_wrap_pydantic_agent,
 )
 from code_puppy.config import (
@@ -42,11 +56,12 @@ from code_puppy.config import (
     CONFIG_DIR,
     get_agents_md_max_chars,
     get_global_model_name,
-    get_value,
 )
-from code_puppy.mcp_ import get_mcp_manager
+from code_puppy.events.bridge import CapabilityEventBridge
 from code_puppy.messaging import emit_error, emit_info, emit_warning
 from code_puppy.model_factory import ModelFactory, make_model_settings
+from code_puppy.model_utils import static_then_runtime
+from code_puppy.tools.common import get_working_directory
 
 if TYPE_CHECKING:
     from code_puppy.model_utils import PreparedPrompt
@@ -58,88 +73,6 @@ _CODE_PUPPY_DIR = ".code_puppy"
 # cap is ``get_agents_md_max_chars()`` (user override via /set); this constant
 # is just the fallback used by tests and the warning notice.
 AGENTS_MD_MAX_CHARS = AGENTS_MD_MAX_CHARS_DEFAULT
-
-
-def _friendly_path(candidate: Path) -> str:
-    """Render ``candidate`` as ``~/relative`` when it's under ``$HOME``.
-
-    Keeps the absolute home path out of the system prompt (and out of any
-    Slack paste of the agent's "please trim AGENTS.md" reply).
-    """
-    try:
-        return f"~/{candidate.relative_to(Path.home())}"
-    except ValueError:
-        return str(candidate)
-
-
-# BOM signatures mapped to their codecs. Check UTF-32 before UTF-16:
-# the UTF-32 LE BOM starts with the UTF-16 LE BOM bytes.
-_BOM_CODECS = (
-    (b"\xef\xbb\xbf", "utf-8-sig"),
-    (b"\xff\xfe\x00\x00", "utf-32-le"),
-    (b"\x00\x00\xfe\xff", "utf-32-be"),
-    (b"\xff\xfe", "utf-16-le"),
-    (b"\xfe\xff", "utf-16-be"),
-)
-
-
-def _read_rules_text(candidate: Path) -> Optional[str]:
-    """Read a rules file and detect its encoding from the BOM.
-
-    PowerShell redirection (``echo hi > AGENTS.md``) writes UTF-16 LE
-    with a BOM. A plain UTF-8 read crashes on it. This helper sniffs
-    the BOM, decodes with the correct codec, and never raises. It
-    returns ``None`` when the file is not readable.
-    """
-    try:
-        raw = candidate.read_bytes()
-    except OSError as exc:
-        emit_warning(f"Could not read {candidate}: {exc}")
-        return None
-    for bom, codec in _BOM_CODECS:
-        if raw.startswith(bom):
-            try:
-                text = raw.decode(codec)
-            except UnicodeDecodeError:
-                break
-            # Drop the BOM character that non-sig codecs keep.
-            return text.lstrip("\ufeff")
-    try:
-        return raw.decode("utf-8")
-    except UnicodeDecodeError:
-        emit_warning(
-            f"{candidate} is not valid UTF-8; bad bytes were replaced. "
-            f"Save the file as UTF-8 to fix this."
-        )
-        return raw.decode("utf-8", errors="replace")
-
-
-def _truncate_agents_md(content: str, source: str, max_chars: int) -> str:
-    """Cap one AGENTS.md file at ``max_chars`` with a labelled notice.
-
-    Returns ``content`` unchanged when it's within the cap. When it overflows,
-    keeps exactly the first ``max_chars`` characters of the original and
-    appends a delimited warning addressed to the agent (so the agent can
-    surface it to the user on the next turn). ``source`` is a human-readable
-    label for the file — used in the warning so the agent can tell the user
-    which specific file to trim when multiple files overflow. ``max_chars``
-    is resolved once per load by the caller (see ``get_agents_md_max_chars``)
-    so a session-wide ``/set`` override is honoured.
-    """
-    original_len = len(content)
-    if original_len <= max_chars:
-        return content
-    dropped = original_len - max_chars
-    notice = (
-        f"\n\n--- AGENTS.md truncated ---\n"
-        f"The {source} content was truncated: original was "
-        f"{original_len:,} chars, {dropped:,} chars dropped. Please tell "
-        f"the user to trim {source} below {max_chars:,} "
-        f"characters so the full rules can take effect (or raise the cap "
-        f"via `/set agents_md_max_chars=<int>`).\n"
-        f"--- end truncation notice ---"
-    )
-    return content[:max_chars] + notice
 
 
 def load_puppy_rules() -> Optional[str]:
@@ -163,12 +96,14 @@ def load_puppy_rules() -> Optional[str]:
     max_chars = get_agents_md_max_chars()
 
     global_rules: Optional[str] = None
+    global_file: Optional[Path] = None
     for name in _AGENT_RULE_FILES:
         candidate = Path(CONFIG_DIR) / name
         if candidate.exists():
             text = _read_rules_text(candidate)
             if text is None:
                 continue
+            global_file = candidate
             global_rules = _truncate_agents_md(
                 text,
                 source=f"global {_friendly_path(candidate)}",
@@ -177,19 +112,20 @@ def load_puppy_rules() -> Optional[str]:
             break
 
     project_rules: Optional[str] = None
+    project_base = Path(get_working_directory())
 
     # Priority 1: Check .code_puppy/ directory (preferred location)
-    code_puppy_dir = Path(_CODE_PUPPY_DIR)
+    code_puppy_dir = project_base / _CODE_PUPPY_DIR
     if code_puppy_dir.is_dir():
         for name in _AGENT_RULE_FILES:
             candidate = code_puppy_dir / name
-            if candidate.exists():
+            if candidate.exists() and not _same_file(candidate, global_file):
                 text = _read_rules_text(candidate)
                 if text is None:
                     continue
                 project_rules = _truncate_agents_md(
                     text,
-                    source=f"project {candidate}",
+                    source=f"project {Path(_CODE_PUPPY_DIR) / name}",
                     max_chars=max_chars,
                 )
                 break
@@ -197,169 +133,20 @@ def load_puppy_rules() -> Optional[str]:
     # Priority 2: Fallback to project root
     if project_rules is None:
         for name in _AGENT_RULE_FILES:
-            candidate = Path(name)
-            if candidate.exists():
+            candidate = project_base / name
+            if candidate.exists() and not _same_file(candidate, global_file):
                 text = _read_rules_text(candidate)
                 if text is None:
                     continue
                 project_rules = _truncate_agents_md(
                     text,
-                    source=f"project {candidate}",
+                    source=f"project {name}",
                     max_chars=max_chars,
                 )
                 break
 
     rules = [r for r in (global_rules, project_rules) if r]
     return "\n\n".join(rules) if rules else None
-
-
-def load_mcp_servers(
-    extra_headers: Optional[Dict[str, str]] = None,
-    agent_name: Optional[str] = None,
-) -> List[Any]:
-    """Return pydantic-ai compatible MCP servers, or ``[]`` if disabled.
-
-    When ``agent_name`` is provided, only servers bound to that agent (via
-    ``mcp_agent_bindings.json``) are returned. Servers marked ``auto_start``
-    in their binding are kicked off in the background here so they're warm
-    by the time the agent runs.
-    """
-    del extra_headers  # accepted for API compatibility; manager owns headers
-    from code_puppy.tools import tools_disabled
-
-    if tools_disabled():
-        # --no-tools implies no MCP toolsets either (issue #182).
-        return []
-
-    mcp_disabled = get_value("disable_mcp_servers")
-    if mcp_disabled and str(mcp_disabled).lower() in ("1", "true", "yes", "on"):
-        return []
-
-    manager = get_mcp_manager()
-    if agent_name:
-        _autostart_bound_servers(manager, agent_name)
-    return manager.get_servers_for_agent(agent_name=agent_name)
-
-
-def _iter_autostart_targets(manager: Any, agent_name: str):
-    """Yield ``(server_name, config)`` tuples that need to be auto-started.
-
-    Walks the bindings for ``agent_name``, filters to ``auto_start=True``,
-    skips servers that are already running/starting, and skips bindings
-    whose server config has been deleted.
-
-    Side effect: emits a one-shot warning per missing server so a user who
-    copied a JSON sub-agent config from elsewhere isn't left wondering why
-    its tools silently disappeared. Warnings are deduped via
-    ``_warn_missing_server`` so a long-running session doesn't spam the
-    same message every invocation.
-    """
-    try:
-        from code_puppy.mcp_.agent_bindings import get_bound_servers
-        from code_puppy.mcp_.managed_server import ServerState
-    except Exception:  # pragma: no cover - defensive import
-        return
-
-    bindings = get_bound_servers(agent_name)
-    if not bindings:
-        return
-
-    for server_name, opts in bindings.items():
-        if not opts.get("auto_start"):
-            continue
-        config = manager.get_server_by_name(server_name)
-        if config is None:
-            _warn_missing_server(agent_name, server_name)
-            continue
-        suppressed = getattr(manager, "is_autostart_suppressed", None)
-        if suppressed is not None and suppressed(config.id) is True:
-            continue
-        try:
-            status = manager.get_server_status(config.id)
-            state = status.get("state")
-        except Exception:  # pragma: no cover - defensive
-            continue
-        if state in (ServerState.RUNNING.value, ServerState.STARTING.value):
-            continue
-        yield server_name, config
-
-
-# Dedupe set of ``(agent_name, server_name)`` pairs already warned about — no
-# TTLs, a fresh process resets it ("warn once per session").
-_WARNED_MISSING: set[tuple[str, str]] = set()
-
-
-def _warn_missing_server(agent_name: str, server_name: str) -> None:
-    """Warn once that an agent declares an MCP server that isn't installed."""
-    key = (agent_name, server_name)
-    if key in _WARNED_MISSING:
-        return
-    _WARNED_MISSING.add(key)
-    emit_warning(
-        f"Agent '{agent_name}' declares MCP server '{server_name}' but it's "
-        f"not installed. Run `/mcp install` to add it, or remove the entry "
-        f"from the agent's JSON config."
-    )
-
-
-def _autostart_bound_servers(manager: Any, agent_name: str) -> None:
-    """Start any stopped servers bound to ``agent_name`` with auto_start=True.
-
-    Fire-and-forget: schedules the start via ``start_server_sync`` and returns
-    immediately. **The server is NOT guaranteed to be ready** when this
-    returns — it just kicks off a background task. Safe for the main agent
-    boot path because there's plenty of wall-clock time before the first
-    ``agent.run()``. Callers that immediately spin up a pydantic-ai agent
-    against the same MCP singleton (e.g. ``invoke_agent`` wrapping
-    ``temp_agent.run`` in ``asyncio.create_task``) should use
-    :func:`autostart_bound_servers_async` instead, which awaits readiness
-    so the run starts against a fully started server.
-    """
-    targets = list(_iter_autostart_targets(manager, agent_name))
-    if not targets:
-        return
-    on_pre_mcp_autostart_sync(agent_name, [name for name, _ in targets])
-    for server_name, config in targets:
-        try:
-            manager.start_server_sync(config.id)
-            emit_info(
-                f"Auto-started MCP server '{server_name}' for agent '{agent_name}'"
-            )
-        except Exception as exc:  # pragma: no cover - defensive
-            emit_warning(f"Auto-start failed for MCP server '{server_name}': {exc}")
-
-
-async def autostart_bound_servers_async(manager: Any, agent_name: str) -> None:
-    """Async variant of :func:`_autostart_bound_servers` that waits for ready.
-
-    Calls ``manager.start_server`` (the async API) and awaits it, so when
-    this coroutine returns the lifecycle task has finished entering the
-    pydantic-ai MCP singleton's context and a subsequent re-entry from
-    pydantic-ai inside ``agent.run()`` takes the no-op fast-path.
-
-    Use this from any async caller that's about to immediately invoke a
-    pydantic-ai agent against the same MCP servers (sub-agent invocation,
-    notably).
-    """
-    targets = list(_iter_autostart_targets(manager, agent_name))
-    if not targets:
-        return
-    await on_pre_mcp_autostart(agent_name, [name for name, _ in targets])
-    for server_name, config in targets:
-        try:
-            await manager.start_server(config.id)
-            emit_info(
-                f"Auto-started MCP server '{server_name}' for agent '{agent_name}'"
-            )
-        except Exception as exc:  # pragma: no cover - defensive
-            emit_warning(f"Auto-start failed for MCP server '{server_name}': {exc}")
-
-
-def reload_mcp_servers(agent_name: Optional[str] = None) -> List[Any]:
-    """Force re-sync from ``mcp_servers.json`` and return updated servers."""
-    manager = get_mcp_manager()
-    manager.sync_from_config()
-    return manager.get_servers_for_agent(agent_name=agent_name)
 
 
 # (conversation_scope, agent_name, requested_model_name) combos already
@@ -509,34 +296,6 @@ def load_model_with_fallback(
         raise ValueError(friendly) from exc
 
 
-def filter_conflicting_mcp_tools(
-    mcp_servers: List[Any],
-    existing_tool_names: Set[str],
-) -> List[Any]:
-    """Hide MCP tools whose names collide with already-registered tools.
-
-    Wraps each toolset in a public ``FilteredToolset`` (via
-    ``AbstractToolset.filtered``) that drops colliding tool names at
-    ``get_tools`` time — no private-attribute surgery. Objects that aren't
-    pydantic-ai toolsets pass through unchanged; better to risk a duplicate
-    than to drop the whole server.
-    """
-    if not mcp_servers or not existing_tool_names:
-        return list(mcp_servers) if mcp_servers else []
-
-    from pydantic_ai.toolsets import AbstractToolset
-
-    conflicts = frozenset(existing_tool_names)
-
-    def _keep(ctx: Any, tool_def: Any) -> bool:
-        return tool_def.name not in conflicts
-
-    return [
-        server.filtered(_keep) if isinstance(server, AbstractToolset) else server
-        for server in mcp_servers
-    ]
-
-
 def _build_gpt_5_6_invoke_agent_guard_text() -> str:
     """Compose the GPT-5.6 delegation guard, interpolating the live cap.
 
@@ -554,11 +313,16 @@ def _build_gpt_5_6_invoke_agent_guard_text() -> str:
     limit = get_subagent_recursion_limit_gpt_5_6()
     return (
         "\n\n## Sub-Agent Delegation (GPT-5.6)\n"
-        "Use `invoke_agent` only for focused work that benefits from separate "
-        "context or specialized tools. Handle work directly when you can. "
+        "Use `invoke_agent` for focused work that benefits from separate "
+        "context or specialized tools; handle small work directly. When a task "
+        "has independent, tightly scoped pieces, invoke them as multiple "
+        "sub-agents concurrently in one batch (several `invoke_agent` calls in "
+        "the same response) rather than one at a time. Each must be a direct "
+        "child told not to delegate further. Wait for the batch, then "
+        "synthesize the results yourself; "
+        "do not start recursive or repeated follow-up delegation chains. "
         "Never invoke `planning-agent`. "
-        f"Hard cap: as a GPT-5.6 caller you may only invoke a sub-agent while "
-        f"the resulting chain depth stays at or below {limit} "
+        f"Hard cap: the resulting chain depth must stay at or below {limit} "
         f"(main agent = depth 0). Do not attempt deeper chains.\n"
     )
 
@@ -589,13 +353,15 @@ def _agent_exposes_tool(agent: Any, tool_name: str) -> bool:
 def _assemble_instructions(agent: Any, resolved_model_name: str) -> PreparedPrompt:
     """Compose full system prompt + puppy rules.
 
-    Returns the model-prepared prompt: ``instructions`` for the agent plus any
-    standing ``system_prompt`` a plugin wants emitted as its own
+    Returns the model-prepared prompt: the *static* ``instructions`` for the
+    agent plus any standing ``system_prompt`` a plugin wants emitted as its own
     ``SystemPromptPart`` ahead of them.
     """
     from code_puppy.model_utils import prepare_prompt_for_model
 
-    instructions = agent.get_full_system_prompt()
+    # Static part only: the per-run tail (identity, load_prompt fragments) is a
+    # separate dynamic instruction part, see build_pydantic_agent.
+    instructions = agent.get_system_prompt()
     puppy_rules = load_puppy_rules()
     if puppy_rules:
         instructions += f"\n{puppy_rules}"
@@ -649,7 +415,11 @@ def build_pydantic_agent(
         agent_name=getattr(agent, "name", None),
     )
     prepared = _assemble_instructions(agent, resolved_model_name)
-    mcp_servers = load_mcp_servers(agent_name=getattr(agent, "name", None))
+    instructions = static_then_runtime(
+        prepared.instructions, agent.get_runtime_system_prompt()
+    )
+    bound_mcp_servers = load_mcp_servers(agent_name=getattr(agent, "name", None))
+    mcp_servers = _with_runtime_mcp_toolsets(agent, bound_mcp_servers)
     model_settings = make_model_settings(
         resolved_model_name,
         overrides=agent.get_model_settings_overrides(),
@@ -671,7 +441,7 @@ def build_pydantic_agent(
             # A standing system_prompt (if any) becomes its own SystemPromptPart
             # in the first request, rendered ahead of the instructions block.
             system_prompt=prepared.system_prompt_parts,
-            instructions=prepared.instructions,
+            instructions=instructions,
             output_type=output_type,
             retries=3,
             toolsets=toolsets,
@@ -684,13 +454,15 @@ def build_pydantic_agent(
             # ToolOutputLimits reduces oversized tool returns on a different
             # hook (after_tool_execute), so its position is inert; the
             # response clamp runs before_model_request after compaction and
-            # steering. The plugin transform wraps the final model request.
+            # steering. The plugin transform is the innermost capability
+            # (before_model_request runs it last), so it sees the final
+            # compacted, steered request.
             capabilities=[
                 *build_tool_output_limits(),
                 history_compaction,
                 ProcessHistory(steer_processor),
                 build_response_clamp(),
-                build_model_message_transform(logical_agent_name),
+                build_model_message_transform(logical_agent_name, agent),
                 # Sub-agent recursion guards on the wrap_tool_execute seam
                 # (denies invoke_agent calls past the depth caps before the
                 # tool body runs). Sole wrap_tool_execute implementer, so
@@ -703,7 +475,7 @@ def build_pydantic_agent(
                 # declared outermost by the capability, so list position is
                 # inert; its speculation lifecycle leaves as typed
                 # code_mode.* CapabilityEvents for the bridge below.
-                *build_speculative_code_mode(agent_tools),
+                *build_speculative_code_mode(agent_tools, repl_path=main_repl_path),
                 # LAST: the app-side event bridge. Capabilities above emit
                 # typed CapabilityEvents; the bridge's @on_event listeners
                 # translate them into legacy callbacks/spinner/messaging.
@@ -769,6 +541,8 @@ def build_pydantic_agent(
     agent.cur_model = model
     agent._last_model_name = resolved_model_name
     agent._mcp_servers = final_mcp_servers
+    # Compare raw bindings, not transformed/filtered wrappers, on the next run.
+    agent._bound_mcp_toolsets = list(bound_mcp_servers)
 
     wrapped = on_wrap_pydantic_agent(
         agent,

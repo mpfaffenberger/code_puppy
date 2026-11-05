@@ -7,6 +7,7 @@ from typing import List, Optional
 
 from rich.text import Text
 
+from code_puppy.i18n import t
 from code_puppy.mcp_.agent_bindings import is_bound, set_session_binding
 from code_puppy.messaging import emit_error, emit_info, emit_success
 
@@ -39,7 +40,7 @@ class StartCommand(MCPCommandBase):
 
         if not args:
             emit_info(
-                Text.from_markup("[yellow]Usage: /mcp start <server_name>[/yellow]"),
+                Text(t("mcp.server.usage", command="start"), style="yellow"),
                 message_group=group_id,
             )
             return
@@ -51,7 +52,7 @@ class StartCommand(MCPCommandBase):
             server_id = find_server_id_by_name(self.manager, server_name)
             if not server_id:
                 emit_error(
-                    f"Server '{server_name}' not found",
+                    t("mcp.server.not_found", server=server_name),
                     message_group=group_id,
                 )
                 suggest_similar_servers(self.manager, server_name, group_id=group_id)
@@ -95,13 +96,16 @@ class StartCommand(MCPCommandBase):
                     agent_name = getattr(agent, "name", None)
                     if agent_name and not is_bound(agent_name, canonical_name):
                         set_session_binding(agent_name, canonical_name)
-                        emit_info(
-                            Text.from_markup(
-                                f"🔗 Bound '{canonical_name}' to agent "
-                                f"'{agent_name}' [dim](this session only)[/dim]"
-                            ),
-                            message_group=group_id,
+                        bound = Text(
+                            t(
+                                "mcp.server.bound",
+                                server=canonical_name,
+                                agent=agent_name,
+                            )
                         )
+                        bound.append(" ")
+                        bound.append(t("mcp.server.bound_session_only"), style="dim")
+                        emit_info(bound, message_group=group_id)
                 except Exception as e:
                     logger.warning(
                         f"Could not auto-bind '{canonical_name}' to current agent: {e}"
@@ -110,19 +114,17 @@ class StartCommand(MCPCommandBase):
                 if server_type == "stdio":
                     # Stdio servers start subprocess asynchronously
                     emit_success(
-                        f"🚀 Starting server: {server_name} (subprocess starting in background)",
+                        t("mcp.server.starting_background", server=server_name),
                         message_group=group_id,
                     )
                     emit_info(
-                        Text.from_markup(
-                            "[dim]Tip: Use /mcp status to check if the server is fully initialized[/dim]"
-                        ),
+                        Text(t("mcp.server.status_tip"), style="dim"),
                         message_group=group_id,
                     )
                 else:
                     # SSE/HTTP servers connect on first use
                     emit_success(
-                        f"✅ Enabled server: {server_name}",
+                        t("mcp.server.enabled", server=server_name),
                         message_group=group_id,
                     )
 
@@ -135,17 +137,17 @@ class StartCommand(MCPCommandBase):
                     # Clear MCP tool cache - it will be repopulated on next run
                     agent.update_mcp_tool_cache_sync()
                     emit_info(
-                        "Agent reloaded with updated servers",
+                        t("mcp.server.agent_reloaded"),
                         message_group=group_id,
                     )
                 except Exception as e:
                     logger.warning(f"Could not reload agent: {e}")
             else:
                 emit_error(
-                    f"Failed to start server: {server_name}",
+                    t("mcp.server.start_failed", server=server_name),
                     message_group=group_id,
                 )
 
         except Exception as e:
             logger.error(f"Error starting server '{server_name}': {e}")
-            emit_error(f"Failed to start server: {e}", message_group=group_id)
+            emit_error(t("mcp.server.start_error", error=e), message_group=group_id)

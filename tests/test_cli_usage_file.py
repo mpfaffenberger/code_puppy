@@ -60,12 +60,12 @@ async def test_execute_single_prompt_writes_result_usage(tmp_path):
             return_value=False,
         ),
         patch(
-            "code_puppy.cli_runner.parse_prompt_attachments",
+            "code_puppy.prompt_runner.parse_prompt_attachments",
             return_value=SimpleNamespace(prompt="do it"),
         ),
-        patch("code_puppy.cli_runner.get_current_agent", return_value=agent),
+        patch("code_puppy.prompt_runner.get_current_agent", return_value=agent),
         patch(
-            "code_puppy.cli_runner.run_prompt_with_attachments",
+            "code_puppy.prompt_runner.run_prompt_with_attachments",
             new=AsyncMock(return_value=(result, MagicMock())),
         ),
         patch("code_puppy.messaging.get_message_bus"),

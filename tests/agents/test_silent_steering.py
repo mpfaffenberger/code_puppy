@@ -57,5 +57,7 @@ def test_queued_steering_is_silent_and_preserves_leftovers(monkeypatch):
     result.all_messages.return_value = ["completed history"]
     assert _run_signals.prepare_queued_steer_injection(agent, result) == content
     assert agent._message_history == ["completed history"]
-    controller.request_steer.assert_called_once_with("second", mode="queue")
+    controller.request_steer.assert_called_once_with(
+        "second", mode="queue", history_recorded=True
+    )
     emit.assert_not_called()

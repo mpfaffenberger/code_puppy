@@ -2,22 +2,37 @@
 
 from __future__ import annotations
 
+import base64
 import io
+import os
 from unittest.mock import patch
 
 import pytest
 
 from code_puppy.command_line.image_utils import (
+    MAX_IMAGE_B64_BYTES,
     MAX_IMAGE_DIMENSION,
-    MAX_IMAGE_SIZE_BYTES,
-    _resize_image_if_needed,
+    TARGET_IMAGE_ATTACHMENT_BYTES,
+    ImageTooLargeError,
     _safe_open_image,
+    b64_len,
+    default_image_b64_budget,
     normalize_image_bytes,
 )
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _bytes_to_image(data: bytes):
+    from PIL import Image
+
+    return Image.open(io.BytesIO(data))
+
+
+def _encoded_b64_len(data: bytes) -> int:
+    return len(base64.b64encode(data))
 
 
 def _make_png_bytes(width: int = 20, height: int = 20, color=(255, 0, 0)) -> bytes:
@@ -31,6 +46,52 @@ def _make_png_bytes(width: int = 20, height: int = 20, color=(255, 0, 0)) -> byt
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     return buf.getvalue()
+
+
+def _make_noisy_jpeg(width: int, height: int, quality: int = 85) -> bytes:
+    """Return JPEG bytes whose content is noisy (i.e. resize-resistant)."""
+    try:
+        from PIL import Image
+    except ImportError:  # pragma: no cover
+        pytest.skip("PIL not available")
+
+    img = Image.frombytes("RGB", (width, height), os.urandom(width * height * 3))
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=quality)
+    return buf.getvalue()
+
+
+# ---------------------------------------------------------------------------
+# b64_len
+# ---------------------------------------------------------------------------
+
+
+class TestB64Len:
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [(0, 0), (1, 4), (2, 4), (3, 4), (4, 8), (100, 136)],
+    )
+    def test_matches_base64_encoding(self, raw: int, expected: int) -> None:
+        assert b64_len(raw) == expected == len(base64.b64encode(b"x" * raw))
+
+    def test_default_budget_matches_attachment_target(self) -> None:
+        """The default budget is the configured target in the API's unit."""
+        assert default_image_b64_budget() == b64_len(TARGET_IMAGE_ATTACHMENT_BYTES)
+        assert default_image_b64_budget() <= MAX_IMAGE_B64_BYTES
+
+    def test_default_budget_follows_config(self, monkeypatch) -> None:
+        """Changing the setting changes the budget without a restart."""
+        from code_puppy import config
+
+        monkeypatch.setattr(config, "get_image_attachment_max_kb", lambda: 512)
+        assert default_image_b64_budget() == b64_len(512 * 1024)
+
+    def test_default_budget_clamped_to_api_ceiling(self, monkeypatch) -> None:
+        """A huge configured value cannot exceed the API's hard limit."""
+        from code_puppy import config
+
+        monkeypatch.setattr(config, "get_image_attachment_max_kb", lambda: 1024 * 1024)
+        assert default_image_b64_budget() == MAX_IMAGE_B64_BYTES
 
 
 # ---------------------------------------------------------------------------
@@ -61,64 +122,6 @@ class TestSafeOpenImage:
 
 
 # ---------------------------------------------------------------------------
-# _resize_image_if_needed
-# ---------------------------------------------------------------------------
-
-
-class TestResizeImageIfNeeded:
-    def test_small_image_returns_same_object(self) -> None:
-        try:
-            from PIL import Image
-        except ImportError:  # pragma: no cover
-            pytest.skip("PIL not available")
-
-        img = Image.new("RGB", (10, 10))
-        result = _resize_image_if_needed(img, MAX_IMAGE_SIZE_BYTES)
-        # Must be the exact same object — no resize occurred
-        assert result is img
-
-    def test_large_image_returns_smaller_image(self) -> None:
-        try:
-            from PIL import Image
-        except ImportError:  # pragma: no cover
-            pytest.skip("PIL not available")
-
-        img = Image.new("RGB", (500, 500))
-        # Force resize by using a tiny byte budget
-        result = _resize_image_if_needed(img, 50)
-        assert result is not img
-        assert result.width < 500
-        assert result.height < 500
-
-    def test_dimensions_floored_at_100(self) -> None:
-        """Even a huge budget-to-size ratio should not drop below 100 px."""
-        try:
-            from PIL import Image
-        except ImportError:  # pragma: no cover
-            pytest.skip("PIL not available")
-
-        img = Image.new("RGB", (200, 200))
-        result = _resize_image_if_needed(img, 1)
-        assert result.width >= 100
-        assert result.height >= 100
-
-    def test_dimensions_capped_at_max(self) -> None:
-        """Resizing a huge image should not exceed MAX_IMAGE_DIMENSION."""
-        try:
-            from PIL import Image
-        except ImportError:  # pragma: no cover
-            pytest.skip("PIL not available")
-
-        # Create a very wide image
-        img = Image.new("RGB", (10000, 10000))
-        # Large budget = no resize; to test the cap, use a moderately large image
-        # and assert the resized result respects it.
-        result = _resize_image_if_needed(img, 100)
-        assert result.width <= MAX_IMAGE_DIMENSION
-        assert result.height <= MAX_IMAGE_DIMENSION
-
-
-# ---------------------------------------------------------------------------
 # normalize_image_bytes
 # ---------------------------------------------------------------------------
 
@@ -143,19 +146,6 @@ class TestNormalizeImageBytes:
         assert out == png
         assert mt == "image/png"
 
-    def test_large_image_resized(self) -> None:
-        """Images over the budget are resized and re-encoded as PNG."""
-        png = _make_png_bytes(300, 300)
-        # Tiny budget to guarantee a resize
-        out, mt = normalize_image_bytes(png, "image/jpeg", max_bytes=50)
-        assert mt == "image/png"
-        assert out != png
-        # Verify the output is a valid, smaller PNG
-        from PIL import Image
-
-        img = Image.open(io.BytesIO(out))
-        assert img.width < 300
-
     def test_corrupt_bytes_passthrough(self) -> None:
         """Corrupt image bytes must be returned unchanged — never crash."""
         data = b"not an image at all"
@@ -172,30 +162,95 @@ class TestNormalizeImageBytes:
         assert out is png
         assert mt == "image/png"
 
-    def test_jpeg_mime_type_preserved_when_no_resize(self) -> None:
+    def test_mime_type_preserved_when_no_resize(self) -> None:
         """MIME type must be left alone when no resize was needed."""
         png = _make_png_bytes(5, 5)
-        # Generous budget — no resize should happen
-        out, mt = normalize_image_bytes(
-            png, "image/jpeg", max_bytes=MAX_IMAGE_SIZE_BYTES
-        )
+        out, mt = normalize_image_bytes(png, "image/jpeg")
         assert mt == "image/jpeg"
         assert out == png
 
-    def test_rgba_image_handled(self) -> None:
-        """RGBA (transparency) images should not crash normalization."""
-        try:
-            from PIL import Image
-        except ImportError:  # pragma: no cover
-            pytest.skip("PIL not available")
+    def test_small_jpeg_is_sent_unchanged(self) -> None:
+        """A JPEG already under the target is never re-encoded."""
+        jpeg = _make_noisy_jpeg(300, 200, quality=85)
+        assert len(jpeg) <= TARGET_IMAGE_ATTACHMENT_BYTES
 
-        img = Image.new("RGBA", (20, 20), color=(0, 128, 255, 200))
+        out, mt = normalize_image_bytes(jpeg, "image/jpeg")
+
+        assert out is jpeg
+        assert mt == "image/jpeg"
+
+    def test_photo_over_target_is_downscaled_not_inflated(self) -> None:
+        """Regression for #1050: a 12 MP photo must not become a bigger PNG.
+
+        The old code probed with a lossless PNG encoding, then resent the image
+        as a *larger* PNG that the API rejected.  It now shrinks as JPEG and
+        respects the attachment target.
+        """
+        from PIL import Image
+
+        seed = _bytes_to_image(_make_noisy_jpeg(1008, 756))
+        photo = seed.resize((4032, 3024), Image.Resampling.BICUBIC)
+        buf = io.BytesIO()
+        photo.save(buf, format="JPEG", quality=85)
+        jpeg = buf.getvalue()
+        assert len(jpeg) > TARGET_IMAGE_ATTACHMENT_BYTES
+
+        out, mt = normalize_image_bytes(jpeg, "image/jpeg")
+
+        assert mt == "image/jpeg"
+        assert out[:2] == b"\xff\xd8"  # still JPEG, not PNG
+        assert len(out) <= TARGET_IMAGE_ATTACHMENT_BYTES
+        assert max(_bytes_to_image(out).size) < 4032
+
+    def test_oversized_jpeg_stays_jpeg_and_fits(self) -> None:
+        """Forced resize must keep JPEG (not balloon into PNG) and fit."""
+        jpeg = _make_noisy_jpeg(1200, 900, quality=95)
+        budget = 400_000
+        assert _encoded_b64_len(jpeg) > budget
+
+        out, mt = normalize_image_bytes(jpeg, "image/jpeg", max_bytes=budget)
+
+        assert mt == "image/jpeg"
+        assert out[:2] == b"\xff\xd8"  # JPEG SOI marker
+        assert _encoded_b64_len(out) <= budget
+        assert _bytes_to_image(out).width < 1200
+
+    def test_transparent_png_stays_png_and_fits(self) -> None:
+        """Transparency must survive normalization (and force PNG encoding)."""
+        from PIL import Image
+
+        rgba = Image.frombytes("RGBA", (600, 600), os.urandom(600 * 600 * 4))
+        buf = io.BytesIO()
+        rgba.save(buf, format="PNG", compress_level=1)
+        png = buf.getvalue()
+        budget = 500_000
+        assert _encoded_b64_len(png) > budget
+
+        out, mt = normalize_image_bytes(png, "image/png", max_bytes=budget)
+
+        assert mt == "image/png"
+        assert out[:8] == b"\x89PNG\r\n\x1a\n"
+        assert _encoded_b64_len(out) <= budget
+        result = _bytes_to_image(out)
+        assert result.mode == "RGBA"
+        assert result.width < 600
+
+    def test_dimension_cap_enforced(self) -> None:
+        """Images with tiny byte counts but huge dimensions still shrink."""
+        from PIL import Image
+
+        img = Image.new("RGB", (MAX_IMAGE_DIMENSION + 900, 100), color=(0, 0, 0))
         buf = io.BytesIO()
         img.save(buf, format="PNG")
         png = buf.getvalue()
 
-        out, mt = normalize_image_bytes(png, "image/png", max_bytes=50)
-        assert mt == "image/png"
-        # Verify it's still a valid image
-        result = Image.open(io.BytesIO(out))
-        assert result.width > 0
+        out, _ = normalize_image_bytes(png, "image/png")
+
+        assert max(_bytes_to_image(out).size) <= MAX_IMAGE_DIMENSION
+
+    def test_unfittable_image_raises(self) -> None:
+        """An impossible budget raises instead of shipping a doomed request."""
+        png = _make_png_bytes(300, 300)
+
+        with pytest.raises(ImageTooLargeError):
+            normalize_image_bytes(png, "image/png", max_bytes=50)

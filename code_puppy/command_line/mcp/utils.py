@@ -8,6 +8,7 @@ from typing import Optional
 
 from rich.text import Text
 
+from code_puppy.i18n import t
 from code_puppy.mcp_.managed_server import ServerState
 
 
@@ -22,16 +23,16 @@ def format_state_indicator(state: ServerState) -> Text:
         Rich Text object with colored state indicator
     """
     state_map = {
-        ServerState.RUNNING: ("✓ Run", "green"),
-        ServerState.STOPPED: ("✗ Stop", "red"),
-        ServerState.STARTING: ("↗ Start", "yellow"),
-        ServerState.STOPPING: ("↙ Stop", "yellow"),
-        ServerState.ERROR: ("⚠ Err", "red"),
-        ServerState.QUARANTINED: ("⏸ Quar", "yellow"),
+        ServerState.RUNNING: ("mcp.state.running", "green"),
+        ServerState.STOPPED: ("mcp.state.stopped", "red"),
+        ServerState.STARTING: ("mcp.state.starting", "yellow"),
+        ServerState.STOPPING: ("mcp.state.stopping", "yellow"),
+        ServerState.ERROR: ("mcp.state.error", "red"),
+        ServerState.QUARANTINED: ("mcp.state.quarantined", "yellow"),
     }
 
-    display, color = state_map.get(state, ("? Unk", "dim"))
-    return Text(display, style=color)
+    key, color = state_map.get(state, ("mcp.state.unknown", "dim"))
+    return Text(t(key), style=color)
 
 
 def format_uptime(uptime_seconds: Optional[float]) -> str:
@@ -106,7 +107,7 @@ def suggest_similar_servers(
     try:
         servers = manager.list_servers()
         if not servers:
-            emit_info("No servers are registered", message_group=group_id)
+            emit_info(t("mcp.server.none_registered"), message_group=group_id)
             return
 
         # Simple suggestion based on partial matching
@@ -118,11 +119,15 @@ def suggest_similar_servers(
                 suggestions.append(server.name)
 
         if suggestions:
-            emit_info(f"Did you mean: {', '.join(suggestions)}", message_group=group_id)
+            emit_info(
+                t("mcp.server.did_you_mean", suggestions=", ".join(suggestions)),
+                message_group=group_id,
+            )
         else:
             server_names = [s.name for s in servers]
             emit_info(
-                f"Available servers: {', '.join(server_names)}", message_group=group_id
+                t("mcp.server.available", servers=", ".join(server_names)),
+                message_group=group_id,
             )
 
     except Exception as e:

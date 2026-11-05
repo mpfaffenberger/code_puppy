@@ -223,10 +223,20 @@ class TestMakeModelSettingsOpenAIReasoningEffort:
         assert settings["openai_reasoning_effort"] == "medium"
 
     @pytest.mark.parametrize(
-        "unsupported_effort",
-        ["none", "xhigh", "max", "minimal", "ultra", "banana"],
+        ("stored_effort", "expected"),
+        [
+            # OpenAI-compatible backends may reject out-of-scale values,
+            # so instead of dropping, clamp to the nearest supported
+            # depth. Unrecognized garbage is still dropped.
+            ("none", "low"),
+            ("minimal", "low"),
+            ("xhigh", "high"),
+            ("max", "high"),
+            ("ultra", "high"),
+            ("banana", None),
+        ],
     )
-    def test_o_series_drops_unsupported_effort(self, unsupported_effort):
+    def test_o_series_clamps_unsupported_effort(self, stored_effort, expected):
         from code_puppy.model_factory import make_model_settings
 
         models_config = {
@@ -239,13 +249,57 @@ class TestMakeModelSettingsOpenAIReasoningEffort:
             ),
             patch(
                 "code_puppy.config.get_effective_model_settings",
-                return_value={"reasoning_effort": unsupported_effort},
+                return_value={"reasoning_effort": stored_effort},
             ),
             patch("code_puppy.config.get_custom_model_settings", return_value={}),
         ):
             settings = make_model_settings("codex-mini-latest", max_tokens=4096)
 
-        assert "openai_reasoning_effort" not in settings
+        if expected is None:
+            assert "openai_reasoning_effort" not in settings
+        else:
+            assert settings["openai_reasoning_effort"] == expected
+
+    @pytest.mark.parametrize(
+        ("stored_effort", "expected"),
+        [
+            (None, "high"),  # catalog setting_defaults wins over "medium"
+            ("none", "minimal"),  # Meta Muse rejects "none" (HTTP 400)
+            ("minimal", "minimal"),
+            ("max", "xhigh"),  # muse-spark-1.3-contributor has no "max"
+        ],
+    )
+    def test_meta_oauth_uses_catalog_scale_and_default(self, stored_effort, expected):
+        from code_puppy.model_factory import _uses_responses_api, make_model_settings
+
+        model_config = {
+            "type": "meta_oauth",
+            "name": "muse-spark-1.3-contributor",
+            "supported_settings": ["reasoning_effort"],
+            "setting_choices": {
+                "reasoning_effort": ["minimal", "low", "medium", "high", "xhigh"]
+            },
+            "setting_defaults": {"reasoning_effort": "high"},
+        }
+        effective = {} if stored_effort is None else {"reasoning_effort": stored_effort}
+        with (
+            patch(
+                "code_puppy.model_factory.ModelFactory.load_config",
+                return_value={"meta-muse-spark-1.3-contributor": model_config},
+            ),
+            patch(
+                "code_puppy.config.get_effective_model_settings",
+                return_value=effective,
+            ),
+            patch("code_puppy.config.get_custom_model_settings", return_value={}),
+        ):
+            settings = make_model_settings(
+                "meta-muse-spark-1.3-contributor", max_tokens=4096
+            )
+
+        assert settings["openai_reasoning_effort"] == expected
+        # Meta plugin builds OpenAIResponsesModel; settings class must match.
+        assert _uses_responses_api("meta-muse-spark-1.3-contributor", model_config)
 
     @pytest.mark.parametrize(
         ("model_name", "effort"),

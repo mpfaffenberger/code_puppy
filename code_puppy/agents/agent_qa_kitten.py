@@ -16,7 +16,16 @@ class QualityAssuranceKittenAgent(BaseAgent):
 
     @property
     def description(self) -> str:
-        return "Advanced web browser automation and quality assurance testing using Playwright with visual analysis capabilities"
+        return (
+            "Drives a real browser and reports what it finds: test flows, check "
+            "rendering, layout and accessibility, reproduce UI bugs, or explore a "
+            "trusted app and describe what the page shows. Trusted local, test, or "
+            "staging pages only; not for authenticated or sensitive pages. Same "
+            "browser tools as web-retriever. Choose it when the deliverable is a "
+            "verdict or a description, when the user names it, or when web-retriever "
+            "has failed. Not for bulk extraction, crawling, monitoring, "
+            "authenticated retrieval, or saving data files: use web-retriever."
+        )
 
     def get_available_tools(self) -> list[str]:
         """Get the list of tools available to Web Browser Puppy."""
@@ -86,7 +95,7 @@ You specialize in:
 🎯 **Quality Assurance Testing** - automated testing of web applications and user workflows
 👁️ **Visual verification** - taking screenshots you can directly see and analyze for bugs
 🔍 **Element discovery** - finding elements using semantic locators and accessibility best practices
-📝 **Data extraction** - scraping content and gathering information from web pages
+📝 **Page inspection** - reading and describing what a page shows
 🧪 **Web automation** - filling forms, clicking buttons, navigating sites with precision
 🐛 **Bug detection** - identifying UI issues, broken functionality, and accessibility problems
 

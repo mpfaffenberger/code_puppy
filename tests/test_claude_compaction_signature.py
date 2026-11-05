@@ -1,4 +1,8 @@
-"""Compaction must not merge the OAuth identity with the summary on the wire."""
+"""The Claude OAuth identity must stay a standalone system block.
+
+Compaction summaries ride the user channel, so the identity never merges with
+them; the splitter still repairs a merged system string defensively.
+"""
 
 import json
 
@@ -7,6 +11,7 @@ import pytest
 from anthropic import AsyncAnthropic
 from pydantic_ai import Agent
 from pydantic_ai.messages import (
+    CompactionPart,
     ModelRequest,
     ModelResponse,
     SystemPromptPart,
@@ -25,7 +30,7 @@ from code_puppy.claude_cache_client import ClaudeCacheAsyncClient
 @pytest.mark.parametrize("as_blocks", [False, True])
 @pytest.mark.parametrize(
     "suffix",
-    ["\n\nSummary of prior conversation: preserved", " extra instructions", "\n"],
+    ["\n\nAppended instructions: preserved", " extra instructions", "\n"],
 )
 def test_split_merged_signature_preserves_content_and_metadata(as_blocks, suffix):
     merged = SIGNATURE + suffix
@@ -82,13 +87,19 @@ async def test_real_sdk_compacted_history_has_standalone_signature():
             "claude-sonnet-5", provider=AnthropicProvider(anthropic_client=sdk)
         )
         agent = Agent(
-            model, system_prompt=SIGNATURE, instructions="Actual agent instructions"
+            model,
+            system_prompt=SIGNATURE,
+            instructions="Actual agent instructions",
+            model_settings={"max_tokens": 1024},
         )
         history = [
+            ModelRequest(parts=[SystemPromptPart(SIGNATURE)]),
             ModelRequest(
                 parts=[
-                    SystemPromptPart(SIGNATURE),
-                    SystemPromptPart("Summary: preserved"),
+                    CompactionPart(
+                        "Summary: preserved",
+                        metadata={"pydantic-ai-harness.compaction.summary.v1": True},
+                    )
                 ]
             ),
             ModelRequest(parts=[UserPromptPart("earlier")]),
@@ -96,8 +107,16 @@ async def test_real_sdk_compacted_history_has_standalone_signature():
         ]
         await agent.run("continue", message_history=history)
     assert len(captured) == 1
-    assert captured[0]["system"] == [
-        {"type": "text", "text": SIGNATURE},
-        {"type": "text", "text": "\n\nSummary: preserved"},
-        {"type": "text", "text": "Actual agent instructions"},
-    ]
+    system = captured[0]["system"]
+    # pydantic-ai adds its own block explaining the ``<system>`` tag after the
+    # leading system prompts on profiles without inline system prompts; the
+    # signature stays a standalone first block and nothing is merged into it.
+    assert system[0] == {"type": "text", "text": SIGNATURE}
+    assert system[-1] == {"type": "text", "text": "Actual agent instructions"}
+    assert all(
+        block["text"].startswith("\n\nMid-conversation system messages")
+        for block in system[1:-1]
+    )
+    user_text = json.dumps(captured[0]["messages"])
+    assert "<conversation_summary>" in user_text
+    assert "Summary: preserved" in user_text

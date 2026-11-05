@@ -14,6 +14,7 @@ from code_puppy.mcp_.managed_server import (
     ServerConfig,
     ServerState,
     _expand_env_vars,
+    _with_inherited_windows_system_paths,
     process_tool_call,
 )
 
@@ -71,6 +72,67 @@ def _stdio(inner=None, spec=True):
 
 
 # --- env-var expansion + tool prefixes ---
+
+
+def test_windows_system_paths_are_inherited_for_stdio_children():
+    with (
+        patch("code_puppy.mcp_.managed_server.os.name", "nt"),
+        patch.dict(
+            os.environ,
+            {
+                "PROGRAMW6432": r"C:\Program Files",
+                "ProgramData": r"C:\ProgramData",
+            },
+            clear=True,
+        ),
+    ):
+        env = _with_inherited_windows_system_paths({"CUSTOM": "value"})
+
+    assert env == {
+        "PROGRAMW6432": r"C:\Program Files",
+        "ProgramData": r"C:\ProgramData",
+        "CUSTOM": "value",
+    }
+
+
+def test_explicit_windows_system_paths_override_inherited_values():
+    configured = {
+        "PROGRAMW6432": r"D:\Programs",
+        "ProgramData": r"D:\ProgramData",
+    }
+    with (
+        patch("code_puppy.mcp_.managed_server.os.name", "nt"),
+        patch.dict(
+            os.environ,
+            {
+                "PROGRAMW6432": r"C:\Program Files",
+                "ProgramData": r"C:\ProgramData",
+            },
+            clear=True,
+        ),
+    ):
+        env = _with_inherited_windows_system_paths(configured)
+
+    assert env == configured
+    assert env is not configured
+
+
+def test_windows_system_paths_are_not_added_on_other_platforms():
+    configured = {"CUSTOM": "value"}
+    with (
+        patch("code_puppy.mcp_.managed_server.os.name", "posix"),
+        patch.dict(
+            os.environ,
+            {
+                "PROGRAMW6432": r"C:\Program Files",
+                "ProgramData": r"C:\ProgramData",
+            },
+            clear=True,
+        ),
+    ):
+        env = _with_inherited_windows_system_paths(configured)
+
+    assert env is configured
 
 
 @pytest.mark.asyncio
@@ -496,12 +558,41 @@ class TestCreateServerStdio:
         ],
     )
     def test_options_passed_through(self, inner, key, expected):
-        # Env assertions ignore the CA-bundle injection (covered below).
-        with patch(
-            "code_puppy.mcp_.managed_server.get_cert_bundle_path", return_value=None
+        # Env assertions ignore platform and CA-bundle injection, which have
+        # dedicated coverage below.
+        with (
+            patch("code_puppy.mcp_.managed_server.os.name", "posix"),
+            patch(
+                "code_puppy.mcp_.managed_server.get_cert_bundle_path",
+                return_value=None,
+            ),
         ):
             _, _, mock_cls = _stdio(inner)
         assert mock_cls.call_args.kwargs[key] == expected
+
+    def test_windows_system_paths_passed_to_stdio_toolset(self):
+        with (
+            patch("code_puppy.mcp_.managed_server.os.name", "nt"),
+            patch.dict(
+                os.environ,
+                {
+                    "PROGRAMW6432": r"C:\Program Files",
+                    "ProgramData": r"C:\ProgramData",
+                },
+                clear=True,
+            ),
+            patch(
+                "code_puppy.mcp_.managed_server.get_cert_bundle_path",
+                return_value=None,
+            ),
+        ):
+            _, _, mock_cls = _stdio({"command": "python", "env": {"CUSTOM": "value"}})
+
+        assert mock_cls.call_args.kwargs["env"] == {
+            "PROGRAMW6432": r"C:\Program Files",
+            "ProgramData": r"C:\ProgramData",
+            "CUSTOM": "value",
+        }
 
     def test_process_tool_call_wired(self):
         _, _, mock_cls = _stdio()
@@ -544,7 +635,9 @@ class TestCreateServerStdio:
         assert env["SSL_CERT_FILE"] == "/pinned.pem"
 
     def test_no_bundle_leaves_env_untouched(self):
-        assert self._stdio_env(None, {"command": "uvx", "args": ["x"]}) is None
+        with patch("code_puppy.mcp_.managed_server.os.name", "posix"):
+            env = self._stdio_env(None, {"command": "uvx", "args": ["x"]})
+        assert env is None
 
 
 class TestCreateServerHTTP:

@@ -1,9 +1,10 @@
 """Tests for the ``error_logged`` observation phase.
 
-The phase is an extension point with no in-tree subscriber, so nothing else
-in the suite exercises it. These tests pin the two properties a downstream
-subscriber depends on: that logging still works when a subscriber misbehaves,
-and that observing an error cannot itself become an error cascade.
+The phase is an extension point: core itself registers no subscriber (bundled
+plugins such as ``herdr`` may, so the guarantee is scoped to core). These tests
+pin the two properties a downstream subscriber depends on: that logging still
+works when a subscriber misbehaves, and that observing an error cannot itself
+become an error cascade.
 """
 
 from __future__ import annotations
@@ -44,9 +45,21 @@ def test_subscriber_receives_the_logged_error(isolated_log) -> None:
     assert seen == [error]
 
 
-def test_stock_install_has_no_subscriber() -> None:
-    """The zero-telemetry guarantee: core registers nothing for this phase."""
-    assert callbacks._callbacks.get("error_logged", []) == []
+def test_stock_install_has_no_core_subscriber() -> None:
+    """The zero-telemetry guarantee: core registers no subscriber.
+
+    Bundled plugins (``herdr`` forwards errors to sibling sessions) do register
+    here, and which ones are loaded depends on install and test order — so the
+    assertion is scoped to callbacks defined in ``code_puppy`` itself. Filtering
+    on the module prefix matters: ``code_puppy_core_plugins`` does not match
+    ``code_puppy.`` and must not be mistaken for core.
+    """
+    core_subscribers = [
+        subscriber
+        for subscriber in callbacks._callbacks.get("error_logged", [])
+        if (getattr(subscriber, "__module__", "") or "").startswith("code_puppy.")
+    ]
+    assert core_subscribers == []
 
 
 def test_local_log_survives_a_broken_subscriber(isolated_log, caplog) -> None:

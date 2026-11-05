@@ -3,6 +3,7 @@
 import ast
 import importlib
 import importlib.metadata
+import json
 import warnings
 from importlib.metadata import requires
 from unittest.mock import Mock, patch
@@ -15,7 +16,6 @@ from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 from pydantic_ai.models.test import TestModel
 from pydantic_ai.tools import ToolDefinition
 from pydantic_ai_harness.code_mode import CodeMode
-from pydantic_monty import ResourceLimits
 
 from code_puppy.agents import _code_mode
 from code_puppy.agents._code_mode import (
@@ -26,11 +26,20 @@ from code_puppy.agents._code_mode import (
     _sandbox_tool,
     bind_declared_speculation,
     build_speculative_code_mode,
+    sandbox_mount_path,
 )
 from code_puppy.agents._code_mode_guidance import CODE_MODE_GUIDANCE, CodeModeGuidance
+
 from code_puppy.agents._wire_tool_names import StreamedToolNameNormalizer
 from code_puppy.agents.agent_code_puppy import CodePuppyAgent
 from code_puppy.capabilities.eager_timing import EagerTiming
+
+
+def _rendered(guidance: CodeModeGuidance) -> str:
+    """The instruction text the model sees: static parts plus rendered dynamic ones."""
+    return "".join(
+        part() if callable(part) else part for part in guidance.get_instructions()
+    )
 
 
 def _leaves(capability):
@@ -60,6 +69,10 @@ class TestBuildSpeculativeCodeMode:
             "create_file",
             "replace_in_file",
             "load_image_for_analysis",
+            "computer_get_app_state",
+            "computer_snapshot",
+            "computer_screenshot",
+            "computer_use_batch",
         }
         for name in NATIVE_TOOLS:
             assert not _sandbox_tool(ctx, ToolDefinition(name=name))
@@ -99,10 +112,35 @@ class TestBuildSpeculativeCodeMode:
         code_mode, *_ = build_speculative_code_mode(["read_file"])
 
         assert code_mode.mount is not None
-        assert code_mode.mount.host_path == os.getcwd()
-        assert code_mode.mount.virtual_path == os.getcwd()
+        # Monty canonicalizes (``\\?\C:\...`` on Windows): compare identity.
+        assert os.path.samefile(code_mode.mount.host_path, os.getcwd())
+        assert code_mode.mount.virtual_path == sandbox_mount_path(os.getcwd())
         assert code_mode.mount.mode == "read-write"
         assert code_mode.os_access is not None
+
+    def test_guidance_names_the_mount_actually_used(self, flag):
+        import os
+
+        code_mode, *_, guidance = build_speculative_code_mode(["read_file"])
+
+        assert guidance.host_path == os.getcwd()
+        assert guidance.mount_path == code_mode.mount.virtual_path
+        assert f"`{code_mode.mount.virtual_path}`" in _rendered(guidance)
+
+
+class TestSandboxMountPath:
+    @pytest.mark.parametrize(
+        ("host", "mount"),
+        [
+            ("/home/mike/proj", "/home/mike/proj"),
+            (r"C:\Users\mike\proj", "/c/Users/mike/proj"),
+            ("D:/work/proj", "/d/work/proj"),
+            ("C:\\", "/c"),
+            (r"\\server\share\proj", "/server/share/proj"),
+        ],
+    )
+    def test_translates_to_an_absolute_posix_path(self, host, mount):
+        assert sandbox_mount_path(host) == mount
 
     def test_undeclared_tools_are_never_speculated(self, flag):
         """A tool that does not declare ``speculatable`` is never launched early."""
@@ -116,24 +154,40 @@ class TestBuildSpeculativeCodeMode:
 
 @pytest.mark.asyncio
 async def test_run_code_executes_trivial_snippet_with_compatible_monty(flag):
-    """Harness 0.35 excludes Monty 1.x, which removed max_duration_secs."""
-    assert importlib.metadata.version("pydantic-ai-harness") == "0.35.0"
-    monty_requirement = next(
-        Requirement(dependency)
-        for dependency in requires("code-puppy") or []
-        if Requirement(dependency).name == "pydantic-monty"
-    )
-    assert monty_requirement.specifier.contains("0.0.23")
-    assert not monty_requirement.specifier.contains("1.0.0")
-    assert "max_duration_secs" in ResourceLimits.__annotations__
+    """Our Monty range and the harness's must both admit the installed Monty."""
+    installed = importlib.metadata.version("pydantic-monty")
+    for distribution in ("code-puppy", "pydantic-ai-harness"):
+        monty_requirement = next(
+            Requirement(dependency)
+            for dependency in requires(distribution) or []
+            if Requirement(dependency).name == "pydantic-monty"
+        )
+        assert monty_requirement.specifier.contains(installed)
 
+    assert "2" in await _run_snippet("1 + 1")
+
+
+@pytest.mark.asyncio
+async def test_sandbox_pathlib_reaches_the_real_workspace(flag):
+    """The mount works end to end on this OS (Windows used to crash the build)."""
+    import os
+
+    mount = sandbox_mount_path(os.getcwd())
+    code = f"import pathlib\npathlib.Path({mount!r} + '/pyproject.toml').exists()"
+
+    assert "True" in await _run_snippet(code)
+
+
+async def _run_snippet(code: str) -> str:
+    """Drive one ``run_code`` call through a real sandbox; return its output."""
     requests = 0
 
     async def respond(messages, info):
         nonlocal requests
         requests += 1
         if requests == 1:
-            yield {0: DeltaToolCall(name="run_code", json_args='{"code":"1 + 1"}')}
+            args = json.dumps({"code": code})
+            yield {0: DeltaToolCall(name="run_code", json_args=args)}
         else:
             yield "done"
 
@@ -141,7 +195,7 @@ async def test_run_code_executes_trivial_snippet_with_compatible_monty(flag):
         FunctionModel(stream_function=respond),
         capabilities=build_speculative_code_mode([]),
     )
-    result = await agent.run("Calculate 1 + 1")
+    result = await agent.run("go")
     assert result.output == "done"
     returns = [
         part
@@ -150,20 +204,54 @@ async def test_run_code_executes_trivial_snippet_with_compatible_monty(flag):
         if isinstance(part, ToolReturnPart) and part.tool_name == "run_code"
     ]
     assert len(returns) == 1
-    assert "2" in str(returns[0].content)
+    return str(returns[0].content)
 
 
 class TestCodeModeGuidance:
     def test_guidance_rides_as_capability_instructions(self):
-        assert CodeModeGuidance().get_instructions() is CODE_MODE_GUIDANCE
+        text = _rendered(CodeModeGuidance("/home/p", "/home/p"))
+        assert text.startswith(CODE_MODE_GUIDANCE)
+        assert "`/home/p` (same as the host path)" in text
+
+    def test_translated_mount_explains_both_spellings(self):
+        text = _rendered(CodeModeGuidance(r"C:\p", "/c/p"))
+        assert "`/c/p` is the host directory `C:\\p`" in text
+        assert "take host paths" in text
+        assert "takes mount paths" in text
+
+    def test_guidance_does_not_claim_the_real_path_is_mounted(self):
+        """False on Windows, where the mount is a POSIX spelling."""
+        assert "real absolute path" not in CODE_MODE_GUIDANCE
 
     def test_guidance_teaches_the_native_write_contract(self):
         assert "run_code" in CODE_MODE_GUIDANCE
         assert "literal" in CODE_MODE_GUIDANCE
-        for name in NATIVE_TOOLS:
+        for name in ("create_file", "replace_in_file", "load_image_for_analysis"):
             assert f"`{name}`" in CODE_MODE_GUIDANCE
-        assert "as native tools, outside `run_code`" in CODE_MODE_GUIDANCE
+        assert "Tools in your tool list are native" in CODE_MODE_GUIDANCE
+        assert "plugin tools declaring native routing" in CODE_MODE_GUIDANCE
+        assert "does not bypass consent" in CODE_MODE_GUIDANCE
         assert "Speculative Puppy" not in CODE_MODE_GUIDANCE
+
+
+def test_missing_return_schema_warning_is_silenced_but_collisions_are_not():
+    """Schema-less MCP tools are routine; a hidden tool is a real problem."""
+    with warnings.catch_warnings(record=True) as captured:
+        warnings.simplefilter("always")
+        importlib.reload(_code_mode)
+
+        warnings.warn(
+            "CodeMode: tool 'blender_get_screenshot_of_window_as_image' has no "
+            "return schema; its signature will show `-> Any`",
+            UserWarning,
+        )
+        assert not captured
+
+        warnings.warn(
+            "CodeMode: tool 'a-b' (sanitized to 'a_b') collides with 'a_b'",
+            UserWarning,
+        )
+        assert len(captured) == 1
 
 
 def test_only_generated_invalid_escape_warnings_are_suppressed():

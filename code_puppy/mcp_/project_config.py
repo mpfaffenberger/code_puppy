@@ -41,6 +41,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Optional
 
+from code_puppy import atomic_io
+
 logger = logging.getLogger(__name__)
 
 # Trust store lives user-side so a repo can never self-trust. Hardcoded to
@@ -117,13 +119,20 @@ def _is_user_level_config(candidate: Path) -> bool:
 
 
 def compute_mcp_file_hash(config_file: Path) -> Optional[str]:
-    """SHA-256 of the config file's bytes, or ``None`` if unreadable.
+    """SHA-256 of bounded config bytes, or ``None`` if unreadable/oversized.
 
-    Callers must treat ``None`` as *not trusted* (fail closed).
+    Trust verification runs before parsing, so it must enforce the same
+    size limit. Callers treat ``None`` as *not trusted* (fail closed).
     """
     try:
-        return hashlib.sha256(Path(config_file).read_bytes()).hexdigest()
-    except OSError as exc:
+        path = Path(config_file)
+        raw = atomic_io.read_bounded_bytes(str(path))
+        # The shared reader returns empty bytes for both missing and empty
+        # files; only an existing empty file has a valid content hash.
+        if not raw and not path.is_file():
+            return None
+        return hashlib.sha256(raw).hexdigest()
+    except (OSError, atomic_io.ContentTooLarge) as exc:
         logger.warning("Could not hash project MCP config %s: %s", config_file, exc)
         return None
 
@@ -252,7 +261,8 @@ def load_project_mcp_server_configs(
     try:
         from code_puppy.config import _parse_mcp_servers_mapping
 
-        return _parse_mcp_servers_mapping(config_file.read_text(encoding="utf-8"))
+        raw = atomic_io.read_bounded_bytes(str(config_file))
+        return _parse_mcp_servers_mapping(raw.decode("utf-8"))
     except Exception as exc:
         from code_puppy.messaging.message_queue import emit_error
 

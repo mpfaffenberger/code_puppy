@@ -1,5 +1,8 @@
 """Installed plugin entry-point discovery."""
 
+import os
+import subprocess
+import sys
 import threading
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -110,6 +113,75 @@ def test_installed_plugin_failures_are_isolated(caplog):
         assert plugins._load_installed_plugins() == ["healthy"]
 
     assert "broken" in caplog.text
+
+
+def test_installed_goal_discovery_in_clean_process(tmp_path):
+    script = r"""
+import sys
+from importlib.metadata import entry_points
+from unittest.mock import patch
+
+prefix = "code_puppy_core_plugins.wiggum"
+points = [p for p in entry_points(group="code_puppy.plugins") if p.name == "wiggum"]
+assert len(points) == 1, points
+assert points[0].value == prefix + ".register_callbacks"
+
+from code_puppy import callbacks, plugins
+from code_puppy.command_line.command_registry import get_command
+
+# Pre-importing the plugin would hide broken entry-point discovery.
+assert not any(name.startswith(prefix) for name in sys.modules)
+with (
+    patch("socket.socket.connect", side_effect=AssertionError("network forbidden")) as connect,
+    patch("socket.socket.connect_ex", side_effect=AssertionError("network forbidden")) as connect_ex,
+    patch("socket.getaddrinfo", side_effect=AssertionError("network forbidden")) as dns,
+):
+    loaded = plugins.load_plugin_callbacks()
+    assert "wiggum" in loaded["builtin"], loaded
+    assert loaded["user"] == loaded["project"] == []
+    for name in ("goal", "goal_stop"):
+        command = get_command(name)
+        assert command is not None, name
+        assert command.handler.__module__ == points[0].value
+    hooks = [
+        hook for hook in callbacks.get_callbacks("interactive_turn_end")
+        if hook.__module__.startswith(prefix)
+    ]
+    assert len(hooks) == 1, hooks
+    assert hooks[0].__module__ == points[0].value
+    plugin = sys.modules[points[0].value]
+    assert callable(getattr(plugin, "run_with_cancel_controls", None)), "missing goal cancellation controls"
+    assert plugins.load_plugin_callbacks() == {"builtin": [], "user": [], "project": []}
+    assert callbacks.get_callbacks("interactive_turn_end").count(hooks[0]) == 1
+    connect.assert_not_called()
+    connect_ex.assert_not_called()
+    dns.assert_not_called()
+"""
+    env = os.environ.copy()
+    for name in (
+        "HOME",
+        "XDG_CONFIG_HOME",
+        "XDG_DATA_HOME",
+        "XDG_CACHE_HOME",
+        "XDG_STATE_HOME",
+        "XDG_RUNTIME_DIR",
+        "XDG_CONFIG_DIRS",
+        "XDG_DATA_DIRS",
+    ):
+        root = tmp_path / name.lower()
+        root.mkdir(mode=0o700)
+        env[name] = str(root)
+    env["USERPROFILE"] = env["HOME"]
+    result = subprocess.run(
+        [sys.executable, "-I", "-c", script],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_legacy_loader_skips_installed_duplicate(tmp_path):

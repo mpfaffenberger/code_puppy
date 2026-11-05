@@ -101,6 +101,24 @@ def test_malformed_trusted_config_fails_closed(project):
     assert pc.load_project_mcp_server_configs() == {}
 
 
+def test_oversized_trusted_config_fails_closed_without_full_read(project, monkeypatch):
+    """Project-level mcp_servers.json is repo-supplied input -- whatever repo
+    you ``cd`` into -- so an oversized file must be rejected via a bounded
+    read the same way the user-level loader is, not fully buffered first.
+    """
+    _write_project_config(project, {"s": "http://localhost"})
+    assert pc.trust_project_mcp() is True
+
+    from code_puppy import atomic_io
+
+    monkeypatch.setattr(
+        atomic_io,
+        "read_bounded_bytes",
+        lambda *a, **kw: (_ for _ in ()).throw(atomic_io.ContentTooLarge("too big")),
+    )
+    assert pc.load_project_mcp_server_configs() == {}
+
+
 # ---------- merge precedence in the top-level loader -------------------------
 
 

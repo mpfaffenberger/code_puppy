@@ -13,7 +13,9 @@ import httpx
 
 if TYPE_CHECKING:
     import requests
-from code_puppy.config import get_http2
+from code_puppy.ca_bundle import write_public_and_corporate_bundle
+from code_puppy.config import DATA_DIR, get_http2
+from code_puppy.i18n import t
 
 from .http_retry import RetryingSendMixin
 
@@ -24,19 +26,52 @@ class ProxyConfig:
 
     verify: Union[bool, str, None]
     trust_env: bool
-    proxy_url: str | None
     disable_retry: bool
     http2_enabled: bool
 
 
+#: The insecure-TLS warning fires once per process: the client factory runs on
+#: every model construction, and a warning per request would drown the UI.
+_INSECURE_SKIP_VERIFY_WARNED = False
+
+
+def _warn_insecure_skip_verify() -> None:
+    """Tell the user, loudly and once, that TLS verification is off."""
+    global _INSECURE_SKIP_VERIFY_WARNED
+    if _INSECURE_SKIP_VERIFY_WARNED:
+        return
+    _INSECURE_SKIP_VERIFY_WARNED = True
+    emit_warning(t("http_utils.insecure_skip_verify"))
+
+
+#: The missing-CA-bundle warning fires once per process, like the insecure
+#: one: the bundle is read per client build, and a warning per build would
+#: repeat the same line on every model switch.
+_MISSING_CERT_BUNDLE_WARNED: set[str] = set()
+
+
+def _warn_missing_cert_bundle(name: str, path: str) -> None:
+    """Warn when a CA-bundle environment variable points at a missing file."""
+    if name in _MISSING_CERT_BUNDLE_WARNED:
+        return
+    _MISSING_CERT_BUNDLE_WARNED.add(name)
+    emit_warning(t("http_utils.cert_bundle_missing", name=name, path=path))
+
+
 def resolve_proxy_config(verify: Union[bool, str, None] = None) -> ProxyConfig:
-    """Resolve proxy, SSL, and retry settings from environment.
+    """Resolve client TLS, retry, and environment-proxy settings.
 
-    This centralizes the logic for detecting proxies, determining SSL verification,
-    and checking if retry transport should be disabled.
-
-    Shared by the legacy ``httpx`` and ``httpx2`` client factories so proxy handling
+    Proxy selection is left to httpx so scheme-specific proxies and ``NO_PROXY``
+    are honored per destination. This centralizes TLS and retry settings shared by
+    the legacy ``httpx`` and ``httpx2`` client factories so proxy handling
     cannot drift between the two.
+
+    Certificate verification is **never** disabled implicitly. Turning it off
+    requires the explicit ``CODE_PUPPY_INSECURE_SKIP_VERIFY=1`` opt-in, which
+    also emits a loud warning: unverified TLS means every API key and every
+    prompt travels over a connection anyone on the path can rewrite.
+    ``CODE_PUPPY_DISABLE_RETRY_TRANSPORT`` only swaps the retrying transport
+    for the plain one -- it says nothing about TLS and must not change it.
     """
     if verify is None:
         verify = get_cert_bundle_path()
@@ -47,6 +82,10 @@ def resolve_proxy_config(verify: Union[bool, str, None] = None) -> ProxyConfig:
         "CODE_PUPPY_DISABLE_RETRY_TRANSPORT", ""
     ).lower() in ("1", "true", "yes")
 
+    insecure_skip_verify = os.environ.get(
+        "CODE_PUPPY_INSECURE_SKIP_VERIFY", ""
+    ).lower() in ("1", "true", "yes")
+
     has_proxy = bool(
         os.environ.get("HTTP_PROXY")
         or os.environ.get("HTTPS_PROXY")
@@ -55,9 +94,13 @@ def resolve_proxy_config(verify: Union[bool, str, None] = None) -> ProxyConfig:
     )
 
     # Determine trust_env and verify based on proxy/retry settings
-    if disable_retry:
-        # Test mode: disable SSL verification for proxy testing
+    if insecure_skip_verify:
+        # Explicit opt-in only: certificate checking off for every request.
         verify = False
+        trust_env = True
+        _warn_insecure_skip_verify()
+    elif disable_retry:
+        # Plain transport, but TLS verification stays exactly as configured.
         trust_env = True
     elif has_proxy:
         # Production proxy: keep SSL verification enabled
@@ -65,20 +108,9 @@ def resolve_proxy_config(verify: Union[bool, str, None] = None) -> ProxyConfig:
     else:
         trust_env = False
 
-    # Extract proxy URL
-    proxy_url = None
-    if has_proxy:
-        proxy_url = (
-            os.environ.get("HTTPS_PROXY")
-            or os.environ.get("https_proxy")
-            or os.environ.get("HTTP_PROXY")
-            or os.environ.get("http_proxy")
-        )
-
     return ProxyConfig(
         verify=verify,
         trust_env=trust_env,
-        proxy_url=proxy_url,
         disable_retry=disable_retry,
         http2_enabled=http2_enabled,
     )
@@ -112,9 +144,52 @@ class RetryingAsyncClient(RetryingSendMixin, httpx.AsyncClient):
 
 
 def get_cert_bundle_path() -> str | None:
-    # First check if SSL_CERT_FILE environment variable is set
-    ssl_cert_file = os.environ.get("SSL_CERT_FILE")
-    if ssl_cert_file and os.path.exists(ssl_cert_file):
+    """Return public + configured corporate trust as an exportable CA file.
+
+    ``SSL_CERT_FILE`` may contain only a corporate interception root. Passing
+    that file through unchanged makes public HTTPS fail in clients and child
+    processes that treat it as their complete file-based trust source. Combine
+    it with certifi roots in an immutable per-user file before propagation.
+    Sources are checked in SSL_CERT_FILE, REQUESTS_CA_BUNDLE, CURL_CA_BUNDLE
+    order. Set CODE_PUPPY_COMBINE_CA_BUNDLE=false to retain restricted file trust.
+    """
+    ssl_cert_file = next(
+        (
+            value
+            for name in ("SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE")
+            if (value := os.environ.get(name)) and os.path.isfile(value)
+        ),
+        None,
+    )
+    if not ssl_cert_file:
+        # A configured-but-missing bundle is a misconfiguration: it used to be
+        # ignored silently, so the user had no idea their trust store was not
+        # the one they asked for.
+        for name in ("SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE"):
+            value = os.environ.get(name)
+            if value and not os.path.isfile(value):
+                _warn_missing_cert_bundle(name, value)
+        return None
+    # Preserve deliberately restricted/pinned file trust when requested.
+    if os.environ.get("CODE_PUPPY_COMBINE_CA_BUNDLE", "true").lower() in (
+        "0",
+        "false",
+        "no",
+    ):
+        return ssl_cert_file
+
+    destination = os.path.join(
+        DATA_DIR,
+        "certs",
+        "public-and-corporate-ca-bundle.pem",
+    )
+    try:
+        return write_public_and_corporate_bundle(ssl_cert_file, destination)
+    except OSError as exc:
+        emit_warning(
+            f"Could not combine public roots with {ssl_cert_file}; "
+            f"using the configured CA file unchanged: {exc}"
+        )
         return ssl_cert_file
 
 
@@ -157,7 +232,6 @@ def create_async_client(
         return RetryingAsyncClient(
             retry_status_codes=retry_status_codes,
             model_name=model_name,
-            proxy=config.proxy_url,
             verify=config.verify,
             headers=headers or {},
             timeout=timeout,
@@ -166,7 +240,6 @@ def create_async_client(
         )
     else:
         return httpx.AsyncClient(
-            proxy=config.proxy_url,
             verify=config.verify,
             headers=headers or {},
             timeout=timeout,
@@ -227,7 +300,6 @@ def create_reopenable_async_client(
     config = resolve_proxy_config(verify)
 
     base_kwargs = {
-        "proxy": config.proxy_url,
         "verify": config.verify,
         "headers": headers or {},
         "timeout": timeout,

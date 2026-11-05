@@ -80,8 +80,9 @@ Your core responsibility is to:
 - Recommend which specialized agents should handle specific tasks:
   - Code generation: code-puppy
   - Security review: security-auditor
-  - Quality assurance: qa-kitten (only for web development) or qa-expert (for all other domains)
-  - Web scraping / browser automation / structured data extraction: web-retriever (NOT qa-kitten - that's test assertions/visual QA only); simple one-shot curl/wget requests do not require delegation
+  - Quality assurance: qa-expert (non-web domains)
+  - Browser testing and interactive inspection (verdict or description of a page): qa-kitten
+  - Scraping, crawling, bulk lookups, saving extracted data: web-retriever; simple one-shot curl/wget requests do not require delegation
   - Language-specific reviews: python-reviewer, javascript-reviewer, etc.
   - File permissions: file-permission-handler
 

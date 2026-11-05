@@ -18,6 +18,7 @@ from code_puppy.callbacks import (
     clear_loading_context,
     set_loading_context,
 )
+from code_puppy.error_logging import log_error
 from code_puppy.plugins import trust as _trust
 
 logger = logging.getLogger(__name__)
@@ -190,6 +191,15 @@ def _load_installed_plugins() -> list[str]:
     )
     for entry_point in discovered:
         plugin_name = entry_point.name
+        if plugin_name == "token_ratio_learner":
+            # Retired: context accounting now anchors to the API's own
+            # reported prompt-token usage (see code_puppy.context_accounting)
+            # instead of a learned chars-per-token ratio. Older installed
+            # core-plugins bundles may still advertise this entry point for
+            # a while; skip it unconditionally rather than let a dead
+            # learner monkeypatch the shared fallback estimator.
+            logger.debug("Skipping retired plugin %s", plugin_name)
+            continue
         try:
             with _plugin_loading_context(plugin_name):
                 entry_point.load()
@@ -197,8 +207,16 @@ def _load_installed_plugins() -> list[str]:
         except MemoryError:
             raise
         except ImportError as exc:
+            log_error(
+                exc,
+                context=f"code_puppy.plugins::_load_installed_plugins: startup/plugins: import the installed plugin {plugin_name}",
+            )
             logger.warning("Failed to import installed plugin %s: %s", plugin_name, exc)
         except Exception as exc:
+            log_error(
+                exc,
+                context=f"code_puppy.plugins::_load_installed_plugins: startup/plugins: load the installed plugin {plugin_name}",
+            )
             logger.error(
                 "Unexpected error loading installed plugin %s: %s",
                 plugin_name,
@@ -237,10 +255,18 @@ def _load_builtin_plugins(
                 except MemoryError:
                     raise
                 except ImportError as e:
+                    log_error(
+                        e,
+                        context=f"code_puppy.plugins::_load_builtin_plugins: startup/plugins: import the builtin plugin {plugin_name}",
+                    )
                     logger.warning(
                         f"Failed to import callbacks from built-in plugin {plugin_name}: {e}"
                     )
                 except Exception as e:
+                    log_error(
+                        e,
+                        context=f"code_puppy.plugins::_load_builtin_plugins: startup/plugins: load the builtin plugin {plugin_name}",
+                    )
                     logger.error(
                         f"Unexpected error loading built-in plugin {plugin_name}: {e}"
                     )
@@ -345,10 +371,18 @@ def _load_user_plugins(
                 except MemoryError:
                     raise
                 except ImportError as e:
+                    log_error(
+                        e,
+                        context=f"code_puppy.plugins::_load_user_plugins: startup/plugins: import the user plugin {plugin_name}",
+                    )
                     logger.warning(
                         f"Failed to import callbacks from user plugin {plugin_name}: {e}"
                     )
                 except Exception as e:
+                    log_error(
+                        e,
+                        context=f"code_puppy.plugins::_load_user_plugins: startup/plugins: load the user plugin {plugin_name}",
+                    )
                     logger.error(
                         f"Unexpected error loading user plugin {plugin_name}: {e}",
                         exc_info=True,
@@ -374,6 +408,10 @@ def _load_user_plugins(
                     except MemoryError:
                         raise
                     except Exception as e:
+                        log_error(
+                            e,
+                            context=f"code_puppy.plugins::_load_user_plugins: startup/plugins: execute the user plugin package {plugin_name}",
+                        )
                         logger.error(
                             f"Unexpected error loading user plugin {plugin_name}: {e}",
                             exc_info=True,
@@ -666,6 +704,10 @@ def _load_one_project_plugin(plugin_dir: Path, plugin_name: str) -> bool:
             except MemoryError:
                 raise
             except ImportError as e:
+                log_error(
+                    e,
+                    context=f"code_puppy.plugins::_load_one_project_plugin: startup/plugins: import the project plugin {plugin_name}",
+                )
                 logger.warning(
                     "Failed to import callbacks from project plugin %s: %s",
                     plugin_name,
@@ -673,6 +715,10 @@ def _load_one_project_plugin(plugin_dir: Path, plugin_name: str) -> bool:
                 )
                 return False
             except Exception as e:
+                log_error(
+                    e,
+                    context=f"code_puppy.plugins::_load_one_project_plugin: startup/plugins: load the project plugin {plugin_name}",
+                )
                 logger.error(
                     "Unexpected error loading project plugin %s: %s",
                     plugin_name,
@@ -803,7 +849,11 @@ def get_project_plugins_directory() -> Path | None:
     except OSError:
         # A missing/unreadable user directory cannot be the discovered project
         # directory, so retain normal project discovery.
-        pass
+        logger.debug(
+            "code_puppy.plugins::get_project_plugins_directory: "
+            "startup/plugins: compare the project plugins directory with the user plugins directory",
+            exc_info=True,
+        )
 
     return project_plugins_dir
 

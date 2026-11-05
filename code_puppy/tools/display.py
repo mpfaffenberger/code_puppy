@@ -11,10 +11,12 @@ from rich.control import Control
 from rich.segment import ControlType
 
 from code_puppy.config import get_banner_color, get_output_level, get_subagent_verbose
+from code_puppy.messaging.safe_stream import is_dead_handle_error
 from code_puppy.tools.subagent_context import is_subagent
 
-#: EL2 (erase entire line) + CR. Rich drops control segments on
-#: non-terminal output, so headless/piped runs stay byte-identical.
+#: EL2 (erase entire line) + CR. Only POSIX Rich drops control segments on
+#: non-terminal output; its legacy-Windows renderer writes the CR regardless,
+#: so ``erase_progress_line`` checks ``is_terminal`` itself.
 _ERASE_LINE_CONTROL = Control(
     (ControlType.ERASE_IN_LINE, 2), ControlType.CARRIAGE_RETURN
 )
@@ -29,7 +31,13 @@ def erase_progress_line(console: Console) -> None:
     cells) left right-edge ghost tails like ``s)`` in the transcript.
     Erase-in-line clears the whole row regardless of length.
     """
-    console.control(_ERASE_LINE_CONTROL)
+    if not console.is_terminal:
+        return
+    try:
+        console.control(_ERASE_LINE_CONTROL)
+    except OSError as exc:
+        if not is_dead_handle_error(exc):
+            raise
 
 
 def render_markdown(content: str, console: Console) -> None:

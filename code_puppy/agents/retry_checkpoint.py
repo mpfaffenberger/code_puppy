@@ -32,7 +32,7 @@ class RetryCheckpoint:
         return self.completed
 
 
-def resumable_call(agent, pydantic_agent, prompt, **kwargs):
+def resumable_call(agent, client, prompt, **kwargs):
     """One logical prompt: resend only if it never reached persistent history."""
     checkpointed = False
 
@@ -46,7 +46,7 @@ def resumable_call(agent, pydantic_agent, prompt, **kwargs):
             if isinstance(part, UserPromptPart)
         }
         try:
-            return await pydantic_agent.run(
+            return await client.run(
                 None if checkpointed else prompt,
                 message_history=agent._message_history,
                 **kwargs,

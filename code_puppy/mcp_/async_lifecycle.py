@@ -14,7 +14,11 @@ from typing import Any, Dict, Optional
 
 from pydantic_ai.toolsets import AbstractToolset
 
-from code_puppy.mcp_.toolset_utils import toolset_is_running, unwrap_toolset
+from code_puppy.mcp_.toolset_utils import (
+    toolset_init_timeout,
+    toolset_is_running,
+    unwrap_toolset,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -127,7 +131,7 @@ class AsyncServerLifecycleManager:
         try:
             # Wrappers need their leaf's timeout. None explicitly disables the
             # deadline; generic toolsets without one retain the 10s fallback.
-            timeout = getattr(unwrap_toolset(server), "init_timeout", 10.0)
+            timeout = toolset_init_timeout(server, default=10.0)
             async with asyncio.timeout(timeout):
                 await context.exit_stack.enter_async_context(server)
             if context.stopping:

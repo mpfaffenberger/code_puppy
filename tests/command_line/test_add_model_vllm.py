@@ -50,7 +50,7 @@ class _FakeResponse:
         return self._payload
 
 
-class TestFetchModels:
+class TestFetchContexts:
     @pytest.mark.parametrize(
         "base",
         ["http://h:1", "http://h:1/", "http://h:1/v1", "http://h:1/v1/models"],
@@ -62,34 +62,41 @@ class TestFetchModels:
             seen.append(url)
             return _FakeResponse({"data": []})
 
-        vllm.fetch_vllm_model_ids(base, http_get=spy)
+        vllm.fetch_vllm_model_contexts(base, http_get=spy)
         assert seen == ["http://h:1/v1/models"]
 
     def test_happy_path_strips_and_filters(self):
-        payload = {"data": [{"id": "m1"}, {"id": " m2 "}, {}, {"id": ""}]}
-        ids = vllm.fetch_vllm_model_ids(
+        payload = {
+            "data": [
+                {"id": "m1", "max_model_len": 32768},
+                {"id": " m2 "},
+                {},
+                {"id": ""},
+            ]
+        }
+        contexts = vllm.fetch_vllm_model_contexts(
             "http://localhost:8000",
             http_get=lambda url, timeout, headers: _FakeResponse(payload),
         )
-        assert ids == ["m1", "m2"]
+        assert contexts == {"m1": 32768, "m2": 0}
 
     def test_transport_error_becomes_fetch_error(self):
         def boom(url, timeout, headers):
             raise httpx.ConnectError("refused")
 
         with pytest.raises(vllm.VllmFetchError):
-            vllm.fetch_vllm_model_ids("http://h:1", http_get=boom)
+            vllm.fetch_vllm_model_contexts("http://h:1", http_get=boom)
 
     def test_non_json_body_becomes_fetch_error(self):
         def bad_json(url, timeout, headers):
             raise ValueError("no json")
 
         with pytest.raises(vllm.VllmFetchError):
-            vllm.fetch_vllm_model_ids("http://h:1", http_get=bad_json)
+            vllm.fetch_vllm_model_contexts("http://h:1", http_get=bad_json)
 
     def test_missing_data_list_becomes_fetch_error(self):
         with pytest.raises(vllm.VllmFetchError):
-            vllm.fetch_vllm_model_ids(
+            vllm.fetch_vllm_model_contexts(
                 "http://h:1",
                 http_get=lambda url, timeout, headers: _FakeResponse({"oops": 1}),
             )
@@ -124,6 +131,44 @@ class TestBuildConfig:
             "url": "http://h:1/v1",
             "api_key": "$VLLM_API_KEY",
         }
+        # No context advertised -> 256k default.
+        assert config["context_length"] == vllm.VLLM_DEFAULT_CONTEXT_LENGTH
+
+    @pytest.mark.parametrize("missing", [None, 0, -1])
+    def test_missing_context_defaults_to_256k(self, missing):
+        config = vllm.build_vllm_model_config(
+            "llama-3", "http://h:1", "EMPTY", context_length=missing
+        )
+        assert config["context_length"] == vllm.VLLM_DEFAULT_CONTEXT_LENGTH
+
+    def test_context_from_json_wins(self):
+        config = vllm.build_vllm_model_config(
+            "llama-3", "http://h:1", "EMPTY", context_length=32768
+        )
+        assert config["context_length"] == 32768
+
+
+class TestContextLengthFromEntry:
+    def test_max_model_len_wins(self):
+        entry = {"max_model_len": 32768, "context_length": 999}
+        assert vllm._context_length_from_entry(entry) == 32768
+
+    def test_context_length_fallback(self):
+        assert vllm._context_length_from_entry({"context_length": 65536}) == 65536
+
+    @pytest.mark.parametrize(
+        "entry",
+        [
+            {},
+            {"max_model_len": None},
+            {"max_model_len": "32768"},
+            {"max_model_len": 0},
+            {"max_model_len": -5},
+            {"max_model_len": True},
+        ],
+    )
+    def test_unusable_context_is_zero(self, entry):
+        assert vllm._context_length_from_entry(entry) == 0
 
 
 # -- orchestration ------------------------------------------------------------
@@ -148,7 +193,7 @@ class TestRunVllmFlow:
         target = tmp_path / "extra.json"
         defaults = dict(
             url_prompt=lambda: "http://localhost:8000",
-            fetch_models=lambda base, api_key=None: ["llama-3", "mistral-7b"],
+            fetch_models=lambda base, api_key=None: {"llama-3": 0, "mistral-7b": 32768},
             models_menu_factory=lambda base, ids: _FakeMenu("llama-3"),
             api_key_prompt=lambda: "$VLLM_API_KEY",
         )
@@ -168,6 +213,18 @@ class TestRunVllmFlow:
             "url": "http://localhost:8000/v1",
             "api_key": "$VLLM_API_KEY",
         }
+        # No context in the server JSON -> 256k default.
+        assert (
+            data["vllm-llama-3"]["context_length"] == vllm.VLLM_DEFAULT_CONTEXT_LENGTH
+        )
+
+    def test_advertised_context_is_persisted(self, tmp_path):
+        added, target = self._flow(
+            tmp_path, fetch_models=lambda base, api_key=None: {"llama-3": 65536}
+        )
+        assert added is True
+        data = json.loads(target.read_text())
+        assert data["vllm-llama-3"]["context_length"] == 65536
 
     def test_new_key_then_explicit_second_model_selection(self, tmp_path, monkeypatch):
         monkeypatch.setattr(vllm, "credential_env_var_names", lambda: set())
@@ -205,7 +262,7 @@ class TestRunVllmFlow:
 
         def fetch(base, api_key=None):
             order.append(("fetch", api_key))
-            return ["llama-3"]
+            return {"llama-3": 0}
 
         def key():
             order.append(("key", None))
@@ -231,7 +288,7 @@ class TestRunVllmFlow:
 
         def fetch(base, api_key=None):
             fetched.append(api_key)
-            return ["llama-3"]
+            return {"llama-3": 0}
 
         with patch.object(vllm, "emit_error") as err:
             added, target = self._flow(tmp_path, credential=None, fetch_models=fetch)
@@ -287,7 +344,7 @@ class TestRunVllmFlow:
             vllm.run_vllm_flow(
                 url_prompt=lambda: "http://h:1",
                 api_key_prompt=lambda: "EMPTY",
-                fetch_models=lambda base, api_key=None: [],
+                fetch_models=lambda base, api_key=None: {},
             )
             is False
         )
@@ -297,7 +354,7 @@ class TestRunVllmFlow:
             vllm.run_vllm_flow(
                 url_prompt=lambda: "http://h:1",
                 api_key_prompt=lambda: "EMPTY",
-                fetch_models=lambda base, api_key=None: ["m"],
+                fetch_models=lambda base, api_key=None: {"m": 0},
                 models_menu_factory=lambda base, ids: _FakeMenu(None),
             )
             is False

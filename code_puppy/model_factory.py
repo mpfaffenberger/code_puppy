@@ -56,12 +56,22 @@ _load_plugin_model_providers()
 CONTEXT_1M_BETA = "context-1m-2025-08-07"
 _CUSTOM_OPENAI_MODEL_TYPES = {"custom_openai", "custom_openai_responses"}
 _LEGACY_CUSTOM_OPENAI_RESPONSES_MODEL = "codex-gpt-5-codex"
-# Legacy effort normalization mapping
-_EFFORT_ALIAS = {"minimal": "none", "ultra": "max"}
 # Only these wire formats accept ``openai_reasoning_effort``.
 # A positive allowlist prevents short model tags from hijacking aliases.
+# ``meta_oauth``/``grok_oauth`` plugins build ``OpenAIResponsesModel``s
+# whose backends accept a native ``reasoning.effort``; per-model scales
+# arrive via the catalog's ``setting_choices``.
 _OPENAI_COMPATIBLE_MODEL_TYPES = (
-    frozenset({"openai", "chatgpt_oauth", "azure_foundry_openai", "azure_openai"})
+    frozenset(
+        {
+            "openai",
+            "chatgpt_oauth",
+            "azure_foundry_openai",
+            "azure_openai",
+            "meta_oauth",
+            "grok_oauth",
+        }
+    )
     | _CUSTOM_OPENAI_MODEL_TYPES
 )
 
@@ -102,7 +112,7 @@ def _uses_responses_api(model_name: str, model_config: Dict[str, Any]) -> bool:
 
     model_type = model_config.get("type")
     underlying_name = str(model_config.get("name") or "")
-    if model_type == "chatgpt_oauth":
+    if model_type in ("chatgpt_oauth", "meta_oauth", "grok_oauth"):
         return True
     if model_type == "azure_foundry_openai":
         return _azure_foundry_uses_responses_api(underlying_name)
@@ -185,19 +195,34 @@ def _thinking_tags_profile(
     ``</think>`` tags, so callers can pass this straight through as
     ``profile=`` without an extra None-check.
     """
-    from code_puppy.model_utils import get_thinking_tags
+    from code_puppy.model_utils import (
+        get_thinking_tags,
+        supports_gpt_responses_controls,
+    )
 
     tags = get_thinking_tags(model_name, model_config)
     profile_kwargs: dict[str, Any] = {}
     if tags is not None:
         profile_kwargs["thinking_tags"] = tags
 
-    underlying_name = str(model_config.get("name", model_name)).lower()
-    if "gpt-5.6" in underlying_name:
+    # GPT-5.6+ gets the Responses reasoning controls (same >= 5.6 threshold as
+    # the /model_settings visibility check in config.py). pydantic-ai infers
+    # these flags from the model-name prefix and does not know newer families,
+    # so without them a gpt-6 setting that looks applied is silently dropped
+    # from the request. ``openai_supports_reasoning`` also gates non-``all_turns``
+    # reasoning_context values and the sampling-param stripping; the two
+    # companions mirror what pydantic-ai infers for gpt-5.5/5.6.
+    # Underlying name wins; the config key is only a fallback when ``name`` is
+    # absent (an alias must not flag another backend).
+    underlying_name = str(model_config.get("name", model_name))
+    if supports_gpt_responses_controls(underlying_name):
         profile_kwargs.update(
             openai_responses_supports_reasoning_mode=True,
             openai_responses_supports_reasoning_context=True,
             openai_supports_encrypted_reasoning_content=True,
+            openai_supports_reasoning=True,
+            thinking_enabled_by_default=True,
+            openai_supports_reasoning_effort_none=True,
         )
 
     return OpenAIModelProfile(**profile_kwargs) if profile_kwargs else None
@@ -212,9 +237,9 @@ def _strict_openai_profile(
     """Build a profile for custom OpenAI-compatible endpoints (SGLang, vLLM, etc.).
 
     Strict backends reject more than one leading system message with
-    ``System message must be at the beginning.`` After compaction the wire
-    format has two: the compaction summary ``SystemPromptPart`` and the
-    agent's per-turn ``instruction_parts``.  Setting
+    ``System message must be at the beginning.`` The wire format can carry
+    several: a leading ``SystemPromptPart`` and the agent's per-turn
+    ``instruction_parts``.  Setting
     ``openai_chat_supports_multiple_system_messages=False`` makes
     pydantic-ai's ``_merge_leading_system_messages`` concatenate them into
     one, which every backend accepts.
@@ -229,18 +254,52 @@ def _strict_openai_profile(
     merged = OpenAIModelProfile(base)
     if extra:
         merged.update(extra)
-    # Config override trumps the safe default.  Fail fast on non-bool
-    # values: a JSON string "false" would silently invert the user's intent
-    # (it is truthy in Python, and we cannot ``bool()``-coerce because
-    # ``bool("false")`` is ``True``).
-    supports = model_config.get("supports_multiple_system_messages", False)
-    if not isinstance(supports, bool):
-        raise TypeError(
-            "supports_multiple_system_messages must be a JSON boolean "
-            f"(true/false), got {type(supports).__name__}: {supports!r}"
-        )
-    merged["openai_chat_supports_multiple_system_messages"] = supports
+    merged["openai_chat_supports_multiple_system_messages"] = _config_bool(
+        model_config, "supports_multiple_system_messages", default=False
+    )
     return merged
+
+
+def _config_bool(model_config: dict[str, Any], key: str, *, default: bool) -> bool:
+    """Read a boolean model-config flag, failing fast on non-bool values.
+
+    A JSON string ``"false"`` would silently invert the user's intent (it is
+    truthy in Python, and we cannot ``bool()``-coerce because
+    ``bool("false")`` is ``True``), so anything but a real bool is an error.
+    """
+    value = model_config.get(key, default)
+    if not isinstance(value, bool):
+        raise TypeError(
+            f"{key} must be a JSON boolean "
+            f"(true/false), got {type(value).__name__}: {value!r}"
+        )
+    return value
+
+
+def _custom_openai_chat_profile(
+    model_name: str, model_config: dict[str, Any]
+) -> OpenAIModelProfile:
+    """Profile for ``custom_openai`` chat endpoints (self-hosted SGLang, vLLM...).
+
+    Strict tool definitions are off by default. SGLang reacts to *any* tool
+    with ``strict: true`` (under ``tool_choice="auto"``) by grammar-
+    constraining every tool call, and for models whose native call format is
+    not JSON (DeepSeek V4.1's DSML parameter tags) the grammar forces a JSON
+    body instead -- under sampling the model frequently emits a bare ``{}``,
+    surfacing as "Field required" validation errors. Endpoints that honour
+    strict properly can opt back in with
+    ``"supports_strict_tool_definition": true``.
+    """
+    supports_strict = _config_bool(
+        model_config, "supports_strict_tool_definition", default=False
+    )
+    return _strict_openai_profile(
+        model_name,
+        model_config,
+        extra=OpenAIModelProfile(
+            openai_supports_strict_tool_definition=supports_strict
+        ),
+    )
 
 
 def _merge_dotted_key(target: dict, dotted_key: str, value: Any) -> None:
@@ -275,7 +334,8 @@ def make_model_settings(
     - GPT-5 models: reasoning_effort and verbosity (non-codex only)
     - Claude/Anthropic models: extended_thinking and budget_tokens
     - ``max_tokens`` resolved via :func:`config.get_model_max_output_tokens`
-      (per-model override > catalog ``max_output_tokens`` > 15% heuristic)
+      (per-model override > catalog ``max_output_tokens`` > models.dev >
+      known-sibling inference > 15% heuristic)
 
     Args:
         model_name: The name of the model to create settings for.
@@ -389,7 +449,9 @@ def make_model_settings(
     # Copilot models speak OpenAI format even for Claude backends: Claude
     # thinking → reasoning_effort; GPT gets standard OpenAI reasoning.
     from code_puppy.model_utils import (
+        get_default_reasoning_effort,
         is_gpt_reasoning_model,
+        normalize_openai_reasoning_effort,
         resolve_openai_reasoning_effort_choices,
     )
 
@@ -450,12 +512,16 @@ def make_model_settings(
             OpenAIResponsesModelSettings,
         )
 
-        # Normalize legacy effort values (minimal->none, ultra->max)
-        effort = effective_settings.get("reasoning_effort", "medium")
-        effort = _EFFORT_ALIAS.get(effort, effort)
-        if reasoning_effort_choices is None or (
-            reasoning_effort_choices and effort in reasoning_effort_choices
-        ):
+        # Unrecognized effort values are dropped for GPT backends
+        # (clamp=False): the API applies its own default, which is safer
+        # than guessing a depth. Catalog-declared defaults still apply.
+        effort = normalize_openai_reasoning_effort(
+            effective_settings.get("reasoning_effort"),
+            reasoning_effort_choices,
+            default=get_default_reasoning_effort(model_config) or "medium",
+            clamp=False,
+        )
+        if effort is not None:
             model_settings_dict["openai_reasoning_effort"] = effort
 
         if _uses_responses_api(model_name, model_config):
@@ -488,10 +554,18 @@ def make_model_settings(
             OpenAIResponsesModelSettings,
         )
 
-        # Forward only documented effort values for OpenAI-compatible models.
-        effort = effective_settings.get("reasoning_effort", "medium")
-        effort = _EFFORT_ALIAS.get(effort, effort)
-        if effort in reasoning_effort_choices:
+        # Forward only advertised effort values for OpenAI-compatible
+        # models. Unlike GPT backends, these may REJECT out-of-scale
+        # values (Meta Muse returns HTTP 400 for "none"), so an
+        # unsupported stored value clamps to the nearest supported
+        # depth instead of being dropped. Catalog-declared defaults
+        # (``setting_defaults``) win over the global "medium" fallback.
+        effort = normalize_openai_reasoning_effort(
+            effective_settings.get("reasoning_effort"),
+            reasoning_effort_choices,
+            default=get_default_reasoning_effort(model_config) or "medium",
+        )
+        if effort is not None:
             model_settings_dict["openai_reasoning_effort"] = effort
         # Non-GPT reasoning models (o-series, codex-mini) can still be served
         # over the Responses API, so the settings class must follow the model.
@@ -924,7 +998,10 @@ class ModelFactory:
             provider = make_anthropic_provider(
                 provider_identity, anthropic_client=anthropic_client
             )
-            return AnthropicModel(model_name=model_config["name"], provider=provider)
+            return AnthropicModel(
+                model_name=model_config["name"],
+                provider=provider,
+            )
 
         elif model_type == "custom_anthropic":
             url, headers, verify, api_key, timeout = get_custom_config(model_config)
@@ -976,7 +1053,10 @@ class ModelFactory:
             provider = make_anthropic_provider(
                 provider_identity, anthropic_client=anthropic_client
             )
-            return AnthropicModel(model_name=model_config["name"], provider=provider)
+            return AnthropicModel(
+                model_name=model_config["name"],
+                provider=provider,
+            )
         # NOTE: 'claude_code' model type is now handled by the claude_code_oauth plugin
         # via the register_model_type callback. See plugins/claude_code_oauth/register_callbacks.py
 
@@ -1083,12 +1163,14 @@ class ModelFactory:
 
             if _custom_openai_uses_responses_api(model_name, model_config):
                 return OpenAIResponsesModel(
-                    model_name=model_config["name"], provider=provider
+                    model_name=model_config["name"],
+                    provider=provider,
+                    profile=_thinking_tags_profile(model_name, model_config),
                 )
             return OpenAIChatModel(
                 model_name=model_config["name"],
                 provider=provider,
-                profile=_strict_openai_profile(model_name, model_config),
+                profile=_custom_openai_chat_profile(model_name, model_config),
             )
         elif model_type == "zai_coding":
             api_key = get_api_key("ZAI_API_KEY")

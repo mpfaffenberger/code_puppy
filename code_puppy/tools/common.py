@@ -1136,14 +1136,18 @@ async def _get_user_approval_async_impl(
             confirmed = False
             emit_info("")
             emit_info(t("tools.common.approval.tell", puppy_name=puppy_name))
-            # Prompt.ask reads stdin — suspend the key listener or it eats
-            # roughly half the keystrokes (feedback box looks "broken").
+            # Reading feedback must not block the agent's event loop.
+            # Keep stdin ownership suspended until the worker finishes.
             from code_puppy.agents._key_listeners import suspended_key_listener
+            from code_puppy.tools.approval_feedback import read_feedback
 
             with suspended_key_listener():
-                user_feedback = Prompt.ask(
-                    "[bold green]➤[/bold green]",
-                    default="",
+                user_feedback = (
+                    await read_feedback(
+                        lambda: Prompt.ask(
+                            "[bold green]\u27a4[/bold green]", default=""
+                        )
+                    )
                 ).strip()
 
             if not user_feedback:

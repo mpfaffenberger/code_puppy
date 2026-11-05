@@ -40,6 +40,7 @@ from code_puppy.tools.common import (
     write_project_file,
 )
 from code_puppy.tools.file_permission_state import (
+    PermissionNotDecided,
     clear_diff_shown_flag,
     clear_user_feedback,
     get_last_user_feedback,
@@ -139,6 +140,20 @@ def _create_rejection_response(file_path: str) -> Dict[str, Any]:
     user_feedback = get_last_user_feedback()
     # Clear feedback after reading it
     clear_user_feedback()
+
+    if isinstance(user_feedback, PermissionNotDecided):
+        return {
+            "success": False,
+            "path": file_path,
+            "message": (
+                f"PERMISSION NOT GRANTED: {user_feedback} No file changes were "
+                "made. The user did not reject them; do not say they did."
+            ),
+            "changed": False,
+            "user_rejection": False,
+            "rejection_type": "no_user_decision",
+            "user_feedback": None,
+        }
 
     rejection_message = (
         "USER REJECTED: The user explicitly rejected these file changes."

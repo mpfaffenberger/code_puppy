@@ -38,8 +38,14 @@ class _FakeAgentConfig:
     def get_model_name(self):
         return "test-model"
 
-    def get_full_system_prompt(self):
+    def get_system_prompt(self):
         return "You are a test agent."
+
+    def get_runtime_system_prompt(self):
+        return ""
+
+    def get_full_system_prompt(self):
+        return self.get_system_prompt() + self.get_runtime_system_prompt()
 
     def get_available_tools(self):
         return []

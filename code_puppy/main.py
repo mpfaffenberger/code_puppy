@@ -7,12 +7,31 @@ The neon splash starts BEFORE the cli_runner import below: that import pulls
 in pydantic-ai, prompt_toolkit, rich, and friends (~seconds of cold start),
 which is exactly the window the shimmer covers. ``code_puppy.splash`` is
 stdlib-only by design -- keep it that way, and keep it first.
+
+In-tree plugins that must run setup before those heavy imports (see
+``code_puppy.early_startup``) are given their turn inside the same window.
 """
 
 from code_puppy.splash import start_splash
 
 _splash = start_splash()
 try:
+    try:
+        # Before the runner import so an import-time crash is recorded too.
+        from code_puppy.error_hooks import install_error_hooks
+
+        install_error_hooks()
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).debug(
+            "installing the error hooks failed", exc_info=True
+        )
+    # Plugin setup that must precede the heavy imports. Failed hooks are
+    # recorded in errors.log before the runner import; never raises.
+    from code_puppy.early_startup import report_failures, run_early_startup
+
+    report_failures(run_early_startup())
     from code_puppy.cli_runner import main_entry
 finally:
     _splash.stop()

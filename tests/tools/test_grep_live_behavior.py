@@ -230,6 +230,48 @@ def test_grep_match_budget_is_configurable(tmp_path, monkeypatch):
     assert out.truncated is False
 
 
+def test_grep_keeps_trailing_context_at_exact_match_budget(tmp_path, monkeypatch):
+    """The final accepted match retains its requested after-context rows."""
+    import code_puppy.config as cp_config
+
+    monkeypatch.setattr(cp_config, "get_grep_max_matches", lambda: 3)
+    (tmp_path / "hits.txt").write_text("hit 1\nafter1\nhit 2\nafter2\nhit 3\nafter3\n")
+
+    out = _grep(None, "-A 1 hit", str(tmp_path))
+
+    assert [match.line_number for match in out.matches] == [1, 2, 3, 4, 5, 6]
+    assert [match.is_context for match in out.matches] == [
+        False,
+        True,
+        False,
+        True,
+        False,
+        True,
+    ]
+    assert out.truncated is False
+    assert out.next_offset is None
+
+
+def test_grep_paginates_after_final_context_row(tmp_path, monkeypatch):
+    """Trailing context stays on its page while offsets count real matches."""
+    import code_puppy.config as cp_config
+
+    monkeypatch.setattr(cp_config, "get_grep_max_matches", lambda: 3)
+    (tmp_path / "hits.txt").write_text(
+        "hit 1\nafter1\nhit 2\nafter2\nhit 3\nafter3\nhit 4\nafter4\n"
+    )
+
+    first = _grep(None, "-A 1 hit", str(tmp_path))
+    second = _grep(None, "-A 1 hit", str(tmp_path), offset=first.next_offset)
+
+    assert [match.line_number for match in first.matches] == [1, 2, 3, 4, 5, 6]
+    assert first.truncated is True
+    assert first.next_offset == 3
+    assert [match.line_number for match in second.matches] == [7, 8]
+    assert second.truncated is False
+    assert second.next_offset is None
+
+
 def test_emit_grep_result_forwards_truncated_to_ui(monkeypatch):
     captured = {}
 
