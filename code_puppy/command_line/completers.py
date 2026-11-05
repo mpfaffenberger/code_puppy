@@ -188,7 +188,10 @@ class CDCompleter(Completer):
                 name_prefix = os.path.basename(expanded_lookup)
 
             dirs, _ = list_directory(part)
-            dirnames = [d for d in dirs if d.startswith(name_prefix)]
+            # os.listdir order is arbitrary, and Enter accepts the first
+            # item. Sorting puts an exact match ("foo") ahead of longer
+            # siblings ("foobar") because a prefix always sorts first.
+            dirnames = sorted(d for d in dirs if d.startswith(name_prefix))
 
             # Preserve user's typed style (~, relative, absolute) in emitted
             # completion text instead of leaking expanded absolute paths.
@@ -264,6 +267,36 @@ class AgentCompleter(Completer):
                     start_position=start_position,
                     display=agent_name,
                     display_meta=_get_agent_display_meta(agent_name),
+                )
+
+
+class SessionCompleter(Completer):
+    """Completes ``/session`` subcommands; the rename title is free text."""
+
+    _SUBCOMMANDS = (
+        ("id", "show current session ID"),
+        ("new", "start a new autosave session"),
+        ("rename", "set a permanent session title"),
+    )
+
+    def __init__(self, trigger: str = "/session"):
+        self.trigger = trigger
+
+    def get_completions(self, document, complete_event):
+        text_before_cursor = document.text_before_cursor
+        if not text_before_cursor.lstrip().startswith(self.trigger + " "):
+            return
+        trigger_end = text_before_cursor.find(self.trigger) + len(self.trigger) + 1
+        partial = text_before_cursor[trigger_end:].lstrip()
+        if " " in partial:
+            return
+        for name, meta in self._SUBCOMMANDS:
+            if name.startswith(partial):
+                yield Completion(
+                    name,
+                    start_position=-len(partial),
+                    display=name,
+                    display_meta=meta,
                 )
 
 
@@ -363,6 +396,8 @@ def build_completer_stack() -> Completer:
             AgentCompleter(trigger="/a"),
             AgentCompleter(trigger="/switch-agent"),
             AgentCompleter(trigger="/sa"),
+            SessionCompleter(trigger="/session"),
+            SessionCompleter(trigger="/s"),
             AgentCompleter(trigger="/fork", prefix="@"),
             ModelNameCompleter(trigger="/fork", prefix="@"),
             MCPCompleter(trigger="/mcp"),

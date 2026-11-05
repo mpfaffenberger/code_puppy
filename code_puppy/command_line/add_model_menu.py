@@ -14,6 +14,7 @@ with scripted keys.
 
 import os
 from typing import Callable, List, Optional, Tuple
+from urllib.parse import urlparse
 
 from code_puppy import atomic_json
 from code_puppy.config import (
@@ -196,6 +197,10 @@ def build_model_config(model: ModelInfo, provider: ProviderInfo) -> dict:
         if api_url:
             api_key_env = f"${provider.env[0]}" if provider.env else "$API_KEY"
             config["custom_endpoint"] = {"url": api_url, "api_key": api_key_env}
+            if urlparse(api_url).hostname == "api.perplexity.ai":
+                config["custom_endpoint"]["headers"] = {
+                    "X-Pplx-Integration": "code-puppy"
+                }
 
     # minimax: custom_anthropic but needs custom_endpoint with /v1 stripped.
     if provider.id == "minimax" and provider.api:

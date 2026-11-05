@@ -7,6 +7,7 @@ import os
 import pathlib
 from typing import Any, Optional
 
+from code_puppy import atomic_io
 from code_puppy.config_file import load_config, mutate_config
 from code_puppy.session_storage import compute_scope_key, save_session
 
@@ -549,15 +550,18 @@ def _models_dev_output_tokens(
         model_config: Catalog entry; its ``name`` is the bare model id.
 
     Returns:
-        The cap when models.dev vouches for it, else ``None`` so the caller
-        falls through to the heuristic. Never raises, and never guesses: an
-        ambiguous or unknown model yields ``None``.
+        The cap when models.dev vouches for it, or an inferred one for an
+        unindexed Claude model (see ``models_dev_family``); else ``None`` so
+        the caller falls through to the heuristic. Never raises: an ambiguous
+        or unknown model yields ``None``.
     """
     name = str(model_config.get("name") or "")
     if not name:
         return None
     try:
+        from code_puppy.models_dev_family import infer_family_output_cap
         from code_puppy.models_dev_parser import (
+            LimitMatchKind,
             get_registry,
             index_limits,
             match_limits,
@@ -566,14 +570,21 @@ def _models_dev_output_tokens(
         registry = get_registry()
         if registry is None:
             return None
-        by_key, by_name = index_limits(registry.get_models())
+        models = list(registry.get_models())
+        by_key, by_name = index_limits(models)
         # Mirrors extra_model_key() over a "provider/model" alias so the
         # provider-scoped match applies whenever we can identify the provider.
         key = model_name.replace("/", "-").replace(":", "-")
         match = match_limits(by_key, by_name, key, name)
-        if match.limits is None:
-            return None
-        return _coerce_positive_int(match.limits.max_output)
+        if match.limits is not None:
+            return _coerce_positive_int(match.limits.max_output)
+        if match.kind is LimitMatchKind.UNMATCHED:
+            return _coerce_positive_int(
+                infer_family_output_cap(
+                    name, str(model_config.get("type") or ""), models
+                )
+            )
+        return None
     except Exception:
         return None
 
@@ -593,7 +604,9 @@ def get_model_max_output_tokens(
     3. ``limit.output`` for that model id from models.dev, so entries that
        predate ``/add_model`` stamping limits (or were written by hand) still
        get a real cap rather than a guess.
-    4. Heuristic: 15% of ``context_length``, clamped to [2048, 65536].
+    4. For unindexed Claude models, the cap of the newest known sibling of the
+       same family that is not newer than the model (best-effort inference).
+    5. Heuristic: 15% of ``context_length``, clamped to [2048, 65536].
 
     Args:
         model_name: Model key; defaults to the current global model.
@@ -640,7 +653,7 @@ def get_model_max_output_tokens(
 def get_config_keys():
     """
     Returns the list of all config keys currently in puppy.cfg,
-    plus certain preset expected keys (e.g. "yolo_mode", "model", "compaction_strategy", "message_limit", "allow_recursion").
+    plus core menu settings, preset expected keys, and plugin settings.
 
     Only core-owned keys belong in ``default_keys``: plugins declare theirs
     through the ``register_settings`` hook (see :func:`_plugin_setting_keys`).
@@ -706,9 +719,29 @@ def get_config_keys():
     default_keys.append("retry_subagent_strategy")
     default_keys.append("retry_subagent_max_attempts")
 
+    # Core-owned controls without curated menu entries. Plugin-owned controls
+    # must come from register_settings, not this fallback list.
+    default_keys.extend(
+        (
+            "classic_prompt",
+            "command_timeout_seconds",
+            "disabled_plugins",
+            "enable_speculative_code_mode",
+            "osc_palette_json",
+            "port_base",
+        )
+    )
+
+    # Import lazily: the catalog imports config getters while it is built.
+    # Reuse the catalog rather than maintaining a second list of its keys.
+    from code_puppy.command_line.set_menu_catalog import SETTINGS_CATEGORIES
+
     config = _load_config()
     keys = set(config[DEFAULT_SECTION].keys()) if DEFAULT_SECTION in config else set()
     keys.update(default_keys)
+    keys.update(
+        setting.key for category in SETTINGS_CATEGORIES for setting in category.settings
+    )
     keys.update(_plugin_setting_keys())
     return sorted(keys)
 
@@ -816,8 +849,8 @@ def load_mcp_server_configs(*, raise_on_error: bool = False):
     # 1. User-level config (global, implicitly trusted).
     try:
         if pathlib.Path(MCP_SERVERS_FILE).exists():
-            with open(MCP_SERVERS_FILE, "r", encoding="utf-8") as f:
-                configs.update(_parse_mcp_servers_mapping(f.read()))
+            raw = atomic_io.read_bounded_bytes(MCP_SERVERS_FILE)
+            configs.update(_parse_mcp_servers_mapping(raw.decode("utf-8")))
     except Exception as e:
         emit_error(f"Failed to load MCP servers - {str(e)}")
         if raise_on_error:
@@ -1613,14 +1646,18 @@ def get_user_agents_directory() -> str:
 def get_project_agents_directory() -> Optional[str]:
     """Get the project-local agents directory path.
 
-    Looks for a .code_puppy/agents/ directory in the current working directory.
+    Looks for a .code_puppy/agents/ directory in the active working directory
+    (see tools.common.get_working_directory()).
     Unlike get_user_agents_directory(), this does NOT create the directory
     if it doesn't exist -- the team must create it intentionally.
 
     Returns:
         Path to the project's agents directory if it exists, or None.
     """
-    project_agents_dir = os.path.join(os.getcwd(), ".code_puppy", "agents")
+    # Lazy: config.py must not import tools at module load time.
+    from code_puppy.tools.common import get_working_directory
+
+    project_agents_dir = os.path.join(get_working_directory(), ".code_puppy", "agents")
     if os.path.isdir(project_agents_dir):
         return project_agents_dir
     return None
@@ -1766,6 +1803,29 @@ def get_grep_max_matches() -> int:
         return max(1, int(val))
     except (ValueError, TypeError):
         return GREP_MAX_MATCHES_DEFAULT
+
+
+#: Default ceiling for a normalized image attachment, in KiB of encoded bytes.
+IMAGE_ATTACHMENT_MAX_KB_DEFAULT = 1024
+
+
+def get_image_attachment_max_kb() -> int:
+    """Return the attachment ceiling in KiB (``image_attachment_max_kb``).
+
+    Attachments are normalized down to this size before they go into the
+    conversation, so the value caps both the upload and every later replay of
+    the image. Defaults to ``IMAGE_ATTACHMENT_MAX_KB_DEFAULT`` (1 MiB) when
+    unset, non-numeric, or non-positive — a zero/negative ceiling has no
+    sensible meaning and would just make attaching impossible.
+    """
+    val = get_value("image_attachment_max_kb")
+    if val is None or not str(val).strip():
+        return IMAGE_ATTACHMENT_MAX_KB_DEFAULT
+    try:
+        kb = int(str(val).strip())
+    except (ValueError, TypeError):
+        return IMAGE_ATTACHMENT_MAX_KB_DEFAULT
+    return kb if kb > 0 else IMAGE_ATTACHMENT_MAX_KB_DEFAULT
 
 
 def get_disable_dangerous_command_guard() -> bool:
@@ -2023,39 +2083,14 @@ def get_command_timeout_seconds() -> int:
 
 
 def save_command_to_history(command: str):
-    """Save a command to the history file with an ISO format timestamp.
+    """Persist newly captured input using the editor's canonical FileHistory format.
 
-    Args:
-        command: The command to save
+    Call at capture/creation, not again when an already-recorded task is dispatched.
+    HistoryStore handles blank input and I/O failures without interrupting the UI.
     """
-    import datetime
+    from code_puppy.messaging.editor_history import HistoryStore
 
-    try:
-        timestamp = datetime.datetime.now().isoformat(timespec="seconds")
-
-        # Sanitize command to remove any invalid surrogate characters
-        # that could cause encoding errors on Windows
-        try:
-            command = command.encode("utf-8", errors="surrogatepass").decode(
-                "utf-8", errors="replace"
-            )
-        except (UnicodeEncodeError, UnicodeDecodeError):
-            # If that fails, do a more aggressive cleanup
-            command = "".join(
-                char if ord(char) < 0xD800 or ord(char) > 0xDFFF else "\ufffd"
-                for char in command
-            )
-
-        with open(
-            COMMAND_HISTORY_FILE, "a", encoding="utf-8", errors="surrogateescape"
-        ) as f:
-            f.write(f"\n# {timestamp}\n{command}\n")
-    except Exception as e:
-        from code_puppy.messaging import emit_error
-
-        emit_error(
-            f"An unexpected error occurred while saving command history: {str(e)}"
-        )
+    HistoryStore(COMMAND_HISTORY_FILE).append(command)
 
 
 def get_agent_pinned_model(agent_name: str) -> str:
@@ -3111,15 +3146,15 @@ def set_output_level(level: str) -> None:
 def get_show_tool_output() -> bool:
     """Return True if full tool-call results are shown in the transcript.
 
-    Default is False: tool-call results stay collapsed to the compact
-    one-line call summary. Set ``show_tool_output`` in ``puppy.cfg`` (or via
-    ``/set``) to render the full result bodies the tools emit.
+    Default is True: full result bodies are visible. Set
+    ``show_tool_output`` to False in ``puppy.cfg`` (or via ``/set``)
+    to collapse results to the compact one-line call summary.
 
     Note: on Windows, shell output is *always* hidden regardless of this
     flag -- PowerShell control characters brick SIGINT and make Code Puppy
     impossible to cancel.
     """
-    return get_truthy_bool_value("show_tool_output", False)
+    return get_truthy_bool_value("show_tool_output", True)
 
 
 def set_show_tool_output(enabled: bool) -> None:

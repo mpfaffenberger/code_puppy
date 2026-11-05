@@ -39,6 +39,7 @@ from code_puppy.tools.agent_tools import (
     AgentInvokeOutput,
     AgentInvokeWithModelOutput,
     _generate_session_hash_suffix,
+    _get_subagent_sessions_dir,
     _load_session_history,
     _sanitize_for_session_id,
     _save_session_history,
@@ -63,16 +64,17 @@ from code_puppy.tools.subagent_usage_metrics import (
 _active_subagent_tasks: Set[asyncio.Task] = set()
 
 # Sub-agents interrupted by cancellation, drained into the parent's history at
-# the next run start (single seam shared by invoke_agent and /fork). Same-loop
-# populate/drain makes a plain list safe.
-_interrupted_subagents: list[dict] = []
+# the next run start (single seam shared by invoke_agent and /fork). Records are
+# filed per conversation root (None = terminal) so one ACP session never sees
+# another's notes. Same-loop populate/drain makes a plain dict safe.
+_interrupted_subagents: dict[str | None, list[dict]] = {}
 
 
 def record_interrupted_subagent(
     *, agent_name: str, session_id: str, saved_count: int | None
 ) -> None:
     """Remember that ``agent_name``'s session was interrupted."""
-    _interrupted_subagents.append(
+    _interrupted_subagents.setdefault(get_conversation_root_id(), []).append(
         {
             "agent_name": agent_name,
             "session_id": session_id,
@@ -82,10 +84,20 @@ def record_interrupted_subagent(
 
 
 def drain_interrupted_subagents() -> list[dict]:
-    """Return and clear all pending interrupted-subagent records."""
-    drained = list(_interrupted_subagents)
-    _interrupted_subagents.clear()
-    return drained
+    """Return and clear the current conversation root's interrupted records."""
+    return _interrupted_subagents.pop(get_conversation_root_id(), [])
+
+
+def peek_interrupted_subagents(key: str | None = None) -> list[dict]:
+    """Return copies of ``key``'s records (default: current root) without clearing."""
+    if key is None:
+        key = get_conversation_root_id()
+    return [dict(rec) for rec in _interrupted_subagents.get(key, [])]
+
+
+def clear_interrupted_subagents(key: str | None) -> None:
+    """Drop ``key``'s records exactly (``None`` is the terminal bucket)."""
+    _interrupted_subagents.pop(key, None)
 
 
 def _subagent_recursion_blocked() -> bool:
@@ -165,18 +177,17 @@ def _subagent_identity_prompt(agent_name: str) -> str:
     depth = get_subagent_depth() + 1
     limit = get_subagent_recursion_limit()
     chain = " -> ".join(("main agent", *get_subagent_chain(), agent_name))
-    remaining = max(limit - depth, 0)
     return f"""## Sub-agent execution context (mandatory)
 
 You are the sub-agent `{agent_name}`, not the main agent. Your nesting depth is
-{depth} (main agent = 0). Invocation chain: {chain}. The configured maximum
-sub-agent depth is {limit}; {remaining} deeper level(s) remain.
+{depth} (main agent = 0). Invocation chain: {chain}.
 
-Complete your assigned task directly. Prefer doing the work yourself over
-spawning more agents, but delegation is permitted -- including invoking an agent
-whose name matches your own -- as long as it serves the task. The recursion guard
-above enforces the depth cap automatically, so nesting beyond it is refused
-rather than forbidden by convention."""
+Complete your assigned task directly and return the result to your caller. Do
+not delegate further unless your caller explicitly asks you to; if you do, use
+one concurrent batch of direct children, synthesize their results yourself, and
+do not chain follow-up sub-agent calls. The runtime depth guard (max {limit})
+rejects deeper calls. Remaining depth capacity alone is not a reason to
+delegate."""
 
 
 def _contains_cancellation(exc: BaseException) -> bool:
@@ -409,16 +420,25 @@ async def _invoke_agent_impl(
                 )
 
             # Create a temporary agent instance to avoid interfering with current agent state
-            instructions = agent_config.get_full_system_prompt()
-            instructions += f"\n\n{_subagent_identity_prompt(agent_name)}"
+            # Static authored prompt here; the per-run tail (identity, load_prompt
+            # fragments, nesting context) rides as a dynamic part so sub-agent
+            # sessions share the cached prompt prefix.
+            instructions = agent_config.get_system_prompt()
+            runtime_instructions = (
+                agent_config.get_runtime_system_prompt()
+                + f"\n\n{_subagent_identity_prompt(agent_name)}"
+            )
 
             # AGENTS.md deliberately NOT injected into sub-agents: those are
             # user-facing steering for the MAIN agent and would create recursion
             # traps (e.g. "always invoke xyz" makes xyz invoke itself).
 
-            # NOTE: load_prompt fragments are already baked into get_full_system_prompt
-            # via BaseAgent — appending again would double-inject them.
-            from code_puppy.model_utils import prepare_prompt_for_model
+            # NOTE: load_prompt fragments come from get_runtime_system_prompt;
+            # appending them again would double-inject them.
+            from code_puppy.model_utils import (
+                prepare_prompt_for_model,
+                static_then_runtime,
+            )
 
             # Model-family prep (e.g. claude-code): may split off a standing
             # system_prompt part, or touch the user prompt on the first message.
@@ -428,7 +448,9 @@ async def _invoke_agent_impl(
                 prompt,
                 prepend_system_to_user=is_new_session,  # Only prepend on first message
             )
-            instructions = prepared.instructions
+            instructions = static_then_runtime(
+                prepared.instructions, runtime_instructions
+            )
             prompt = prepared.user_prompt
 
             model_settings = make_model_settings(
@@ -459,7 +481,12 @@ async def _invoke_agent_impl(
                 bind_declared_speculation,
                 build_speculative_code_mode,
             )
+            from code_puppy.agents._code_mode_session import repl_path_for
             from code_puppy.agents._compaction import HistoryCompaction
+            from code_puppy.agents._output_limits import (
+                build_response_clamp,
+                build_tool_output_limits,
+            )
             from code_puppy.agents._subagent_recursion import (
                 build_subagent_recursion_guard,
             )
@@ -487,8 +514,13 @@ async def _invoke_agent_impl(
                 # deprecated `history_processors=` kwarg fed, removed in
                 # pydantic-ai v2).
                 capabilities=[
+                    # Same output bounds as the main builder. Without them a
+                    # sub-agent's oversized tool or run_code return lands in
+                    # its context whole (A/B: up to 295k chars per return).
+                    *build_tool_output_limits(),
                     HistoryCompaction(agent_config),
-                    build_model_message_transform(agent_name),
+                    build_response_clamp(),
+                    build_model_message_transform(agent_name, agent_config),
                     # Recursion guards ride the wrap_tool_execute seam so a
                     # sub-agent's own invoke_agent calls are denied before
                     # the tool body runs. Sole wrap_tool_execute implementer,
@@ -498,7 +530,12 @@ async def _invoke_agent_impl(
                     # whole tool surface folds into run_code with early
                     # launches during streaming (harness#699 dogfood); same
                     # wiring as the main builder.
-                    *build_speculative_code_mode(agent_tools),
+                    *build_speculative_code_mode(
+                        agent_tools,
+                        repl_path=lambda: repl_path_for(
+                            _get_subagent_sessions_dir(), session_id
+                        ),
+                    ),
                     # LAST: app-side event bridge translating typed
                     # CapabilityEvents into legacy callbacks/messaging.
                     CapabilityEventBridge(agent=agent_config),
@@ -771,9 +808,13 @@ def register_invoke_agent(agent):
     ) -> AgentInvokeOutput | dict:
         """Invoke a specific sub-agent using its configured model.
 
-        Prefer doing the work directly, but delegation is allowed -- including
-        to an agent whose name matches the caller's. Nesting is capped by the
-        recursion guard rather than by convention.
+        Prefer handling small work directly. When a task has independent,
+        tightly scoped pieces, invoke them as multiple sub-agents concurrently
+        in one batch (several invoke_agent calls in the same response) rather
+        than one at a time. Invoke direct children only and tell each child to
+        complete its task without delegating further. After the batch returns,
+        synthesize the results yourself instead of starting follow-up chains of
+        sub-agent calls. The runtime recursion guard remains the depth backstop.
 
         Args:
             agent_name: Name of the sub-agent to invoke.
@@ -781,6 +822,8 @@ def register_invoke_agent(agent):
             session_id: Optional kebab-case session id for continuing memory.
             background: Return immediately and deliver completion automatically
                 to the main agent, even after its turn ends. Defaults to False.
+                Not needed for parallel calls; use it only when you do not need
+                the result this turn.
 
         Returns:
             AgentInvokeOutput: Contains response, agent_name, session_id,
@@ -832,9 +875,14 @@ def register_invoke_agent_with_model(agent):
 
         Use this only when a model override is intentionally required. For
         normal delegation, use invoke_agent so the sub-agent's configured model
-        is respected. Prefer doing the work directly, but delegation is allowed
-        -- including to an agent whose name matches the caller's. Nesting is
-        capped by the recursion guard rather than by convention.
+        is respected. Prefer handling small work directly. When a task has
+        independent, tightly scoped pieces, invoke them as multiple sub-agents
+        concurrently in one batch (several invoke_agent calls in the same
+        response) rather than one at a time. Invoke direct children only and
+        tell each child to complete its task without delegating further. After
+        the batch returns, synthesize the results yourself instead of starting
+        follow-up chains of sub-agent calls. The runtime recursion guard remains
+        the depth backstop.
 
         Args:
             agent_name: Name of the sub-agent to invoke.

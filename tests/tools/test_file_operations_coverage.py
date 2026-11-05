@@ -8,6 +8,9 @@ import os
 import subprocess
 from unittest.mock import MagicMock, patch
 
+import pytest
+from pydantic import ValidationError
+
 from code_puppy.tools.file_operations import (
     GrepOutput,
     ListFileOutput,
@@ -689,13 +692,14 @@ class TestMatchInfoModel:
         assert match.line_number == 42
         assert match.line_content == "def test_function():"
 
-    def test_match_info_with_none_values(self):
-        """Test MatchInfo with None values."""
-        match = MatchInfo(file_path=None, line_number=None, line_content=None)
+    def test_match_info_rejects_missing_values(self):
+        """Every grep row has a path, line and text; the type says so.
 
-        assert match.file_path is None
-        assert match.line_number is None
-        assert match.line_content is None
+        Optional fields forced code-mode snippets to narrow them before use,
+        a frequent sandbox type-check failure.
+        """
+        with pytest.raises(ValidationError):
+            MatchInfo(file_path=None, line_number=None, line_content=None)
 
 
 class TestGrepOutputModel:

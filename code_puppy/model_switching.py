@@ -85,8 +85,11 @@ def _refresh_context_status(agent) -> None:
     try:
         capacity = agent._get_model_context_length()
         history = agent.get_message_history() or []
-        message_tokens = sum(agent.estimate_tokens_for_message(msg) for msg in history)
-        total_tokens = message_tokens + agent._estimate_context_overhead()
+        from code_puppy.context_accounting import active_model_name, context_tokens
+
+        total_tokens = context_tokens(
+            history, active_model_name(agent), agent._estimate_context_overhead()
+        )
         proportion = total_tokens / capacity if capacity else 0.0
         update_spinner_context(format_context_info(total_tokens, capacity, proportion))
     except Exception:

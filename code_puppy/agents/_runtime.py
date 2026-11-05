@@ -2,9 +2,9 @@
 
 Replaces the monolithic ``BaseAgent.run_with_mcp`` coroutine. Everything here
 is a free function; the agent is passed in explicitly. Integration points
-preserved verbatim:
+include:
 
-- Plugin-supplied async context managers wrap the run (see
+- Plugin-supplied async context managers wrap each physical model attempt (see
   ``on_agent_run_context``); used e.g. by the DBOS plugin to set a workflow
   ID and swap MCP toolsets in/out.
 - SIGINT fallback-handler choice driven by ``sigint_fallback_cancels()``
@@ -25,11 +25,12 @@ import ssl
 import sys
 import threading
 import uuid
-from contextlib import AsyncExitStack
 from typing import Any, Callable, Iterator, List, Optional, Sequence, Type, Union
 
 import httpcore
+import httpcore2
 import httpx
+import httpx2
 
 try:  # pragma: no cover - mcp version dependent
     from mcp.shared.exceptions import McpError
@@ -81,9 +82,10 @@ from code_puppy.agents._run_signals import (
     reset_pause_state_at_run_start,
     sigint_should_cancel,
 )
+from code_puppy.agents._token_limit_hint import resolve_model_name
 from code_puppy.agents.event_stream_handler import event_stream_handler
+from code_puppy.agents.run_invocation import ModelCall, run_with_exception_retry
 from code_puppy.callbacks import (
-    on_agent_exception,
     on_agent_run_cancel,
     on_agent_run_context,
     on_agent_run_end,
@@ -137,7 +139,9 @@ _RETRYABLE_SNIPPETS = (
 
 # Transport failures worth a silent retry, by umbrella base class (not each
 # subclass) so any dropped-socket guise or timeout is covered. A flaky
-# VPN/WiFi blip is recoverable, never fatal.
+# VPN/WiFi blip is recoverable, never fatal. ``httpx2``/``httpcore2`` (used by
+# the provider SDKs) share no base classes with ``httpx``/``httpcore``, so both
+# families must be listed.
 _RETRYABLE_EXCEPTIONS: tuple = (
     httpx.NetworkError,
     httpx.TimeoutException,
@@ -145,6 +149,12 @@ _RETRYABLE_EXCEPTIONS: tuple = (
     httpcore.NetworkError,
     httpcore.TimeoutException,
     httpcore.RemoteProtocolError,
+    httpx2.NetworkError,
+    httpx2.TimeoutException,
+    httpx2.RemoteProtocolError,
+    httpcore2.NetworkError,
+    httpcore2.TimeoutException,
+    httpcore2.RemoteProtocolError,
 )
 
 # AnyIO normally translates TLS failures through httpcore/httpx, but a failure
@@ -778,12 +788,29 @@ async def _run_with_mcp_impl(
         # Selection must never block a run.
         pass
 
+    # Expose this invocation's requested contract to lifecycle hooks, even
+    # when a previously built wrapper is reused unchanged.
+    effective_output_type = output_type if output_type is not None else str
+
     if agent._code_generation_agent is None:
         build_pydantic_agent(agent)
-    pydantic_agent = agent._code_generation_agent
 
     if output_type is not None:
-        pydantic_agent = build_pydantic_agent(agent, output_type=output_type)
+        build_pydantic_agent(agent, output_type=output_type)
+
+    # MCP lifecycle tasks can invalidate the cache during this run. Keep its
+    # built client as a fallback, while still resolving live replacements lazily.
+    built_client = agent._code_generation_agent
+    invocation = ModelCall(
+        lambda: (
+            current
+            if (current := agent._code_generation_agent) is not None
+            else built_client
+        ),
+        lambda current: on_agent_run_context(
+            agent, current, group_id, getattr(agent, "_mcp_servers", None) or []
+        ),
+    )
 
     prompt = _should_prepend_system_prompt(agent, prompt)
     prompt_payload = _build_prompt_payload(prompt, attachments, link_attachments)
@@ -826,42 +853,19 @@ async def _run_with_mcp_impl(
             usage_limits=usage_limits, event_stream_handler=stream_handler, **kwargs
         )
         _call = _main_retry(
-            resumable_call(agent, pydantic_agent, prompt_to_use, **run_options)
+            resumable_call(agent, invocation, prompt_to_use, **run_options)
         )
 
-        async def _call_with_exception_recovery() -> Any:
-            """Run ``_call`` and let plugins request one exception retry."""
-            try:
-                return await _call()
-            except Exception as exc:
-                hook_results = await on_agent_exception(
-                    exc,
-                    agent=agent,
-                    agent_name=agent.name,
-                    model_name=agent.get_model_name(),
-                )
-                retry_req = next(
-                    (r for r in hook_results if isinstance(r, dict) and r.get("retry")),
-                    None,
-                )
-                if not retry_req:
-                    raise
-
-                retry_delay = retry_req.get("delay", 0.0)
-                if retry_delay:
-                    await asyncio.sleep(retry_delay)
-                return await _call()
-
-        result = await _call_with_exception_recovery()
+        result = await run_with_exception_retry(_call, agent=agent)
 
         # ``now``-mode steers are injected by make_steer_history_processor
         # (before every model call); ``queue``-mode ones drain between runs
         # below — additive, won't interrupt in-progress work.
         async def _follow_up_run(follow_up_prompt: Any) -> Any:
             call = _main_retry(
-                resumable_call(agent, pydantic_agent, follow_up_prompt, **run_options)
+                resumable_call(agent, invocation, follow_up_prompt, **run_options)
             )
-            return await call()
+            return await run_with_exception_retry(call, agent=agent)
 
         hook_retries_used = 0
         queued_steers_used = 0
@@ -922,7 +926,7 @@ async def _run_with_mcp_impl(
         # concurrent runs). Owning the scope here — rather than wrapping the
         # create_task call — keeps it correct regardless of how this coroutine
         # is scheduled.
-        with executing_agent_context(agent):
+        with executing_agent_context(agent, output_type=effective_output_type):
             return await _run_agent_task_body()
 
     async def _run_agent_task_body() -> Any:
@@ -931,14 +935,7 @@ async def _run_with_mcp_impl(
                 agent._message_history
             )
 
-            mcp_servers = getattr(agent, "_mcp_servers", None) or []
-            run_ctxs = on_agent_run_context(
-                agent, pydantic_agent, group_id, mcp_servers
-            )
-            async with AsyncExitStack() as stack:
-                for cm in run_ctxs:
-                    await stack.enter_async_context(cm)
-                return await _do_run(prompt_payload)
+            return await _do_run(prompt_payload)
         except* UsageLimitExceeded as ule:
             emit_info(f"Usage limit exceeded: {ule}", group_id=group_id)
             emit_info(
@@ -1010,7 +1007,9 @@ async def _run_with_mcp_impl(
                     group_id=group_id,
                 )
             for exc in unexpected:
-                emit_exception_diagnostics(exc, group_id=group_id)
+                emit_exception_diagnostics(
+                    exc, group_id=group_id, model_name=resolve_model_name(agent)
+                )
             # Re-raise, else the bare except* would silently mask all errors
             # and run_with_mcp() would look like success.
             if unexpected:
@@ -1027,7 +1026,7 @@ async def _run_with_mcp_impl(
     # refresh, credential minting) finish before any HTTP leaves — else the
     # task races ahead with stale credentials (issue #338).
     try:
-        with executing_agent_context(agent):
+        with executing_agent_context(agent, output_type=effective_output_type):
             await on_agent_run_start(
                 agent_name=agent.name,
                 model_name=agent.get_model_name(),
@@ -1208,7 +1207,7 @@ async def _run_with_mcp_impl(
             except Exception:
                 pass
         try:
-            with executing_agent_context(agent):
+            with executing_agent_context(agent, output_type=effective_output_type):
                 await on_agent_run_end(
                     agent_name=agent.name,
                     model_name=agent.get_model_name(),

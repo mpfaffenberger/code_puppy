@@ -554,9 +554,8 @@ def get_registry() -> Optional[ModelsDevRegistry]:
 
     This serves the model-resolution path (``config.get_model_max_output_tokens``),
     which runs at startup and on every model switch, so it must never touch the
-    network: a plain ``hi`` would otherwise phone models.dev, and the CI egress
-    guard (``tests/integration/test_network_traffic_monitoring.py``) blocks
-    every release over it. The interactive ``/add_model`` and
+    network: a plain ``hi`` would otherwise phone models.dev (pinned by
+    ``tests/test_models_dev_registry_cache.py``). The interactive ``/add_model`` and
     ``/refresh_models`` commands build their own live ``ModelsDevRegistry()``
     on demand, so the snapshot only ever lags until the user asks for fresh
     data. The first caller pays the parse cost once; everyone after reuses

@@ -39,7 +39,16 @@ from pydantic_ai_harness.tool_output_limits import (
     Truncate,
 )
 
-from code_puppy.config import CONFIG_DIR, get_tool_output_limit_chars
+from pydantic_ai import RunContext
+from pydantic_ai.tools import ToolDefinition
+
+from code_puppy.agents._code_mode import _sandbox_tool
+from code_puppy.agents._code_mode_guidance import RUN_CODE_TOOL_NAME
+from code_puppy.config import (
+    CONFIG_DIR,
+    get_speculative_code_mode_enabled,
+    get_tool_output_limit_chars,
+)
 
 # Same per-part budget the old filter_huge_messages enforced per message.
 CLAMP_MAX_PART_TOKENS = 50_000
@@ -51,11 +60,25 @@ SPILL_DIR_NAME = "tool_output_spill"
 SPILL_TTL = timedelta(days=7)
 
 
+def reaches_the_model(ctx: RunContext[object], tool_def: ToolDefinition) -> bool:
+    """Whether a tool's return lands in the model's context, under code mode.
+
+    Sandboxed tools are only reachable from inside ``run_code``, where their
+    results are Python values the snippet slices and filters. Spilling them
+    there hands the code a handle string instead of the dict it asked for, and
+    costs a ``read_tool_result`` round trip. Bound what the model actually
+    sees instead: ``run_code``'s own return and the native tools.
+    """
+    return tool_def.name == RUN_CODE_TOOL_NAME or not _sandbox_tool(ctx, tool_def)
+
+
 def build_tool_output_limits() -> List[ToolOutputLimits]:
     """Build the production-time tool-return reducer, or ``[]`` when disabled.
 
     The threshold comes from the ``tool_output_limit_chars`` config key
-    (default 10,000 chars; zero or negative disables). Returned as a list so
+    (default 10,000 chars; zero or negative disables). With code mode on,
+    only returns that reach the model are bounded (see
+    :func:`reaches_the_model`). Returned as a list so
     the caller can splice it into ``capabilities=[...]`` unconditionally.
     """
     threshold = get_tool_output_limit_chars()
@@ -69,6 +92,9 @@ def build_tool_output_limits() -> List[ToolOutputLimits]:
         ToolOutputLimits(
             bands=[Band(over=threshold, action=Spill(then=Truncate()))],
             store=store,
+            tool_filter=reaches_the_model
+            if get_speculative_code_mode_enabled()
+            else "all",
         )
     ]
 

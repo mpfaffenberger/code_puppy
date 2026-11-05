@@ -8,6 +8,7 @@ hook that runs coroutine test functions using the stdlib's asyncio.
 import asyncio
 import inspect
 import os
+import re
 import subprocess
 import tempfile
 from copy import deepcopy
@@ -34,6 +35,21 @@ def _isolate_shared_provider_credentials(monkeypatch, request):
 
     monkeypatch.setattr(shared_credentials, "save", save)
     return values
+
+
+@pytest.fixture
+def error_log(tmp_path, monkeypatch):
+    """Redirect errors.log to a temp file; returns a reader of its Context lines."""
+    from code_puppy import error_logging
+
+    log_file = tmp_path / "errors.log"
+    monkeypatch.setattr(error_logging, "LOGS_DIR", str(tmp_path))
+    monkeypatch.setattr(error_logging, "ERROR_LOG_FILE", str(log_file))
+    return lambda: re.findall(
+        r"^Context: (.*)$",
+        log_file.read_text() if log_file.exists() else "",
+        flags=re.MULTILINE,
+    )
 
 
 # Config paths resolve at import time, before fixtures run - point every XDG category
@@ -101,25 +117,6 @@ def _ensure_builtin_plugin_callback_registrations() -> None:
     cp_callbacks.register_callback("pre_tool_call", hooks.on_pre_tool_call_hook)
     cp_callbacks.register_callback("post_tool_call", hooks.on_post_tool_call_hook)
     cp_callbacks.register_callback("startup", uc._on_startup)
-
-
-# Integration test fixtures - only import if pexpect.spawn is available (Unix)
-# On Windows, pexpect doesn't have spawn attribute, so skip these imports
-try:
-    from tests.integration.cli_expect.fixtures import live_cli as live_cli  # noqa: F401
-
-    # Re-export integration fixtures so pytest discovers them project-wide
-    # Expose the CLI harness fixtures globally
-    from tests.integration.cli_expect.harness import cli_harness as cli_harness
-    from tests.integration.cli_expect.harness import integration_env as integration_env
-    from tests.integration.cli_expect.harness import log_dump as log_dump
-    from tests.integration.cli_expect.harness import retry_policy as retry_policy
-    from tests.integration.cli_expect.harness import (  # noqa: F401
-        spawned_cli as spawned_cli,
-    )
-except (ImportError, AttributeError):
-    # On Windows or when pexpect.spawn is unavailable, skip integration fixtures
-    pass
 
 
 @pytest.fixture(autouse=True)
@@ -282,14 +279,4 @@ def pytest_sessionfinish(session, exitstatus):
                 #     print(f"    (cleanup failed: {e})")
     except subprocess.CalledProcessError:
         # Not a git repo or git not available: ignore silently
-        pass
-
-    # After cleanup, print DBOS consolidated report if available
-    try:
-        from tests.integration.cli_expect.harness import get_dbos_reports
-
-        report = get_dbos_reports()
-        if report.strip():
-            print("\n[DBOS Report]\n" + report)
-    except Exception:
         pass

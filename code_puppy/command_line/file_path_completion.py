@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import heapq
 import os
+from itertools import chain, repeat
 from typing import Iterable, List
 
 from code_puppy.file_completion_tokens import active_reference, quote_path
@@ -24,10 +25,11 @@ MAX_FUZZY_RESULTS = 20
 # --------------------------------------------------------------------- scoring
 
 
-def _score(basename_lower: str, path_lower: str, query_lower: str) -> int:
-    """Tiered substring score, pi-style. 0 means 'no match'.
+def _score(basename_lower: str, query_lower: str) -> int:
+    """Tiered basename substring score, pi-style. 0 means 'no match'.
 
     Higher is better. Cheap and predictable — no Levenshtein, no fuse.js.
+    Only the basename is scored because that is the name the menu displays.
     """
     if not query_lower:
         return 1  # everything is a "match" for an empty query
@@ -37,8 +39,6 @@ def _score(basename_lower: str, path_lower: str, query_lower: str) -> int:
         return 80
     if query_lower in basename_lower:
         return 50
-    if query_lower in path_lower:
-        return 30
     return 0
 
 
@@ -58,17 +58,21 @@ def _ensure_index_for_cwd() -> None:
 
 
 def _fuzzy_completions(query: str, start_position: int) -> List[Completion]:
-    """Pi-style ranked completions from the in-memory file index."""
+    """Pi-style ranked completions of files and folders from the index."""
     _ensure_index_for_cwd()
     snap = file_index.get_index()
     if snap.root != os.path.abspath(os.getcwd()) or not snap.paths:
         return []
 
     q_lower = query.lower()
+    entries = chain(
+        zip(snap.paths, snap.basenames_lower, repeat(False)),
+        zip(snap.dirs, snap.dir_basenames_lower, repeat(True)),
+    )
     candidates = (
-        (-score, path)
-        for path, lower, base in zip(snap.paths, snap.lowered, snap.basenames_lower)
-        if (score := _score(base, lower, q_lower)) > 0
+        (-score, path, is_dir)
+        for path, base, is_dir in entries
+        if (score := _score(base, q_lower)) > 0
     )
     top = heapq.nsmallest(MAX_FUZZY_RESULTS, candidates)
 
@@ -77,9 +81,10 @@ def _fuzzy_completions(query: str, start_position: int) -> List[Completion]:
             path,
             start_position=start_position,
             display=os.path.basename(path),
-            display_meta=path,  # show full relpath so users see disambiguation
+            # full relpath disambiguates; trailing separator marks folders
+            display_meta=path + os.sep if is_dir else path,
         )
-        for _neg_score, path in top
+        for _neg_score, path, is_dir in top
     ]
 
 

@@ -1,10 +1,10 @@
 """``get_registry()`` is the startup-path accessor and must stay off the network.
 
-``config.get_model_max_output_tokens`` consults it on every model resolution.
-The CI egress guard (``tests/integration/test_network_traffic_monitoring.py``)
-fails the whole release pipeline if a plain ``hi`` reaches models.dev, so the
-cached registry has to come from the bundled snapshot only. Live fetches are
-reserved for ``/add_model`` and ``/refresh_models``, which build their own.
+``config.get_model_max_output_tokens`` consults it on every model resolution,
+so a plain ``hi`` must never phone models.dev: the cached registry has to come
+from the bundled snapshot only. This module is the guard for that contract.
+Live fetches are reserved for ``/add_model`` and ``/refresh_models``, which
+build their own.
 """
 
 from unittest.mock import patch

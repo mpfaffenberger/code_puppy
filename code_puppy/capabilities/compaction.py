@@ -24,7 +24,7 @@ from typing import Any, Callable, List, Optional, Protocol, Set, Tuple
 from pydantic_ai import CapabilityEvent
 from pydantic_ai.capabilities import AbstractCapability
 from pydantic_ai.messages import ModelMessage, ModelResponse, ThinkingPart
-from pydantic_ai.models import ModelRequestContext
+from pydantic_ai.models import Model, ModelRequestContext
 from pydantic_ai.tools import RunContext
 from pydantic_ai.usage import RunUsage
 
@@ -255,6 +255,17 @@ class HistoryCompaction(AbstractCapability[Any]):
     message_hasher: Callable[[ModelMessage], str]
     """Stable content hash used for merge dedup + dropped tracking."""
 
+    total_estimator: Optional[Callable[[List[ModelMessage], Model, int], int]] = None
+    """Optional whole-history total, given the resolved request model.
+
+    When set, this replaces ``sum(token_estimator(...)) + context_overhead``
+    for both the pre- and post-compaction measurement. The seam exists so an
+    application can anchor the total to a provider-reported usage figure
+    instead of a per-message heuristic sum, without this module knowing
+    anything about how that anchor is produced or stored. ``None`` keeps the
+    historical sum-based behavior.
+    """
+
     history_sanitizer: Optional[Callable[[List[ModelMessage]], List[ModelMessage]]] = (
         None
     )
@@ -350,6 +361,24 @@ class HistoryCompaction(AbstractCapability[Any]):
         )
         return cleaned
 
+    def _total(
+        self,
+        ctx: RunContext[Any],
+        messages: List[ModelMessage],
+        model_name: Optional[str],
+        context_overhead: int,
+    ) -> int:
+        """Resolve the whole-history total via ``total_estimator`` if wired.
+
+        Falls back to the historical ``sum(token_estimator) + overhead`` when
+        no ``total_estimator`` was injected, so callers that never wire one
+        see unchanged behavior.
+        """
+        if self.total_estimator is not None:
+            return self.total_estimator(messages, ctx.model, context_overhead)
+        message_tokens = sum(self.token_estimator(m, model_name) for m in messages)
+        return message_tokens + context_overhead
+
     async def measure_and_compact(
         self,
         ctx: RunContext[Any],
@@ -366,8 +395,7 @@ class HistoryCompaction(AbstractCapability[Any]):
         always survive a failed compaction.
         """
         model_name = self.store.model_name()
-        message_tokens = sum(self.token_estimator(m, model_name) for m in messages)
-        total_tokens = message_tokens + context_overhead
+        total_tokens = self._total(ctx, messages, model_name, context_overhead)
         proportion_used = total_tokens / model_max if model_max else 0.0
 
         await _safe_emit(
@@ -425,8 +453,12 @@ class HistoryCompaction(AbstractCapability[Any]):
         dropped = [m for m in messages if self.message_hasher(m) not in result_hashes]
 
         # Parity with the historical implementation: the post-compaction
-        # measurement reports message tokens only (no overhead term).
-        final_token_count = sum(self.token_estimator(m, model_name) for m in result)
+        # measurement reports message tokens only (no overhead term). A
+        # ``total_estimator`` naturally falls back to the same "message
+        # tokens only" shape here too -- compaction just removed the
+        # earlier prefix an anchor would need, so the anchor fingerprint
+        # can never match and the estimator sums the (now-shorter) result.
+        final_token_count = self._total(ctx, result, model_name, 0)
         await _safe_emit(
             ctx,
             ContextUsageMeasuredEvent(

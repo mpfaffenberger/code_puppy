@@ -11,6 +11,10 @@ import importlib
 import json
 import ssl
 
+import httpcore
+import httpcore2
+import httpx
+import httpx2
 import pytest
 
 from code_puppy.agents._runtime import (
@@ -151,6 +155,111 @@ async def test_streaming_retry_recovers_from_provider_sse_extra_data(
         attempts += 1
         if attempts == 1:
             malformed_event.json()
+        return "recovered"
+
+    monkeypatch.setattr(
+        "code_puppy.error_logging.log_error", lambda *args, **kwargs: None
+    )
+    monkeypatch.setattr("code_puppy.agents._runtime.emit_warning", lambda *args: None)
+
+    run_with_retry = streaming_retry(max_attempts=2, delays=(0,))(run_once)
+
+    assert await run_with_retry() == "recovered"
+    assert attempts == 2
+
+
+_INCOMPLETE_CHUNKED_READ = (
+    "peer closed connection without sending complete message body "
+    "(incomplete chunked read)"
+)
+
+_RETRYABLE_TRANSPORT_ERRORS = [
+    httpx.RemoteProtocolError,
+    httpx.ReadError,
+    httpx.ReadTimeout,
+    httpcore.RemoteProtocolError,
+    httpcore.ReadError,
+    httpcore.ReadTimeout,
+    httpx2.RemoteProtocolError,
+    httpx2.NetworkError,
+    httpx2.ReadError,
+    httpx2.WriteError,
+    httpx2.ConnectError,
+    httpx2.TimeoutException,
+    httpx2.ReadTimeout,
+    httpx2.ConnectTimeout,
+    httpx2.PoolTimeout,
+    httpcore2.RemoteProtocolError,
+    httpcore2.NetworkError,
+    httpcore2.ReadError,
+    httpcore2.ConnectError,
+    httpcore2.TimeoutException,
+    httpcore2.ReadTimeout,
+    httpcore2.PoolTimeout,
+]
+
+
+def _ids(error_classes: list[type[Exception]]) -> list[str]:
+    return [f"{cls.__module__}.{cls.__name__}" for cls in error_classes]
+
+
+@pytest.mark.parametrize(
+    "error_class", _RETRYABLE_TRANSPORT_ERRORS, ids=_ids(_RETRYABLE_TRANSPORT_ERRORS)
+)
+def test_is_retryable_one_recognizes_transport_errors(
+    error_class: type[Exception],
+) -> None:
+    assert _is_retryable_one(error_class(_INCOMPLETE_CHUNKED_READ)) is True
+
+
+def _httpx2_incomplete_chunked_read() -> httpx2.RemoteProtocolError:
+    """Same shape as the real failure: httpx2 error chained from httpcore2."""
+    try:
+        try:
+            raise httpcore2.RemoteProtocolError(_INCOMPLETE_CHUNKED_READ)
+        except httpcore2.RemoteProtocolError as cause:
+            raise httpx2.RemoteProtocolError(_INCOMPLETE_CHUNKED_READ) from cause
+    except httpx2.RemoteProtocolError as exc:
+        return exc
+
+
+def test_should_retry_streaming_recognizes_httpx2_incomplete_chunked_read() -> None:
+    assert should_retry_streaming(_httpx2_incomplete_chunked_read()) is True
+
+
+def test_should_retry_streaming_follows_cause_to_httpcore2_error() -> None:
+    wrapper = RuntimeError("provider wrapper")
+    wrapper.__cause__ = httpcore2.RemoteProtocolError(_INCOMPLETE_CHUNKED_READ)
+
+    assert should_retry_streaming(wrapper) is True
+
+
+def test_should_retry_streaming_reaches_httpx2_error_inside_group() -> None:
+    group = BaseExceptionGroup("stream failed", [_httpx2_incomplete_chunked_read()])
+
+    assert should_retry_streaming(group) is True
+
+
+@pytest.mark.parametrize("status_code", [401, 404])
+def test_httpx2_status_error_is_not_retryable(status_code: int) -> None:
+    request = httpx2.Request("POST", "https://example.invalid/v1/messages")
+    response = httpx2.Response(status_code, request=request)
+    exc = httpx2.HTTPStatusError("client error", request=request, response=response)
+
+    assert _is_retryable_one(exc) is False
+
+
+@pytest.mark.asyncio
+async def test_streaming_retry_recovers_from_httpx2_incomplete_chunked_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    attempts = 0
+
+    async def run_once() -> str:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise _httpx2_incomplete_chunked_read()
         return "recovered"
 
     monkeypatch.setattr(

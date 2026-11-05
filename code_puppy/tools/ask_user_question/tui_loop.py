@@ -231,13 +231,31 @@ class QuestionTUI:
 
     def run(self) -> tuple[list["QuestionAnswer"], bool, bool]:
         """Run the widget. Returns (answers, cancelled, timed_out)."""
-        if self._use_alt_screen:
-            from termflow.tui.terminal import alt_screen, raw_mode
+        import sys
 
-            with raw_mode(), alt_screen(self._output):
+        # The agent key listener returns Windows to cooked input while it is
+        # suspended. In cooked mode conhost consumes Ctrl+S as XOFF before
+        # termflow can read it. This TUI owns stdin during its lifetime, so it
+        # must take the same raw-input mode as the listener and restore it.
+        manage_windows_raw_input = sys.platform.startswith("win")
+        if manage_windows_raw_input:
+            from code_puppy.terminal_utils import enable_windows_question_input
+
+            enable_windows_question_input()
+
+        try:
+            if self._use_alt_screen:
+                from termflow.tui.terminal import alt_screen, raw_mode
+
+                with raw_mode(), alt_screen(self._output):
+                    self._loop()
+            else:
                 self._loop()
-        else:
-            self._loop()
+        finally:
+            if manage_windows_raw_input:
+                from code_puppy.terminal_utils import disable_windows_raw_input
+
+                disable_windows_raw_input()
 
         if self._result.timed_out:
             return ([], False, True)

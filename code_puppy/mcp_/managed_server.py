@@ -77,6 +77,36 @@ def _httpx_client_factory(
     return factory
 
 
+def _with_inherited_windows_system_paths(
+    env: Optional[Dict[str, str]],
+) -> Optional[Dict[str, str]]:
+    """Propagate Windows system paths required by some stdio launchers.
+
+    The MCP SDK gives stdio children a deliberately restricted environment.
+    Its Windows allowlist omits ``PROGRAMW6432`` and ``ProgramData``. Docker's
+    CLI needs the former to discover CLI plugins, while Docker MCP Gateway
+    needs the latter to locate Docker Desktop state. Missing either can cause
+    misleading argument errors or a startup panic.
+
+    Preserve the SDK's restricted-environment behavior on other platforms and
+    let explicit server configuration override inherited values.
+    """
+    if os.name != "nt":
+        return env
+
+    inherited = {
+        key: value
+        for key in ("PROGRAMW6432", "ProgramData")
+        if (value := os.environ.get(key))
+    }
+    if not inherited:
+        return env
+
+    out: Dict[str, str] = inherited
+    out.update(env or {})
+    return out
+
+
 def _with_inherited_ca_bundle(
     env: Optional[Dict[str, str]],
 ) -> Optional[Dict[str, str]]:
@@ -233,13 +263,17 @@ class ManagedMCPServer:
             self._state = ServerState.ERROR
             self._error_message = str(e)
 
-    def get_pydantic_server(self) -> AbstractToolset[Any]:
+    def get_pydantic_server(
+        self, *, allow_disabled: bool = False
+    ) -> AbstractToolset[Any]:
         """
         Get the pydantic-ai toolset for this server.
 
         Returns the ``MCPToolset`` wrapped in a ``PrefixedToolset`` (the
         public replacement for the old ``tool_prefix=`` kwarg), ready to be
-        passed to ``Agent(toolsets=...)``.
+        passed to ``Agent(toolsets=...)``. Lifecycle startup uses
+        ``allow_disabled=True`` to retry without exposing an unready server
+        to agents. Quarantined servers remain unavailable.
 
         Raises:
             RuntimeError: If server creation failed or server is not available
@@ -247,7 +281,7 @@ class ManagedMCPServer:
         if self._pydantic_server is None:
             raise RuntimeError(f"Server {self.config.name} is not available")
 
-        if not self.is_enabled() or self.is_quarantined():
+        if self.is_quarantined() or (not allow_disabled and not self.is_enabled()):
             raise RuntimeError(f"Server {self.config.name} is disabled or quarantined")
 
         return self._pydantic_server
@@ -336,6 +370,7 @@ class ManagedMCPServer:
                 args = _expand_env_vars(args)
 
             env = _expand_env_vars(config["env"]) if "env" in config else None
+            env = _with_inherited_windows_system_paths(env)
             # Always run (even with no configured env) so the child trusts
             # our CA bundle; see _with_inherited_ca_bundle for why.
             env = _with_inherited_ca_bundle(env)

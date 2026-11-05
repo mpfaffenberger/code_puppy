@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict
 from pydantic_ai import RunContext
 from pydantic_ai.messages import ModelMessage
 
+from code_puppy.banners import banner_markup
 from code_puppy.config import (
     DATA_DIR,
 )
@@ -267,11 +268,15 @@ def register_list_agents(agent):
         # Generate a group ID for this tool execution
         group_id = generate_group_id("list_agents")
 
+        from rich.markup import escape
         from rich.text import Text
 
+        from code_puppy.banners import get_banner_def
         from code_puppy.config import get_banner_color
 
-        list_agents_color = get_banner_color("list_agents")
+        list_agents_definition = get_banner_def("list_agents")
+        list_agents_color = get_banner_color(list_agents_definition.name)
+        list_agents_label = list_agents_definition.resolved_label()
 
         try:
             from code_puppy.agents import get_agent_descriptions, get_available_agents
@@ -294,7 +299,7 @@ def register_list_agents(agent):
             agent_count = len(agents)
             emit_info(
                 Text.from_markup(
-                    f"\n[bold white on {list_agents_color}] LIST AGENTS [/bold white on {list_agents_color}] "
+                    f"\n{banner_markup(list_agents_color, escape(list_agents_label))} "
                     f"[dim]Found {agent_count} agent(s).[/dim]"
                 ),
                 message_group=group_id,

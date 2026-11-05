@@ -563,3 +563,20 @@ def test_cd_completer_permission_error_silently_handled(monkeypatch):
         completions = list(completer.get_completions(doc, None))
         assert completions == []
         mock_list_dir.assert_called_once()
+
+
+@pytest.mark.skipif(IS_WINDOWS, reason="Path separator expectations differ on Windows")
+def test_cd_completer_exact_match_listed_before_longer_siblings():
+    """Enter accepts the first item, so `foo/` must beat `foobar/`.
+
+    os.listdir order is arbitrary; feed the worst case (longer name first).
+    """
+    completer = CDCompleter()
+    with patch(
+        "code_puppy.command_line.completers.list_directory",
+        return_value=(["foobar", "foo_baz", "foo", "other"], []),
+    ):
+        doc = Document(text="/cd foo", cursor_position=len("/cd foo"))
+        texts = [c.text for c in completer.get_completions(doc, None)]
+    assert texts[0] == "foo/"
+    assert texts == ["foo/", "foo_baz/", "foobar/"]

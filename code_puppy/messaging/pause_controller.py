@@ -225,7 +225,9 @@ class PauseController:
     # Steering queue
     # =========================================================================
 
-    def request_steer(self, text: str, mode: SteerMode = "now") -> None:
+    def request_steer(
+        self, text: str, mode: SteerMode = "now", *, history_recorded: bool = False
+    ) -> None:
         """Queue a steering message for delivery to the agent.
 
         The ``mode`` controls *when* the model sees it:
@@ -237,6 +239,8 @@ class PauseController:
             then drained by ``_runtime._do_run``'s loop and submitted as
             a fresh user turn. Won't interrupt in-progress work.
 
+        Newly created prompts are persisted at insertion, not drain. Set
+        ``history_recorded`` for editor-owned input or requeued leftovers.
         Empty / whitespace-only strings are silently ignored regardless
         of mode.
         """
@@ -245,6 +249,10 @@ class PauseController:
         stripped = text.strip()
         if not stripped:
             return
+        if not history_recorded:
+            from code_puppy.config import save_command_to_history
+
+            save_command_to_history(text)
         with self._lock:
             if mode == "queue":
                 self._steer_queue_queued.append(text)
@@ -488,15 +496,59 @@ class PauseController:
 
 
 # =============================================================================
-# Module-level singleton
+# Module-level singleton, with per-session controllers for ACP conversations
 # =============================================================================
+# Each ACP session runs under its own conversation root id, so
+# ``get_pause_controller()`` resolves to that session's controller there.
 
 _pause_controller: Optional[PauseController] = None
+_session_controllers: dict[str, PauseController] = {}
 _pause_controller_lock = threading.Lock()
 
 
+def get_session_pause_controller(session_id: str) -> PauseController:
+    """Get or lazily create the PauseController owned by one session."""
+    with _pause_controller_lock:
+        controller = _session_controllers.get(session_id)
+        if controller is None:
+            controller = PauseController()
+            _session_controllers[session_id] = controller
+        return controller
+
+
+def drop_session_pause_controller(session_id: str) -> None:
+    """Discard a session's PauseController; no-op if it was never created.
+
+    Call only after that session's turn has ended: a still-running turn would
+    recreate the controller via get_pause_controller().
+    """
+    with _pause_controller_lock:
+        _session_controllers.pop(session_id, None)
+
+
+def _current_conversation_root_id() -> Optional[str]:
+    # Lazy import: code_puppy.tools imports code_puppy.messaging at load time.
+    try:
+        from code_puppy.tools.subagent_context import get_conversation_root_id
+
+        return get_conversation_root_id()
+    except ImportError:
+        return None
+
+
 def get_pause_controller() -> PauseController:
-    """Get or lazily create the global PauseController singleton."""
+    """Return the current session's controller, or the process-wide one.
+
+    The process-wide singleton is used when no conversation root id is set
+    (the terminal CLI). Code acting for an ACP session must therefore run
+    inside that session's ``set_conversation_root_id`` scope, or call
+    ``get_session_pause_controller(session_id)`` explicitly; outside any scope
+    it silently gets the shared controller.
+    """
+    root_id = _current_conversation_root_id()
+    if root_id is not None:
+        return get_session_pause_controller(root_id)
+
     global _pause_controller
     with _pause_controller_lock:
         if _pause_controller is None:
@@ -505,15 +557,18 @@ def get_pause_controller() -> PauseController:
 
 
 def reset_pause_controller() -> None:
-    """Reset the global PauseController (for testing)."""
+    """Reset the global and all session PauseControllers (for testing)."""
     global _pause_controller
     with _pause_controller_lock:
         _pause_controller = None
+        _session_controllers.clear()
 
 
 __all__ = [
     "PauseController",
     "SteerMode",
+    "drop_session_pause_controller",
     "get_pause_controller",
+    "get_session_pause_controller",
     "reset_pause_controller",
 ]

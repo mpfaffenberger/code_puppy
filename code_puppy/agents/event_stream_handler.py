@@ -29,6 +29,7 @@ from code_puppy.config import (
     get_subagent_verbose,
     get_suppress_thinking_messages,
 )
+from code_puppy.messaging.safe_console import SafeConsole
 from code_puppy.tools.display import erase_progress_line
 from code_puppy.tools.subagent_context import is_subagent
 
@@ -87,7 +88,7 @@ def get_streaming_console() -> Console:
     """
     if _streaming_console is not None:
         return _streaming_console
-    return Console()
+    return SafeConsole()
 
 
 def _should_suppress_output() -> bool:
@@ -170,7 +171,6 @@ async def event_stream_handler(
 
     # Use the module-level console (set via set_streaming_console)
     console = get_streaming_console()
-    from code_puppy.i18n import t
     from code_puppy.messaging.bottom_bar import get_bottom_bar
 
     progress_bar = None if is_subagent() else get_bottom_bar()
@@ -238,12 +238,6 @@ async def event_stream_handler(
             output = _ThemedBoldWriter(output, prompt_color)
         width = console.width
         if thinking:
-            from code_puppy.messaging.tool_output import format_activity_heading
-
-            heading = format_activity_heading(
-                t("stream.activity.thinking"), secondary=True
-            )
-            width = max(1, width - heading.cell_len - 2)
             output = DimWriter(output)
         return TermflowRenderer(
             output=output,
@@ -266,6 +260,7 @@ async def event_stream_handler(
         termflow_line_buffers[index] = buffer
 
     thinking_stream_id = object()
+    thinking_trailing_whitespace: dict[int, str] = {}
 
     def _filter_thinking(index: int, text: str, *, final: bool = False) -> str:
         """Apply synchronous display-only filters before rendering thinking."""
@@ -279,21 +274,39 @@ async def event_stream_handler(
         )
 
     def _emit_thinking(index: int, text: str, *, final: bool = False) -> None:
-        """Filter thinking before sending it through dim Termflow Markdown."""
+        """Filter thinking before sending it through dim Termflow Markdown.
+
+        Structured ``ThinkingPart`` content is wrapped in synthetic
+        ``<think>`` marker lines so it renders with Termflow's dim think
+        box, exactly like ``<think>`` blocks embedded in assistant text.
+        The marker must be its own complete line (Termflow only opens a
+        think block on a bare ``<think>`` line). The close comes from
+        ``parser.finalize()`` when the part finishes, so no explicit
+        closing marker is fed. Content that itself contains ``<think>``
+        tags is left as-is: Termflow strips nested inline think tags
+        inside a think block, and a line that is only a closing tag
+        would end the box early.
+        """
         text = _filter_thinking(index, text, final=final)
+        # Hold whitespace until more content proves it is internal. Trimming
+        # each delta would eat paragraph breaks; trimming only at finalization
+        # is too late once blank lines have already reached the terminal.
+        text = thinking_trailing_whitespace.pop(index, "") + text
+        trimmed = text.rstrip()
+        if not final and len(trimmed) < len(text):
+            thinking_trailing_whitespace[index] = text[len(trimmed) :]
+        text = trimmed
         if not text or _suppress_thinking_stream():
             return
         if index not in termflow_parsers:
-            from code_puppy.messaging.tool_output import format_activity_heading
-
-            console.print(
-                format_activity_heading(t("stream.activity.thinking"), secondary=True),
-                end="  ",
-            )
             termflow_parsers[index] = TermflowParser()
             termflow_renderers[index] = _make_text_renderer(index)
-            termflow_line_buffers[index] = ""
-        _render_text_content(index, text)
+            termflow_line_buffers[index] = "<think>\n" + text.lstrip()
+            # Feed the marker line immediately so the box opens even
+            # when the first chunk has no newline of its own.
+            _render_text_content(index, "")
+        else:
+            _render_text_content(index, text)
 
     async def _finish_text_part(index: int) -> None:
         """Flush one text part, including streams missing ``PartEndEvent``."""

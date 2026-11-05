@@ -107,6 +107,30 @@ class TestBooleanGetters:
         cp_config.set_config_value("grep_max_matches", "lots")
         assert cp_config.get_grep_max_matches() == cp_config.GREP_MAX_MATCHES_DEFAULT
 
+    def test_get_image_attachment_max_kb_default(self):
+        assert (
+            cp_config.get_image_attachment_max_kb()
+            == cp_config.IMAGE_ATTACHMENT_MAX_KB_DEFAULT
+        )
+
+    def test_get_image_attachment_max_kb_configured(self):
+        cp_config.set_config_value("image_attachment_max_kb", "2048")
+        assert cp_config.get_image_attachment_max_kb() == 2048
+
+    def test_get_image_attachment_max_kb_rejects_non_positive(self):
+        cp_config.set_config_value("image_attachment_max_kb", "0")
+        assert (
+            cp_config.get_image_attachment_max_kb()
+            == cp_config.IMAGE_ATTACHMENT_MAX_KB_DEFAULT
+        )
+
+    def test_get_image_attachment_max_kb_garbage_falls_back(self):
+        cp_config.set_config_value("image_attachment_max_kb", "big")
+        assert (
+            cp_config.get_image_attachment_max_kb()
+            == cp_config.IMAGE_ATTACHMENT_MAX_KB_DEFAULT
+        )
+
     def test_get_http2_values(self):
         cp_config.set_http2(True)
         assert cp_config.get_http2() is True
@@ -758,6 +782,20 @@ class TestMCPServerConfigs:
             with patch("code_puppy.messaging.message_queue.emit_error"):
                 result = cp_config.load_mcp_server_configs()
                 assert result == {}
+
+    def test_oversized_file_is_rejected_without_full_read(self, tmp_path):
+        """Reject oversized startup config before buffering it in full."""
+        f = tmp_path / "mcp_servers.json"
+        f.write_text('{"mcp_servers": {}}')
+        with patch.object(cp_config, "MCP_SERVERS_FILE", str(f)):
+            with patch(
+                "code_puppy.config.atomic_io.read_bounded_bytes",
+                side_effect=cp_config.atomic_io.ContentTooLarge("too big"),
+            ):
+                with patch("code_puppy.messaging.message_queue.emit_error") as err:
+                    result = cp_config.load_mcp_server_configs()
+                    assert result == {}
+                    err.assert_called_once()
 
     def test_bad_json_raise_on_error(self, tmp_path):
         f = tmp_path / "mcp_servers.json"

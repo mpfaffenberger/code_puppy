@@ -14,6 +14,8 @@ import threading
 from pathlib import Path
 from typing import Optional
 
+from rich.markup import escape
+
 from code_puppy.command_line.autosave_search import SessionContentIndex
 from code_puppy.command_line.menu_session import menu_session
 from code_puppy.command_line.session_browser import (
@@ -99,9 +101,9 @@ def display_resumed_history(history: list, num_messages: int | None = None) -> N
         role, content = _extract_message_content(msg)
         if role == "user":
             console.print("[dim]> [/dim]", end="")
-            console.print(f"[bold]{content}[/bold]")
+            console.print(f"[bold]{escape(content)}[/bold]")
         elif role == "tool":
-            console.print(f"[dim]{content}[/dim]")
+            console.print(f"[dim]{escape(content)}[/dim]")
         else:
             console.print(
                 f"\n[bold white on {color}] AGENT RESPONSE [/bold white on {color}]"

@@ -11,7 +11,8 @@ import os
 import textwrap
 from typing import Callable, List
 
-from code_puppy.messaging import emit_error, emit_info, emit_warning
+from code_puppy.i18n import t
+from code_puppy.messaging import emit_error, emit_warning
 from code_puppy.tools.command_runner import set_awaiting_user_input
 
 from .catalog_server_installer import (
@@ -54,13 +55,13 @@ def load_catalog():
 
         categories = [CUSTOM_SERVER_CATEGORY] + catalog.list_categories()
         if len(categories) <= 1:  # Only custom category
-            emit_error("No categories found in server catalog")
+            emit_error(t("mcp.install_menu.no_categories"))
         return catalog, categories
     except ImportError as e:
-        emit_error(f"Server catalog not available: {e}")
+        emit_error(t("mcp.install_menu.catalog_unavailable", error=e))
         return None, [CUSTOM_SERVER_CATEGORY]
     except Exception as e:
-        emit_error(f"Error loading server catalog: {e}")
+        emit_error(t("mcp.install_menu.load_error", error=e))
         return None, [CUSTOM_SERVER_CATEGORY]
 
 
@@ -289,7 +290,7 @@ def run_mcp_install_menu(manager) -> bool:
 
     catalog, categories = load_catalog()
     if not categories:
-        emit_warning("No MCP server catalog available.")
+        emit_warning(t("mcp.install_menu.no_catalog"))
         return False
 
     set_awaiting_user_input(True)
@@ -300,7 +301,6 @@ def run_mcp_install_menu(manager) -> bool:
         set_awaiting_user_input(False)
 
     if selection is None:
-        emit_info("Exited MCP server browser")
         return False
 
     # Custom server: hand off to the form (it owns its own session).

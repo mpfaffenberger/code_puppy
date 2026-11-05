@@ -16,6 +16,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterator, Optional
 
+from code_puppy.agents._tty_modes import apply_editor_cbreak_attrs
 from code_puppy.keymap import get_cancel_agent_char_code
 from code_puppy.messaging import emit_info, emit_warning
 
@@ -604,17 +605,18 @@ def _listen_windows(
     suspend_event: Optional[threading.Event] = None,
     released_event: Optional[threading.Event] = None,
 ) -> None:
-    """Windows listener entry — wraps the loop so VT input is ALWAYS
+    """Windows listener entry — wraps the loop so raw input is ALWAYS
     released on the way out (the parent shell expects classic key
-    events; see ``enable_windows_vt_input`` for the scope contract)."""
-    from code_puppy.terminal_utils import disable_windows_vt_input
+    events and line mode; see ``enable_windows_raw_input`` for the
+    scope contract)."""
+    from code_puppy.terminal_utils import disable_windows_raw_input
 
     try:
         _listen_windows_loop(
             stop_event, on_escape, on_cancel_agent, suspend_event, released_event
         )
     finally:
-        disable_windows_vt_input()
+        disable_windows_raw_input()
 
 
 def _listen_windows_loop(
@@ -628,8 +630,8 @@ def _listen_windows_loop(
     import time
 
     from code_puppy.terminal_utils import (
-        disable_windows_vt_input,
-        enable_windows_vt_input,
+        disable_windows_raw_input,
+        enable_windows_raw_input,
         ensure_ctrl_c_disabled,
     )
 
@@ -640,11 +642,11 @@ def _listen_windows_loop(
     next_clamp_check = 0.0  # first lap re-clamps immediately
 
     while not stop_event.is_set():
-        # Suspend: whoever suspended us reads via ReadConsoleInput and
-        # expects classic key events — hand back without VT, re-clamp
-        # immediately on resume so a post-menu paste isn't dropped.
+        # Suspend: whoever suspended us expects classic key events and
+        # its own console mode — hand back cooked, re-clamp immediately
+        # on resume so a post-menu paste isn't dropped.
         if suspend_event is not None and suspend_event.is_set():
-            disable_windows_vt_input()
+            disable_windows_raw_input()
             _wait_while_suspended(stop_event, suspend_event, released_event)
             if stop_event.is_set():
                 return
@@ -663,12 +665,14 @@ def _listen_windows_loop(
                 ensure_ctrl_c_disabled()
             except Exception:
                 pass
-            # Same cadence for the VT-input clamp: without it ConPTY
-            # drops the paste markers on image-only Ctrl+V (empty paste,
-            # no key events to synthesize) — the paste-goes-dead bug.
-            # No-op when the flag is already set.
+            # Same cadence for the raw-input clamp: without VT input
+            # ConPTY drops the paste markers on image-only Ctrl+V (empty
+            # paste, no key events to synthesize) — the paste-goes-dead
+            # bug; with LINE_INPUT left on, conhost turns Ctrl+S into
+            # "pause output" and freezes the Ctrl+X Ctrl+S chord (the
+            # IXON twin below). No-op when already raw.
             try:
-                enable_windows_vt_input()
+                enable_windows_raw_input()
             except Exception:
                 pass
 
@@ -874,29 +878,17 @@ def _posix_read_session(
         nonlocal cbreak_active
         if not cbreak_active:
             tty.setcbreak(fd)
-            # Post-setcbreak termios cleanup (the raw-mode emulation
-            # prompt_toolkit's classic path used):
-            #  - ICRNL off: keep Enter (\r) distinct from Ctrl+J (\n).
-            #  - IEXTEN off: BSD/macOS VLNEXT eats the first ^V as a
-            #    quote-prefix (the 'Ctrl+V twice to paste an image' bug);
-            #    VDISCARD (Ctrl+O) is likewise IEXTEN-gated.
-            #  - IXON/IXOFF off: Ctrl+S would freeze output and brick a
-            #    repaint on this thread (2026-07-11 incident).
-            #  - VINTR to _POSIX_VDISABLE: deliver ^C raw as \x03 instead
-            #    of SIGINT, keeping ^Z/^\ job control (ISIG stays on).
+            # Post-setcbreak termios cleanup (ICRNL/IXON/IEXTEN off, ^C/^Z/^Y
+            # delivered raw instead of signals) -- see ``_tty_modes``.
             # Restored with the original attrs on suspend/exit.
             try:
-                attrs = termios.tcgetattr(fd)
-                attrs[0] &= ~termios.ICRNL  # preserve Ctrl+J vs Enter
-                attrs[0] &= ~termios.IXON  # Ctrl+S must reach the editor
-                if hasattr(termios, "IXOFF"):
-                    attrs[0] &= ~termios.IXOFF
-                attrs[3] &= ~termios.IEXTEN  # deliver Ctrl+V/Ctrl+O raw
                 try:
                     vdisable = os.fpathconf(fd, "PC_VDISABLE")
                 except (OSError, ValueError, AttributeError):
                     vdisable = 0
-                attrs[6][termios.VINTR] = bytes([vdisable])  # cc
+                attrs = apply_editor_cbreak_attrs(
+                    termios.tcgetattr(fd), termios, vdisable
+                )
                 termios.tcsetattr(fd, termios.TCSANOW, attrs)
             except Exception:
                 pass

@@ -12,8 +12,8 @@ idempotent and NEVER raises, but failures are not silent:
   correctness layer silently degraded (e.g. tool-call hooks not firing).
 
 Logging uses the stdlib ``logging`` module, NOT ``code_puppy.messaging``:
-patches apply at the very top of ``cli_runner`` before the messaging
-system is up (see cli_runner.py lines 6-9).
+patches apply during ``code_puppy.cli_runner`` facade startup, before the
+messaging system is up.
 
 Usage:
     from code_puppy.pydantic_patches import apply_all_patches
@@ -29,6 +29,7 @@ from typing import Any
 
 from code_puppy._pydantic_tool_helpers import (
     _block_reason,
+    _handled_result_for_blocks,
     _normalize_claude_code_tool_name,
     _tool_args_for_pre_tool_call,
     _writeback_tool_args,
@@ -67,20 +68,36 @@ def _repair_tool_call_json(raw: str) -> str:
         return raw
 
 
-def _resolve_tool_properties(manager: Any, call: Any) -> dict | None:
-    """Best-effort lookup of a tool's declared JSON-Schema properties.
+def _resolve_tool_schema(manager: Any, call: Any) -> dict | None:
+    """Best-effort lookup of a tool's full parameters JSON-Schema.
 
-    Returns the ``properties`` mapping, or ``None`` when the tool (or its
-    schema) cannot be resolved — callers must treat ``None`` as "unknown".
-    Never raises: this runs on the validation hot path.
+    Returns the schema dict, or ``None`` when the tool (or its schema)
+    cannot be resolved — callers must treat ``None`` as "unknown" and
+    keep their hands off. Never raises: this runs on the validation hot
+    path. Interpreting the keywords is the callers' job; in particular
+    an omitted ``properties`` key means the parameter surface is
+    *unknown* (free-form args may be legitimate), not "no parameters".
     """
     try:
         tool_def = manager.get_tool_def(getattr(call, "tool_name", None))
         schema = getattr(tool_def, "parameters_json_schema", None)
-        properties = schema.get("properties") if isinstance(schema, dict) else None
-        return properties if isinstance(properties, dict) else None
+        return schema if isinstance(schema, dict) else None
     except Exception:
         return None
+
+
+def _schema_properties(schema: dict | None) -> dict | None:
+    """Declared ``properties`` of a schema, or ``None`` when the schema is
+    unresolvable or omits/malforms the key.
+
+    The ``None``-vs-empty distinction matters: an omitted ``properties`` key
+    means the tool's parameter surface is *unknown* (it may accept free-form
+    args), which the envelope unwrap's provability gate must not guess past.
+    """
+    if not isinstance(schema, dict):
+        return None
+    properties = schema.get("properties")
+    return properties if isinstance(properties, dict) else None
 
 
 def _unwrap_arguments_envelope(tool_args: Any, properties: dict | None) -> Any:
@@ -94,14 +111,16 @@ def _unwrap_arguments_envelope(tool_args: Any, properties: dict | None) -> Any:
     are hit hardest: the model has no real parameter to name, so it emits the
     envelope and every call is rejected with ``extra_forbidden``.
 
-    Unwraps ONLY when ``arguments`` is the sole key *and* the tool does not
-    declare a real ``arguments`` property, so a legitimate parameter of that
-    name is never clobbered. Anything ambiguous is returned untouched.
+    Unwraps ONLY when the tool's schema resolved and provably declares no
+    ``arguments`` property — an unresolvable schema, or one that omits
+    ``properties`` entirely (free-form args may be legitimate, including an
+    ``arguments`` one), is returned untouched. A declared parameter of that
+    name is likewise never clobbered.
     """
     if not isinstance(tool_args, dict) or list(tool_args) != ["arguments"]:
         return tool_args
-    if isinstance(properties, dict) and "arguments" in properties:
-        return tool_args  # a real parameter -- hands off
+    if not isinstance(properties, dict) or "arguments" in properties:
+        return tool_args  # unproven, or a real parameter -- hands off
 
     inner = tool_args["arguments"]
     if isinstance(inner, str):
@@ -109,23 +128,124 @@ def _unwrap_arguments_envelope(tool_args: Any, properties: dict | None) -> Any:
             inner = json.loads(inner)
         except Exception:
             return tool_args
+    if isinstance(inner, dict):
+        logger.debug("unwrapped spurious {arguments: ...} tool-call envelope")
     return inner if isinstance(inner, dict) else tool_args
 
 
-def _sanitize_tool_call_args(manager: Any, call: Any) -> None:
-    """Rewrite ``call.args`` in place if it carries the ``arguments`` envelope.
+def _is_strict_zero_param_schema(schema: Any) -> bool:
+    """True when ``schema`` provably accepts no arguments at all.
 
-    ``ToolCallPart.args`` may be a dict or a JSON string, so both shapes are
-    handled (and a string is re-serialized to preserve the original shape).
-    Invalid JSON strings are left for :func:`_repair_tool_call_json`.
+    Requires a resolved schema whose ``type`` admits objects (``"object"``
+    or a type list containing it; an absent ``type`` constrains nothing, and
+    tool-call arguments are objects by construction) and which declares no
+    properties while *forbidding* additional ones. ``additionalProperties``
+    must be literally ``false``: absent means "allow extras" (the JSON-Schema
+    default) and a dict value means "allow, constrained" — either way the
+    tool may legitimately receive free-form args, and stripping would
+    destroy them.
+    """
+    if not isinstance(schema, dict):
+        return False
+    declared_type = schema.get("type", "object")
+    types = declared_type if isinstance(declared_type, list) else [declared_type]
+    if "object" not in types:
+        return False
+    if _schema_properties(schema):
+        return False
+    return schema.get("additionalProperties") is False
+
+
+def _strip_placeholder_args(
+    tool_args: Any, schema: dict | None, tool_name: str | None
+) -> Any:
+    """Drop invented keys from a call to a zero-parameter tool.
+
+    Some providers cannot serialize an empty function-call arguments object
+    and inject a placeholder key instead — observed in the wild:
+    ``{"command": "list_agents"}``, ``{"city": "ignore"}``, ``{"dummy": "x"}``.
+    Each one hard-fails validation with ``extra_forbidden`` while the model
+    insists it sent ``{}``, so the agent burns retries on an error it cannot
+    see to fix.
+
+    Fires only when :func:`_is_strict_zero_param_schema` says the schema
+    resolved and forbids every argument — under that contract any non-empty
+    argument object is junk (including non-dict ``arguments``-envelope
+    payloads, which validation would reject anyway) and is replaced with
+    ``{}``. Everything else — unresolvable schemas, permissive schemas,
+    tools with declared properties — is returned untouched, so a legitimate
+    or merely confused call is never masked.
+    """
+    if not isinstance(tool_args, dict) or not tool_args:
+        return tool_args
+    if not _is_strict_zero_param_schema(schema):
+        return tool_args
+    _log_placeholder_strip(tool_args, tool_name)
+    return {}
+
+
+# (tool name, junk signature) pairs already warned at WARNING level; the
+# providers that inject placeholder args do it on *every* zero-param call,
+# so an identical repeat drops to DEBUG — while a *new* quirk on the same
+# tool still surfaces at WARNING. Bounded: signatures use the same 200-char
+# bound as the log line (visually identical repeats dedup identically) and
+# the set stops growing at the cap rather than leaking per-call memory.
+_PLACEHOLDER_WARNED_KEYS: set[tuple[str, str]] = set()
+_PLACEHOLDER_WARNED_KEYS_MAX = 512
+
+
+def _log_placeholder_strip(tool_args: dict, tool_name: str | None) -> None:
+    """One WARNING per (tool, quirk), then DEBUG for identical repeats —
+    with the payload that identifies the provider quirk, bounded so a junk
+    dict cannot flood the log. Cannot raise, even for repr-hostile values."""
+    try:
+        payload = json.dumps(tool_args, sort_keys=True, default=str)
+    except Exception:  # mixed-type keys defeat sort_keys; repr is the fallback
+        try:
+            payload = repr(tool_args)
+        except Exception:  # never let logging break the validation hot path
+            payload = "<unrepr-able args>"
+    tool_key = tool_name or "<unknown>"
+    if len(_PLACEHOLDER_WARNED_KEYS) >= _PLACEHOLDER_WARNED_KEYS_MAX:
+        log = logger.warning  # set full: never silently dedup a new quirk
+    else:
+        key = (tool_key, payload[:200])
+        log = logger.debug if key in _PLACEHOLDER_WARNED_KEYS else logger.warning
+        _PLACEHOLDER_WARNED_KEYS.add(key)
+    log(
+        "dropping placeholder args %.200s for zero-parameter tool %r "
+        "(provider cannot serialize an empty arguments object)",
+        payload,
+        tool_key,
+    )
+
+
+def _sanitize_args(tool_args: Any, schema: dict | None, tool_name: str | None) -> Any:
+    """Envelope-unwrap then placeholder-strip; identity when untouched."""
+    return _strip_placeholder_args(
+        _unwrap_arguments_envelope(tool_args, _schema_properties(schema)),
+        schema,
+        tool_name,
+    )
+
+
+def _sanitize_tool_call_args(manager: Any, call: Any) -> None:
+    """Rewrite ``call.args`` in place to survive strict validation.
+
+    Two malformations are handled, for dict and JSON-string shapes alike
+    (a string is re-serialized to preserve the original shape): the spurious
+    ``{"arguments": ...}`` envelope, and placeholder keys invented for a
+    zero-parameter tool. Invalid JSON strings are left for
+    :func:`_repair_tool_call_json`.
     """
     args = getattr(call, "args", None)
-    properties = _resolve_tool_properties(manager, call)
+    schema = _resolve_tool_schema(manager, call)
+    tool_name = getattr(call, "tool_name", None)
 
     if isinstance(args, dict):
-        unwrapped = _unwrap_arguments_envelope(args, properties)
-        if unwrapped is not args:
-            call.args = unwrapped
+        sanitized = _sanitize_args(args, schema, tool_name)
+        if sanitized is not args:
+            call.args = sanitized
     elif isinstance(args, str) and args:
         try:
             parsed = json.loads(args)
@@ -133,14 +253,17 @@ def _sanitize_tool_call_args(manager: Any, call: Any) -> None:
             return
         if not isinstance(parsed, dict):
             return
-        unwrapped = _unwrap_arguments_envelope(parsed, properties)
-        if unwrapped is not parsed:
-            call.args = json.dumps(unwrapped)
+        sanitized = _sanitize_args(parsed, schema, tool_name)
+        if sanitized is not parsed:
+            call.args = json.dumps(sanitized)
 
 
 # Loud failures recorded during the current apply_all_patches() run, so the
 # summary line can distinguish real breakage from skipped optional deps.
 _LOUD_FAILURES: list[str] = []
+
+# (patch name, exception) pairs waiting for errors.log; see _report_patch_failures.
+_PENDING_REPORTS: list[tuple[str, BaseException]] = []
 
 
 def _patch_failed(
@@ -151,6 +274,7 @@ def _patch_failed(
 ) -> bool:
     """Log a loud, actionable error for a patch that failed to apply."""
     _LOUD_FAILURES.append(patch_name)
+    _PENDING_REPORTS.append((patch_name, exc))
     logger.error(
         "pydantic_patches: %s FAILED to apply (%s internals changed?): %r — %s",
         patch_name,
@@ -488,6 +612,11 @@ def patch_tool_call_callbacks() -> bool:
                     ctx_msg = callback_result.get("context_message")
                     if isinstance(ctx_msg, str) and ctx_msg.strip():
                         hook_context_messages.append(ctx_msg.strip())
+
+            # A hook that handled the call itself returns the tool's result.
+            handled_result = _handled_result_for_blocks(callback_results)
+            if handled_result is not None:
+                return handled_result
 
             for callback_result in callback_results:
                 if (
@@ -905,6 +1034,33 @@ def patch_silence_pydantic_serializer_warnings() -> bool:
     return True
 
 
+def _report_patch_failures() -> None:
+    """Write each collected patch failure to errors.log, then forget them.
+
+    Runs only after the last patch, so recording one failure cannot interleave
+    with the patches still to be applied. Never raises.
+
+    Called by: ``apply_all_patches``.
+    """
+    failures = list(_PENDING_REPORTS)
+    _PENDING_REPORTS.clear()
+    if not failures:
+        return
+    try:
+        from code_puppy.error_logging import log_error
+
+        for name, exc in failures:
+            log_error(
+                exc,
+                context=(
+                    "code_puppy.pydantic_patches::apply_all_patches: "
+                    f"startup/patches: apply the {name} patch"
+                ),
+            )
+    except Exception:
+        logger.debug("reporting patch failures to errors.log failed", exc_info=True)
+
+
 _ALL_PATCHES = (
     patch_silence_anthropic_sampling_warnings,
     patch_silence_pydantic_serializer_warnings,
@@ -930,12 +1086,14 @@ def apply_all_patches() -> dict[str, bool]:
     optional dependencies) and reflected as ``False`` in the result.
     """
     _LOUD_FAILURES.clear()
+    _PENDING_REPORTS.clear()
     results: dict[str, bool] = {}
     for patch in _ALL_PATCHES:
         try:
             results[patch.__name__] = bool(patch())
         except Exception as exc:  # pragma: no cover - patches must not raise
             _LOUD_FAILURES.append(patch.__name__)
+            _PENDING_REPORTS.append((patch.__name__, exc))
             logger.error(
                 "pydantic_patches: %s raised unexpectedly: %r", patch.__name__, exc
             )
@@ -947,4 +1105,5 @@ def apply_all_patches() -> dict[str, bool]:
             len(_LOUD_FAILURES),
             ", ".join(_LOUD_FAILURES),
         )
+    _report_patch_failures()
     return results

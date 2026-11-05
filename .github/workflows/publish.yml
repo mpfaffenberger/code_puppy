@@ -42,12 +42,7 @@ jobs:
         run: uv venv
 
       - name: Install dependencies
-        # [durable] extras pulls in dbos, required by integration test
-        # tests/integration/test_dbos_enabled.py
-        run: uv pip install -e ".[durable]"
-
-      - name: Install pexpect for integration tests
-        run: uv pip install pexpect>=4.9.0
+        run: uv pip install -e .
 
       - name: Provision CI model (lilac synthetic GLM-5.2)
         # models.json ships empty. CI gets its model from extra_models.json,
@@ -108,7 +103,7 @@ jobs:
           SYN_API_KEY: ${{ secrets.SYN_API_KEY || 'fake-key-for-ci-testing' }}
           LILAC_API_KEY: ${{ secrets.LILAC_API_KEY || 'fake-key-for-ci-testing' }}
         run: |
-          echo "Running tests (including integration tests) on ${{ runner.os }} with Python ${{ matrix.python-version }}..."
+          echo "Running tests on ${{ runner.os }} with Python ${{ matrix.python-version }}..."
           echo "Required environment variables are set (using CI fallbacks if secrets not available)"
           uv run pytest tests/ -v --cov=code_puppy --cov-report=term-missing
 

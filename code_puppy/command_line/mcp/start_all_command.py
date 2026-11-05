@@ -8,6 +8,7 @@ from typing import List, Optional
 
 from rich.text import Text
 
+from code_puppy.i18n import ngettext, t
 from code_puppy.mcp_.managed_server import ServerState
 from code_puppy.messaging import emit_info
 
@@ -41,7 +42,8 @@ class StartAllCommand(MCPCommandBase):
 
             if not servers:
                 emit_info(
-                    "[yellow]No servers registered[/yellow]", message_group=group_id
+                    Text(t("mcp.server.none_registered"), style="yellow"),
+                    message_group=group_id,
                 )
                 return
 
@@ -49,7 +51,10 @@ class StartAllCommand(MCPCommandBase):
             failed_count = 0
             already_running = 0
 
-            emit_info(f"Starting {len(servers)} servers...", message_group=group_id)
+            emit_info(
+                ngettext("mcp.server.starting_all", len(servers)),
+                message_group=group_id,
+            )
 
             for server_info in servers:
                 server_id = server_info.id
@@ -59,7 +64,8 @@ class StartAllCommand(MCPCommandBase):
                 if server_info.state == ServerState.RUNNING:
                     already_running += 1
                     emit_info(
-                        f"  • {server_name}: already running", message_group=group_id
+                        "  • " + t("mcp.server.already_running", server=server_name),
+                        message_group=group_id,
                     )
                     continue
 
@@ -69,13 +75,19 @@ class StartAllCommand(MCPCommandBase):
                 if success:
                     started_count += 1
                     emit_info(
-                        Text.from_markup(f"  [green]✓ Started: {server_name}[/green]"),
+                        Text(
+                            "  " + t("mcp.server.item_started", server=server_name),
+                            style="green",
+                        ),
                         message_group=group_id,
                     )
                 else:
                     failed_count += 1
                     emit_info(
-                        Text.from_markup(f"  [red]✗ Failed: {server_name}[/red]"),
+                        Text(
+                            "  " + t("mcp.server.item_failed", server=server_name),
+                            style="red",
+                        ),
                         message_group=group_id,
                     )
 
@@ -83,20 +95,22 @@ class StartAllCommand(MCPCommandBase):
             emit_info("", message_group=group_id)
             if started_count > 0:
                 emit_info(
-                    Text.from_markup(
-                        f"[green]Started {started_count} server(s)[/green]"
+                    Text(
+                        ngettext("mcp.server.count_started", started_count),
+                        style="green",
                     ),
                     message_group=group_id,
                 )
             if already_running > 0:
                 emit_info(
-                    f"{already_running} server(s) already running",
+                    ngettext("mcp.server.count_already_running", already_running),
                     message_group=group_id,
                 )
             if failed_count > 0:
                 emit_info(
-                    Text.from_markup(
-                        f"[yellow]Failed to start {failed_count} server(s)[/yellow]"
+                    Text(
+                        ngettext("mcp.server.count_start_failed", failed_count),
+                        style="yellow",
                     ),
                     message_group=group_id,
                 )
@@ -119,9 +133,7 @@ class StartAllCommand(MCPCommandBase):
                     # Update MCP tool cache immediately so token counts reflect the change
                     agent.update_mcp_tool_cache_sync()
                     emit_info(
-                        Text.from_markup(
-                            "[dim]Agent reloaded with updated servers[/dim]"
-                        ),
+                        Text(t("mcp.server.agent_reloaded"), style="dim"),
                         message_group=group_id,
                     )
                 except Exception as e:
@@ -130,6 +142,6 @@ class StartAllCommand(MCPCommandBase):
         except Exception as e:
             logger.error(f"Error starting all servers: {e}")
             emit_info(
-                Text.from_markup(f"[red]Failed to start servers: {e}[/red]"),
+                Text(t("mcp.server.start_all_error", error=e), style="red"),
                 message_group=group_id,
             )

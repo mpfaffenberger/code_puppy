@@ -29,7 +29,7 @@ class TestListCommand:
 
         assert len(mock_emit_info.messages) == 1
         message, _ = mock_emit_info.messages[0]
-        assert "No MCP servers registered" in message
+        assert "No servers registered" in message
 
     def test_execute_multiple_servers(self, mock_emit_info, mock_mcp_manager):
         """Test listing multiple servers with different states."""
@@ -139,7 +139,7 @@ class TestListCommand:
 
         assert len(mock_emit_info.messages) == 1
         message, _ = mock_emit_info.messages[0]
-        assert "No MCP servers registered" in message
+        assert "No servers registered" in message
 
     def test_execute_manager_exception(self):
         """Test handling when manager.list_servers raises exception."""

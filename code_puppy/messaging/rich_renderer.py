@@ -18,6 +18,7 @@ from rich.rule import Rule
 # Note: Syntax import removed - file content not displayed, only header
 from rich.table import Table
 
+from code_puppy.banners import banner_markup
 from code_puppy.config import (
     get_output_level,
     get_subagent_verbose,
@@ -192,7 +193,19 @@ class RichConsoleRenderer:
             Rich markup string for the banner
         """
         color = self._get_banner_color(banner_name)
-        return f"[bold white on {color}] {text} [/bold white on {color}]"
+        return banner_markup(color, text)
+
+    def _format_tool_banner(self, tool_name: str, prefix: str = "") -> str:
+        """Banner for a registered tool, with name and label from its BannerDef.
+
+        Depends on: banners.py :: get_banner_def().
+        """
+        from code_puppy.banners import get_banner_def
+
+        definition = get_banner_def(tool_name)
+        return self._format_banner(
+            definition.name, escape_rich_markup(prefix + definition.resolved_label())
+        )
 
     def _should_suppress_subagent_output(self) -> bool:
         """Check if sub-agent output should be suppressed.
@@ -636,9 +649,7 @@ class RichConsoleRenderer:
 
         # Header on single line
         rec_flag = f"(recursive={msg.recursive})"
-        banner = self._format_banner(
-            "directory_listing", t("renderer.directory_listing")
-        )
+        banner = self._format_tool_banner("list_files")
         self._console.print(
             f"\n{banner} [bold cyan]{msg.directory}[/bold cyan] [dim]{rec_flag}[/dim]\n"
         )
@@ -765,7 +776,7 @@ class RichConsoleRenderer:
             line_info = f" [dim](lines {msg.start_line}-{end_line})[/dim]"
 
         # Just print the header - content is for LLM only
-        banner = self._format_banner("read_file", t("renderer.read_file"))
+        banner = self._format_tool_banner("read_file")
         self._console.print(f"\n{banner} [bold cyan]{msg.path}[/bold cyan]{line_info}")
 
         # High mode: show token count and total lines.
@@ -783,7 +794,7 @@ class RichConsoleRenderer:
         import re
 
         # Header
-        banner = self._format_banner("grep", t("renderer.grep"))
+        banner = self._format_tool_banner("grep")
         self._console.print(
             f"\n{banner} [dim]{msg.directory} for '{msg.search_term}'[/dim]"
         )
@@ -888,11 +899,11 @@ class RichConsoleRenderer:
 
         # Choose banner based on operation type
         if msg.operation == "create":
-            banner = self._format_banner("create_file", "CREATE FILE")
+            banner = self._format_tool_banner("create_file")
         elif msg.operation == "delete":
-            banner = self._format_banner("delete_file", "DELETE FILE")
+            banner = self._format_tool_banner("delete_file")
         else:
-            banner = self._format_banner("replace_in_file", "EDIT FILE")
+            banner = self._format_tool_banner("replace_in_file")
         self._console.print(
             f"\n{banner} "
             f"[{op_color}]{msg.operation.upper()}[/{op_color}] "
@@ -946,7 +957,7 @@ class RichConsoleRenderer:
         # Escape command to prevent Rich markup injection
         safe_command = escape_rich_markup(msg.command)
         # Header showing command is starting
-        banner = self._format_banner("shell_command", t("renderer.shell_command"))
+        banner = self._format_tool_banner("shell")
 
         # Add background indicator if running in background mode
         if msg.background:
@@ -1016,7 +1027,7 @@ class RichConsoleRenderer:
     def _render_agent_reasoning(self, msg: AgentReasoningMessage) -> None:
         """Render agent reasoning matching old format."""
         # Header matching old format
-        banner = self._format_banner("agent_reasoning", t("renderer.agent_reasoning"))
+        banner = self._format_tool_banner("agent_share_your_reasoning")
         self._console.print(f"\n{banner}")
 
         # Current reasoning
@@ -1066,12 +1077,12 @@ class RichConsoleRenderer:
             if msg.is_new_session
             else f"Continuing ({msg.message_count} messages)"
         )
-        banner_text = (
-            "\U0001f374 " + t("renderer.fork")
-            if msg.is_fork
-            else "\U0001f916 " + t("renderer.invoke_agent")
-        )
-        banner = self._format_banner("invoke_agent", banner_text)
+        if msg.is_fork:
+            banner = self._format_banner(
+                "invoke_agent", "\U0001f374 " + t("renderer.fork")
+            )
+        else:
+            banner = self._format_tool_banner("invoke_agent", prefix="\U0001f916 ")
         self._console.print(
             f"\n{banner} "
             f"[bold cyan]{msg.agent_name}[/bold cyan] "
@@ -1123,9 +1134,7 @@ class RichConsoleRenderer:
             return
 
         # Format banner
-        banner = self._format_banner(
-            "universal_constructor", t("renderer.universal_constructor")
-        )
+        banner = self._format_tool_banner("universal_constructor")
 
         # Build the header: escape user strings (markup injection), and disable
         # auto-highlighting — its regexes mangle 'uuid-gen' and '0.00s'.
@@ -1329,7 +1338,7 @@ class RichConsoleRenderer:
             return
 
         # Banner
-        banner = self._format_banner("agent_response", "LIST SKILLS")
+        banner = self._format_tool_banner("list_or_search_skills")
         query_info = f" matching [cyan]'{msg.query}'[/cyan]" if msg.query else ""
         self._console.print(
             f"\n{banner} 🛠️ Found [bold]{msg.total_count}[/bold] skill(s){query_info}\n"
@@ -1368,7 +1377,7 @@ class RichConsoleRenderer:
             return
 
         # Banner
-        banner = self._format_banner("agent_response", "ACTIVATE SKILL")
+        banner = self._format_tool_banner("activate_skill")
         status = "[green]✓[/green]" if msg.success else "[red]✗[/red]"
         self._console.print(
             f"\n{banner} {status} [bold cyan]{msg.skill_name}[/bold cyan]\n"

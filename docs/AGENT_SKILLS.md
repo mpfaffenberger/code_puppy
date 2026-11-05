@@ -342,6 +342,27 @@ something tied to the plugin being active.
 
 ---
 
+## Skill Packs from Plugins
+
+A plugin can ship a whole pack of skills through the `register_skills` hook.
+The bundled example is **pstack**, poteto's (Lauren Tan) skills and
+engineering principles, vendored from `cursor/plugins` at a pinned commit. It
+ships with `code-puppy-core-plugins` but is **off by default**:
+
+```text
+/pstack                  # what it adds, and whether it is on
+/pstack on               # same as /set pstack=true; no restart needed
+/poteto-mode <task>      # or /how, /architect, /tdd, /create-skill
+/pstack off
+```
+
+Its skills carry `pstack*` tags, so the namespace directory above lists the
+whole pack as five lines. See `code_puppy_core_plugins/pstack/README.md` in the
+core-plugins repo for attribution, the Cursor-to-Code-Puppy translation, and
+how to refresh from upstream.
+
+---
+
 ## Creating Your Own Skills
 
 Creating a skill is straightforward. You need a directory with at least one file: `SKILL.md`.

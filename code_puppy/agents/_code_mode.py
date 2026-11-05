@@ -1,6 +1,6 @@
 """Speculative CodeMode capability wiring, switched by one config flag.
 
-Uses speculative programmatic tool calling from pydantic-ai-harness 0.33.0.
+Uses speculative programmatic tool calling from pydantic-ai-harness.
 
 When ``enable_speculative_code_mode`` is on, every agent (main and sub-agent)
 has its whole tool surface, MCP servers and plugin tools included, folded
@@ -25,9 +25,9 @@ the current agent.
 
 from __future__ import annotations
 
-import os
 import warnings
-from typing import Any, List, Sequence
+from pathlib import Path, PureWindowsPath
+from typing import Any, Callable, List, Sequence
 
 import pydantic_ai
 from pydantic_ai import RunContext
@@ -38,9 +38,11 @@ from pydantic_monty import MountDir, OSAccess
 from pydantic_ai_harness.code_mode import CodeMode
 
 from code_puppy.agents._code_mode_guidance import CodeModeGuidance
+from code_puppy.agents._code_mode_session import FileReplStore, repl_path_for
 from code_puppy.agents._wire_tool_names import StreamedToolNameNormalizer
 from code_puppy.capabilities.eager_timing import EagerTiming
 from code_puppy.config import get_speculative_code_mode_enabled
+from code_puppy.tools.common import get_working_directory
 
 # Code Puppy owns terminal output, including when observability is disabled.
 pydantic_ai.BANNER_ENABLED = False
@@ -55,6 +57,19 @@ for _invalid_escape_category in (SyntaxWarning, DeprecationWarning):
         category=_invalid_escape_category,
         module=r"^<unknown>$",
     )
+
+# MCP servers routinely ship tools without an output schema (Blender's
+# screenshot tools, for one); the sandbox signature just degrades to
+# ``-> Any``. Nothing the user can act on, so keep it off the terminal. The
+# wording differs by harness version ("tool X has no return schema" vs
+# "N tools have no return schema"), and newer releases raise it as a
+# ``UserWarning`` subclass, so a loose pattern on the base category covers
+# both. The harness's name-collision warning is actionable and stays visible.
+warnings.filterwarnings(
+    "ignore",
+    message=r"CodeMode: .*no return schema",
+    category=UserWarning,
+)
 
 # The read-only trio: pure with respect to the workspace, safe to re-run or discard.
 # Speculated even before an agent is bound (see DeclaredSpeculation).
@@ -134,12 +149,30 @@ def bind_declared_speculation(pydantic_agent: Any) -> None:
 # Never folded into run_code. File writes stay native so edits render as diffs;
 # load_image_for_analysis stays native because its multimodal ToolReturn must
 # reach the model as real image content, which a sandbox value cannot carry.
-NATIVE_TOOLS = frozenset({"create_file", "replace_in_file", "load_image_for_analysis"})
+# Plugin tools can declare native routing without adding names to core.
+# Routing is independent of consent, permissions, and speculation eligibility.
+NATIVE_TOOL_METADATA_KEY = "code_mode_native"
+NATIVE_TOOLS = frozenset(
+    {
+        "create_file",
+        "replace_in_file",
+        "load_image_for_analysis",
+        # Compatibility for computer-use plugins predating the metadata contract.
+        "computer_get_app_state",
+        "computer_snapshot",
+        "computer_screenshot",
+        "computer_use_batch",
+    }
+)
 
 
 def _sandbox_tool(ctx: RunContext[object], tool_def: ToolDefinition) -> bool:
-    """Fold every tool into ``run_code`` except the ``NATIVE_TOOLS``."""
-    return tool_def.name not in NATIVE_TOOLS
+    """Keep explicitly native tools outside the JSON-only sandbox boundary."""
+    metadata = tool_def.metadata or {}
+    return (
+        tool_def.name not in NATIVE_TOOLS
+        and metadata.get(NATIVE_TOOL_METADATA_KEY) is not True
+    )
 
 
 class SilenceToolOutput(AbstractCapability[Any]):
@@ -163,7 +196,33 @@ class SilenceToolOutput(AbstractCapability[Any]):
             bus.pop_tool_output_quiet()
 
 
-def build_speculative_code_mode(agent_tools: Sequence[str]) -> List[Any]:
+def sandbox_mount_path(host_path: str) -> str:
+    """Where ``host_path`` appears inside the sandbox.
+
+    Monty's virtual filesystem is POSIX-only and rejects ``C:\\...`` outright,
+    so Windows paths get the Git Bash spelling every model already knows:
+    ``C:\\Users\\x`` -> ``/c/Users/x``, ``\\\\srv\\share\\x`` -> ``/srv/share/x``.
+    POSIX paths pass through untouched.
+    """
+    if host_path.startswith("/"):
+        return host_path
+    posix = PureWindowsPath(host_path).as_posix()
+    drive, colon, rest = posix.partition(":/")
+    if colon:
+        return f"/{drive.lower()}/{rest}".rstrip("/")
+    return "/" + posix.lstrip("/")
+
+
+def main_repl_path() -> Path:
+    """REPL dump beside the current main-agent autosave (follows ``/resume``)."""
+    from code_puppy.config import AUTOSAVE_DIR, get_current_session_name
+
+    return repl_path_for(AUTOSAVE_DIR, get_current_session_name())
+
+
+def build_speculative_code_mode(
+    agent_tools: Sequence[str], *, repl_path: Callable[[], Path | None] | None = None
+) -> List[Any]:
     """Build the speculative CodeMode capabilities when the flag is on, else ``[]``.
 
     Returned as a list so the caller can splice it into ``capabilities=[...]``
@@ -171,15 +230,19 @@ def build_speculative_code_mode(agent_tools: Sequence[str]) -> List[Any]:
     ``run_code``. Only tools that declare ``speculatable: True`` are launched
     early; call :func:`bind_declared_speculation` once tools are registered.
     A tool without the declaration is sandboxed but never launched early.
+    ``repl_path`` names where the REPL is kept between runs; ``None`` keeps it
+    run-scoped.
     """
     if not get_speculative_code_mode_enabled():
         return []
     speculate = DeclaredSpeculation(
         [name for name in SANDBOXED_READ_ONLY_TOOLS if name in agent_tools]
     )
-    workspace = os.getcwd()
+    workspace = get_working_directory()
+    mount_path = sandbox_mount_path(workspace)
     return [
         CodeMode(
+            repl_store=FileReplStore(repl_path) if repl_path is not None else None,
             tools=_sandbox_tool,
             speculate=speculate,
             # Composed tiers: eager runs each streamed statement in the live REPL as it
@@ -187,10 +250,11 @@ def build_speculative_code_mode(agent_tools: Sequence[str]) -> List[Any]:
             # launches the read-only calls beyond the execution frontier and the eager
             # feeds claim them.
             eager=True,
-            # The workspace under its real path, so absolute paths in
-            # prompts and snippets need no translation.
+            # The workspace under its real path on POSIX, so absolute paths
+            # need no translation; Windows needs a POSIX spelling, which
+            # CodeModeGuidance spells out for the model.
             mount=MountDir(
-                virtual_path=workspace, host_path=workspace, mode="read-write"
+                virtual_path=mount_path, host_path=workspace, mode="read-write"
             ),
             # Isolated env + in-memory scratch files + host clock.
             os_access=OSAccess(),
@@ -198,5 +262,5 @@ def build_speculative_code_mode(agent_tools: Sequence[str]) -> List[Any]:
         SilenceToolOutput(),
         EagerTiming(),
         StreamedToolNameNormalizer(),
-        CodeModeGuidance(),
+        CodeModeGuidance(host_path=workspace, mount_path=mount_path),
     ]
