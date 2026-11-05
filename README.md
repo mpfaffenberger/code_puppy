@@ -113,6 +113,18 @@ After a `git pull`, Python source changes are available immediately. Run
 `pipx reinstall code-puppy` only when project dependencies change.
 Playwright-backed browser tools are not installed on Android.
 
+Not sure what a constrained target needs? The bootstrap planner inspects the
+environment and prints a minimal, supported install plan without importing the
+runtime. From a source checkout, before installing:
+
+```bash
+python -m code_puppy.bootstrap plan
+```
+
+After installation the same planner is available as `code-puppy-bootstrap`. It
+defaults to a lean profile so optional extras are not dragged into the first
+install. See [docs/ANDROID.md](docs/ANDROID.md) for the full walkthrough.
+
 #### Optional: DBOS durable execution
 
 Code Puppy ships with an optional [DBOS](https://github.com/dbos-inc/dbos-transact-py)-backed
