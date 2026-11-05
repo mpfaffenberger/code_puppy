@@ -260,8 +260,15 @@ def _create_quarantine_copy(src: str, dst: str) -> None:
                 view = memoryview(chunk)
                 while view:
                     # os.write may accept only part of the buffer; loop until
-                    # the entire chunk has been handed to the kernel.
-                    view = view[os.write(dst_fd, view) :]
+                    # the entire chunk has been handed to the kernel. A zero
+                    # result makes no progress and would otherwise spin forever.
+                    written = os.write(dst_fd, view)
+                    if written <= 0:
+                        raise OSError(
+                            errno.EIO,
+                            "write made no progress while creating quarantine copy",
+                        )
+                    view = view[written:]
         finally:
             os.close(src_fd)
         os.fsync(dst_fd)

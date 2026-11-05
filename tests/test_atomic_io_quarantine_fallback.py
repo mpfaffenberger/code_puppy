@@ -204,6 +204,29 @@ def test_write_failure_leaves_source_and_removes_partial_dest(tmp_path, monkeypa
     _assert_source_intact_no_partial(src, data)
 
 
+def test_zero_progress_write_fails_and_removes_partial_dest(tmp_path, monkeypatch):
+    """A zero-byte write must fail instead of retrying the same buffer forever."""
+    monkeypatch.delattr(os, "link", raising=False)
+    src, data = _corrupt(tmp_path, data=b"y" * 70_000)
+    calls = 0
+
+    def zero_write(_fd, _data):
+        nonlocal calls
+        calls += 1
+        if calls >= 25:
+            raise RuntimeError("bounded guard: zero-byte write loop did not stop")
+        return 0
+
+    monkeypatch.setattr(os, "write", zero_write)
+    with pytest.raises(OSError) as excinfo:
+        atomic_io.quarantine_file(src)
+    assert excinfo.value.errno == errno.EIO
+    assert calls == 1
+
+    monkeypatch.undo()
+    _assert_source_intact_no_partial(src, data)
+
+
 def test_fsync_failure_leaves_source_and_removes_partial_dest(tmp_path, monkeypatch):
     monkeypatch.delattr(os, "link", raising=False)
     src, data = _corrupt(tmp_path, data=b"z" * 256)
