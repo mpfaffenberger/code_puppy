@@ -23,6 +23,7 @@ import sys
 import traceback
 
 from code_puppy import plugins
+from code_puppy.boot_trace import begin_boot, end_boot
 from code_puppy.cli_entry import apply_quick_resume, main
 from code_puppy.error_hooks import install_error_hooks
 from code_puppy.interactive_runner import interactive_mode
@@ -76,6 +77,8 @@ def _force_utf8_stdio():
 
 def main_entry():
     """Entry point for the installed CLI tool."""
+    # Idempotent: main.py already opened the root; direct callers open it here.
+    begin_boot()
     # Idempotent; covers callers that bypass main.py. Never block startup.
     try:
         install_error_hooks()
@@ -84,15 +87,23 @@ def main_entry():
     _force_utf8_stdio()
     # Before anything spawns: fork children inherit fd 2 (see the module).
     install_malloc_noise_guard()
+    rc = None
+    boot_exc = None
     try:
         # Capture main()'s return so plugins / normal paths set the exit status
         # (None -> 0 or an int exit code).
         rc = asyncio.run(main())
-    except KeyboardInterrupt:
+    except KeyboardInterrupt as caught:
+        boot_exc = caught
         # Note: Using sys.stderr for crash output - messaging system may not be available
         sys.stderr.write(traceback.format_exc())
         return 0
+    except BaseException as caught:
+        boot_exc = caught
+        raise
     finally:
+        # KeyboardInterrupt stays an error in the boot trace despite the return 0.
+        end_boot(boot_exc, exit_code=rc)
         # Reset terminal on Unix-like systems (not Windows)
         reset_unix_terminal()
     # Guard None -> 0 and propagate to the process exit status.

@@ -203,7 +203,13 @@ def _build_frame(phase: int, truecolor: bool, rows) -> str:
 
 
 class _NullSplash:
-    """Do-nothing stand-in so callers never need to branch."""
+    """Do-nothing stand-in so callers never need to branch.
+
+    ``reason`` names the gate that declined the splash, for boot tracing.
+    """
+
+    def __init__(self, reason: str) -> None:
+        self.reason = reason
 
     def stop(self) -> None:
         pass
@@ -330,15 +336,26 @@ class _Splash:
                     pass
 
 
-def _wants_splash(argv: list[str]) -> bool:
-    """Only animate for an interactive-looking boot; fail closed otherwise."""
-    if os.environ.get("CODE_PUPPY_NO_SPLASH") or os.environ.get("NO_COLOR"):
-        return False
-    if os.environ.get("TERM", "") == "dumb":
-        return False
+def _skip_reason(argv: list[str]) -> str | None:
+    """Why the splash must stay off for this env/argv; None means it may run."""
+    if (
+        os.environ.get("CODE_PUPPY_NO_SPLASH")
+        or os.environ.get("NO_COLOR")
+        or os.environ.get("TERM", "") == "dumb"
+    ):
+        return "env"
     # Any flag beyond plain interactive mode (headless -p, --help, acp
     # bridges, ...) means someone else owns stdout. Stay out of the way.
-    return all(arg in _INTERACTIVE_ARGS for arg in argv[1:])
+    if "--acp" in argv:
+        return "acp"
+    if not all(arg in _INTERACTIVE_ARGS for arg in argv[1:]):
+        return "non_interactive"
+    return None
+
+
+def _wants_splash(argv: list[str]) -> bool:
+    """Only animate for an interactive-looking boot; fail closed otherwise."""
+    return _skip_reason(argv) is None
 
 
 def _enable_windows_vt(stream) -> bool:
@@ -369,17 +386,18 @@ def start_splash(stream=None, force: bool = False):
     try:
         if not force:
             if not (hasattr(stream, "isatty") and stream.isatty()):
-                return _NullSplash()
-            if not _wants_splash(sys.argv):
-                return _NullSplash()
+                return _NullSplash("non_tty")
+            reason = _skip_reason(sys.argv)
+            if reason is not None:
+                return _NullSplash(reason)
             # _compose_rows degrades CODE PUPPY -> PUP -> bare paw,
             # but below even the paw's footprint there is nothing
             # honest left to draw: stay silent, never clip art.
             size = shutil.get_terminal_size(fallback=(80, 24))
             if size.columns < _PAW_WIDTH + 2 or size.lines < len(_PAW) + 2:
-                return _NullSplash()
+                return _NullSplash("terminal")
         if not _enable_windows_vt(stream):
-            return _NullSplash()
+            return _NullSplash("terminal")
         return _Splash(stream)
     except Exception:
-        return _NullSplash()
+        return _NullSplash("terminal")

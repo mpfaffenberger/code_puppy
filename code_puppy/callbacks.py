@@ -21,6 +21,7 @@ from typing import (
 if TYPE_CHECKING:
     from pydantic_ai.messages import ModelMessage
 
+from code_puppy import boot_trace
 from code_puppy.error_logging import log_error
 
 PhaseType = Literal[
@@ -970,6 +971,7 @@ def on_prompt_ready() -> List[Any]:
     Observers only, sync and fire-and-forget. Fires once per idle prompt, so
     observers must tolerate repeat calls.
     """
+    boot_trace.mark("cli.prompt_ready")  # no-op unless tracing is on
     return _trigger_callbacks_sync("prompt_ready")
 
 

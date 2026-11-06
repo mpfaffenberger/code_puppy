@@ -54,6 +54,29 @@ class TestGating:
         monkeypatch.setenv("TERM", "dumb")
         assert splash._wants_splash(["code-puppy"]) is False
 
+    @pytest.mark.parametrize(
+        ("argv", "env", "expected"),
+        [
+            (["pup", "--acp"], {}, "acp"),
+            (["pup", "-p", "x"], {}, "non_interactive"),
+            (["pup"], {"CODE_PUPPY_NO_SPLASH": "1"}, "env"),
+            (["pup"], {"NO_COLOR": "1"}, "env"),
+            (["pup"], {"TERM": "dumb"}, "env"),
+        ],
+    )
+    def test_null_splash_names_the_declining_gate(
+        self, monkeypatch, argv, env, expected
+    ):
+        for key in ("CODE_PUPPY_NO_SPLASH", "NO_COLOR", "TERM"):
+            monkeypatch.delenv(key, raising=False)
+        for key, value in env.items():
+            monkeypatch.setenv(key, value)
+        monkeypatch.setattr("sys.argv", argv)
+        assert splash.start_splash(stream=FakeTty()).reason == expected
+
+    def test_non_tty_null_splash_reason(self):
+        assert splash.start_splash(stream=io.StringIO()).reason == "non_tty"
+
     def test_terminal_too_small_for_paw_gets_null_splash(self, monkeypatch):
         import os
 
@@ -68,6 +91,7 @@ class TestGating:
         )
         result = splash.start_splash(stream=FakeTty())
         assert isinstance(result, splash._NullSplash)
+        assert result.reason == "terminal"
         result.stop()  # harmless no-op
 
 

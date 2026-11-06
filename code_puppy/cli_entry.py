@@ -16,6 +16,7 @@ from pathlib import Path
 
 from code_puppy import __version__, callbacks, get_core_plugins_version
 from code_puppy.asyncio_cleanup import install_httpcore2_shutdown_filter
+from code_puppy.boot_trace import span
 from code_puppy.config import ensure_config_exists, initialize_command_history_file
 from code_puppy.error_logging import log_error
 from code_puppy.http_utils import find_available_port
@@ -172,20 +173,24 @@ async def main():
         "command", nargs="*", help="Run a single command (deprecated, use -p instead)"
     )
 
-    # Plugins add CLI args via on_register_cli_args (loaded at import time);
-    # duplicate option strings raise here = fail fast.
-    callbacks.on_register_cli_args(parser)
+    with span("cli.parse"):
+        # Plugins add CLI args via on_register_cli_args (loaded at import time);
+        # duplicate option strings raise here = fail fast.
+        with span("cli.register_args"):
+            callbacks.on_register_cli_args(parser)
 
-    args = parser.parse_args()
-    _initialize_locale()
-    if args.disable_ask_user_question:
-        os.environ["CODE_PUPPY_DISABLE_ASK_USER_QUESTION"] = "1"
+        with span("cli.argparse"):
+            args = parser.parse_args()
+        _initialize_locale()
+        if args.disable_ask_user_question:
+            os.environ["CODE_PUPPY_DISABLE_ASK_USER_QUESTION"] = "1"
 
     # Plugins may act on parsed args and short-circuit startup; first dict
     # with handled=True wins (exits with its exit_code).
-    for result in callbacks.on_handle_cli_args(args):
-        if isinstance(result, dict) and result.get("handled"):
-            return result.get("exit_code", 0)
+    with span("cli.handle_args"):
+        for result in callbacks.on_handle_cli_args(args):
+            if isinstance(result, dict) and result.get("handled"):
+                return result.get("exit_code", 0)
 
     from code_puppy.messaging import (
         RichConsoleRenderer,
