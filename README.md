@@ -294,6 +294,9 @@ Code Puppy loads rules from multiple locations, combining them in order:
 
 Use the `/mcp` command to manage MCP (list, start, stop, status, etc.)
 
+See the [Parallel Search MCP example](examples/parallel_search/README.md) for
+optional web search and page fetching without an API key.
+
 ## Round Robin Model Distribution
 
 Code Puppy supports **Round Robin model distribution** to help you overcome rate limits and distribute load across multiple AI models. This feature automatically cycles through configured models with each request, maximizing your API usage while staying within rate limits.
