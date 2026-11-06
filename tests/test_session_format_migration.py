@@ -485,3 +485,259 @@ class TestQuickResumeAcrossFormats:
 
     def test_returns_none_when_nothing_on_disk(self, tmp_path, monkeypatch):
         assert self._resolve(monkeypatch, tmp_path, "auto_session_z") is None
+
+
+class _FakeClock:
+    """Deterministic ``_monotonic``: only advances when a file is processed."""
+
+    def __init__(self):
+        self.now = 0.0
+
+    def __call__(self):
+        return self.now
+
+
+@pytest.fixture
+def timed_sweep(sweep_dirs, monkeypatch):
+    """Fake clock where each ``migrate_pickle_file`` call costs one second.
+
+    Returns the list of every path handed to ``migrate_pickle_file``.
+    """
+    clock = _FakeClock()
+    calls: list[Path] = []
+    real = sfm.migrate_pickle_file
+
+    def timed(pkl_path, json_path=None):
+        calls.append(Path(pkl_path))
+        clock.now += 1.0
+        return real(pkl_path, json_path)
+
+    monkeypatch.setattr(sfm, "_monotonic", clock)
+    monkeypatch.setattr(sfm, "migrate_pickle_file", timed)
+    monkeypatch.setenv(sfm._BUDGET_ENV, "3")
+    return calls, clock
+
+
+def _capture_info(monkeypatch) -> list[str]:
+    from code_puppy import messaging
+
+    infos: list[str] = []
+    monkeypatch.setattr(messaging, "emit_info", lambda msg, **kw: infos.append(msg))
+    return infos
+
+
+class TestBoundedStartupSweep:
+    def test_budget_stops_sweep_and_next_startup_resumes(
+        self, sweep_dirs, timed_sweep, monkeypatch
+    ):
+        autosaves, _contexts, _data, config = sweep_dirs
+        _calls, clock = timed_sweep
+        infos = _capture_info(monkeypatch)
+        for index in range(5):
+            shutil.copy(PLAIN_FIXTURE, autosaves / f"s{index}.pkl")
+
+        sfm.sweep_legacy_pickle_sessions()
+
+        # 3s budget @ 1s/file: three migrated, two left, NO completion marker.
+        assert len(list(autosaves.glob("*.json"))) == 3
+        assert len(list(autosaves.glob("*.pkl"))) == 2
+        assert not (config / ".session_format_v2_migrated").exists()
+        assert any("2 legacy session(s) still pending" in m for m in infos)
+
+        clock.now = 0.0  # next startup
+        sfm.sweep_legacy_pickle_sessions()
+
+        assert len(list(autosaves.glob("*.json"))) == 5
+        assert not list(autosaves.glob("*.pkl"))
+        assert (config / ".session_format_v2_migrated").exists()
+
+    def test_user_facing_dirs_get_budget_before_subagent_sessions(
+        self, sweep_dirs, timed_sweep, monkeypatch
+    ):
+        autosaves, _contexts, data, _config = sweep_dirs
+        monkeypatch.setenv(sfm._BUDGET_ENV, "1")
+        subagent_dir = data / "subagent_sessions"
+        subagent_dir.mkdir()
+        shutil.copy(SUBAGENT_FIXTURE, subagent_dir / "sub.pkl")
+        shutil.copy(PLAIN_FIXTURE, autosaves / "mine.pkl")
+
+        sfm.sweep_legacy_pickle_sessions()
+
+        assert (autosaves / "mine.json").exists()
+        assert (subagent_dir / "sub.pkl").exists()
+        assert not (subagent_dir / "sub.json").exists()
+        # Deferred sub-agent sessions still migrate lazily when used.
+        assert load_session("sub", subagent_dir)
+
+    def test_zero_budget_skips_sweep_without_marker(
+        self, sweep_dirs, timed_sweep, monkeypatch
+    ):
+        autosaves, _contexts, _data, config = sweep_dirs
+        calls, _clock = timed_sweep
+        monkeypatch.setenv(sfm._BUDGET_ENV, "0")
+        shutil.copy(PLAIN_FIXTURE, autosaves / "keep.pkl")
+
+        sfm.sweep_legacy_pickle_sessions()
+
+        assert calls == []
+        assert (autosaves / "keep.pkl").exists()
+        assert not (config / ".session_format_v2_migrated").exists()
+
+    @pytest.mark.parametrize("raw", ["abc", "-5", "nan", ""])
+    def test_invalid_budget_env_falls_back_to_default(self, monkeypatch, raw):
+        monkeypatch.setenv(sfm._BUDGET_ENV, raw)
+        assert sfm._startup_budget_seconds() == sfm._DEFAULT_BUDGET_SECONDS
+
+    def test_keyboard_interrupt_defers_rest_and_startup_continues(
+        self, sweep_dirs, monkeypatch
+    ):
+        autosaves, _contexts, _data, config = sweep_dirs
+        infos = _capture_info(monkeypatch)
+        for index in range(3):
+            shutil.copy(PLAIN_FIXTURE, autosaves / f"s{index}.pkl")
+        real = sfm.migrate_pickle_file
+        seen: list[Path] = []
+
+        def interrupting(pkl_path, json_path=None):
+            seen.append(Path(pkl_path))
+            if len(seen) == 2:
+                raise KeyboardInterrupt
+            return real(pkl_path, json_path)
+
+        monkeypatch.setattr(sfm, "migrate_pickle_file", interrupting)
+
+        sfm.sweep_legacy_pickle_sessions()  # must not raise
+
+        assert (autosaves / "s0.json").exists()
+        assert (autosaves / "s1.pkl").exists()  # interrupted file untouched
+        assert not (config / ".session_format_v2_migrated").exists()
+        assert any("deferred" in m for m in infos)
+
+        monkeypatch.setattr(sfm, "migrate_pickle_file", real)
+        sfm.sweep_legacy_pickle_sessions()
+        assert len(list(autosaves.glob("*.json"))) == 3
+        assert (config / ".session_format_v2_migrated").exists()
+
+    def test_large_sweep_is_announced_small_one_is_not(self, sweep_dirs, monkeypatch):
+        autosaves, _contexts, _data, config = sweep_dirs
+        infos = _capture_info(monkeypatch)
+        for index in range(sfm._ANNOUNCE_THRESHOLD):
+            shutil.copy(PLAIN_FIXTURE, autosaves / f"a{index}.pkl")
+        sfm.sweep_legacy_pickle_sessions()
+        assert not any(m.startswith("Migrating") for m in infos)
+
+        (config / ".session_format_v2_migrated").unlink()
+        for index in range(sfm._ANNOUNCE_THRESHOLD + 1):
+            shutil.copy(PLAIN_FIXTURE, autosaves / f"b{index}.pkl")
+        sfm.sweep_legacy_pickle_sessions()
+        assert any(
+            m.startswith(f"Migrating {sfm._ANNOUNCE_THRESHOLD + 1} legacy")
+            for m in infos
+        )
+
+
+class TestQuarantineRetryIsBounded:
+    @staticmethod
+    def _recorded(monkeypatch) -> list[Path]:
+        calls: list[Path] = []
+        real = sfm.migrate_pickle_file
+
+        def recording(pkl_path, json_path=None):
+            calls.append(Path(pkl_path))
+            return real(pkl_path, json_path)
+
+        monkeypatch.setattr(sfm, "migrate_pickle_file", recording)
+        return calls
+
+    def test_stuck_file_retried_once_per_version_not_every_startup(
+        self, sweep_dirs, monkeypatch
+    ):
+        autosaves, _contexts, _data, _config = sweep_dirs
+        sfm.sweep_legacy_pickle_sessions()  # marker written
+        failed_dir = autosaves / "pre_v2_backup" / "failed"
+        failed_dir.mkdir(parents=True)
+        (failed_dir / "stuck.pkl").write_bytes(b"still not a pickle")
+        calls = self._recorded(monkeypatch)
+
+        sfm.sweep_legacy_pickle_sessions()
+        sfm.sweep_legacy_pickle_sessions()
+        sfm.sweep_legacy_pickle_sessions()
+
+        assert calls == [failed_dir / "stuck.pkl"]  # read once, not three times
+
+        monkeypatch.setattr(sfm, "_migrator_version", lambda: "next-release")
+        sfm.sweep_legacy_pickle_sessions()
+        sfm.sweep_legacy_pickle_sessions()
+
+        assert calls == [failed_dir / "stuck.pkl"] * 2  # once more for new version
+
+    def test_new_version_still_rescues_previously_stuck_file(
+        self, sweep_dirs, monkeypatch
+    ):
+        autosaves, _contexts, _data, _config = sweep_dirs
+        failed_dir = autosaves / "pre_v2_backup" / "failed"
+        failed_dir.mkdir(parents=True)
+        shutil.copy(PLAIN_FIXTURE, failed_dir / "later.pkl")
+        real = sfm.migrate_pickle_file
+        monkeypatch.setattr(
+            sfm,
+            "migrate_pickle_file",
+            lambda p, j=None: sfm.MigrationResult(False, error="old"),
+        )
+        sfm.sweep_legacy_pickle_sessions()
+        assert (failed_dir / "later.pkl").exists()
+
+        # "Fixed" unpickler ships in a new release.
+        monkeypatch.setattr(sfm, "migrate_pickle_file", real)
+        monkeypatch.setattr(sfm, "_migrator_version", lambda: "fixed-release")
+        sfm.sweep_legacy_pickle_sessions()
+
+        assert (autosaves / "later.json").exists()
+        assert not (failed_dir / "later.pkl").exists()
+
+    def test_freshly_quarantined_file_is_not_reread_in_same_startup(
+        self, sweep_dirs, monkeypatch
+    ):
+        autosaves, _contexts, _data, _config = sweep_dirs
+        (autosaves / "bad.pkl").write_bytes(b"garbage")
+        calls = self._recorded(monkeypatch)
+
+        sfm.sweep_legacy_pickle_sessions()
+
+        assert calls == [autosaves / "bad.pkl"]
+        assert (autosaves / "pre_v2_backup" / "failed" / "bad.pkl").exists()
+
+    def test_collision_rename_is_tracked_under_its_real_name(
+        self, sweep_dirs, monkeypatch
+    ):
+        autosaves, _contexts, _data, _config = sweep_dirs
+        failed_dir = autosaves / "pre_v2_backup" / "failed"
+        failed_dir.mkdir(parents=True)
+        (failed_dir / "bad.pkl").write_bytes(b"old failure")
+        (autosaves / "bad.pkl").write_bytes(b"new failure")
+        calls = self._recorded(monkeypatch)
+
+        sfm.sweep_legacy_pickle_sessions()
+
+        assert (failed_dir / "bad.1.pkl").exists()
+        # New file read once in the main pass; the old quarantined one retried;
+        # the renamed copy is NOT read a second time.
+        assert sorted(p.name for p in calls) == ["bad.pkl", "bad.pkl"]
+        assert failed_dir / "bad.1.pkl" not in calls
+
+    def test_retry_respects_exhausted_budget(self, sweep_dirs, monkeypatch):
+        autosaves, _contexts, _data, _config = sweep_dirs
+        sfm.sweep_legacy_pickle_sessions()  # marker written
+        failed_dir = autosaves / "pre_v2_backup" / "failed"
+        failed_dir.mkdir(parents=True)
+        shutil.copy(PLAIN_FIXTURE, failed_dir / "waiting.pkl")
+        monkeypatch.setenv(sfm._BUDGET_ENV, "0")
+
+        sfm.sweep_legacy_pickle_sessions()
+
+        assert (failed_dir / "waiting.pkl").exists()
+        assert not (autosaves / "waiting.json").exists()
+
+        monkeypatch.delenv(sfm._BUDGET_ENV)
+        sfm.sweep_legacy_pickle_sessions()  # deferred, not lost
+        assert (autosaves / "waiting.json").exists()
