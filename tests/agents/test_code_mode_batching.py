@@ -73,8 +73,14 @@ class TestGuidance:
         assert "Never introduce a variable" not in CODE_MODE_GUIDANCE
 
     def test_guidance_stays_small(self):
-        """It rides on every request; the A/B priced each extra token (PR #1015)."""
-        assert len(CODE_MODE_GUIDANCE) < 3_000
+        """It rides on every request; the A/B priced each extra token (PR #1015).
+
+        Raised from 3_000 for the sandbox path rules: a model that spells an
+        absolute host path inside `run_code` gets a PermissionError on every
+        attempt, burns the retry budget and fails the turn outright. Roughly
+        270 chars is cheap insurance against a dead-end loop.
+        """
+        assert len(CODE_MODE_GUIDANCE) < 3_200
 
 
 @pytest.mark.asyncio
