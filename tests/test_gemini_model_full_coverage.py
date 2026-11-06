@@ -752,6 +752,7 @@ class TestMapModelResponse:
                 ToolCallPart(tool_name="fn", args={}, tool_call_id="tc1"),
             ],
             model_name="m",
+            provider_name="google",
         )
         result = model._map_model_response(resp)
         # Thought text is never replayed; its signature rides on the call.
@@ -772,6 +773,7 @@ class TestMapModelResponse:
                 TextPart(content="after"),
             ],
             model_name="m",
+            provider_name="google",
         )
         result = model._map_model_response(resp)
         assert [p.get("thoughtSignature") for p in result["parts"]] == [
@@ -820,8 +822,33 @@ class TestMapModelResponse:
         ],
     )
     def test_signature_sources(self, model, parts, expected):
-        result = model._map_model_response(ModelResponse(parts=parts, model_name="m"))
+        result = model._map_model_response(
+            ModelResponse(parts=parts, model_name="m", provider_name="google")
+        )
         assert [p.get("thoughtSignature") for p in result["parts"]] == expected
+
+    def test_foreign_provider_signatures_use_bypass(self, model):
+        # OpenAI reasoning without a summary is ThinkingPart(content="", signature=<blob>).
+        resp = ModelResponse(
+            parts=[
+                ThinkingPart(content="", signature="openai-blob"),
+                ToolCallPart(
+                    tool_name="a",
+                    args={},
+                    tool_call_id="tc1",
+                    provider_details={"thought_signature": "openai-call-blob"},
+                ),
+                ThinkingPart(content="summary", signature="claude-blob"),
+                TextPart(content="answer"),
+            ],
+            model_name="m",
+            provider_name="openai",
+        )
+        result = model._map_model_response(resp)
+        assert [p.get("thoughtSignature") for p in result["parts"]] == [
+            BYPASS_THOUGHT_SIGNATURE,
+            BYPASS_THOUGHT_SIGNATURE,
+        ]
 
     def test_parsed_signature_round_trips(self, model):
         candidates = [
@@ -836,7 +863,9 @@ class TestMapModelResponse:
             }
         ]
         _, parts = _parse_candidate_parts({}, candidates)
-        result = model._map_model_response(ModelResponse(parts=parts, model_name="m"))
+        result = model._map_model_response(
+            ModelResponse(parts=parts, model_name="m", provider_name="google")
+        )
         assert [p.get("thoughtSignature") for p in result["parts"]] == ["S", None]
         assert not any("thought" in p for p in result["parts"])
 
@@ -847,6 +876,7 @@ class TestMapModelResponse:
                 TextPart(content="answer"),
             ],
             model_name="m",
+            provider_name="google",
         )
         result = model._map_model_response(resp)
         assert result["parts"] == [{"text": "answer", "thoughtSignature": "sig456"}]

@@ -330,11 +330,14 @@ class GeminiModel(Model):
         Thought text is never replayed. A function_call keeps its own
         signature. Otherwise a ThinkingPart's signature (or the bypass) is
         used once, on the next text part or the first function_call; later
-        parallel calls carry none.
+        parallel calls carry none. Signatures from another provider (for
+        example OpenAI encrypted reasoning after a mid-session model switch)
+        are never sent; Gemini rejects them, so the bypass is used instead.
         """
         parts: list[dict[str, Any]] = []
         pending_signature: str | None = None
         seen_function_call = False
+        trust_signatures = m.provider_name == self.system
 
         for item in m.parts:
             if isinstance(item, ToolCallPart):
@@ -349,7 +352,7 @@ class GeminiModel(Model):
                 # function call of a turn. Repeating it on later parts made
                 # replayed requests fail intermittently with 400.
                 own_signature = (item.provider_details or {}).get("thought_signature")
-                if own_signature:
+                if own_signature and trust_signatures:
                     part_dict["thoughtSignature"] = own_signature
                 elif not seen_function_call:
                     part_dict["thoughtSignature"] = (
@@ -370,9 +373,9 @@ class GeminiModel(Model):
             elif isinstance(item, ThinkingPart):
                 # Replayed `thought: true` text made requests fail
                 # intermittently with 400, so only the signature is kept.
-                if item.signature:
+                if item.signature and trust_signatures:
                     pending_signature = item.signature
-                elif item.content:
+                elif item.content or item.signature:
                     pending_signature = BYPASS_THOUGHT_SIGNATURE
 
         if not parts:
