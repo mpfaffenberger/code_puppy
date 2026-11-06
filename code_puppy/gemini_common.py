@@ -305,10 +305,22 @@ def _parse_candidate_parts(
                     tool_name=fc["name"],
                     args=fc.get("args", {}),
                     tool_call_id=fc.get("id") or generate_tool_call_id(),
+                    provider_details=_signature_details(part),
                 )
             )
 
     return usage, response_parts
+
+
+def _signature_details(part: dict[str, Any]) -> dict[str, str] | None:
+    """Keep a functionCall's own signature so replay can return it unchanged.
+
+    The key matches pydantic_ai's Google model. Called by
+    gemini_model :: GeminiStreamingResponse._get_event_iterator(); read by
+    gemini_model :: GeminiModel._map_model_response().
+    """
+    signature = part.get("thoughtSignature")
+    return {"thought_signature": signature} if signature else None
 
 
 def _build_generation_config(model_settings: ModelSettings | None) -> dict[str, Any]:

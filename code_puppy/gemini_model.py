@@ -38,6 +38,7 @@ from pydantic_ai.usage import RequestUsage
 from code_puppy.gemini_common import (
     _build_tools,
     _parse_candidate_parts,
+    _signature_details,
     generate_tool_call_id,
     sendable_request_parts,
     _build_generation_config,
@@ -326,8 +327,9 @@ class GeminiModel(Model):
     def _map_model_response(self, m: ModelResponse) -> dict[str, Any] | None:
         """Map a ModelResponse to Gemini content format.
 
-        Thought text is never replayed. A ThinkingPart's signature (or the
-        bypass) goes on the next text part or the first function_call; later
+        Thought text is never replayed. A function_call keeps its own
+        signature. Otherwise a ThinkingPart's signature (or the bypass) is
+        used once, on the next text part or the first function_call; later
         parallel calls carry none.
         """
         parts: list[dict[str, Any]] = []
@@ -344,15 +346,19 @@ class GeminiModel(Model):
                     }
                 }
                 # Gemini thinking models REQUIRE thoughtSignature on the first
-                # function call of a turn; parallel calls after it must not
-                # repeat it (the gateway 400s intermittently when they do).
-                if not seen_function_call:
+                # function call of a turn. Repeating it on later parts made
+                # replayed requests fail intermittently with 400.
+                own_signature = (item.provider_details or {}).get("thought_signature")
+                if own_signature:
+                    part_dict["thoughtSignature"] = own_signature
+                elif not seen_function_call:
                     part_dict["thoughtSignature"] = (
                         pending_signature
                         if pending_signature is not None
                         else BYPASS_THOUGHT_SIGNATURE
                     )
-                    seen_function_call = True
+                seen_function_call = True
+                pending_signature = None
                 parts.append(part_dict)
             elif isinstance(item, TextPart):
                 part_dict = {"text": item.content}
@@ -362,11 +368,12 @@ class GeminiModel(Model):
                     pending_signature = None
                 parts.append(part_dict)
             elif isinstance(item, ThinkingPart):
-                if item.content:
-                    # Thought text is never replayed (`thought: true` parts make
-                    # the gateway 400 intermittently); only its signature is,
-                    # on the next function call or text part.
-                    pending_signature = item.signature or BYPASS_THOUGHT_SIGNATURE
+                # Replayed `thought: true` text made requests fail
+                # intermittently with 400, so only the signature is kept.
+                if item.signature:
+                    pending_signature = item.signature
+                elif item.content:
+                    pending_signature = BYPASS_THOUGHT_SIGNATURE
 
         if not parts:
             return None
@@ -608,6 +615,7 @@ class GeminiStreamingResponse(StreamedResponse):
                     for event in self._parts_manager.handle_thinking_delta(
                         vendor_part_id=None,
                         content=part["text"],
+                        signature=part.get("thoughtSignature"),
                     ):
                         yield event
 
@@ -659,6 +667,7 @@ class GeminiStreamingResponse(StreamedResponse):
                             tool_name=self._current_tool_name,
                             args=delta_args,
                             tool_call_id=self._current_tool_call_id,
+                            provider_details=_signature_details(part),
                         )
                         if event is not None:
                             yield event
