@@ -21,6 +21,7 @@ from pydantic_ai.messages import (
 from pydantic_ai.models import ModelRequestParameters
 from pydantic_ai.tools import ToolDefinition
 
+from code_puppy.gemini_common import _parse_candidate_parts
 from code_puppy.gemini_model import (
     BYPASS_THOUGHT_SIGNATURE,
     STEER_PREAMBLE,
@@ -751,11 +752,122 @@ class TestMapModelResponse:
                 ToolCallPart(tool_name="fn", args={}, tool_call_id="tc1"),
             ],
             model_name="m",
+            provider_name="google",
         )
         result = model._map_model_response(resp)
-        assert result["parts"][0]["thought"] is True
-        assert result["parts"][0]["thoughtSignature"] == "sig123"
-        assert result["parts"][1]["thoughtSignature"] == "sig123"
+        # Thought text is never replayed; its signature rides on the call.
+        assert result["parts"] == [
+            {
+                "function_call": {"name": "fn", "args": {}, "id": "tc1"},
+                "thoughtSignature": "sig123",
+            }
+        ]
+
+    def test_signature_goes_only_on_the_first_call(self, model):
+        resp = ModelResponse(
+            parts=[
+                ThinkingPart(content="plan", signature="sig789"),
+                ToolCallPart(tool_name="a", args={}, tool_call_id="tc1"),
+                ToolCallPart(tool_name="b", args={}, tool_call_id="tc2"),
+                ToolCallPart(tool_name="c", args={}, tool_call_id="tc3"),
+                TextPart(content="after"),
+            ],
+            model_name="m",
+            provider_name="google",
+        )
+        result = model._map_model_response(resp)
+        assert [p.get("thoughtSignature") for p in result["parts"]] == [
+            "sig789",
+            None,
+            None,
+            None,
+        ]
+        assert [p["function_call"]["id"] for p in result["parts"][:3]] == [
+            "tc1",
+            "tc2",
+            "tc3",
+        ]
+        assert result["parts"][3] == {"text": "after"}
+
+    @pytest.mark.parametrize(
+        ("parts", "expected"),
+        [
+            pytest.param(
+                [
+                    ThinkingPart(content="plan", signature="think-sig"),
+                    ToolCallPart(
+                        tool_name="a",
+                        args={},
+                        tool_call_id="tc1",
+                        provider_details={"thought_signature": "call-sig"},
+                    ),
+                    ToolCallPart(tool_name="b", args={}, tool_call_id="tc2"),
+                ],
+                ["call-sig", None],
+                id="own-signature-beats-pending",
+            ),
+            pytest.param(
+                [
+                    ThinkingPart(content="", signature="think-sig"),
+                    ToolCallPart(tool_name="a", args={}, tool_call_id="tc1"),
+                ],
+                ["think-sig"],
+                id="empty-thinking-part-signature",
+            ),
+            pytest.param(
+                [ThinkingPart(content=""), TextPart(content="answer")],
+                [None],
+                id="empty-unsigned-thinking-adds-nothing",
+            ),
+        ],
+    )
+    def test_signature_sources(self, model, parts, expected):
+        result = model._map_model_response(
+            ModelResponse(parts=parts, model_name="m", provider_name="google")
+        )
+        assert [p.get("thoughtSignature") for p in result["parts"]] == expected
+
+    def test_foreign_provider_signatures_use_bypass(self, model):
+        # OpenAI reasoning without a summary is ThinkingPart(content="", signature=<blob>).
+        resp = ModelResponse(
+            parts=[
+                ThinkingPart(content="", signature="openai-blob"),
+                ToolCallPart(
+                    tool_name="a",
+                    args={},
+                    tool_call_id="tc1",
+                    provider_details={"thought_signature": "openai-call-blob"},
+                ),
+                ThinkingPart(content="summary", signature="claude-blob"),
+                TextPart(content="answer"),
+            ],
+            model_name="m",
+            provider_name="openai",
+        )
+        result = model._map_model_response(resp)
+        assert [p.get("thoughtSignature") for p in result["parts"]] == [
+            BYPASS_THOUGHT_SIGNATURE,
+            BYPASS_THOUGHT_SIGNATURE,
+        ]
+
+    def test_parsed_signature_round_trips(self, model):
+        candidates = [
+            {
+                "content": {
+                    "parts": [
+                        {"text": "plan", "thought": True},
+                        {"functionCall": {"name": "a"}, "thoughtSignature": "S"},
+                        {"functionCall": {"name": "b"}},
+                    ]
+                }
+            }
+        ]
+        _, parts = _parse_candidate_parts({}, candidates)
+        result = model._map_model_response(
+            ModelResponse(parts=parts, model_name="m", provider_name="google")
+        )
+        assert [p.get("thoughtSignature") for p in result["parts"]] == ["S", None]
+        assert not any("thought" in p for p in result["parts"])
 
     def test_thinking_then_text(self, model):
         resp = ModelResponse(
@@ -764,9 +876,10 @@ class TestMapModelResponse:
                 TextPart(content="answer"),
             ],
             model_name="m",
+            provider_name="google",
         )
         result = model._map_model_response(resp)
-        assert result["parts"][1]["thoughtSignature"] == "sig456"
+        assert result["parts"] == [{"text": "answer", "thoughtSignature": "sig456"}]
 
     def test_thinking_no_signature(self, model):
         resp = ModelResponse(
@@ -778,7 +891,7 @@ class TestMapModelResponse:
         )
         result = model._map_model_response(resp)
         # No signature -> bypass
-        assert result["parts"][1]["thoughtSignature"] == BYPASS_THOUGHT_SIGNATURE
+        assert result["parts"][0]["thoughtSignature"] == BYPASS_THOUGHT_SIGNATURE
 
     def test_text_without_pending_signature(self, model):
         resp = ModelResponse(
@@ -795,6 +908,13 @@ class TestMapModelResponse:
         )
         result = model._map_model_response(resp)
         assert result is None
+
+    def test_thinking_only_response_maps_to_none(self, model):
+        resp = ModelResponse(
+            parts=[ThinkingPart(content="hmm", signature="sig")],
+            model_name="m",
+        )
+        assert model._map_model_response(resp) is None
 
 
 # --- Request ---
@@ -1128,3 +1248,63 @@ class TestGeminiStreamingResponseProperties:
         )
         assert sr.provider_name == "google"
         assert sr.provider_url is None
+
+
+class TestGeminiStreamingSignatures:
+    @pytest.mark.anyio
+    async def test_stream_records_signatures(self):
+        chunks = [
+            {
+                "candidates": [
+                    {
+                        "content": {
+                            "parts": [
+                                {
+                                    "text": "plan",
+                                    "thought": True,
+                                    "thoughtSignature": "T",
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+            {
+                "candidates": [
+                    {
+                        "content": {
+                            "parts": [
+                                {
+                                    "functionCall": {"name": "a", "args": {}},
+                                    "thoughtSignature": "S",
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+            {
+                "candidates": [
+                    {"content": {"parts": [{"functionCall": {"args": {"x": 1}}}]}}
+                ]
+            },
+        ]
+
+        async def stream():
+            for chunk in chunks:
+                yield chunk
+
+        sr = GeminiStreamingResponse(
+            model_request_parameters=ModelRequestParameters(
+                function_tools=[], allow_text_output=True
+            ),
+            _chunks=stream(),
+            _model_name_str="gemini-test",
+        )
+        async for _ in sr:
+            pass
+
+        thinking, call = sr.get().parts
+        assert thinking.signature == "T"
+        assert call.args_as_dict() == {"x": 1}
+        assert call.provider_details == {"thought_signature": "S"}
