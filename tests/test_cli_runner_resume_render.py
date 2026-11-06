@@ -54,6 +54,7 @@ def _base_main_patches():
 
 def _resume_patches(mock_display, agent):
     """Patches that make the -r resume block resolve + load a fake session."""
+    agent._get_model_context_length.return_value = 128000
     return {
         "code_puppy.session_lifecycle.resolve_or_create_resume_target": MagicMock(
             return_value=("my-session", pathlib.Path("/tmp/autosaves"), False)
