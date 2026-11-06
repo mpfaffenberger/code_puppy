@@ -280,7 +280,7 @@ Canonical sources: Upgrade Guide https://pydantic.dev/docs/ai/project/changelog/
 
 ### Default-behavior changes (same API, different runtime)
 
-- **Slimmer default extras**: bare `pip install pydantic-ai` now = `pydantic-ai-slim[openai,anthropic,google,cli,mcp,evals,web,retries,logfire]`. `bedrock`, `groq`, `mistral`, `cohere`, `xai`, `huggingface`, `temporal`, `ag-ui`, `ui`, `spec` no longer bundled — add explicitly. Removed outright: `outlines-*`, `vertexai` (now under `google`), `fastmcp` (shim removed), `a2a` (moved upstream to `fasta2a`). #5467
+- **Slimmer default extras**: bare `pip install pydantic-ai` now = `pydantic-ai-slim[openai,anthropic,google,cli,mcp,evals,web,retries]` plus the observability extra. `bedrock`, `groq`, `mistral`, `cohere`, `xai`, `huggingface`, `temporal`, `ag-ui`, `ui`, `spec` no longer bundled — add explicitly. Removed outright: `outlines-*`, `vertexai` (now under `google`), `fastmcp` (shim removed), `a2a` (moved upstream to `fasta2a`). #5467
 - **`end_strategy` default `'early'` → `'graceful'`**: function tools called alongside a successful output tool now *run*; tools execute in emission order; `sequential=True` is now a per-tool barrier (and applies to output tools via `ToolOutput(sequential=True)`); batch-serial is `agent.parallel_tool_call_execution_mode('sequential')`. Set `end_strategy='early'` to keep v1 behavior. #5339
 - **Instrumentation defaults to version 5** with `gen_ai.aggregated_usage.*` on run spans (`use_aggregated_usage_attribute_names=True` default); version 1 + `event_mode=`/`logger_provider=` removed; versions 2–4 warn. #5523
 - **`capture_run_messages()` now captures interrupted partials** (`state='interrupted'`; new `ModelRequest.state` field) — exact-count assertions on error paths may break. #5364
@@ -327,7 +327,7 @@ Pydantic Evals: keyword-only args, `Dataset(name=...)` required, `Evaluator.name
 - **`anthropic>=0.108.0`**
 - `google-genai>=1.70.0`
 - **MCP: `fastmcp-slim[client]>=3.3.0,<5`** — v2's MCP client is built on the FastMCP client (pulls the `mcp` SDK transitively; FastMCP 4 / MCP SDK v2 supported alongside FastMCP 3 as of **v2.29.0**, #6738). We no longer pin `mcp` directly.
-- `groq>=0.25.0`, `mistralai>=2.4.2,!=2.4.6`, `boto3>=1.42.63`, `xai-sdk>=1.14.0`, `logfire[httpx]>=4.16.0`
+- `groq>=0.25.0`, `mistralai>=2.4.2,!=2.4.6`, `boto3>=1.42.63`, `xai-sdk>=1.14.0`
 
 ---
 

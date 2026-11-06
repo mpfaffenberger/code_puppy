@@ -52,7 +52,7 @@ def measure(profile: str | None) -> dict:
         config.mkdir()
         (config / "puppy.cfg").write_text(
             "[puppy]\npuppy_name = Biscuit\nowner_name = Benchmark\n"
-            "auto_save_session = false\nenable_logfire = false\n"
+            "auto_save_session = false\n"
         )
         (home / "sitecustomize.py").write_text(HOOK)
         env = {k: v for k, v in os.environ.items() if not k.startswith("XDG_")}
