@@ -10,6 +10,11 @@ import pytest
 from code_puppy.tools import ripgrep
 
 
+@pytest.fixture(autouse=True)
+def reset_failed_probe(monkeypatch):
+    monkeypatch.setattr(ripgrep, "_failed_probe", None)
+
+
 @pytest.fixture
 def interpreter_dir(tmp_path, monkeypatch):
     """Pretend the interpreter lives in tmp_path, with nothing on PATH."""
@@ -21,7 +26,27 @@ def interpreter_dir(tmp_path, monkeypatch):
 def test_prefers_path(interpreter_dir, monkeypatch):
     (interpreter_dir / "rg").touch()
     monkeypatch.setattr(ripgrep.shutil, "which", lambda name: "/usr/bin/rg")
+    monkeypatch.setattr(ripgrep, "_executable_works", lambda path: True)
     assert ripgrep.find_ripgrep() == "/usr/bin/rg"
+
+
+def test_falls_back_when_path_rg_is_broken(interpreter_dir, monkeypatch):
+    """Regression: a PATH entry that exists but won't run (a broken pyenv
+    shim, say) must not shadow a working bundled copy."""
+    (interpreter_dir / "rg").touch()
+    monkeypatch.setattr(ripgrep.shutil, "which", lambda name: "/broken/pyenv/shim/rg")
+    monkeypatch.setattr(ripgrep, "_executable_works", lambda path: False)
+    assert ripgrep.find_ripgrep() == os.path.join(str(interpreter_dir), "rg")
+
+
+def test_broken_path_rg_is_last_resort_when_nothing_bundled(
+    interpreter_dir, monkeypatch
+):
+    """No working rg anywhere: better to hand back the broken PATH entry
+    (callers already surface rg invocation failures) than None."""
+    monkeypatch.setattr(ripgrep.shutil, "which", lambda name: "/broken/pyenv/shim/rg")
+    monkeypatch.setattr(ripgrep, "_executable_works", lambda path: False)
+    assert ripgrep.find_ripgrep() == "/broken/pyenv/shim/rg"
 
 
 @pytest.mark.parametrize("name", ["rg", "rg.exe"])
@@ -32,6 +57,47 @@ def test_falls_back_to_binary_beside_interpreter(interpreter_dir, name):
 
 def test_none_when_missing_everywhere(interpreter_dir):
     assert ripgrep.find_ripgrep() is None
+
+
+def test_failed_probe_is_reused_until_the_shim_changes(tmp_path, monkeypatch):
+    shim = tmp_path / "rg-shim"
+    marker = tmp_path / "probes"
+    bundled = tmp_path / "rg"
+    bundled.touch()
+    real_python = sys.executable
+    monkeypatch.setattr(sys, "executable", str(tmp_path / "python"))
+    monkeypatch.setattr(ripgrep.shutil, "which", lambda _name: str(shim))
+    monkeypatch.setattr(ripgrep, "_HEALTH_CHECK_TIMEOUT_SECONDS", 0.5)
+
+    def write_shim(*, succeeds):
+        exit_line = (
+            "print('ripgrep 1.0')" if succeeds else "import time\ntime.sleep(20)"
+        )
+        shim.write_text(
+            f"#!{real_python}\n"
+            "from pathlib import Path\n"
+            f"with Path({str(marker)!r}).open('a') as stream:\n"
+            "    stream.write('probe\\n')\n"
+            f"{exit_line}\n"
+        )
+        shim.chmod(0o755)
+
+    write_shim(succeeds=False)
+    assert ripgrep.find_ripgrep() == str(bundled)
+    assert ripgrep.find_ripgrep() == str(bundled)
+    assert marker.read_text().splitlines() == ["probe"]
+
+    write_shim(succeeds=True)
+    assert ripgrep.find_ripgrep() == str(shim)
+    assert marker.read_text().splitlines() == ["probe", "probe"]
+
+
+def test_executable_works_true_for_a_real_runnable_binary():
+    assert ripgrep._executable_works(sys.executable) is True
+
+
+def test_executable_works_false_for_a_missing_path():
+    assert ripgrep._executable_works("/definitely/not/a/real/path/rg") is False
 
 
 def test_file_completion_index_finds_bundled_ripgrep(interpreter_dir, monkeypatch):
