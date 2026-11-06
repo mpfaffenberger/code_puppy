@@ -101,6 +101,15 @@ def get_approval_backend() -> Optional[ApprovalBackend]:
     return _APPROVAL_BACKEND
 
 
+def can_prompt_for_approval() -> bool:
+    """True when an approval can be asked: a backend is installed or stdin is interactive.
+
+    Plugins (e.g. ACP) feature-detect this to know core gates shell commands;
+    don't rename or narrow it without updating them.
+    """
+    return get_approval_backend() is not None or _stdin_supports_interactive_approval()
+
+
 def _approval_message_text(content) -> str:
     """Flatten Rich ``Text``/``str`` approval content to plain text."""
     plain = getattr(content, "plain", None)

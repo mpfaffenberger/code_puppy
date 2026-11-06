@@ -30,11 +30,13 @@ from code_puppy.messaging import (  # Structured messaging types
     get_message_bus,
 )
 from code_puppy.tools.common import (
+    can_prompt_for_approval,
     generate_group_id,
     get_user_approval_async,
     get_working_directory,
     resolve_path,
 )
+from code_puppy.tools.file_permission_state import PermissionNotDecided
 from code_puppy.tools.shell_backgrounding import (
     DivertLog,
     background_generation,
@@ -1031,8 +1033,102 @@ async def run_shell_command(
                 emit_info(Text(notice, style="dim"))
                 command = new_command
 
-    # Handle background execution - runs command detached and returns immediately
-    # This happens BEFORE user confirmation since we don't wait for the command
+    if not command or not command.strip():
+        emit_error(t("tools.shell.empty_command"), message_group=group_id)
+        return ShellCommandOutput(
+            success=False,
+            command=command,
+            error="Command cannot be empty",
+            stdout=None,
+            stderr=None,
+            exit_code=None,
+            execution_time=None,
+        )
+
+    from code_puppy.config import get_yolo_mode
+
+    yolo_mode = get_yolo_mode()
+
+    # Check if we're running as a sub-agent (skip confirmation and run silently)
+    running_as_subagent = is_subagent()
+
+    # Only ask when someone can answer (approval backend or interactive TTY),
+    # not in yolo mode, and NOT as a sub-agent (sub-agents run without user
+    # interaction). Don't "fix" this back to isatty(): backends work without a TTY.
+    if not yolo_mode and not running_as_subagent and can_prompt_for_approval():
+        # No local lock — get_user_approval_async serializes parallel prompts
+        # internally, so repeated destructive commands queue instead of vanishing.
+
+        # Get puppy name for personalized messages
+        from code_puppy.config import get_puppy_name
+
+        puppy_name = get_puppy_name().title()
+
+        # Build panel content
+        panel_content = Text()
+        panel_content.append("Requesting permission to run:\n", style="bold yellow")
+        panel_content.append("$ ", style="bold green")
+        panel_content.append(command, style="bold white")
+
+        if cwd:
+            panel_content.append("\n\n", style="")
+            panel_content.append("Working directory: ", style="dim")
+            panel_content.append(cwd, style="dim cyan")
+
+        # Use the common approval function (async version).
+        # Internal queueing means parallel calls wait their turn here.
+        confirmed, user_feedback = await get_user_approval_async(
+            title="Shell Command",
+            content=panel_content,
+            preview=None,
+            border_style="dim white",
+            puppy_name=puppy_name,
+        )
+
+        if not confirmed:
+            if isinstance(user_feedback, PermissionNotDecided):
+                # Nobody chose Reject (cancelled/failed request); don't tell the
+                # model the user said no. Mirrors file_modifications.
+                result = ShellCommandOutput(
+                    success=False,
+                    command=command,
+                    error=(
+                        f"PERMISSION NOT GRANTED: {user_feedback} The command was "
+                        "not run. The user did not reject it; do not say they did."
+                    ),
+                    stdout=None,
+                    stderr=None,
+                    exit_code=None,
+                    execution_time=None,
+                )
+            elif user_feedback:
+                result = ShellCommandOutput(
+                    success=False,
+                    command=command,
+                    error=f"USER REJECTED: {user_feedback}",
+                    user_feedback=user_feedback,
+                    stdout=None,
+                    stderr=None,
+                    exit_code=None,
+                    execution_time=None,
+                )
+            else:
+                result = ShellCommandOutput(
+                    success=False,
+                    command=command,
+                    error="User rejected the command!",
+                    stdout=None,
+                    stderr=None,
+                    exit_code=None,
+                    execution_time=None,
+                )
+            return result
+    else:
+        time.time()
+
+    # Handle background execution - runs command detached and returns immediately.
+    # Runs AFTER the approval gate above: a detached command is at least as risky
+    # as one we wait on, and backends (e.g. ACP) must be asked for both.
     if background:
         # Create temp log file for output
         log_file = tempfile.NamedTemporaryFile(
@@ -1123,84 +1219,6 @@ async def run_shell_command(
                 execution_time=None,
                 background=True,
             )
-
-    # Rest of the existing function continues...
-    if not command or not command.strip():
-        emit_error(t("tools.shell.empty_command"), message_group=group_id)
-        return ShellCommandOutput(
-            success=False,
-            command=command,
-            error="Command cannot be empty",
-            stdout=None,
-            stderr=None,
-            exit_code=None,
-            execution_time=None,
-        )
-
-    from code_puppy.config import get_yolo_mode
-
-    yolo_mode = get_yolo_mode()
-
-    # Check if we're running as a sub-agent (skip confirmation and run silently)
-    running_as_subagent = is_subagent()
-
-    # Only ask for confirmation if we're in an interactive TTY, not in yolo mode,
-    # and NOT running as a sub-agent (sub-agents run without user interaction)
-    if not yolo_mode and not running_as_subagent and sys.stdin.isatty():
-        # No local lock — get_user_approval_async serializes parallel prompts
-        # internally, so repeated destructive commands queue instead of vanishing.
-
-        # Get puppy name for personalized messages
-        from code_puppy.config import get_puppy_name
-
-        puppy_name = get_puppy_name().title()
-
-        # Build panel content
-        panel_content = Text()
-        panel_content.append("Requesting permission to run:\n", style="bold yellow")
-        panel_content.append("$ ", style="bold green")
-        panel_content.append(command, style="bold white")
-
-        if cwd:
-            panel_content.append("\n\n", style="")
-            panel_content.append("Working directory: ", style="dim")
-            panel_content.append(cwd, style="dim cyan")
-
-        # Use the common approval function (async version).
-        # Internal queueing means parallel calls wait their turn here.
-        confirmed, user_feedback = await get_user_approval_async(
-            title="Shell Command",
-            content=panel_content,
-            preview=None,
-            border_style="dim white",
-            puppy_name=puppy_name,
-        )
-
-        if not confirmed:
-            if user_feedback:
-                result = ShellCommandOutput(
-                    success=False,
-                    command=command,
-                    error=f"USER REJECTED: {user_feedback}",
-                    user_feedback=user_feedback,
-                    stdout=None,
-                    stderr=None,
-                    exit_code=None,
-                    execution_time=None,
-                )
-            else:
-                result = ShellCommandOutput(
-                    success=False,
-                    command=command,
-                    error="User rejected the command!",
-                    stdout=None,
-                    stderr=None,
-                    exit_code=None,
-                    execution_time=None,
-                )
-            return result
-    else:
-        time.time()
 
     # Execute the command - sub-agents run silently without keyboard context
     return await _execute_shell_command(
