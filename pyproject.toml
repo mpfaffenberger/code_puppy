@@ -4,13 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "code-puppy"
-version = "0.0.965"
+version = "0.0.967"
 description = "Code generation agent"
 readme = "README.md"
 requires-python = ">=3.11,<3.15"
 dependencies = [
-    "code-puppy-core-plugins>=0.0.103",
-    "logfire>=4.0",
+    "code-puppy-core-plugins>=0.0.104",
     "pydantic-ai-slim[openai,anthropic,mcp]==2.64.0",
     "pydantic-ai-harness[code-mode]==0.64.0",
     # Imported directly by code_puppy.agents; range mirrors pydantic-ai-harness[code-mode].
@@ -73,7 +72,7 @@ classifiers = [
 bedrock = ["boto3>=1.35.0"]
 durable = ["dbos>=2.11.0"]
 computer-use = [
-    "code-puppy-core-plugins[computer-use]>=0.0.103",
+    "code-puppy-core-plugins[computer-use]>=0.0.104",
 ]
 
 [project.urls]
@@ -84,9 +83,6 @@ HomePage = "https://github.com/mpfaffenberger/code_puppy"
 [project.scripts]
 code-puppy = "code_puppy.main:main_entry"
 pup = "code_puppy.main:main_entry"
-
-[tool.logfire]
-ignore_no_config = true
 
 [tool.hatch.build]
 packages = ["code_puppy"]

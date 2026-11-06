@@ -31,6 +31,7 @@ from code_puppy._pydantic_tool_helpers import (
     _block_reason,
     _handled_result_for_blocks,
     _normalize_claude_code_tool_name,
+    _raise_if_cancel_pending,
     _tool_args_for_pre_tool_call,
     _writeback_tool_args,
 )
@@ -602,6 +603,10 @@ def patch_tool_call_callbacks() -> bool:
                 )
             except Exception:
                 pass  # import/dispatch failure leaves nothing to act on
+
+            # A callback may have absorbed a cancel; re-assert it before any
+            # callback result is honored or the tool runs.
+            _raise_if_cancel_pending()
 
             # Collect non-blocking hook context messages (e.g. PreToolUse
             # stdout) so the model sees them — otherwise they're lost.

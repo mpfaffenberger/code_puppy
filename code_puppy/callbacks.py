@@ -83,6 +83,7 @@ PhaseType = Literal[
     "wrap_pydantic_agent",
     "agent_run_context",
     "agent_run_cancel",
+    "agent_event_stream_start",
     "should_skip_fallback_render",
     "pre_mcp_autostart",
     "interactive_turn_end",
@@ -177,6 +178,7 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "wrap_pydantic_agent": [],
     "agent_run_context": [],
     "agent_run_cancel": [],
+    "agent_event_stream_start": [],
     "should_skip_fallback_render": [],
     "pre_mcp_autostart": [],
     "interactive_turn_end": [],
@@ -1895,10 +1897,15 @@ async def on_agent_run_cancel(group_id: str) -> List[Any]:
 
     Plugins use this to cancel any external workflow tracking the run.
     """
-    from code_puppy.observability import emit_cancellation
-
-    emit_cancellation(group_id)
     return await _trigger_callbacks("agent_run_cancel", group_id)
+
+
+def on_agent_event_stream_start(group_id: str) -> List[Any]:
+    """Fired synchronously inside a streaming agent run before its events are consumed.
+
+    Lets plugins read the run's context-local state, e.g. a tracing span.
+    """
+    return _trigger_callbacks_sync("agent_event_stream_start", group_id)
 
 
 def on_should_skip_fallback_render(agent) -> bool:

@@ -98,9 +98,7 @@ class TestMain:
         )
         mock_inter.assert_called_once()
         output = capsys.readouterr().out.lower()
-        assert "logo" in output
-        assert "pydantic" not in output
-        assert "logfire" not in output
+        assert output.split() == ["logo"]
 
     @pytest.mark.anyio
     async def test_shutdown_persists_autosave_snapshot(self):

@@ -37,6 +37,29 @@ def test_claude_oauth_capabilities_dispatch_to_the_plugin(phase, name, dispatch)
     assert dispatch() == ["from-plugin"]
 
 
+def test_event_stream_start_reaches_plugins_in_order_despite_failures(phase):
+    seen = []
+
+    def explode(group_id):
+        seen.append(("explode", group_id))
+        raise RuntimeError("boom")
+
+    name = phase("agent_event_stream_start")
+    assert callbacks.on_agent_event_stream_start("g1") == []
+    callbacks.register_callback(name, explode)
+    callbacks.register_callback(name, lambda group_id: seen.append(("ok", group_id)))
+
+    callbacks.on_agent_event_stream_start("g1")
+    assert seen == [("explode", "g1"), ("ok", "g1")]
+
+
+async def test_agent_run_cancel_only_dispatches_to_plugins(phase):
+    name = phase("agent_run_cancel")
+    assert await callbacks.on_agent_run_cancel("g1") == []
+    callbacks.register_callback(name, lambda group_id: f"cancelled {group_id}")
+    assert await callbacks.on_agent_run_cancel("g1") == ["cancelled g1"]
+
+
 async def test_async_callback_in_sync_trigger_under_a_running_loop_is_undecided(phase):
     """Can't await inside a running loop: report None and don't leak the coroutine."""
     ran = []
