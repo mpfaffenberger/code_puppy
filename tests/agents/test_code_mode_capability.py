@@ -28,7 +28,11 @@ from code_puppy.agents._code_mode import (
     build_speculative_code_mode,
     sandbox_mount_path,
 )
-from code_puppy.agents._code_mode_guidance import CODE_MODE_GUIDANCE, CodeModeGuidance
+from code_puppy.agents._code_mode_guidance import (
+    CODE_MODE_GUIDANCE,
+    CodeModeGuidance,
+    shell_note,
+)
 
 from code_puppy.agents._wire_tool_names import StreamedToolNameNormalizer
 from code_puppy.agents.agent_code_puppy import CodePuppyAgent
@@ -232,6 +236,53 @@ class TestCodeModeGuidance:
         assert "plugin tools declaring native routing" in CODE_MODE_GUIDANCE
         assert "does not bypass consent" in CODE_MODE_GUIDANCE
         assert "Speculative Puppy" not in CODE_MODE_GUIDANCE
+
+    def test_windows_shell_note_names_cmd_exe_and_the_missing_utilities(self):
+        """A POSIX command in cmd.exe fails as if it produced no output."""
+        with patch("platform.system", return_value="Windows"):
+            text = shell_note()
+        assert "cmd.exe" in text
+        assert "not bash" in text
+        for utility in ("tail", "head", "grep", "sed", "awk", "xargs"):
+            assert f"`{utility}`" in text
+        for alternative in ("findstr", "type", "dir /b", "Select-Object"):
+            assert alternative in text
+        assert "is not recognized" in text
+
+    def test_windows_shell_note_keeps_each_command_on_one_line(self):
+        """A command wrapped across lines breaks when pasted into cmd.exe."""
+        with patch("platform.system", return_value="Windows"):
+            text = shell_note()
+        # Every backticked span is an idiom the model may copy verbatim, so no
+        # command may contain a newline: cmd.exe would see a truncated command.
+        assert "Select-Object -Last N" in text
+        for command in ("Select-Object -Last N", "dir /b", "findstr"):
+            assert "\n" not in command
+        assert "Select-Object\n" not in text
+
+    def test_posix_shell_note_is_empty(self):
+        """POSIX hosts get bash by default; an extra note would be noise."""
+        for system in ("Linux", "Darwin"):
+            with patch("platform.system", return_value=system):
+                assert shell_note() == ""
+
+    def test_shell_note_is_a_dynamic_part_after_the_static_guidance(self):
+        """The cache breakpoint must stay on the static part (see get_instructions)."""
+        parts = CodeModeGuidance("/home/p", "/home/p").get_instructions()
+        assert parts[0] == CODE_MODE_GUIDANCE
+        assert callable(parts[-1])
+        assert parts[-1] is shell_note
+
+    def test_windows_shell_note_reaches_the_model_through_the_capability(self):
+        with patch("platform.system", return_value="Windows"):
+            text = _rendered(CodeModeGuidance(r"C:\p", "/c/p"))
+        assert "cmd.exe" in text
+        assert text.startswith(CODE_MODE_GUIDANCE)
+
+    def test_posix_rendered_guidance_omits_the_shell_note(self):
+        with patch("platform.system", return_value="Linux"):
+            text = _rendered(CodeModeGuidance("/home/p", "/home/p"))
+        assert "cmd.exe" not in text
 
 
 def test_missing_return_schema_warning_is_silenced_but_collisions_are_not():
