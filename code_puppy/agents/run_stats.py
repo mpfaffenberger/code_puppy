@@ -50,6 +50,7 @@ from pydantic_ai.messages import (
     ToolCallPartDelta,
 )
 
+from code_puppy.callbacks import is_auxiliary_agent_run
 from code_puppy.tools.subagent_context import is_subagent
 
 
@@ -552,7 +553,7 @@ async def _on_agent_run_start(
     session_id: str | None = None,
 ) -> None:
     """Mark T0 = true request-start, before any HTTP packets fly."""
-    if is_subagent():
+    if is_subagent() or is_auxiliary_agent_run():
         return
     AgentRunStats.mark_request_start(model_name=model_name)
 
@@ -629,7 +630,7 @@ async def _on_agent_run_end(
     ``result.usage()``, provided by ``_runtime``) calibrates the
     char-based token estimate before it enters the TG averages.
     """
-    if is_subagent():
+    if is_subagent() or is_auxiliary_agent_run():
         return
     usage_output_tokens: int | None = None
     if metadata:

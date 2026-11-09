@@ -3,7 +3,7 @@ import inspect
 import logging
 import threading
 import traceback
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
 from typing import (
@@ -199,6 +199,44 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
 }
 
 logger = logging.getLogger(__name__)
+
+_auxiliary_agent_run: ContextVar[bool] = ContextVar(
+    "auxiliary_agent_run", default=False
+)
+_hook_retry_prompt_submit: ContextVar[bool] = ContextVar(
+    "hook_retry_prompt_submit", default=False
+)
+
+
+@contextmanager
+def auxiliary_agent_run_context():
+    """Mark lifecycle callbacks emitted by a direct auxiliary model call."""
+    token = _auxiliary_agent_run.set(True)
+    try:
+        yield
+    finally:
+        _auxiliary_agent_run.reset(token)
+
+
+def is_auxiliary_agent_run() -> bool:
+    """Return whether the active lifecycle callback belongs to an auxiliary run."""
+    return _auxiliary_agent_run.get()
+
+
+@contextmanager
+def hook_retry_prompt_submit_context():
+    """Mark prompt submission for a retry within the current top-level turn."""
+    token = _hook_retry_prompt_submit.set(True)
+    try:
+        yield
+    finally:
+        _hook_retry_prompt_submit.reset(token)
+
+
+def is_hook_retry_prompt_submit() -> bool:
+    """Return whether prompt hooks are processing an in-turn hook retry."""
+    return _hook_retry_prompt_submit.get()
+
 
 # ---------------------------------------------------------------------------
 # Plugin ownership tracking
@@ -1159,7 +1197,13 @@ async def on_stream_event(
 async def on_transform_model_messages(
     agent_name: str | None, messages: "List[ModelMessage]"
 ) -> List[Any]:
-    """Let plugins mutate the final outbound model messages in place."""
+    """Run final outbound message guards in registration order.
+
+    ``messages`` is a request-local shallow list after history processing;
+    message and part objects remain shared with history. Later callbacks observe
+    earlier mutations. The dispatcher logs and ignores a callback that raises,
+    then continues through the remaining guards.
+    """
     return await _trigger_callbacks("transform_model_messages", agent_name, messages)
 
 
