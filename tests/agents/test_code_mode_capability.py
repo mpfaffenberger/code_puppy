@@ -223,6 +223,52 @@ class TestCodeModeGuidance:
         """False on Windows, where the mount is a POSIX spelling."""
         assert "real absolute path" not in CODE_MODE_GUIDANCE
 
+    def test_guidance_states_relative_paths_resolve_against_the_mount(self):
+        """The sandbox resolves relative paths against the mount, not the cwd.
+
+        The old prose claimed relative paths "do not resolve", which pushes a
+        model toward absolute host paths - the exact spelling that breaks.
+        """
+        assert "relative paths do not resolve" not in CODE_MODE_GUIDANCE
+        assert "resolves RELATIVE paths against the mount" in CODE_MODE_GUIDANCE
+
+    def test_guidance_forbids_host_paths_in_sandbox_python(self):
+        """`Path(r"F:\\x")` becomes `<mount>/F:\\x` -> PermissionError."""
+        flat = " ".join(CODE_MODE_GUIDANCE.split())
+        assert "Never give `Path()`, `open()` or `os.path.*` a host path" in flat
+        assert "/f/<ws>/F:/x" in flat
+        assert "PermissionError" in flat
+
+    def test_guidance_routes_binary_formats_to_the_shell(self):
+        """The sandbox has no stdlib reader for zip/pdf/xlsx/images."""
+        flat = " ".join(CODE_MODE_GUIDANCE.split())
+        assert "no stdlib reader" in flat
+        for fmt in ("zip", "pdf", "xlsx"):
+            assert fmt in flat
+        assert "use the shell" in flat
+
+    def test_windows_mount_note_spells_out_the_mangled_path(self):
+        """On Windows the model gets the concrete wrong/right spelling inline."""
+        text = _rendered(CodeModeGuidance(r"F:\savage-agi", "/f/savage-agi"))
+        flat = " ".join(text.split())
+        assert "convert host paths by hand" in flat
+        assert "`F:\\savage-agi\\sub\\file` is `/f/savage-agi/sub/file`" in flat
+        assert "into `/f/savage-agi/F:\\savage-agi/sub`" in flat
+        assert "PermissionError" in flat
+
+    def test_windows_mount_note_covers_unc_hosts(self):
+        """A UNC share is a host path too, so it needs the same warning."""
+        text = _rendered(CodeModeGuidance(r"\\srv\share\ws", "/f/savage-agi"))
+        flat = " ".join(text.split())
+        assert "convert host paths by hand" in flat
+        assert "PermissionError" in flat
+
+    def test_posix_mount_note_omits_windows_guidance(self):
+        """POSIX mounts are the real path, so Windows advice is noise there."""
+        text = _rendered(CodeModeGuidance("/srv/p", "/srv/p"))
+        assert "convert host paths" not in text
+        assert "Windows:" not in text
+
     def test_guidance_teaches_the_native_write_contract(self):
         assert "run_code" in CODE_MODE_GUIDANCE
         assert "literal" in CODE_MODE_GUIDANCE
