@@ -39,6 +39,26 @@ async def test_nonexecuted_terminal_only_reaches_opted_in_observers(outcome):
 
 
 @pytest.mark.asyncio
+async def test_released_acp_module_remains_a_terminal_observer():
+    ordinary = AsyncMock()
+    legacy_acp = AsyncMock()
+    legacy_acp.__module__ = "code_puppy_core_plugins.acp.bridge"
+    callbacks.register_callback("post_tool_call", ordinary)
+    callbacks.register_callback("post_tool_call", legacy_acp)
+
+    await callbacks.on_post_tool_call(
+        "shell",
+        {"command": "denied"},
+        {"blocked": True},
+        0.0,
+        {"outcome": "blocked", "execution_started": False},
+    )
+
+    ordinary.assert_not_awaited()
+    legacy_acp.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("outcome", ["ok", "error"])
 async def test_executed_terminal_reaches_all_consumers(outcome):
     ordinary = AsyncMock()
