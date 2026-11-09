@@ -349,3 +349,33 @@ async def test_sigint_during_mcp_wait_balances_terminal_lifecycle(
     assert statuses == [False]
     assert signal.getsignal(signal.SIGINT) is _interactive_sigint_guard
     assert _runtime._active_run_depth == 0
+
+
+@pytest.mark.skipif(not hasattr(signal, "SIGINT"), reason="SIGINT unavailable")
+async def test_consumed_initial_provider_cancel_stops_follow_up_work(repl_guard):
+    class SwallowingAgent(RecordingAgent):
+        def __init__(self) -> None:
+            super().__init__()
+            self.started = asyncio.Event()
+
+        async def run(self, prompt: Any, **_kwargs: Any) -> Result:
+            self.calls.append(prompt)
+            self.started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                return Result("cancelled-initial")
+
+    implementation = SwallowingAgent()
+    cancel_ids, statuses = register_run_outcomes()
+    get_pause_controller().request_steer("must not run", mode="queue")
+    task = asyncio.create_task(
+        _runtime.run_with_mcp(DummyAgent(implementation), "hello")
+    )
+    await asyncio.wait_for(implementation.started.wait(), timeout=5)
+
+    os.kill(os.getpid(), signal.SIGINT)
+    result = await asyncio.wait_for(task, timeout=5)
+
+    assert implementation.calls == ["hello"]
+    assert_cancelled_once(result, cancel_ids, statuses)
