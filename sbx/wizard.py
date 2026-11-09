@@ -138,8 +138,15 @@ def ensure_setup_cli(exe: str) -> None:
 
 
 def fetch_plan(exe: str, dry: bool) -> dict:
-    """Derive the credential/egress plan from the host model catalog."""
-    result = run(code_puppy_cmd(exe) + ["--setup", "sbx", "plan", "--json"], dry=dry)
+    """Derive the credential/egress plan from the host model catalog.
+
+    Runs with --prune: sbx secrets stored by earlier runs for providers
+    the catalog no longer uses are deleted, so the sbx store always
+    matches the current plan. In dry-run nothing executes at all.
+    """
+    result = run(
+        code_puppy_cmd(exe) + ["--setup", "sbx", "plan", "--prune", "--json"], dry=dry
+    )
     if dry:
         return {"credentials": [], "oauth": [], "egress": [], "unsupported": []}
     if result.returncode != 0:
@@ -148,9 +155,12 @@ def fetch_plan(exe: str, dry: bool) -> dict:
         )
     text = result.stdout
     try:
-        return json.loads(text[text.index("{") : text.rindex("}") + 1])
+        plan = json.loads(text[text.index("{") : text.rindex("}") + 1])
     except (ValueError, json.JSONDecodeError) as exc:
         raise WizardError(f"could not parse sbx plan output: {exc}") from exc
+    for name in plan.get("pruned_sbx_secrets", []):
+        print(f"sbx secret '{name}': pruned (no longer needed by your catalog)")
+    return plan
 
 
 def filter_plan(plan: dict, provider: str | None) -> dict:
