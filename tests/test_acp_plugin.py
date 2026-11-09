@@ -95,7 +95,23 @@ class FakeConnection:
         return None
 
 
-class FakeAgent:
+class RouteStub:
+    """The ``BaseAgent`` surface ACP session routes build against."""
+
+    _model_override: Optional[str] = None
+    _last_model_name: Optional[str] = None
+
+    def get_model_name(self) -> str:
+        return self._model_override or "test-model"
+
+    def set_runtime_model_name_override(self, model_name, **_: Any) -> None:
+        self._model_override = model_name
+
+    def reload_code_generation_agent(self) -> None:
+        self._last_model_name = self.get_model_name()
+
+
+class FakeAgent(RouteStub):
     """Minimal ``BaseAgent`` stand-in that streams via the real hooks."""
 
     def __init__(self, stream: bool) -> None:
@@ -121,6 +137,15 @@ class FakeAgent:
         return SimpleNamespace(output="Hello puppy", usage=usage)
 
 
+@pytest.fixture(autouse=True)
+def _configured_models(monkeypatch):
+    """Session routes only build on configured models."""
+    monkeypatch.setattr(
+        "code_puppy.command_line.model_picker_completion.load_model_names",
+        lambda: ["test-model", "other-model"],
+    )
+
+
 def _update_types(conn: FakeConnection) -> List[str]:
     return [getattr(u, "session_update", None) for _, u in conn.updates]
 
@@ -138,7 +163,7 @@ async def wired_agent(monkeypatch):
     )
     monkeypatch.setattr(
         "code_puppy.agents.agent_manager.load_agent",
-        lambda name: FakeAgent(stream=True),
+        lambda name, **_: FakeAgent(stream=True),
     )
     conn = FakeConnection()
     agent = CodePuppyAgent()
@@ -290,7 +315,7 @@ async def test_prompt_absorbs_history_for_memory_and_persistence(monkeypatch):
         "code_puppy.agents.agent_manager.get_current_agent_name", lambda: "code-puppy"
     )
 
-    class MemAgent:
+    class MemAgent(RouteStub):
         def __init__(self):
             self._h = []
 
@@ -437,7 +462,7 @@ async def test_cancel_stops_run(monkeypatch):
         "code_puppy.agents.agent_manager.get_current_agent_name", lambda: "code-puppy"
     )
 
-    class SlowAgent:
+    class SlowAgent(RouteStub):
         _message_history: list = []
 
         async def run_with_mcp(self, prompt, **_):
@@ -485,7 +510,7 @@ async def test_close_session_waits_for_in_flight_run_before_purging(monkeypatch)
     )
     run_finished = asyncio.Event()
 
-    class SlowAgent:
+    class SlowAgent(RouteStub):
         _message_history: list = []
 
         async def run_with_mcp(self, prompt, **_):
@@ -1379,12 +1404,15 @@ async def test_set_config_option_toggles_streaming(wired_agent, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_set_config_model_rebinds_model(wired_agent, monkeypatch):
-    """Switching the 'model' config option rebinds the agent, keeping history."""
+    """Switching the 'model' config option rebinds the agent, keeping history.
+
+    The switch is session-local: the terminal's global model is not written.
+    """
     agent, _ = wired_agent
     picked = {}
     monkeypatch.setattr(
         "code_puppy.command_line.model_picker_completion.load_model_names",
-        lambda: ["gpt-9"],
+        lambda: ["test-model", "gpt-9"],
     )
     monkeypatch.setattr(
         "code_puppy.config.set_model_name", lambda m: picked.__setitem__("m", m)
@@ -1392,7 +1420,9 @@ async def test_set_config_model_rebinds_model(wired_agent, monkeypatch):
     new = await agent.new_session(cwd="/tmp")
     agent._sessions[new.session_id].agent.set_message_history(["keep-me"])
     await agent.set_config_option("model", new.session_id, "gpt-9")
-    assert picked["m"] == "gpt-9"
+    assert picked == {}
+    assert agent._sessions[new.session_id].route.model_id == "gpt-9"
+    assert agent._sessions[new.session_id].agent.get_model_name() == "gpt-9"
     # History carried across the model rebind.
     assert agent._sessions[new.session_id].agent.get_message_history() == ["keep-me"]
 
@@ -1617,7 +1647,7 @@ async def test_set_config_model_reattaches_mcp(wired_agent, monkeypatch):
     agent, _ = wired_agent
     monkeypatch.setattr(
         "code_puppy.command_line.model_picker_completion.load_model_names",
-        lambda: ["gpt-9"],
+        lambda: ["test-model", "gpt-9"],
     )
     monkeypatch.setattr("code_puppy.config.set_model_name", lambda m: None)
     reattached = {}
