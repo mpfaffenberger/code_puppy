@@ -200,6 +200,24 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
 
 logger = logging.getLogger(__name__)
 
+_TERMINAL_TOOL_OBSERVER_ATTR = "__code_puppy_terminal_tool_observer__"
+# The separately released ACP bridge predates this decorator. Keep its current
+# module identity compatible until the plugin bundle can require this core API.
+_LEGACY_TERMINAL_OBSERVER_MODULES = frozenset({"code_puppy_core_plugins.acp.bridge"})
+
+
+def terminal_tool_observer(callback: CallbackFunc) -> CallbackFunc:
+    """Opt a post-tool callback into blocked/pre-execution terminal updates."""
+    setattr(callback, _TERMINAL_TOOL_OBSERVER_ATTR, True)
+    return callback
+
+
+def _is_terminal_tool_observer(callback: CallbackFunc) -> bool:
+    if getattr(callback, _TERMINAL_TOOL_OBSERVER_ATTR, False):
+        return True
+    return getattr(callback, "__module__", "") in _LEGACY_TERMINAL_OBSERVER_MODULES
+
+
 # ---------------------------------------------------------------------------
 # Plugin ownership tracking
 # ---------------------------------------------------------------------------
@@ -633,6 +651,19 @@ def _trigger_callbacks_sync(
 async def _trigger_callbacks(phase: PhaseType, *args, **kwargs) -> List[Any]:
     callbacks = get_callbacks(phase)
 
+    if phase == "post_tool_call" and len(args) >= 5:
+        context = args[4]
+        outcome = context.get("outcome") if isinstance(context, dict) else None
+        non_executed = outcome == "blocked" or (
+            outcome == "cancelled" and not context.get("execution_started", False)
+        )
+        if non_executed:
+            callbacks = [
+                callback
+                for callback in callbacks
+                if _is_terminal_tool_observer(callback)
+            ]
+
     if not callbacks:
         logger.debug(f"No callbacks registered for phase '{phase}'")
         return []
@@ -1034,14 +1065,20 @@ async def on_post_tool_call(
     """Trigger callbacks after a tool completes.
 
     This allows plugins to inspect tool results, log execution times,
-    or perform post-processing.
+    or perform post-processing. Blocked and pre-execution-cancelled calls are
+    routed only to callbacks decorated with :func:`terminal_tool_observer`.
+    Execution-phase cancellation still reaches ordinary post-tool consumers.
 
     Args:
         tool_name: Name of the tool that was called
         tool_args: Arguments that were passed to the tool
         result: The result returned by the tool
         duration_ms: Execution time in milliseconds
-        context: Optional context data for the tool call
+        context: Optional context data for the tool call. Runtime-managed calls
+            include ``outcome`` (``ok``, ``error``, ``blocked``, or ``cancelled``),
+            ``exception_type``, and ``execution_started`` (true once the tool body
+            began; cancelled terminals without it are treated as pre-execution
+            and routed only to terminal observers).
 
     Returns:
         List of results from registered callbacks.

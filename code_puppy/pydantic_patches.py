@@ -28,7 +28,8 @@ import warnings
 from typing import Any
 
 from code_puppy._pydantic_tool_helpers import (
-    _block_reason,
+    _deny_tool_call,
+    _dispatch_post_tool_call,
     _handled_result_for_blocks,
     _normalize_claude_code_tool_name,
     _raise_if_cancel_pending,
@@ -522,6 +523,7 @@ def patch_tool_call_callbacks() -> bool:
       covers every construction site (builder, sub-agents, summarizer,
       plugin-created agents) with one mechanism instead of two.
     """
+    import asyncio
     import time
 
     try:
@@ -589,54 +591,77 @@ def patch_tool_call_callbacks() -> bool:
             # Collected outside the try so it survives any callback exception.
             hook_context_messages: list[str] = []
 
-            # --- pre_tool_call (with blocking support) ---
-            # Block returns a string result so pydantic-ai sees a clean "BLOCKED: ..."
-            # instead of crashing with UnexpectedModelBehavior.
-            # Dispatching is isolated, but the block decision below is NOT: an
-            # error while rendering a deny must not silently become an allow.
-            callback_results: list = []
-            try:
-                from code_puppy import callbacks
+            terminal_started = False
+            terminal_context: dict[str, Any] = {}
 
-                callback_results = await callbacks.on_pre_tool_call(
-                    tool_name, tool_args
+            async def _deny_and_notify(block: dict) -> str:
+                """Deny the call and publish a non-executed terminal result."""
+                nonlocal terminal_started
+                denial = _deny_tool_call(block)
+                terminal_started = True
+                await _dispatch_post_tool_call(
+                    tool_name,
+                    tool_args,
+                    {**block, "blocked": True, "error": denial},
+                    0.0,
+                    terminal_context,
+                    outcome="blocked",
                 )
-            except Exception:
-                pass  # import/dispatch failure leaves nothing to act on
+                return denial
 
-            # A callback may have absorbed a cancel; re-assert it before any
-            # callback result is honored or the tool runs.
-            _raise_if_cancel_pending()
+            # --- pre_tool_call (with blocking support) ---
+            # A handled block returns the callback's result without a second
+            # terminal: clients such as ACP already completed their own entry.
+            try:
+                callback_results: list = []
+                try:
+                    from code_puppy import callbacks
 
-            # Collect non-blocking hook context messages (e.g. PreToolUse
-            # stdout) so the model sees them — otherwise they're lost.
-            for callback_result in callback_results:
-                if isinstance(callback_result, dict) and not callback_result.get(
-                    "blocked"
-                ):
-                    ctx_msg = callback_result.get("context_message")
-                    if isinstance(ctx_msg, str) and ctx_msg.strip():
-                        hook_context_messages.append(ctx_msg.strip())
+                    callback_results = await callbacks.on_pre_tool_call(
+                        tool_name, tool_args
+                    )
+                except Exception:
+                    pass  # import/dispatch failure leaves nothing to act on
 
-            # A hook that handled the call itself returns the tool's result.
-            handled_result = _handled_result_for_blocks(callback_results)
-            if handled_result is not None:
-                return handled_result
+                # A callback may have absorbed a cancel; re-assert it before any
+                # callback result is honored or the tool runs.
+                _raise_if_cancel_pending()
 
-            for callback_result in callback_results:
-                if (
-                    callback_result
-                    and isinstance(callback_result, dict)
-                    and callback_result.get("blocked")
-                ):
-                    block_msg = f"🚫 Hook blocked this tool call: {_block_reason(callback_result)}"
-                    try:
-                        from code_puppy.messaging import emit_warning
+                # Collect non-blocking hook context messages (e.g. PreToolUse
+                # stdout) so the model sees them — otherwise they're lost.
+                for callback_result in callback_results:
+                    if isinstance(callback_result, dict) and not callback_result.get(
+                        "blocked"
+                    ):
+                        ctx_msg = callback_result.get("context_message")
+                        if isinstance(ctx_msg, str) and ctx_msg.strip():
+                            hook_context_messages.append(ctx_msg.strip())
 
-                        emit_warning(block_msg)
-                    except Exception:
-                        pass  # surfacing the warning is best-effort; the deny stands
-                    return f"ERROR: {block_msg}\n\nThe hook policy prevented this tool from running. Please inform the user and do not retry this specific command."
+                handled_result = _handled_result_for_blocks(callback_results)
+                if handled_result is not None:
+                    return handled_result
+
+                for callback_result in callback_results:
+                    if (
+                        callback_result
+                        and isinstance(callback_result, dict)
+                        and callback_result.get("blocked")
+                    ):
+                        return await _deny_and_notify(callback_result)
+            except asyncio.CancelledError as exc:
+                if terminal_started:
+                    raise
+                terminal_started = True
+                await _dispatch_post_tool_call(
+                    tool_name,
+                    tool_args,
+                    {"cancelled": True, "error": "Tool call cancelled"},
+                    0.0,
+                    terminal_context,
+                    outcome="cancelled",
+                    exception_type=type(exc).__name__,
+                )
+                raise
 
             # Write pre_tool_call mutations back to call.args so message
             # history sees them (execution itself reads validated.validated_args,
@@ -644,12 +669,15 @@ def patch_tool_call_callbacks() -> bool:
             _writeback_tool_args(call, tool_args, _args_writeback_mode)
 
             start = time.perf_counter()
-            error: Exception | None = None
+            error: BaseException | None = None
+            outcome = "ok"
+            execution_started = False
             result = None
             try:
                 from code_puppy.messaging.tool_output import compact_tool_output
 
                 with compact_tool_output(tool_name, tool_args):
+                    execution_started = True
                     result = await _original_execute_tool_call(
                         self, validated, **kwargs
                     )
@@ -667,20 +695,32 @@ def patch_tool_call_callbacks() -> bool:
                     else:
                         result = prefix + str(result)
                 return result
+            except asyncio.CancelledError as exc:
+                error = exc
+                outcome = "cancelled"
+                raise
             except Exception as exc:
                 error = exc
+                outcome = "error"
                 raise
             finally:
                 duration_ms = (time.perf_counter() - start) * 1000
-                final_result = result if error is None else {"error": str(error)}
-                try:
-                    from code_puppy import callbacks
-
-                    await callbacks.on_post_tool_call(
-                        tool_name, tool_args, final_result, duration_ms
-                    )
-                except Exception:
-                    pass  # never block tool execution
+                if outcome == "cancelled":
+                    final_result = {
+                        "cancelled": True,
+                        "error": "Tool call cancelled",
+                    }
+                else:
+                    final_result = result if error is None else {"error": str(error)}
+                await _dispatch_post_tool_call(
+                    tool_name,
+                    tool_args,
+                    final_result,
+                    duration_ms,
+                    {**terminal_context, "execution_started": execution_started},
+                    outcome=outcome,
+                    exception_type=type(error).__name__ if error is not None else None,
+                )
 
         ToolManager.get_tool_def = _patched_get_tool_def
         ToolManager.validate_output_tool_call = _patched_validate_output_tool_call

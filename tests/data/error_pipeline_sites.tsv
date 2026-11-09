@@ -41,5 +41,3 @@ code_puppy/pydantic_patches.py	_sanitize_tool_call_args	1	DEFERRED
 code_puppy/pydantic_patches.py	_get_code_puppy_version	1	DEFERRED	
 code_puppy/pydantic_patches.py	patch_user_agent._get_dynamic_user_agent	1	DEFERRED	
 code_puppy/pydantic_patches.py	patch_tool_call_callbacks._patched_execute_tool_call	1	DEFERRED	
-code_puppy/pydantic_patches.py	patch_tool_call_callbacks._patched_execute_tool_call	2	DEFERRED	
-code_puppy/pydantic_patches.py	patch_tool_call_callbacks._patched_execute_tool_call	4	DEFERRED	

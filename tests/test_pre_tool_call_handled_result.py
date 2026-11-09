@@ -9,6 +9,7 @@ passes ``tool_result``, which the model receives as the tool's return value.
 from __future__ import annotations
 
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from pydantic_ai.tool_manager import ToolManager
@@ -62,13 +63,18 @@ async def _call(tool_name: str) -> str:
 
 
 @pytest.mark.asyncio
-async def test_handled_call_returns_the_hook_result(patched_execute):
+async def test_handled_call_returns_the_hook_result_without_second_terminal(
+    patched_execute, monkeypatch
+):
     callbacks.register_callback("pre_tool_call", lambda *a, **k: dict(HANDLED))
+    terminal = AsyncMock()
+    monkeypatch.setattr(callbacks, "on_post_tool_call", terminal)
 
     result = await _call("ask_user_question")
 
     assert result == HANDLED["tool_result"]
     assert patched_execute == []
+    terminal.assert_not_awaited()
 
 
 @pytest.mark.asyncio
