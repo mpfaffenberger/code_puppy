@@ -496,6 +496,10 @@ async def main():
                             render_exc,
                             context="code_puppy.cli_entry::main: startup/resume: re-render resumed session history",
                         )
+
+                from code_puppy.resume_advice import suggest_compaction
+
+                suggest_compaction(total_tokens, agent._get_model_context_length())
         except Exception as e:
             log_error(
                 e,
