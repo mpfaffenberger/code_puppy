@@ -592,7 +592,12 @@ def patch_tool_call_callbacks() -> bool:
             hook_context_messages: list[str] = []
 
             terminal_started = False
-            terminal_context: dict[str, Any] = {}
+            terminal_context: dict[str, Any] = {
+                "execution_started": False,
+            }
+            tool_call_id = getattr(call, "tool_call_id", None)
+            if tool_call_id is not None:
+                terminal_context["tool_call_id"] = tool_call_id
 
             async def _deny_and_notify(block: dict) -> str:
                 """Deny the call and publish a non-executed terminal result."""
@@ -602,7 +607,7 @@ def patch_tool_call_callbacks() -> bool:
                 await _dispatch_post_tool_call(
                     tool_name,
                     tool_args,
-                    {**block, "blocked": True, "error": denial},
+                    {"blocked": True, "error": denial},
                     0.0,
                     terminal_context,
                     outcome="blocked",
@@ -699,7 +704,7 @@ def patch_tool_call_callbacks() -> bool:
                 error = exc
                 outcome = "cancelled"
                 raise
-            except Exception as exc:
+            except BaseException as exc:
                 error = exc
                 outcome = "error"
                 raise

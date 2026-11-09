@@ -1076,8 +1076,9 @@ async def on_post_tool_call(
         duration_ms: Execution time in milliseconds
         context: Optional context data for the tool call. Runtime-managed calls
             include ``outcome`` (``ok``, ``error``, ``blocked``, or ``cancelled``),
-            ``exception_type``, and ``execution_started`` (true once the tool body
-            began; cancelled terminals without it are treated as pre-execution
+            ``exception_type``, and ``execution_started`` (true once execution
+            was handed to the tool manager; cancelled terminals without it are
+            treated as pre-execution
             and routed only to terminal observers).
 
     Returns:
