@@ -1,0 +1,13 @@
+{
+  "mcp_servers": {
+    "parallel-search": {
+      "type": "http",
+      "url": "https://search.parallel.ai/mcp",
+      "headers": {
+        "User-Agent": "code-puppy/parallel-search-example"
+      },
+      "timeout": 30,
+      "enabled": true
+    }
+  }
+}
