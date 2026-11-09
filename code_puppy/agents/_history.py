@@ -41,6 +41,9 @@ def _digest_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()[:16]
 
 
+_MISSING = object()
+
+
 def stringify_part(part: Any) -> str:
     """Return a stable, timestamp-free string representation of a message part.
 
@@ -66,9 +69,26 @@ def stringify_part(part: Any) -> str:
     if hasattr(part, "tool_name") and part.tool_name:
         attributes.append(f"tool_name={part.tool_name}")
 
+    args = getattr(part, "args", _MISSING)
+    if args is not _MISSING:
+        try:
+            args_fn = getattr(part, "args_as_json_str", None)
+            if callable(args_fn):
+                args_str = args_fn()
+            elif isinstance(args, str):
+                args_str = args
+            elif isinstance(args, dict):
+                args_str = json.dumps(args, sort_keys=True)
+            else:
+                args_str = repr(args)
+        except Exception:
+            args_str = repr(args)
+        attributes.append(f"args={args_str}")
+
     content = getattr(part, "content", None)
     if content is None:
-        attributes.append("content=None")
+        if args is _MISSING:
+            attributes.append("content=None")
     elif isinstance(content, str):
         attributes.append(f"content={content}")
     elif isinstance(content, pydantic.BaseModel):
