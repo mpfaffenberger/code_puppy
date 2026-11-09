@@ -69,17 +69,21 @@ async def run_auxiliary_model_call(
             prompt, session_id
         )
     try:
-        with auxiliary_agent_run_context():
-            await on_agent_run_start(
-                agent_name=agent_name,
-                model_name=model_name,
-                session_id=session_id,
-            )
-    except Exception:
-        logger.exception("Auxiliary agent_run_start callback failed")
+        try:
+            with auxiliary_agent_run_context():
+                await on_agent_run_start(
+                    agent_name=agent_name,
+                    model_name=model_name,
+                    session_id=session_id,
+                )
+        except Exception:
+            # Ordinary observer failures remain fail-open. Control-flow exits
+            # are handled by the outer guard so a partial start is balanced.
+            logger.exception("Auxiliary agent_run_start callback failed")
 
-    try:
         result = await call(submitted_prompt)
+        reported_error = result_error(result) if result_error is not None else None
+        response = response_text(result)
     except BaseException as exc:
         await _finish_lifecycle(
             agent_name=agent_name,
@@ -90,13 +94,12 @@ async def run_auxiliary_model_call(
         )
         raise
 
-    reported_error = result_error(result) if result_error is not None else None
     error = RuntimeError(reported_error) if reported_error else None
     await _finish_lifecycle(
         agent_name=agent_name,
         model_name=model_name,
         session_id=session_id,
-        response_text=response_text(result),
+        response_text=response,
         error=error,
     )
     return result
