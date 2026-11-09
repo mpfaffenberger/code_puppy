@@ -557,3 +557,76 @@ async def test_real_mcp_invalidation_keeps_built_client_for_in_flight_run(
     assert recovered == ([original_error] if invalidate_at == "recovery" else [])
     build.assert_not_called()
     assert agent._code_generation_agent is None
+
+
+async def test_hook_retry_marker_resets_before_later_queued_steer(
+    monkeypatch: pytest.MonkeyPatch,
+    diagnostics: list[BaseException],
+) -> None:
+    results = [DummyResult("first"), DummyResult("retry"), DummyResult("queued")]
+    pydantic_agent = ScriptedPydanticAgent(*results)
+    agent = DummyAgent(pydantic_agent)
+    submitted: list[tuple[str, bool]] = []
+    queue_checks = 0
+
+    def rewrite(prompt: str, _session_id: str | None = None) -> str:
+        submitted.append((prompt, is_hook_retry_prompt_submit()))
+        return prompt
+
+    def queued_steer(*_args: Any) -> str | None:
+        nonlocal queue_checks
+        queue_checks += 1
+        return "queued steer" if queue_checks == 2 else None
+
+    register_callback("user_prompt_submit", rewrite)
+    monkeypatch.setattr(_runtime, "prepare_queued_steer_injection", queued_steer)
+    monkeypatch.setattr(
+        _runtime,
+        "on_agent_run_result",
+        AsyncMock(
+            side_effect=[
+                [{"retry": True, "prompt": "hook retry", "delay": 0}],
+                [],
+            ]
+        ),
+    )
+
+    result = await _runtime.run_with_mcp(agent, "hello")
+
+    assert result is results[2]
+    assert submitted == [
+        ("hello", False),
+        ("hook retry", True),
+        ("queued steer", False),
+    ]
+    assert diagnostics == []
+
+
+@pytest.mark.parametrize("invalid_prompt", [None, ["not", "text"]])
+async def test_invalid_hook_retry_prompt_uses_documented_default(
+    monkeypatch: pytest.MonkeyPatch,
+    diagnostics: list[BaseException],
+    invalid_prompt: Any,
+) -> None:
+    results = [DummyResult("first"), DummyResult("second")]
+    pydantic_agent = ScriptedPydanticAgent(*results)
+    agent = DummyAgent(pydantic_agent)
+    monkeypatch.setattr(
+        _runtime,
+        "on_agent_run_result",
+        AsyncMock(
+            side_effect=[
+                [{"retry": True, "prompt": invalid_prompt, "delay": 0}],
+                [],
+            ]
+        ),
+    )
+
+    result = await _runtime.run_with_mcp(agent, "hello")
+
+    assert result is results[1]
+    assert [call["prompt"] for call in pydantic_agent.calls] == [
+        "hello",
+        "Please continue.",
+    ]
+    assert diagnostics == []

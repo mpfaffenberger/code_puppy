@@ -13,9 +13,9 @@ This is a mutable, ordered callback chain:
 - a callback that raises is logged and ignored, and later callbacks still run;
 - inserting, removing, or replacing entries in the callback's message list is
   request-only and is not written back to conversation history;
-- message and part objects are shared with history. In-place edits persist. A
-  request-only edit must replace the containing message entry with a new
-  message and parts list.
+- message and part objects may be shared with history, so in-place edits can
+  persist. A request-only edit must replace the containing message entry with a
+  new message and parts list.
 
 Final ordering among outbound policies is intentionally not defined here.
 Registration order remains the policy composition rule.
@@ -34,10 +34,16 @@ Registration order remains the policy composition rule.
 | Hook-requested retries | Re-enter this boundary on the follow-up call | The retry prompt uses `user_prompt_submit` inside `is_hook_retry_prompt_submit()`, so subscribers can continue the current turn. |
 | Goal judges | Installed on each fresh read-only judge | Generated judge prompts use `user_prompt_submit`; history exposed by the read-only tool is guarded on the next request. |
 
-Auxiliary `/btw` and `/fork` lifecycle callbacks run in an explicit auxiliary
-scope, and end metadata includes `auxiliary_model_call: true`. Subscribers that
-own top-level UI, timing, process, durable-memory, or persistence state should
-use `callbacks.is_auxiliary_agent_run()` to ignore that scope. Audit and
+The `/fork`, `/btw`, and goal-judge rows require a companion plugin build that
+uses these core APIs. Older plugin builds retain their previous unscoped prompt
+and lifecycle behavior.
+
+Auxiliary `/btw` and `/fork` prompt submission and lifecycle callbacks run in
+an explicit auxiliary scope; goal-judge prompt submission uses the same scope.
+End metadata includes `auxiliary_model_call: true` and a `status` of `completed`,
+`failed`, or `cancelled`. Subscribers that own top-level UI, timing, process,
+durable-memory, persistence, or one-shot foreground prompt state should use
+`callbacks.is_auxiliary_agent_run()` to ignore that scope. Audit and
 authentication subscribers may still observe it.
 
 ## Private inference
@@ -54,6 +60,6 @@ the URL; an adapter may fetch it later, outside this boundary. A guard that must
 inspect content should strip or deny URL parts rather than assume the provider
 performs the fetch.
 
-Attachment-free auxiliary and follow-up calls pass through the runtime payload
-builder. Core keeps no attachment-suppression state; this preserves one shared
-prompt-policy seam without inventing a second path.
+Attachment-free auxiliary and follow-up calls submit their generated text
+through the same prompt callbacks as the initial run. Core keeps no
+attachment-suppression state or duplicate payload builder for those calls.

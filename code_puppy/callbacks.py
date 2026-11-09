@@ -1612,7 +1612,9 @@ async def on_agent_run_end(
         success: Whether the run completed successfully
         error: Exception if the run failed, None otherwise
         response_text: The final text response from the agent (if successful)
-        metadata: Optional dict with additional context (tokens used, etc.)
+        metadata: Optional dict with additional context. Auxiliary runs include
+            ``status`` (``completed``, ``failed``, or ``cancelled``) and
+            ``auxiliary_model_call=True``.
 
     Returns:
         List of results from registered callbacks.

@@ -724,10 +724,8 @@ async def apply_user_prompt_submit(prompt: str, session_id: str | None) -> str:
 async def apply_attachment_free_user_prompt_submit(
     prompt: str, session_id: str | None
 ) -> str:
-    """Apply prompt hooks through the shared attachment-free payload seam."""
-    submitted = await apply_user_prompt_submit(prompt, session_id)
-    payload = _build_prompt_payload(submitted, None, None)
-    return payload if isinstance(payload, str) else submitted
+    """Apply prompt hooks for an attachment-free generated submission."""
+    return await apply_user_prompt_submit(prompt, session_id)
 
 
 async def run_with_mcp(
@@ -877,7 +875,7 @@ async def _run_with_mcp_impl(
         # (before every model call); ``queue``-mode ones drain between runs
         # below — additive, won't interrupt in-progress work.
         async def _follow_up_run(
-            follow_up_prompt: Any, *, is_hook_retry: bool = False
+            follow_up_prompt: str, *, is_hook_retry: bool = False
         ) -> Any:
             prompt_scope = (
                 hook_retry_prompt_submit_context() if is_hook_retry else nullcontext()
@@ -928,7 +926,9 @@ async def _run_with_mcp_impl(
             if not retry_req:
                 break
 
-            retry_prompt = retry_req.get("prompt", "Please continue.")
+            retry_prompt = retry_req.get("prompt")
+            if not isinstance(retry_prompt, str) or not retry_prompt:
+                retry_prompt = "Please continue."
             retry_delay = retry_req.get("delay", 1.0)
             if hasattr(result, "all_messages"):
                 agent._message_history = list(result.all_messages())

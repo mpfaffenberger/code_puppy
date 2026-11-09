@@ -327,6 +327,11 @@ async def _invoke_agent_impl(
         session_id = f"{safe_base}-{hash_suffix}"
     # else: continuing existing session, use session_id as-is
 
+    if session_id_is_resolved:
+        # `/fork` publishes its final identity before entering this function.
+        # Reuse it for message groups, request correlation, and tool hooks.
+        group_id = session_id
+
     # Lazy imports to avoid circular dependency
     from code_puppy.agents.subagent_stream_handler import subagent_stream_handler
 

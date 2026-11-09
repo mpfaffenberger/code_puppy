@@ -40,7 +40,7 @@ async def _finish_lifecycle(
                 model_name=model_name,
                 session_id=session_id,
                 success=error is None,
-                error=error,  # type: ignore[arg-type]
+                error=error if isinstance(error, Exception) else None,
                 response_text=response_text,
                 metadata={
                     "status": _status_for_error(error),

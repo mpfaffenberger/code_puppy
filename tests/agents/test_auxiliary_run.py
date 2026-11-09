@@ -26,6 +26,7 @@ async def test_auxiliary_lifecycle_preserves_live_main_run_stats(monkeypatch):
     observed_scopes = []
 
     async def submit(prompt, _session_id):
+        observed_scopes.append(callbacks.is_auxiliary_agent_run())
         return prompt
 
     async def start(**kwargs):
@@ -55,7 +56,7 @@ async def test_auxiliary_lifecycle_preserves_live_main_run_stats(monkeypatch):
     )
 
     assert result == "answer"
-    assert observed_scopes == [True, True]
+    assert observed_scopes == [True, True, True]
     assert AgentRunStats._output_tokens == 400
     assert AgentRunStats._current_model_name == "main-model"
     assert end_events[0]["metadata"] == {
@@ -65,11 +66,15 @@ async def test_auxiliary_lifecycle_preserves_live_main_run_stats(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    ("failure", "status"),
-    [(RuntimeError("boom"), "failed"), (asyncio.CancelledError(), "cancelled")],
+    ("failure", "status", "reported_error"),
+    [
+        (RuntimeError("boom"), "failed", "same"),
+        (asyncio.CancelledError(), "cancelled", None),
+        (KeyboardInterrupt(), "cancelled", None),
+    ],
 )
 async def test_auxiliary_lifecycle_reports_failure_and_reraises(
-    monkeypatch, failure, status
+    monkeypatch, failure, status, reported_error
 ):
     monkeypatch.setattr(
         _runtime,
@@ -94,7 +99,8 @@ async def test_auxiliary_lifecycle_reports_failure_and_reraises(
         )
 
     assert finished.await_args.kwargs["success"] is False
-    assert finished.await_args.kwargs["error"] is failure
+    expected_error = failure if reported_error == "same" else reported_error
+    assert finished.await_args.kwargs["error"] is expected_error
     assert finished.await_args.kwargs["metadata"]["status"] == status
 
 
@@ -139,7 +145,7 @@ async def test_cancel_during_start_is_balanced_and_reraised(monkeypatch):
     assert raised.value is cancellation
     assert events[0] == "start"
     terminal = events[1][1]
-    assert terminal["error"] is cancellation
+    assert terminal["error"] is None
     assert terminal["metadata"]["status"] == "cancelled"
 
 
@@ -203,3 +209,67 @@ async def test_terminal_adapter_failure_is_balanced_and_reraised(monkeypatch, ad
     assert finished.await_count == 1
     assert finished.await_args.kwargs["error"] is failure
     assert finished.await_args.kwargs["metadata"]["status"] == "failed"
+
+
+async def test_result_error_reports_failed_terminal_and_returns_result(monkeypatch):
+    finished = AsyncMock()
+    monkeypatch.setattr(
+        _runtime,
+        "apply_attachment_free_user_prompt_submit",
+        AsyncMock(side_effect=lambda prompt, _session_id: prompt),
+    )
+    monkeypatch.setattr(_auxiliary_run, "on_agent_run_start", AsyncMock())
+    monkeypatch.setattr(_auxiliary_run, "on_agent_run_end", finished)
+
+    result = await _auxiliary_run.run_auxiliary_model_call(
+        agent_name="fork",
+        model_name="side-model",
+        session_id="final-session",
+        prompt="question",
+        call=AsyncMock(return_value={"response": "partial", "error": "boom"}),
+        response_text=lambda value: value["response"],
+        result_error=lambda value: value["error"],
+    )
+
+    assert result == {"response": "partial", "error": "boom"}
+    assert finished.await_count == 1
+    terminal = finished.await_args.kwargs
+    assert terminal["success"] is False
+    assert str(terminal["error"]) == "boom"
+    assert terminal["response_text"] == "partial"
+    assert terminal["metadata"]["status"] == "failed"
+
+
+async def test_real_start_dispatcher_failure_is_nonfatal_and_balanced(monkeypatch):
+    events = []
+
+    async def broken_start(*_args, **_kwargs):
+        events.append("broken-start")
+        raise RuntimeError("observer failed")
+
+    async def capture_end(*args, **_kwargs):
+        events.append(("end", args[3]))
+
+    callbacks.register_callback("agent_run_start", broken_start)
+    callbacks.register_callback("agent_run_end", capture_end)
+    monkeypatch.setattr(
+        _runtime,
+        "apply_attachment_free_user_prompt_submit",
+        AsyncMock(side_effect=lambda prompt, _session_id: prompt),
+    )
+    monkeypatch.setattr(
+        _auxiliary_run, "on_agent_run_start", callbacks.on_agent_run_start
+    )
+    monkeypatch.setattr(_auxiliary_run, "on_agent_run_end", callbacks.on_agent_run_end)
+
+    result = await _auxiliary_run.run_auxiliary_model_call(
+        agent_name="side",
+        model_name="model",
+        session_id="session",
+        prompt="question",
+        call=AsyncMock(return_value="answer"),
+        response_text=str,
+    )
+
+    assert result == "answer"
+    assert events == ["broken-start", ("end", True)]

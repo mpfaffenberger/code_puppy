@@ -36,6 +36,7 @@ from pydantic_ai.messages import ModelResponse, TextPart
 from pydantic_ai.usage import RequestUsage, RunUsage
 
 from code_puppy.agent_execution_context import get_executing_agent
+from code_puppy.tools import subagent_invocation
 from code_puppy.tools.subagent_invocation import (
     register_invoke_agent,
     register_invoke_agent_with_model,
@@ -116,6 +117,9 @@ async def _run_invoke(
     perf=None,
     use_default=False,
     new_messages=(),
+    session_id=None,
+    session_id_is_resolved=False,
+    direct_impl=False,
 ):
     """Drive _invoke_agent_impl with a mocked temp agent and return the output.
 
@@ -130,7 +134,13 @@ async def _run_invoke(
     dict, is populated with handles to the patched ``emit_warning``,
     ``emit_info``, and ``_save_session_history`` mocks for assertions.
     """
-    invoke = _capture_invoke_default() if use_default else _capture_invoke_with_model()
+    invoke = (
+        subagent_invocation._invoke_agent_impl
+        if direct_impl
+        else (
+            _capture_invoke_default() if use_default else _capture_invoke_with_model()
+        )
+    )
     mock_context = MagicMock()
     agent_config = _build_agent_config()
     if capture is not None:
@@ -171,7 +181,9 @@ async def _run_invoke(
                 return_value="test-group",
             )
         )
-        p(patch("code_puppy.tools.subagent_invocation.get_message_bus"))
+        mock_bus = p(patch("code_puppy.tools.subagent_invocation.get_message_bus"))
+        if capture is not None:
+            capture["bus"] = mock_bus
         p(
             patch(
                 "code_puppy.tools.subagent_invocation.get_session_context",
@@ -243,12 +255,14 @@ async def _run_invoke(
                 side_effect=lambda _cfg, agent, **_kwargs: agent,
             )
         )
-        p(
+        mock_run_context = p(
             patch(
                 "code_puppy.tools.subagent_invocation.on_agent_run_context",
                 return_value=[],
             )
         )
+        if capture is not None:
+            capture["run_context"] = mock_run_context
         # Pass-through retry: run once, no backoff, so failures propagate fast.
         p(
             patch(
@@ -264,17 +278,19 @@ async def _run_invoke(
                 )
             )
 
+        invocation_kwargs = {
+            "agent_name": "test-agent",
+            "prompt": "Hello",
+            "session_id": session_id,
+        }
+        if direct_impl:
+            invocation_kwargs["session_id_is_resolved"] = session_id_is_resolved
         if use_default:
-            return await invoke(
-                mock_context,
-                agent_name="test-agent",
-                prompt="Hello",
-            )
+            return await invoke(mock_context, **invocation_kwargs)
         return await invoke(
             mock_context,
-            agent_name="test-agent",
-            prompt="Hello",
             model_name="override-model",
+            **invocation_kwargs,
         )
 
 
@@ -1046,3 +1062,47 @@ class TestRealProviderAdapterShapes:
         result = SimpleNamespace(usage=RunUsage(input_tokens=10, output_tokens=5))
 
         assert _safe_usage_metrics(result)["input_tokens"] == 10
+
+
+@pytest.mark.asyncio
+async def test_resolved_session_identity_is_reused_for_run_correlation():
+    capture = {}
+
+    output = await _run_invoke(
+        use_default=True,
+        direct_impl=True,
+        capture=capture,
+        session_id="final-fork-session",
+        session_id_is_resolved=True,
+    )
+
+    assert output.session_id == "final-fork-session"
+    assert capture["run_context"].call_args.args[2] == "final-fork-session"
+    invocation_message = capture["bus"].return_value.emit.call_args.args[0]
+    assert invocation_message.session_id == "final-fork-session"
+
+
+@pytest.mark.asyncio
+async def test_unresolved_new_session_keeps_forgiving_suffix_behavior():
+    output = await _run_invoke(
+        use_default=True,
+        direct_impl=True,
+        session_id="session-base",
+        session_id_is_resolved=False,
+    )
+
+    assert output.session_id == "session-base-abc123"
+
+
+@pytest.mark.asyncio
+async def test_resolved_session_identity_still_requires_valid_kebab_case():
+    output = await _run_invoke(
+        use_default=True,
+        direct_impl=True,
+        session_id="INVALID_SESSION",
+        session_id_is_resolved=True,
+    )
+
+    assert output.session_id is None
+    assert output.error is not None
+    assert "kebab-case" in output.error
