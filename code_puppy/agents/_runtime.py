@@ -1,18 +1,8 @@
-"""Agent run orchestration: streaming retries, signal/key cancellation.
+"""Agent run orchestration: model execution, retries, and cancellation.
 
 Replaces the monolithic ``BaseAgent.run_with_mcp`` coroutine. Everything here
-is a free function; the agent is passed in explicitly. Integration points
-include:
-
-- Plugin-supplied async context managers wrap each physical model attempt (see
-  ``on_agent_run_context``); used e.g. by the DBOS plugin to set a workflow
-  ID and swap MCP toolsets in/out.
-- SIGINT fallback-handler choice driven by ``sigint_fallback_cancels()``
-  (the key listener always owns cancel; ^C is a pure keybinding)
-- Windows terminal reset on graceful SIGINT
-- ``is_awaiting_user_input()`` guards interrupt handling
-- Subagent task cancellation via ``_active_subagent_tasks``
-- ``_RUNNING_PROCESSES`` check before cancelling the agent
+is a free function; the agent is passed in explicitly. Interactive signal and
+key-listener ownership lives in :mod:`code_puppy.agents._run_signals`.
 """
 
 from __future__ import annotations
@@ -20,10 +10,8 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-import signal
 import ssl
 import sys
-import threading
 import uuid
 from typing import Any, Callable, Iterator, List, Optional, Sequence, Type, Union
 
@@ -66,7 +54,7 @@ except ImportError:  # pragma: no cover - 3.10 only
     BaseExceptionGroup = Exception  # type: ignore[misc,assignment]
 
 from code_puppy.agent_execution_context import executing_agent_context
-from code_puppy.agents import _history, _key_listeners
+from code_puppy.agents import _history
 from code_puppy.agents._builder import build_pydantic_agent
 from code_puppy.agents._diagnostics import emit_exception_diagnostics
 from code_puppy.agents._non_streaming_render import (
@@ -77,10 +65,9 @@ from code_puppy.agents._non_streaming_render import (
 from code_puppy.agents._run_signals import (
     drain_pause_state_on_cancel,
     inject_interrupted_subagent_notes,
-    make_schedule_cancel,
+    interactive_run_cancellation,
     prepare_queued_steer_injection,
     reset_pause_state_at_run_start,
-    sigint_should_cancel,
 )
 from code_puppy.agents._token_limit_hint import resolve_model_name
 from code_puppy.agents.event_stream_handler import event_stream_handler
@@ -102,7 +89,6 @@ from code_puppy.config import (
 )
 from code_puppy.keymap import sigint_fallback_cancels
 from code_puppy.messaging import emit_error, emit_info, emit_warning
-from code_puppy.tools.command_runner import is_awaiting_user_input
 
 # ---- Streaming retry helpers ------------------------------------------------
 
@@ -725,7 +711,8 @@ async def run_with_mcp(
     global _active_run_depth
     is_nested_run = _active_run_depth > 0
     _active_run_depth += 1
-    try:
+
+    async def run() -> Any:
         return await _run_with_mcp_impl(
             agent,
             prompt,
@@ -735,6 +722,12 @@ async def run_with_mcp(
             is_nested_run=is_nested_run,
             **kwargs,
         )
+
+    try:
+        if is_nested_run:
+            return await run()
+        async with interactive_run_cancellation(sigint_fallback_cancels):
+            return await run()
     finally:
         _active_run_depth -= 1
 
@@ -751,6 +744,18 @@ async def _run_with_mcp_impl(
 ) -> Any:
     """Body of :func:`run_with_mcp` (depth bookkeeping lives in the wrapper)."""
 
+    owner_task = asyncio.current_task()
+    owner_cancel_baseline = owner_task.cancelling() if owner_task is not None else 0
+
+    def _owner_cancel_pending() -> bool:
+        return (
+            owner_task is not None and owner_task.cancelling() > owner_cancel_baseline
+        )
+
+    def _raise_if_owner_cancel_pending() -> None:
+        if _owner_cancel_pending():
+            raise asyncio.CancelledError
+
     # Scrub stale PauseController state from a previous cancelled run before
     # touching anything: without this, a leftover steer queue would silently
     # poison this run. NEVER from a nested run — the "stale" steers it would
@@ -763,6 +768,19 @@ async def _run_with_mcp_impl(
 
     prompt = _sanitize_prompt(prompt)
     group_id = str(uuid.uuid4())
+    run_was_cancelled = False
+    cancel_cleanup_started = False
+
+    async def _run_cancel_cleanup(*, drain_pause: bool) -> None:
+        """Apply cancellation side effects at most once for this run."""
+        nonlocal cancel_cleanup_started, run_was_cancelled
+        run_was_cancelled = True
+        if cancel_cleanup_started:
+            return
+        cancel_cleanup_started = True
+        if drain_pause:
+            drain_pause_state_on_cancel()
+        await on_agent_run_cancel(group_id)
 
     # Fire user_prompt_submit hooks BEFORE the prompt is sent; plugins (e.g.
     # claude_code_hooks) may return a replacement prompt string.
@@ -771,9 +789,15 @@ async def _run_with_mcp_impl(
         for r in submit_results:
             if isinstance(r, str) and r:
                 prompt = r
+    except asyncio.CancelledError:
+        await _run_cancel_cleanup(drain_pause=not is_nested_run)
+        raise
     except Exception:
         # Hook failures must never block the run.
         pass
+    if _owner_cancel_pending():
+        await _run_cancel_cleanup(drain_pause=not is_nested_run)
+        raise asyncio.CancelledError
 
     # Let a ``model_select`` hook route THIS turn to a different model (e.g.
     # small-vs-large by complexity) before the pydantic agent is built. This
@@ -855,16 +879,27 @@ async def _run_with_mcp_impl(
             resumable_call(agent, invocation, prompt_to_use, **run_options)
         )
 
+        def _raise_if_cancel_requested() -> None:
+            task = asyncio.current_task()
+            if task is not None and task.cancelling():
+                raise asyncio.CancelledError
+
         result = await run_with_exception_retry(_call, agent=agent)
+        _raise_if_cancel_requested()
 
         # ``now``-mode steers are injected by make_steer_history_processor
         # (before every model call); ``queue``-mode ones drain between runs
         # below — additive, won't interrupt in-progress work.
         async def _follow_up_run(follow_up_prompt: Any) -> Any:
+            # A hook or retry delay may consume cancellation. Never start or
+            # release another paid model call while a request remains pending.
+            _raise_if_cancel_requested()
             call = _main_retry(
                 resumable_call(agent, invocation, follow_up_prompt, **run_options)
             )
-            return await run_with_exception_retry(call, agent=agent)
+            follow_up_result = await run_with_exception_retry(call, agent=agent)
+            _raise_if_cancel_requested()
+            return follow_up_result
 
         hook_retries_used = 0
         queued_steers_used = 0
@@ -910,6 +945,10 @@ async def _run_with_mcp_impl(
             await asyncio.sleep(retry_delay)
             result = await _follow_up_run(retry_prompt)
             hook_retries_used += 1
+
+        # Result hooks may consume cancellation without requesting a retry.
+        # Route that path through normal cleanup before rendering or returning.
+        _raise_if_cancel_requested()
 
         # Fallback render when streaming didn't surface any text to the user.
         if result is not None and should_render_fallback(
@@ -964,20 +1003,17 @@ async def _run_with_mcp_impl(
             # mid-line, so without it the banner glues onto that text
             # ("...AaronCancelled"). Mirrors cli_runner's "\nCancelled".
             emit_info("\nCancelled")
-            drain_pause_state_on_cancel()
-            await on_agent_run_cancel(group_id)
+            await _run_cancel_cleanup(drain_pause=not is_nested_run)
         except* RunCancelled as rc_group:
             # First-party cancellation (RunContext.cancel() from a tool or
             # capability hook). Same UX as an external cancel, but the
             # snapshot rides on the exception itself.
             _checkpoint_cancelled_history(rc_group, agent)
             emit_info("\nCancelled")
-            drain_pause_state_on_cancel()
-            await on_agent_run_cancel(group_id)
+            await _run_cancel_cleanup(drain_pause=not is_nested_run)
         except* InterruptedError as ie:
             emit_info(f"\nInterrupted: {ie}")
-            drain_pause_state_on_cancel()
-            await on_agent_run_cancel(group_id)
+            await _run_cancel_cleanup(drain_pause=not is_nested_run)
         except* Exception as other:
             unexpected = _collect_exceptions(
                 other,
@@ -1018,79 +1054,7 @@ async def _run_with_mcp_impl(
                 agent._message_history
             )
 
-    # Fire agent_run_start hooks BEFORE creating the task so plugins (token
-    # refresh, credential minting) finish before any HTTP leaves — else the
-    # task races ahead with stale credentials (issue #338).
-    try:
-        with executing_agent_context(agent, output_type=effective_output_type):
-            await on_agent_run_start(
-                agent_name=agent.name,
-                model_name=agent.get_model_name(),
-                session_id=group_id,
-            )
-    except Exception:
-        # Hook failures never block the agent.
-        pass
-
-    # ``build_pydantic_agent`` may have kicked off fire-and-forget MCP
-    # autostarts; await them so each server's lifecycle task owns its anyio
-    # cancel scope before the run task does — else unwind crashes with a
-    # cross-task cancel-scope error (mirrors the sub-agent fix).
-    try:
-        from code_puppy.mcp_ import manager as _mcp_manager_module
-
-        # Peek at the singleton rather than construct a manager just to ask.
-        _existing_manager = _mcp_manager_module._manager_instance
-        if _existing_manager is not None:
-            await _existing_manager.wait_for_pending_starts()
-    except Exception:
-        # MCP trouble must never block the agent run itself.
-        pass
-
-    agent_task = asyncio.create_task(run_agent_task())
-
-    loop = asyncio.get_running_loop()
-
-    schedule_agent_cancel = make_schedule_cancel(agent_task, loop)
-
-    # Bridge the cancel callback to the shell SIGINT handler so one Ctrl+C
-    # stops the whole swarm (kill shells, then cancel every task), not just
-    # the current batch. Nested runs must not clobber the outer run's bridge.
-    from code_puppy.tools import command_runner as _command_runner
-
-    if not is_nested_run:
-        _command_runner.register_agent_cancel(schedule_agent_cancel)
-
-    def keyboard_interrupt_handler(_sig, _frame):
-        # Let input() handle its own KeyboardInterrupt if we're mid-prompt.
-        if is_awaiting_user_input():
-            return
-        # Buffer-first Ctrl+C: composing input absorbs the first press
-        # (clear + hint); only an empty prompt cancels the run.
-        if not sigint_should_cancel():
-            return
-        schedule_agent_cancel()
-
-    def graceful_sigint_handler(_sig, _frame):
-        from code_puppy.keymap import get_cancel_agent_display_name
-        from code_puppy.terminal_utils import reset_windows_terminal_full
-
-        if is_awaiting_user_input():
-            return
-        # The full reset re-clamps raw-Ctrl+C mode itself (respects the sticky
-        # clamp), so a stray SIGINT can't regress the console. No re-arming needed.
-        reset_windows_terminal_full()
-        # Buffer-first: composing input absorbs the press (clear + hint),
-        # matching keyboard_interrupt_handler's contract.
-        if not sigint_should_cancel():
-            return
-        emit_info(f"Use {get_cancel_agent_display_name()} to cancel the agent task.")
-
-    original_handler = None
-    key_listener_stop_event: Optional[threading.Event] = None
-    key_listener_handle: Optional[_key_listeners.KeyListenerHandle] = None
-    using_persistent_listener = False
-
+    agent_task: Optional[asyncio.Task[Any]] = None
     run_success = False
     run_error: Optional[BaseException] = None
     run_response_text = ""
@@ -1104,46 +1068,46 @@ async def _run_with_mcp_impl(
     }
 
     try:
-        # Nested runs leave the SIGINT handler/cancel hotkey alone — the outer
-        # run owns them, and cancelling it propagates into this awaited one.
-        if not is_nested_run:
-            # Ctrl+C is a PURE keybinding: with a raw-mode reader owning stdin,
-            # ^C arrives as \x03 and the key listener cancels. SIGINT only
-            # fires out-of-band (kill -INT, piped stdin, cooked-mode gaps) —
-            # this fallback cancels when ^C IS the gesture, else hints at the
-            # remapped key. Off main thread (ACP/embeds), SIGINT wiring is
-            # skipped (handlers are main-thread-only in CPython).
-            if threading.current_thread() is not threading.main_thread():
-                pass  # original_handler stays None -> restore is a no-op
-            elif sigint_fallback_cancels():
-                original_handler = signal.signal(
-                    signal.SIGINT, keyboard_interrupt_handler
+        # Keep lifecycle start and MCP preparation inside the cancellation
+        # owner so partial starts are balanced by terminal cleanup.
+        try:
+            with executing_agent_context(agent, output_type=effective_output_type):
+                await on_agent_run_start(
+                    agent_name=agent.name,
+                    model_name=agent.get_model_name(),
+                    session_id=group_id,
                 )
-            else:
-                original_handler = signal.signal(signal.SIGINT, graceful_sigint_handler)
-            cancel_cb: Optional[Callable[[], None]] = schedule_agent_cancel
-            # Key listener: arm the per-run cancel hotkey on a REPL-lifetime
-            # listener if one owns stdin (persistent prompt), else spawn a
-            # per-run one. ``acquire_listener`` decides atomically (no
-            # double-reader race).
-            key_listener_stop_event = threading.Event()
-            handle, spawned = _key_listeners.acquire_listener(
-                key_listener_stop_event,
-                # Ctrl+X is the chord prefix when an editor is installed
-                # (messaging.chords); this fallback only fires with no editor,
-                # where chord targets don't exist — no-op is right.
-                on_escape=lambda: None,
-                on_cancel_agent=cancel_cb,
-            )
-            if spawned:
-                key_listener_handle = handle
-            else:
-                using_persistent_listener = True
-                _key_listeners.set_cancel_handler(cancel_cb)
+        except Exception:
+            # Hook failures never block the agent.
+            pass
+        _raise_if_owner_cancel_pending()
 
+        try:
+            from code_puppy.mcp_ import manager as _mcp_manager_module
+
+            existing_manager = _mcp_manager_module._manager_instance
+            if existing_manager is not None:
+                await existing_manager.wait_for_pending_starts()
+        except Exception:
+            # MCP trouble must never block the agent run itself.
+            pass
+        _raise_if_owner_cancel_pending()
+
+        agent_task = asyncio.create_task(run_agent_task())
         result = await agent_task
-        run_success = True
-        run_response_text = _extract_response_text(result)
+        # Providers may consume CancelledError and return. The task's pending
+        # cancellation count still owns the outcome and must win over success.
+        if agent_task.cancelling():
+            await _run_cancel_cleanup(drain_pause=not is_nested_run)
+            result = None
+            if is_nested_run and _owner_cancel_pending():
+                raise asyncio.CancelledError
+        run_success = not run_was_cancelled
+        run_response_text = _extract_response_text(result) if run_success else ""
+        if run_success and hasattr(result, "all_messages"):
+            # End hooks are deliberately interruptible. Persist the completed
+            # turn before dispatch so Ctrl+C cannot discard its final answer.
+            agent._message_history = list(result.all_messages())
         try:
             # Property access (not a call): `result.usage()` is a deprecated
             # callable-property since pydantic-ai 1.107 and warns when called.
@@ -1181,13 +1145,18 @@ async def _run_with_mcp_impl(
         return result
     except asyncio.CancelledError:
         run_response_text = ""
-        agent_task.cancel()
-        # Nested runs never drain: the pending steers belong to the outer run.
-        if not is_nested_run:
-            drain_pause_state_on_cancel()
+        if agent_task is not None:
+            agent_task.cancel()
+        await _run_cancel_cleanup(drain_pause=not is_nested_run)
+        # Cancellation before task creation belongs to the outer owner. A
+        # nested model-phase cancellation must also propagate so its parent
+        # cannot resume paid work after the user cancelled the shared owner.
+        if agent_task is None or (is_nested_run and _owner_cancel_pending()):
+            raise
     except KeyboardInterrupt:
+        run_was_cancelled = True
         run_response_text = ""
-        if not agent_task.done():
+        if agent_task is not None and not agent_task.done():
             agent_task.cancel()
         if not is_nested_run:
             drain_pause_state_on_cancel()
@@ -1195,13 +1164,6 @@ async def _run_with_mcp_impl(
         run_error = e
         raise
     finally:
-        if not is_nested_run:
-            try:
-                from code_puppy.tools import command_runner as _command_runner
-
-                _command_runner.clear_agent_cancel()
-            except Exception:
-                pass
         try:
             with executing_agent_context(agent, output_type=effective_output_type):
                 await on_agent_run_end(
@@ -1218,18 +1180,3 @@ async def _run_with_mcp_impl(
                 )
         except Exception:
             pass
-
-        if using_persistent_listener:
-            # The REPL-lifetime listener survives the run — just disarm
-            # the per-run cancel hotkey.
-            _key_listeners.set_cancel_handler(None)
-        elif key_listener_handle is not None:
-            _key_listeners.set_active_handle(None)
-            key_listener_handle.stop()
-            key_listener_handle.thread.join(timeout=1.0)
-        elif key_listener_stop_event is not None:
-            # Handle is None (no TTY); just flip the stop event so any
-            # half-spawned bits unwind cleanly.
-            key_listener_stop_event.set()
-        if original_handler is not None:  # SIG_DFL is 0/falsy — explicit check!
-            signal.signal(signal.SIGINT, original_handler)

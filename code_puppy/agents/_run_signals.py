@@ -1,9 +1,7 @@
-"""Factory helpers for key-listener callbacks used by ``run_with_mcp``.
+"""Interactive cancellation ownership and pause-state helpers.
 
-Extracted from ``_runtime.py`` to keep that module under the 600-line cap.
-Each factory returns a thread-safe callable that closes over the agent
-task + event loop and schedules the right action from the key-listener
-daemon thread.
+The top-level run owns signal handling, key listeners, shell cancellation,
+and teardown here. Nested runs inherit that owner.
 """
 
 from __future__ import annotations
@@ -11,8 +9,8 @@ from __future__ import annotations
 import asyncio
 import threading
 import time
-from collections.abc import Iterator
-from contextlib import contextmanager
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager, contextmanager
 from typing import Any, Callable, Optional
 
 from code_puppy.command_line.attachments import resolve_steer_content
@@ -77,10 +75,10 @@ def sigint_should_cancel() -> bool:
 
 
 def make_schedule_cancel(
-    agent_task: "asyncio.Task[Any]",
+    owner_task: "asyncio.Task[Any]",
     loop: asyncio.AbstractEventLoop,
 ) -> Callable[[], None]:
-    """Build the ``schedule_agent_cancel`` callback for the key listener.
+    """Build a callback that cancels the task owning the interactive run.
 
     The returned callback accepts ``force``: when ``True`` it skips the
     kill-running-shells step. The shell SIGINT handler uses
@@ -116,7 +114,7 @@ def make_schedule_cancel(
             kill_all_running_shell_processes,
         )
 
-        if agent_task.done():
+        if owner_task.done():
             return
         # Escalation: the user already cancelled, waited, and is cancelling
         # again — the unwind is stuck. Abandon the run so the REPL (and
@@ -129,6 +127,10 @@ def make_schedule_cancel(
                 "\nRun is stuck cancelling — abandoning it and returning "
                 "to the prompt..."
             )
+            # End hooks may have started after the first cancellation. Send a
+            # fresh request before releasing the prompt so that phase is not
+            # left running in the detached task.
+            loop.call_soon_threadsafe(owner_task.cancel)
             loop.call_soon_threadsafe(request_run_detach)
             return
         if not first_cancel_at:
@@ -155,9 +157,85 @@ def make_schedule_cancel(
             for task in list(_active_subagent_tasks):
                 if not task.done():
                     loop.call_soon_threadsafe(task.cancel)
-        loop.call_soon_threadsafe(agent_task.cancel)
+        loop.call_soon_threadsafe(owner_task.cancel)
 
     return schedule_agent_cancel
+
+
+@asynccontextmanager
+async def interactive_run_cancellation(
+    fallback_cancels: Optional[Callable[[], bool]] = None,
+) -> AsyncIterator[None]:
+    """Own interactive cancellation for the complete top-level run.
+
+    Prompt and lifecycle hooks are part of the run, so cancellation remains
+    armed before model-task creation and through terminal hook dispatch.
+    Nested runs inherit the top-level owner.
+    """
+    import signal
+
+    from code_puppy.agents import _key_listeners
+    from code_puppy.tools import command_runner
+    from code_puppy.tools.command_runner import is_awaiting_user_input
+
+    if fallback_cancels is None:
+        from code_puppy.keymap import sigint_fallback_cancels
+
+        fallback_cancels = sigint_fallback_cancels
+
+    task = asyncio.current_task()
+    if task is None:
+        yield
+        return
+
+    loop = asyncio.get_running_loop()
+    cancel = make_schedule_cancel(task, loop)
+    stop_event = threading.Event()
+    handle = None
+    spawned = False
+    original_handler = None
+
+    def keyboard_interrupt_handler(_sig: Any, _frame: Any) -> None:
+        if is_awaiting_user_input() or not sigint_should_cancel():
+            return
+        cancel()
+
+    def graceful_sigint_handler(_sig: Any, _frame: Any) -> None:
+        from code_puppy.keymap import get_cancel_agent_display_name
+        from code_puppy.terminal_utils import reset_windows_terminal_full
+
+        if is_awaiting_user_input():
+            return
+        reset_windows_terminal_full()
+        if not sigint_should_cancel():
+            return
+        emit_info(f"Use {get_cancel_agent_display_name()} to cancel the agent task.")
+
+    try:
+        command_runner.register_agent_cancel(cancel)
+        _key_listeners.set_cancel_handler(cancel)
+        if threading.current_thread() is threading.main_thread():
+            handler = (
+                keyboard_interrupt_handler
+                if fallback_cancels()
+                else graceful_sigint_handler
+            )
+            original_handler = signal.signal(signal.SIGINT, handler)
+        handle, spawned = _key_listeners.acquire_listener(
+            stop_event, on_escape=lambda: None, on_cancel_agent=cancel
+        )
+        yield
+    finally:
+        command_runner.clear_agent_cancel()
+        _key_listeners.set_cancel_handler(None)
+        if spawned and handle is not None:
+            if _key_listeners.get_active_handle() is handle:
+                _key_listeners.set_active_handle(None)
+            handle.stop()
+            handle.thread.join(timeout=1.0)
+        stop_event.set()
+        if original_handler is not None:
+            signal.signal(signal.SIGINT, original_handler)
 
 
 @contextmanager
@@ -354,6 +432,7 @@ __all__ = [
     "drain_pause_state_on_cancel",
     "inject_interrupted_subagent_notes",
     "install_detach_event",
+    "interactive_run_cancellation",
     "make_schedule_cancel",
     "mcp_preparation_cancellation",
     "prepare_queued_steer_injection",
