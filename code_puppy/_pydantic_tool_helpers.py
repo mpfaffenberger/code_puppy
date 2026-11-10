@@ -96,6 +96,57 @@ def _block_reason(callback_result: dict) -> str:
         return _GENERIC_BLOCK_REASON
 
 
+def _deny_tool_call(callback_result: dict) -> str:
+    """Render and emit one stable denial result for a blocking callback."""
+    block_msg = (
+        f"\N{NO ENTRY SIGN} Hook blocked this tool call: "
+        f"{_block_reason(callback_result)}"
+    )
+    try:
+        from code_puppy.messaging import emit_warning
+
+        emit_warning(block_msg)
+    except Exception:
+        pass  # surfacing the warning is best-effort; the deny stands
+    return (
+        f"ERROR: {block_msg}\n\nThe hook policy prevented this tool from running. "
+        "Please inform the user and do not retry this specific command."
+    )
+
+
+async def _dispatch_post_tool_call(
+    tool_name: str,
+    tool_args: dict,
+    result: Any,
+    duration_ms: float,
+    context: dict[str, Any],
+    *,
+    outcome: str,
+    exception_type: str | None = None,
+) -> None:
+    """Publish one terminal tool outcome without masking tool behavior."""
+    try:
+        from code_puppy import callbacks
+
+        await callbacks.on_post_tool_call(
+            tool_name,
+            tool_args,
+            result,
+            duration_ms,
+            {
+                **context,
+                "outcome": outcome,
+                "exception_type": exception_type,
+            },
+        )
+    except asyncio.CancelledError:
+        # For outcome='cancelled', the caller MUST re-raise the original cancellation.
+        if outcome != "cancelled":
+            raise
+    except Exception:
+        pass  # terminal observers are best-effort and never replace tool behavior
+
+
 def _handled_tool_result(callback_result: dict) -> str | None:
     """Return the result a blocking hook supplies in place of the tool's.
 
@@ -151,6 +202,8 @@ def _raise_if_cancel_pending() -> None:
 
 __all__ = [
     "_block_reason",
+    "_deny_tool_call",
+    "_dispatch_post_tool_call",
     "_handled_result_for_blocks",
     "_handled_tool_result",
     "_normalize_claude_code_tool_name",

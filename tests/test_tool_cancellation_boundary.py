@@ -83,7 +83,9 @@ def post_calls(monkeypatch):
 
 def _call_patched_execute():
     manager = SimpleNamespace(tools={})
-    call = SimpleNamespace(tool_name="write_file", args={"file_path": "a.py"})
+    call = SimpleNamespace(
+        tool_name="write_file", args={"file_path": "a.py"}, tool_call_id="call-123"
+    )
     validated = SimpleNamespace(call=call, validated_args={"file_path": "a.py"})
     return ToolManager.execute_tool_call(manager, validated)
 
@@ -107,7 +109,12 @@ async def test_absorbed_cancel_stops_the_tool_before_it_executes(
 
     assert tool_task.cancelled()
     assert executed == []
-    assert post_calls == []
+    assert len(post_calls) == 1
+    assert post_calls[0][2]["cancelled"] is True
+    assert post_calls[0][4]["outcome"] == "cancelled"
+    assert post_calls[0][4]["exception_type"] == "CancelledError"
+    assert post_calls[0][4]["execution_started"] is False
+    assert post_calls[0][4]["tool_call_id"] == "call-123"
 
 
 async def test_absorbed_cancel_wins_over_a_block_result(
@@ -123,6 +130,8 @@ async def test_absorbed_cancel_wins_over_a_block_result(
         await tool_task
 
     assert executed == []
+    assert len(post_calls) == 1
+    assert post_calls[0][4]["outcome"] == "cancelled"
 
 
 async def test_without_a_cancel_the_tool_runs_and_returns_its_result(
@@ -135,6 +144,8 @@ async def test_without_a_cancel_the_tool_runs_and_returns_its_result(
     assert result == "tool result"
     assert len(executed) == 1
     assert len(post_calls) == 1
+    assert post_calls[0][4]["outcome"] == "ok"
+    assert post_calls[0][4]["execution_started"] is True
 
 
 async def test_without_a_cancel_a_block_result_still_blocks(
@@ -149,6 +160,104 @@ async def test_without_a_cancel_a_block_result_still_blocks(
     assert "Hook blocked this tool call" in result
     assert "policy says no" in result
     assert executed == []
+    assert len(post_calls) == 1
+    assert post_calls[0][4]["outcome"] == "blocked"
+    assert post_calls[0][4]["execution_started"] is False
+    assert post_calls[0][2] == {"blocked": True, "error": result}
+
+
+async def test_execution_phase_cancel_is_reported_then_reraised(
+    monkeypatch, post_calls
+):
+    entered = asyncio.Event()
+
+    async def cancelling_execute(_manager, _validated, **_kwargs):
+        entered.set()
+        await asyncio.sleep(30)
+
+    _snapshot_tool_manager(monkeypatch)
+    monkeypatch.setattr(ToolManager, "execute_tool_call", cancelling_execute)
+    assert pydantic_patches.patch_tool_call_callbacks() is True
+    monkeypatch.setattr(callbacks, "on_pre_tool_call", _immediate_callback())
+
+    task = asyncio.create_task(_call_patched_execute())
+    await entered.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert len(post_calls) == 1
+    assert post_calls[0][4]["outcome"] == "cancelled"
+    assert post_calls[0][4]["exception_type"] == "CancelledError"
+    assert post_calls[0][4]["execution_started"] is True
+    assert post_calls[0][2] == {
+        "cancelled": True,
+        "error": "Tool call cancelled",
+    }
+
+
+async def test_base_exception_is_reported_as_error(monkeypatch, post_calls):
+    async def interrupted(_manager, _validated, **_kwargs):
+        raise KeyboardInterrupt("stop")
+
+    _snapshot_tool_manager(monkeypatch)
+    monkeypatch.setattr(ToolManager, "execute_tool_call", interrupted)
+    assert pydantic_patches.patch_tool_call_callbacks() is True
+    monkeypatch.setattr(callbacks, "on_pre_tool_call", _immediate_callback())
+
+    with pytest.raises(KeyboardInterrupt, match="stop"):
+        await _call_patched_execute()
+
+    assert post_calls[0][4]["outcome"] == "error"
+    assert post_calls[0][4]["exception_type"] == "KeyboardInterrupt"
+
+
+async def test_cancel_during_blocked_terminal_dispatch_does_not_dispatch_twice(
+    executed, monkeypatch
+):
+    entered = asyncio.Event()
+    outcomes = []
+
+    async def slow_terminal(*args):
+        outcomes.append(args[4]["outcome"])
+        entered.set()
+        await asyncio.sleep(30)
+
+    monkeypatch.setattr(
+        callbacks, "on_pre_tool_call", _immediate_callback([BLOCK_RESULT])
+    )
+    monkeypatch.setattr(callbacks, "on_post_tool_call", slow_terminal)
+    task = asyncio.create_task(_call_patched_execute())
+    await entered.wait()
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert executed == []
+    assert outcomes == ["blocked"]
+
+
+async def test_cancel_during_ok_terminal_dispatch_propagates(executed, monkeypatch):
+    entered = asyncio.Event()
+    outcomes = []
+
+    async def slow_terminal(*args):
+        outcomes.append(args[4]["outcome"])
+        entered.set()
+        await asyncio.sleep(30)
+
+    monkeypatch.setattr(callbacks, "on_pre_tool_call", _immediate_callback())
+    monkeypatch.setattr(callbacks, "on_post_tool_call", slow_terminal)
+    task = asyncio.create_task(_call_patched_execute())
+    await entered.wait()
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert len(executed) == 1
+    assert outcomes == ["ok"]
 
 
 async def test_real_agent_run_never_executes_the_tool_after_an_absorbed_cancel(
