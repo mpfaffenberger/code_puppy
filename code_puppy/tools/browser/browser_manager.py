@@ -549,36 +549,15 @@ async def cleanup_all_browsers() -> None:
 def _sync_cleanup_browsers() -> None:
     """Synchronous cleanup wrapper for use with atexit.
 
-    Creates a new event loop to run the async cleanup since the main
-    event loop may have already been closed when atexit handlers run.
+    The loops owning the Playwright connections are closed by now, and awaiting
+    them from a new loop never completes, so only kill the driver processes.
     """
-    global _cleanup_done
-
     if _cleanup_done or not _active_managers:
         return
 
-    try:
-        # Try to get the running loop first
-        try:
-            loop = asyncio.get_running_loop()
-            # If we're in an async context, schedule the cleanup
-            # but this is unlikely in atexit handlers
-            loop.create_task(cleanup_all_browsers())
-            return
-        except RuntimeError:
-            pass  # No running loop, which is expected in atexit
-
-        # Create a new event loop for cleanup
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            loop.run_until_complete(cleanup_all_browsers())
-        finally:
-            loop.close()
-    except Exception:
-        # Silently swallow ALL errors during exit cleanup
-        # We don't want to spam the user with errors on exit
-        pass
+    for manager in list(_active_managers.values()):
+        if getattr(manager, "_playwright", None) is not None:
+            manager._force_kill_playwright_process(silent=True)
 
 
 # Register the cleanup handler with atexit
