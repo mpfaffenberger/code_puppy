@@ -894,7 +894,7 @@ async def _run_with_mcp_impl(
                 if isinstance(follow_up_prompt, list):
                     text = follow_up_prompt[0] if follow_up_prompt else ""
                     extras = follow_up_prompt[1:]
-                    submitted_text = await apply_attachment_free_user_prompt_submit(
+                    submitted_text = await apply_user_prompt_submit(
                         _sanitize_prompt(text), group_id
                     )
                     submitted_prompt = _build_prompt_payload(
