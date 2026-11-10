@@ -55,7 +55,7 @@ async def run_auxiliary_model_call(
     *,
     agent_name: str,
     model_name: str,
-    session_id: str | None,
+    agent_run_id: str | None,
     prompt: str,
     call: Callable[[str], Awaitable[ResultT]],
     response_text: Callable[[ResultT], str | None],
@@ -66,7 +66,7 @@ async def run_auxiliary_model_call(
 
     with auxiliary_agent_run_context():
         submitted_prompt = await apply_attachment_free_user_prompt_submit(
-            prompt, session_id
+            prompt, agent_run_id
         )
     try:
         try:
@@ -74,7 +74,7 @@ async def run_auxiliary_model_call(
                 await on_agent_run_start(
                     agent_name=agent_name,
                     model_name=model_name,
-                    session_id=session_id,
+                    session_id=agent_run_id,
                 )
         except Exception:
             # Ordinary observer failures remain fail-open. Control-flow exits
@@ -88,7 +88,7 @@ async def run_auxiliary_model_call(
         await _finish_lifecycle(
             agent_name=agent_name,
             model_name=model_name,
-            session_id=session_id,
+            session_id=agent_run_id,
             response_text=None,
             error=exc,
         )
@@ -98,7 +98,7 @@ async def run_auxiliary_model_call(
     await _finish_lifecycle(
         agent_name=agent_name,
         model_name=model_name,
-        session_id=session_id,
+        session_id=agent_run_id,
         response_text=response,
         error=error,
     )

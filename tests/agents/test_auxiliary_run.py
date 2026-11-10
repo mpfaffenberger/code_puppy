@@ -49,7 +49,7 @@ async def test_auxiliary_lifecycle_preserves_live_main_run_stats(monkeypatch):
     result = await _auxiliary_run.run_auxiliary_model_call(
         agent_name="btw",
         model_name="side-model",
-        session_id="btw-session",
+        agent_run_id="btw-session",
         prompt="question",
         call=call,
         response_text=lambda value: value,
@@ -92,7 +92,7 @@ async def test_auxiliary_lifecycle_reports_failure_and_reraises(
         await _auxiliary_run.run_auxiliary_model_call(
             agent_name="btw",
             model_name="side-model",
-            session_id="btw-session",
+            agent_run_id="btw-session",
             prompt="question",
             call=fail,
             response_text=lambda value: value,
@@ -136,7 +136,7 @@ async def test_cancel_during_start_is_balanced_and_reraised(monkeypatch):
         await _auxiliary_run.run_auxiliary_model_call(
             agent_name="side",
             model_name="model",
-            session_id="session",
+            agent_run_id="session",
             prompt="question",
             call=AsyncMock(return_value="unused"),
             response_text=str,
@@ -165,7 +165,7 @@ async def test_prompt_submit_cancel_precedes_lifecycle(monkeypatch):
         await _auxiliary_run.run_auxiliary_model_call(
             agent_name="side",
             model_name="model",
-            session_id="session",
+            agent_run_id="session",
             prompt="question",
             call=AsyncMock(return_value="unused"),
             response_text=str,
@@ -199,7 +199,7 @@ async def test_terminal_adapter_failure_is_balanced_and_reraised(monkeypatch, ad
         await _auxiliary_run.run_auxiliary_model_call(
             agent_name="side",
             model_name="model",
-            session_id="session",
+            agent_run_id="session",
             prompt="question",
             call=AsyncMock(return_value="answer"),
             **kwargs,
@@ -224,7 +224,7 @@ async def test_result_error_reports_failed_terminal_and_returns_result(monkeypat
     result = await _auxiliary_run.run_auxiliary_model_call(
         agent_name="fork",
         model_name="side-model",
-        session_id="final-session",
+        agent_run_id="final-session",
         prompt="question",
         call=AsyncMock(return_value={"response": "partial", "error": "boom"}),
         response_text=lambda value: value["response"],
@@ -265,7 +265,7 @@ async def test_real_start_dispatcher_failure_is_nonfatal_and_balanced(monkeypatc
     result = await _auxiliary_run.run_auxiliary_model_call(
         agent_name="side",
         model_name="model",
-        session_id="session",
+        agent_run_id="session",
         prompt="question",
         call=AsyncMock(return_value="answer"),
         response_text=str,

@@ -210,7 +210,7 @@ _hook_retry_prompt_submit: ContextVar[bool] = ContextVar(
 
 @contextmanager
 def auxiliary_agent_run_context():
-    """Mark lifecycle callbacks emitted by a direct auxiliary model call."""
+    """Mark prompt dispatch and lifecycle callbacks of an auxiliary model call."""
     token = _auxiliary_agent_run.set(True)
     try:
         yield
@@ -219,7 +219,7 @@ def auxiliary_agent_run_context():
 
 
 def is_auxiliary_agent_run() -> bool:
-    """Return whether the active lifecycle callback belongs to an auxiliary run."""
+    """Return whether the active prompt or lifecycle callback is auxiliary."""
     return _auxiliary_agent_run.get()
 
 

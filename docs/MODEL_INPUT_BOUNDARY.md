@@ -38,8 +38,9 @@ The `/fork`, `/btw`, and goal-judge rows require a companion plugin build that
 uses these core APIs. Older plugin builds retain their previous unscoped prompt
 and lifecycle behavior.
 
-Auxiliary `/btw` and `/fork` prompt submission and lifecycle callbacks run in
-an explicit auxiliary scope; goal-judge prompt submission uses the same scope.
+Auxiliary `user_prompt_submit` dispatch for `/btw`, `/fork`, and goal judges
+runs in an explicit auxiliary scope; `/btw` and `/fork` lifecycle callbacks use
+the same scope.
 End metadata includes `auxiliary_model_call: true` and a `status` of `completed`,
 `failed`, or `cancelled`. Subscribers that own top-level UI, timing, process,
 durable-memory, persistence, or one-shot foreground prompt state should use
