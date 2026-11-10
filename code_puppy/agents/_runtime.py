@@ -717,7 +717,17 @@ async def apply_user_prompt_submit(prompt: str, session_id: str | None) -> str:
             if isinstance(result, str) and result:
                 prompt = result
     except Exception:
-        pass  # prompt callbacks preserve the runtime's historical fail-open behavior
+        # Dispatch failures can contain prompt secrets; log only a static error.
+        try:
+            from code_puppy.error_logging import log_error
+
+            log_error(
+                RuntimeError("prompt-submit dispatch failed"),
+                context="_runtime::apply_user_prompt_submit",
+                include_traceback=False,
+            )
+        except Exception:
+            pass  # A wrapped logger must not defeat fail-open dispatch.
     return prompt
 
 
