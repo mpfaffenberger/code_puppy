@@ -298,6 +298,22 @@ class TestSyncCleanup:
         ):
             bm._sync_cleanup_browsers()
 
+    def test_sync_cleanup_kills_drivers_without_event_loop(self):
+        """Awaiting Playwright from a new loop at exit hangs; only kill the driver."""
+        from code_puppy.tools.browser import browser_manager as bm
+
+        bm._cleanup_done = False
+        mgr = bm.get_browser_manager("sync-kill")
+        mgr._initialized = True
+        mgr._playwright = MagicMock()
+        mock_proc = mgr._playwright._impl_obj._connection._transport._proc
+
+        with patch("asyncio.new_event_loop") as new_loop:
+            bm._sync_cleanup_browsers()
+
+        new_loop.assert_not_called()
+        mock_proc.kill.assert_called_once()
+
 
 class TestBackwardsCompat:
     def test_aliases(self):
