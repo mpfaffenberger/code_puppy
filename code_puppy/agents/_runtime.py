@@ -717,13 +717,13 @@ async def apply_user_prompt_submit(prompt: str, session_id: str | None) -> str:
         for result in submit_results:
             if isinstance(result, str) and result:
                 prompt = result
-    except Exception as exc:
-        # Keep exception messages and tracebacks out of prompt diagnostics.
+    except Exception:
+        # Plugin-controlled exception types, messages and traces can contain prompts.
         try:
             from code_puppy.error_logging import log_error
 
             log_error(
-                RuntimeError(f"prompt-submit dispatch failed ({type(exc).__name__})"),
+                RuntimeError("prompt-submit dispatch failed"),
                 context="_runtime::apply_user_prompt_submit",
                 include_traceback=False,
             )

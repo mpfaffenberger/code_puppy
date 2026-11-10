@@ -51,8 +51,43 @@ async def test_dispatch_failure_logs_once_safely_and_runs(
     assert secret not in entries[0]
     assert "Traceback" not in entries[0]
     error, metadata = observed[0]
-    failure_name = "RuntimeError" if raising_dispatch else "TypeError"
-    assert str(error) == f"prompt-submit dispatch failed ({failure_name})"
+    assert str(error) == "prompt-submit dispatch failed"
+    assert metadata == {
+        "context": "_runtime::apply_user_prompt_submit",
+        "include_traceback": False,
+    }
+
+
+async def test_dispatch_failure_never_logs_plugin_controlled_exception_name(
+    monkeypatch, tmp_path
+):
+    private_name = "synthetic_private_prompt_in_exception_name"
+    private_message = "synthetic_private_exception_message"
+    failure = type(private_name, (Exception,), {})(private_message)
+    log_file = tmp_path / "errors.log"
+    observed = []
+    monkeypatch.setattr(error_logging, "LOGS_DIR", str(tmp_path))
+    monkeypatch.setattr(error_logging, "ERROR_LOG_FILE", str(log_file))
+    monkeypatch.setattr(
+        _runtime, "on_user_prompt_submit", AsyncMock(side_effect=failure)
+    )
+    callbacks.register_callback(
+        "error_logged", lambda error, **kwargs: observed.append((error, kwargs))
+    )
+
+    result = await _runtime.apply_user_prompt_submit("synthetic user task", "session")
+
+    assert result == "synthetic user task"
+    entry = log_file.read_text(encoding="utf-8")
+    assert entry.count("Context: _runtime::apply_user_prompt_submit") == 1
+    assert private_name not in entry
+    assert private_message not in entry
+    assert "synthetic user task" not in entry
+    assert "Traceback" not in entry
+    assert len(observed) == 1
+    error, metadata = observed[0]
+    assert type(error) is RuntimeError
+    assert str(error) == "prompt-submit dispatch failed"
     assert metadata == {
         "context": "_runtime::apply_user_prompt_submit",
         "include_traceback": False,
