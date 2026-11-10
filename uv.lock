@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = ">=3.11, <3.15"
 resolution-markers = [
     "python_full_version >= '3.12' and sys_platform == 'emscripten'",
@@ -468,8 +468,8 @@ requires-dist = [
     { name = "azure-identity", specifier = ">=1.15.0" },
     { name = "boto3", specifier = ">=1.43.9" },
     { name = "boto3", marker = "extra == 'bedrock'", specifier = ">=1.35.0" },
-    { name = "code-puppy-core-plugins", specifier = ">=0.0.108" },
-    { name = "code-puppy-core-plugins", extras = ["computer-use"], marker = "extra == 'computer-use'", specifier = ">=0.0.108" },
+    { name = "code-puppy-core-plugins", specifier = ">=0.0.109" },
+    { name = "code-puppy-core-plugins", extras = ["computer-use"], marker = "extra == 'computer-use'", specifier = ">=0.0.109" },
     { name = "cryptography", marker = "platform_machine == 'x86_64' and sys_platform == 'darwin'", specifier = "<49" },
     { name = "dbos", marker = "extra == 'durable'", specifier = ">=2.11.0" },
     { name = "fastmcp-slim", extras = ["client"], specifier = ">=3.3.0,<5" },
@@ -510,7 +510,7 @@ dev = [
 
 [[package]]
 name = "code-puppy-core-plugins"
-version = "0.0.108"
+version = "0.0.109"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
@@ -533,9 +533,9 @@ dependencies = [
     { name = "tree-sitter-swift" },
     { name = "tree-sitter-typescript" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/cf/2c/107ebd641b6e9d75dd2cc9c8e71ff153b13e8ceea7f6e02da40e1e303ce4/code_puppy_core_plugins-0.0.108.tar.gz", hash = "sha256:c0996d8380af360d1ae04ce739d648a1e4241c4dc43a7f175534e979347b603b", size = 977213, upload-time = "2026-11-09T19:53:57.97Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/34/d0/b9c727f22a21a887ce5027081959b88e29bd1e865678e99672e8d673ee53/code_puppy_core_plugins-0.0.109.tar.gz", hash = "sha256:fd36e71e395774d9c4a466a42dab0f0c3a72d8e2c61b95db07cff4c934e76dbc", size = 977512, upload-time = "2026-11-10T01:18:48.824Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/19/d8/da5f1ce7ba93e7995335dbf92a96ab02b364478a4a411991d5f546679316/code_puppy_core_plugins-0.0.108-py3-none-any.whl", hash = "sha256:302f0277c3efe3688e419307a9c6c9a8618a14dbc36999ef0ce69520c624f244", size = 1317269, upload-time = "2026-11-09T19:53:56.609Z" },
+    { url = "https://files.pythonhosted.org/packages/a3/a1/c8855001f69ba6d5fa99c308bca1b9084c5d91c16ce1d9d1af3499a226cb/code_puppy_core_plugins-0.0.109-py3-none-any.whl", hash = "sha256:e4442083dcc478c45a065c515a140d03cfa34b6e4970b4ed9fcec4c9f5e46666", size = 1317620, upload-time = "2026-11-10T01:18:46.835Z" },
 ]
 
 [package.optional-dependencies]
