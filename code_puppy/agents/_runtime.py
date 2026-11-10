@@ -79,6 +79,7 @@ from code_puppy.agents._run_signals import (
     drain_pause_state_on_cancel,
     inject_interrupted_subagent_notes,
     make_schedule_cancel,
+    prepare_completion_injection,
     prepare_queued_steer_injection,
     reset_pause_state_at_run_start,
     sigint_should_cancel,
@@ -716,13 +717,13 @@ async def apply_user_prompt_submit(prompt: str, session_id: str | None) -> str:
         for result in submit_results:
             if isinstance(result, str) and result:
                 prompt = result
-    except Exception:
-        # Dispatch failures can contain prompt secrets; log only a static error.
+    except Exception as exc:
+        # Keep exception messages and tracebacks out of prompt diagnostics.
         try:
             from code_puppy.error_logging import log_error
 
             log_error(
-                RuntimeError("prompt-submit dispatch failed"),
+                RuntimeError(f"prompt-submit dispatch failed ({type(exc).__name__})"),
                 context="_runtime::apply_user_prompt_submit",
                 include_traceback=False,
             )
@@ -885,13 +886,18 @@ async def _run_with_mcp_impl(
         # (before every model call); ``queue``-mode ones drain between runs
         # below — additive, won't interrupt in-progress work.
         async def _follow_up_run(
-            follow_up_prompt: Any, *, is_hook_retry: bool = False
+            follow_up_prompt: Any,
+            *,
+            is_hook_retry: bool = False,
+            is_completion: bool = False,
         ) -> Any:
             prompt_scope = (
                 hook_retry_prompt_submit_context() if is_hook_retry else nullcontext()
             )
             with prompt_scope:
-                if isinstance(follow_up_prompt, list):
+                if is_completion:
+                    submitted_prompt = follow_up_prompt
+                elif isinstance(follow_up_prompt, list):
                     text = follow_up_prompt[0] if follow_up_prompt else ""
                     extras = follow_up_prompt[1:]
                     submitted_text = await apply_user_prompt_submit(
@@ -923,8 +929,13 @@ async def _run_with_mcp_impl(
         may_drain_queued_steers = not is_nested_run
 
         while True:
-            # 1) Drain queue-mode steers FIRST (user-priority over hook retries).
+            # 1) Drain completions and queued user steers before hook retries.
             if may_drain_queued_steers and queued_steers_used < max_queued_steers:
+                completion = prepare_completion_injection(agent, result)
+                if completion is not None:
+                    queued_steers_used += 1
+                    result = await _follow_up_run(completion, is_completion=True)
+                    continue
                 steer_text = prepare_queued_steer_injection(agent, result)
                 if steer_text is not None:
                     queued_steers_used += 1

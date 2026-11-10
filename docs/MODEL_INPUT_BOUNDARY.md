@@ -29,9 +29,10 @@ Registration order remains the policy composition rule.
 | Sub-agent tool calls | Installed on each temporary sub-agent | Existing invocation hooks remain the sub-agent audit lifecycle. |
 | `/fork` | Delegates to the covered sub-agent implementation | The fork prompt uses `user_prompt_submit`; balanced auxiliary run hooks carry the final session identity and terminal outcome. |
 | `/btw` | Installed on its throwaway one-shot agent | The question uses `user_prompt_submit`; balanced auxiliary run hooks carry response, failure, and cancellation outcomes. |
+| Background completion reports | Re-enter this boundary as literal model context | Child output bypasses `user_prompt_submit` and attachment/command parsing; it is not a fresh user submission. |
 | Queued steers | Re-enter this boundary on the follow-up model call | Queue-mode steers are new user submissions and use `user_prompt_submit`. |
 | Mid-run steers | Injected into history before the next request | They bypass prompt submission, but the message boundary sees the final injected message. |
-| Hook-requested retries | Re-enter this boundary on the follow-up call | The retry prompt uses `user_prompt_submit` inside `is_hook_retry_prompt_submit()`, so subscribers can continue the current turn. |
+| Hook-requested retries | Re-enter this boundary on the follow-up call | The retry prompt uses `user_prompt_submit` inside `is_hook_retry_prompt_submit()`, so subscribers can continue the current turn. The companion plugins skip UserPromptSubmit shell hooks and preserve the foreground notification preview for retries. |
 | Goal judges | Installed on each fresh read-only judge | Generated judge prompts use `user_prompt_submit`; history exposed by the read-only tool is guarded on the next request. |
 
 The `/fork`, `/btw`, and goal-judge rows require a companion plugin build that

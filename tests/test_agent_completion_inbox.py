@@ -81,10 +81,10 @@ def test_mid_run_injection_preserves_instructions(monkeypatch):
 
 
 def test_completion_after_last_model_call_continues_turn():
-    from code_puppy.agents._run_signals import prepare_queued_steer_injection
+    from code_puppy.agents._run_signals import prepare_completion_injection
 
     owner = Owner()
     deliver_completion(owner, "late completion")
     result = type("Result", (), {"all_messages": lambda self: ["history"]})()
-    assert prepare_queued_steer_injection(owner, result) == "late completion"
+    assert prepare_completion_injection(owner, result) == "late completion"
     assert owner._message_history == ["history"]

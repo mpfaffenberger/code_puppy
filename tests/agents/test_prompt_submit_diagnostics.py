@@ -51,7 +51,8 @@ async def test_dispatch_failure_logs_once_safely_and_runs(
     assert secret not in entries[0]
     assert "Traceback" not in entries[0]
     error, metadata = observed[0]
-    assert str(error) == "prompt-submit dispatch failed"
+    failure_name = "RuntimeError" if raising_dispatch else "TypeError"
+    assert str(error) == f"prompt-submit dispatch failed ({failure_name})"
     assert metadata == {
         "context": "_runtime::apply_user_prompt_submit",
         "include_traceback": False,
