@@ -35,8 +35,8 @@ Registration order remains the policy composition rule.
 | Goal judges | Installed on each fresh read-only judge | Generated judge prompts use `user_prompt_submit`; history exposed by the read-only tool is guarded on the next request. |
 
 The `/fork`, `/btw`, and goal-judge rows require a companion plugin build that
-uses these core APIs. Older plugin builds retain their previous unscoped prompt
-and lifecycle behavior.
+uses these core APIs. Older plugin builds may bypass `user_prompt_submit` for
+generated side prompts and do not emit the balanced auxiliary lifecycle.
 
 Auxiliary `user_prompt_submit` dispatch for `/btw`, `/fork`, and goal judges
 runs in an explicit auxiliary scope; `/btw` and `/fork` lifecycle callbacks use

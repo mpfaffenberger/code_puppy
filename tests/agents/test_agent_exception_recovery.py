@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from pydantic_ai import BinaryContent, DocumentUrl, ImageUrl
 
 from code_puppy.agents import _runtime
 from code_puppy.callbacks import (
@@ -305,6 +306,46 @@ async def test_queued_steer_followup_runs_prompt_submit_hooks(
         "checked: hello",
         "checked: queued steer",
     ]
+    assert diagnostics == []
+
+
+async def test_multimodal_queued_followup_preserves_parts(
+    monkeypatch: pytest.MonkeyPatch,
+    diagnostics: list[BaseException],
+) -> None:
+    image = ImageUrl("https://example.test/image.png")
+    binary = BinaryContent(b"image bytes", media_type="image/png")
+    document = DocumentUrl("https://example.test/document.pdf")
+    text = "first text\nall queued text"
+    extras = [image, binary, document]
+    steers = [[text, *extras]]
+    submitted: list[str] = []
+    builder = MagicMock(wraps=_runtime._build_prompt_payload)
+    monkeypatch.setattr(_runtime, "_build_prompt_payload", builder)
+
+    def rewrite(prompt: str, _session_id: str | None = None) -> str:
+        submitted.append(prompt)
+        return f"checked: {prompt}"
+
+    register_callback("user_prompt_submit", rewrite)
+    monkeypatch.setattr(
+        _runtime,
+        "prepare_queued_steer_injection",
+        lambda *_: steers.pop(0) if steers else None,
+    )
+    second = DummyResult("second")
+    provider = ScriptedPydanticAgent(DummyResult("first"), second)
+
+    result = await _runtime.run_with_mcp(DummyAgent(provider), "hello")
+
+    assert result is second
+    assert provider.calls[1]["prompt"] == [f"checked: {text}", *extras]
+    assert submitted == ["hello", text]
+    assert builder.call_count == 2
+    assert builder.call_args_list[0].args == ("checked: hello", None, None)
+    assert builder.call_args_list[1].args == (f"checked: {text}", extras, None)
+    for actual, original in zip(provider.calls[1]["prompt"][1:], extras):
+        assert actual is original
     assert diagnostics == []
 
 

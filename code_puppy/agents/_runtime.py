@@ -875,15 +875,25 @@ async def _run_with_mcp_impl(
         # (before every model call); ``queue``-mode ones drain between runs
         # below — additive, won't interrupt in-progress work.
         async def _follow_up_run(
-            follow_up_prompt: str, *, is_hook_retry: bool = False
+            follow_up_prompt: Any, *, is_hook_retry: bool = False
         ) -> Any:
             prompt_scope = (
                 hook_retry_prompt_submit_context() if is_hook_retry else nullcontext()
             )
             with prompt_scope:
-                submitted_prompt = await apply_attachment_free_user_prompt_submit(
-                    _sanitize_prompt(follow_up_prompt), group_id
-                )
+                if isinstance(follow_up_prompt, list):
+                    text = follow_up_prompt[0] if follow_up_prompt else ""
+                    extras = follow_up_prompt[1:]
+                    submitted_text = await apply_attachment_free_user_prompt_submit(
+                        _sanitize_prompt(text), group_id
+                    )
+                    submitted_prompt = _build_prompt_payload(
+                        submitted_text, extras, None
+                    )
+                else:
+                    submitted_prompt = await apply_attachment_free_user_prompt_submit(
+                        _sanitize_prompt(follow_up_prompt), group_id
+                    )
             call = _main_retry(
                 resumable_call(agent, invocation, submitted_prompt, **run_options)
             )
