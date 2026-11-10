@@ -333,6 +333,25 @@ class TestParseCandidateParts:
         assert parts[0].tool_name == "my_tool"
         assert parts[0].args == {"x": 1}
         assert parts[0].tool_call_id == "call_abc123"
+        assert parts[0].provider_details is None
+
+    def test_function_call_keeps_its_own_signature(self):
+        candidates = [
+            {
+                "content": {
+                    "parts": [
+                        {"functionCall": {"name": "a"}, "thoughtSignature": "S"},
+                        {"functionCall": {"name": "b"}},
+                    ]
+                }
+            }
+        ]
+
+        _, parts = _parse_candidate_parts({}, candidates)
+        assert [p.provider_details for p in parts] == [
+            {"thought_signature": "S"},
+            None,
+        ]
 
     def test_function_call_without_api_supplied_id_generates_one(self):
         data = {"usageMetadata": {}}
