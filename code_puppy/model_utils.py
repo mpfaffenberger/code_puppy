@@ -239,6 +239,10 @@ _UPDATES_TAGS: tuple[str, ...] = (
     "5-1-fable",
     "fable-5.1",
     "5.1-fable",
+    "fable-5-2",
+    "5-2-fable",
+    "fable-5.2",
+    "5.2-fable",
 )
 
 
