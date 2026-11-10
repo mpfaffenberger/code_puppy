@@ -1200,9 +1200,9 @@ async def on_transform_model_messages(
     """Run final outbound message guards in registration order.
 
     ``messages`` is a request-local shallow list after history processing;
-    message and part objects remain shared with history. Later callbacks observe
-    earlier mutations. The dispatcher logs and ignores a callback that raises,
-    then continues through the remaining guards.
+    message and part objects may be shared with history, so in-place changes can
+    persist. Later callbacks observe earlier mutations. The dispatcher logs and
+    ignores a callback that raises, then continues through the remaining guards.
     """
     return await _trigger_callbacks("transform_model_messages", agent_name, messages)
 
