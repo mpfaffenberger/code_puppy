@@ -1,0 +1,159 @@
+"""Physical retries and context entry must respect consumed cancellation."""
+
+import asyncio
+import os
+import signal
+from contextlib import asynccontextmanager
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
+
+import httpx
+import pytest
+
+from code_puppy.agents import _runtime, retry_profiles
+from code_puppy.agents.run_invocation import ModelCall
+from code_puppy.callbacks import register_callback
+from tests.agents.test_runtime_cancellation import (  # noqa: F401
+    DummyAgent,
+    isolated_runtime,
+)
+from tests.agents.test_runtime_consumed_cancellation import (  # noqa: F401
+    RecordingAgent,
+    Result,
+    assert_cancelled_once,
+    register_run_outcomes,
+    repl_guard,
+)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX SIGINT integration")
+@pytest.mark.parametrize(
+    "case", ["provider_translates", "exception_hook_consumes", "streaming_translates"]
+)
+@pytest.mark.usefixtures("repl_guard")
+async def test_no_physical_retry_after_cancel(monkeypatch, case):
+    if case == "streaming_translates":
+        monkeypatch.setattr(
+            retry_profiles,
+            "make_streaming_retry",
+            lambda *a, **k: _runtime.streaming_retry(max_attempts=2, delays=[0.01]),
+        )
+    ready = asyncio.Event()
+    calls = []
+    recovery_calls = []
+    cancel_ids, statuses = register_run_outcomes()
+
+    class RetryAgent:
+        async def run(self, prompt, **kwargs):
+            calls.append(prompt)
+            if len(calls) == 1:
+                if case != "exception_hook_consumes":
+                    ready.set()
+                    try:
+                        await asyncio.Event().wait()
+                    except asyncio.CancelledError:
+                        if case == "streaming_translates":
+                            raise httpx.ReadTimeout("translated cancellation") from None
+                        raise RuntimeError("translated cancellation") from None
+                raise RuntimeError("ordinary model error")
+            return Result("unexpected-retry")
+
+    async def retry_hook(*args, **kwargs):
+        recovery_calls.append(args)
+        if case == "exception_hook_consumes":
+            ready.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                pass
+        return {"retry": True, "delay": 0}
+
+    register_callback("agent_exception", retry_hook)
+    agent = DummyAgent(RetryAgent())
+    original_history = list(agent._message_history)
+    task = asyncio.create_task(_runtime.run_with_mcp(agent, "hello"))
+    try:
+        await asyncio.wait_for(ready.wait(), 5)
+        os.kill(os.getpid(), signal.SIGINT)
+        result = await asyncio.wait_for(task, 5)
+    finally:
+        if not task.done():
+            task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+    assert calls == ["hello"]
+    assert len(recovery_calls) == (1 if case == "exception_hook_consumes" else 0)
+    assert agent._message_history == original_history
+    assert_cancelled_once(result, cancel_ids, statuses)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX SIGINT integration")
+@pytest.mark.usefixtures("repl_guard")
+async def test_consumed_attempt_context_cannot_start_provider():
+    ready = asyncio.Event()
+    implementation = RecordingAgent()
+    cancel_ids, statuses = register_run_outcomes()
+
+    @asynccontextmanager
+    async def physical_context():
+        ready.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            pass
+        yield
+
+    register_callback("agent_run_context", lambda *a, **k: physical_context())
+    task = asyncio.create_task(
+        _runtime.run_with_mcp(DummyAgent(implementation), "hello")
+    )
+    try:
+        await asyncio.wait_for(ready.wait(), 5)
+        os.kill(os.getpid(), signal.SIGINT)
+        result = await asyncio.wait_for(task, 5)
+    finally:
+        if not task.done():
+            task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+    assert implementation.calls == []
+    assert_cancelled_once(result, cancel_ids, statuses)
+
+
+@pytest.mark.parametrize("cancel_at", ["before_resolution", "first_context"])
+async def test_attempt_stops_before_next_side_effect(cancel_at):
+    events = []
+    model = SimpleNamespace(run=AsyncMock())
+    resolve = Mock(return_value=model)
+
+    async def consume_cancel():
+        asyncio.current_task().cancel()
+        try:
+            await asyncio.sleep(0)
+        except asyncio.CancelledError:
+            pass
+
+    @asynccontextmanager
+    async def context(name):
+        events.append(("enter", name))
+        if name == "first":
+            await consume_cancel()
+        try:
+            yield
+        finally:
+            events.append(("exit", name))
+
+    async def run():
+        if cancel_at == "before_resolution":
+            await consume_cancel()
+        call = ModelCall(resolve, lambda _: [context("first"), context("second")])
+        return await call.run("hello")
+
+    task = asyncio.create_task(run())
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert task.cancelling() == 1
+    model.run.assert_not_awaited()
+    if cancel_at == "before_resolution":
+        resolve.assert_not_called()
+        assert events == []
+    else:
+        assert events == [("enter", "first"), ("exit", "first")]
