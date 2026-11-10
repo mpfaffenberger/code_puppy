@@ -1,4 +1,11 @@
 file	enclosing_qualname	ordinal	route	context
+code_puppy/_pydantic_tool_helpers.py	_writeback_tool_args	1	DEFERRED	
+code_puppy/_pydantic_tool_helpers.py	_tool_args_for_pre_tool_call	1	DEFERRED	
+code_puppy/_pydantic_tool_helpers.py	_normalize_claude_code_tool_name	1	DEFERRED	
+code_puppy/_pydantic_tool_helpers.py	_block_reason	1	DEFERRED	
+code_puppy/_pydantic_tool_helpers.py	_deny_tool_call	1	DEFERRED	
+code_puppy/_pydantic_tool_helpers.py	_dispatch_post_tool_call	2	DEFERRED	
+code_puppy/_pydantic_tool_helpers.py	_handled_tool_result	1	DEFERRED	
 code_puppy/cli_entry.py	main	3	ERROR	code_puppy.cli_entry::main: startup/model: validate the --model value against models.json
 code_puppy/cli_entry.py	main	4	ERROR	code_puppy.cli_entry::main: startup/agent: resolve and set the --agent value
 code_puppy/cli_entry.py	main	5	ERROR	code_puppy.cli_entry::main: startup/session-migration: sweep legacy contexts into autosaves

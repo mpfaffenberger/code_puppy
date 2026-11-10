@@ -140,6 +140,7 @@ async def _dispatch_post_tool_call(
             },
         )
     except asyncio.CancelledError:
+        # For outcome='cancelled', the caller MUST re-raise the original cancellation.
         if outcome != "cancelled":
             raise
     except Exception:
