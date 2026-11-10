@@ -26,18 +26,34 @@ from tests.agents.test_runtime_consumed_cancellation import (  # noqa: F401
 )
 
 
+@pytest.fixture
+def streaming_backoff(monkeypatch):
+    state = SimpleNamespace(delays=[], warning=Mock(), log=Mock())
+    original_sleep = asyncio.sleep
+
+    async def observed_sleep(delay, *args, **kwargs):
+        if delay == 10.0:
+            state.delays.append((delay, asyncio.current_task().cancelling()))
+            return
+        return await original_sleep(delay, *args, **kwargs)
+
+    monkeypatch.setattr(_runtime.asyncio, "sleep", observed_sleep)
+    monkeypatch.setattr(_runtime, "emit_warning", state.warning)
+    monkeypatch.setattr("code_puppy.error_logging.log_error", state.log)
+    monkeypatch.setattr(
+        retry_profiles,
+        "make_streaming_retry",
+        lambda *a, **k: _runtime.streaming_retry(max_attempts=2, delays=[10.0]),
+    )
+    return state
+
+
 @pytest.mark.skipif(os.name == "nt", reason="POSIX SIGINT integration")
 @pytest.mark.parametrize(
     "case", ["provider_translates", "exception_hook_consumes", "streaming_translates"]
 )
 @pytest.mark.usefixtures("repl_guard")
-async def test_no_physical_retry_after_cancel(monkeypatch, case):
-    if case == "streaming_translates":
-        monkeypatch.setattr(
-            retry_profiles,
-            "make_streaming_retry",
-            lambda *a, **k: _runtime.streaming_retry(max_attempts=2, delays=[0.01]),
-        )
+async def test_no_physical_retry_after_cancel(streaming_backoff, case):
     ready = asyncio.Event()
     calls = []
     recovery_calls = []
@@ -84,6 +100,77 @@ async def test_no_physical_retry_after_cancel(monkeypatch, case):
     assert len(recovery_calls) == (1 if case == "exception_hook_consumes" else 0)
     assert agent._message_history == original_history
     assert_cancelled_once(result, cancel_ids, statuses)
+    assert streaming_backoff.delays == []
+    streaming_backoff.warning.assert_not_called()
+    streaming_backoff.log.assert_not_called()
+
+
+async def test_context_exit_translation_skips_streaming_backoff(streaming_backoff):
+    ready = asyncio.Event()
+    events = []
+    calls = []
+
+    @asynccontextmanager
+    async def context(name):
+        events.append(("enter", name))
+        try:
+            yield
+        except asyncio.CancelledError:
+            if name == "inner":
+                raise httpx.ReadTimeout("translated context cancellation") from None
+            raise
+        finally:
+            events.append(("exit", name))
+
+    async def provider(prompt):
+        calls.append(prompt)
+        ready.set()
+        await asyncio.Event().wait()
+
+    call = ModelCall(
+        lambda: SimpleNamespace(run=provider),
+        lambda _: [context("outer"), context("inner")],
+    )
+    retry = _runtime.streaming_retry(max_attempts=2, delays=[10.0])(
+        lambda: call.run("hello")
+    )
+    task = asyncio.create_task(retry())
+    try:
+        await asyncio.wait_for(ready.wait(), 5)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(task, 5)
+    finally:
+        if not task.done():
+            task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+    assert task.cancelling() == 1
+    assert calls == ["hello"]
+    assert events == [
+        ("enter", "outer"),
+        ("enter", "inner"),
+        ("exit", "inner"),
+        ("exit", "outer"),
+    ]
+    assert streaming_backoff.delays == []
+    streaming_backoff.warning.assert_not_called()
+    streaming_backoff.log.assert_not_called()
+
+
+async def test_uncancelled_streaming_timeout_still_retries(streaming_backoff):
+    model = SimpleNamespace(
+        run=AsyncMock(side_effect=[httpx.ReadTimeout("transient"), "recovered"])
+    )
+    call = ModelCall(lambda: model, lambda _: [])
+    retry = _runtime.streaming_retry(max_attempts=2, delays=[10.0])(
+        lambda: call.run("hello")
+    )
+    task = asyncio.create_task(retry())
+    assert await asyncio.wait_for(task, 5) == "recovered"
+    assert model.run.await_count == 2
+    assert streaming_backoff.delays == [(10.0, 0)]
+    streaming_backoff.warning.assert_called_once()
+    streaming_backoff.log.assert_called_once()
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX SIGINT integration")

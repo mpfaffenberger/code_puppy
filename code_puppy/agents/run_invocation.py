@@ -37,12 +37,16 @@ class ModelCall:
 
     async def run(self, prompt: Any, **kwargs: Any) -> Any:
         _raise_if_cancel_pending()
-        current = self.resolve()
-        async with AsyncExitStack() as stack:
-            for context in self.contexts(current):
-                await stack.enter_async_context(context)
-                _raise_if_cancel_pending()
-            return await current.run(prompt, **kwargs)
+        try:
+            current = self.resolve()
+            async with AsyncExitStack() as stack:
+                for context in self.contexts(current):
+                    await stack.enter_async_context(context)
+                    _raise_if_cancel_pending()
+                return await current.run(prompt, **kwargs)
+        except Exception:
+            _raise_if_cancel_pending()
+            raise
 
 
 async def run_with_exception_retry(
