@@ -65,12 +65,19 @@ async def test_queued_steer_routes_by_attachment_presence(
     "helper_name",
     ["apply_user_prompt_submit", "apply_attachment_free_user_prompt_submit"],
 )
+@pytest.mark.parametrize(
+    ("rewrites", "expected"),
+    [
+        (["", 17, "first", None, "last"], "last"),
+        (["kept", "", 17, None, True], "kept"),
+    ],
+)
 async def test_prompt_helpers_apply_last_nonempty_string_rewrite(
-    monkeypatch, helper_name
+    monkeypatch, helper_name, rewrites, expected
 ):
-    dispatch = AsyncMock(return_value=["", 17, "first", None, "last"])
+    dispatch = AsyncMock(return_value=rewrites)
     monkeypatch.setattr(_runtime, "on_user_prompt_submit", dispatch)
 
-    assert await getattr(_runtime, helper_name)("original", "session") == "last"
+    assert await getattr(_runtime, helper_name)("original", "session") == expected
 
     dispatch.assert_awaited_once_with("original", "session")
