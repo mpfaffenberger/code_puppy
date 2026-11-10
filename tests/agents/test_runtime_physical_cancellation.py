@@ -28,7 +28,7 @@ from tests.agents.test_runtime_consumed_cancellation import (  # noqa: F401
 
 @pytest.fixture
 def streaming_backoff(monkeypatch):
-    state = SimpleNamespace(delays=[], warning=Mock(), log=Mock())
+    state = SimpleNamespace(delays=[], warning=Mock(), log=Mock(), diagnostics=Mock())
     original_sleep = asyncio.sleep
 
     async def observed_sleep(delay, *args, **kwargs):
@@ -39,6 +39,7 @@ def streaming_backoff(monkeypatch):
 
     monkeypatch.setattr(_runtime.asyncio, "sleep", observed_sleep)
     monkeypatch.setattr(_runtime, "emit_warning", state.warning)
+    monkeypatch.setattr(_runtime, "emit_exception_diagnostics", state.diagnostics)
     monkeypatch.setattr("code_puppy.error_logging.log_error", state.log)
     monkeypatch.setattr(
         retry_profiles,
@@ -50,10 +51,20 @@ def streaming_backoff(monkeypatch):
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX SIGINT integration")
 @pytest.mark.parametrize(
-    "case", ["provider_translates", "exception_hook_consumes", "streaming_translates"]
+    "case",
+    [
+        "provider_translates",
+        "exception_hook_consumes",
+        "exception_hook_declines_retry",
+        "streaming_translates",
+    ],
 )
 @pytest.mark.usefixtures("repl_guard")
 async def test_no_physical_retry_after_cancel(streaming_backoff, case):
+    cancel_in_hook = case in {
+        "exception_hook_consumes",
+        "exception_hook_declines_retry",
+    }
     ready = asyncio.Event()
     calls = []
     recovery_calls = []
@@ -63,7 +74,7 @@ async def test_no_physical_retry_after_cancel(streaming_backoff, case):
         async def run(self, prompt, **kwargs):
             calls.append(prompt)
             if len(calls) == 1:
-                if case != "exception_hook_consumes":
+                if not cancel_in_hook:
                     ready.set()
                     try:
                         await asyncio.Event().wait()
@@ -76,13 +87,15 @@ async def test_no_physical_retry_after_cancel(streaming_backoff, case):
 
     async def retry_hook(*args, **kwargs):
         recovery_calls.append(args)
-        if case == "exception_hook_consumes":
+        if cancel_in_hook:
             ready.set()
             try:
                 await asyncio.Event().wait()
             except asyncio.CancelledError:
                 pass
-        return {"retry": True, "delay": 0}
+        if case == "exception_hook_declines_retry":
+            return None
+        return {"retry": True, "delay": 10.0}
 
     register_callback("agent_exception", retry_hook)
     agent = DummyAgent(RetryAgent())
@@ -97,12 +110,13 @@ async def test_no_physical_retry_after_cancel(streaming_backoff, case):
             task.cancel()
         await asyncio.gather(task, return_exceptions=True)
     assert calls == ["hello"]
-    assert len(recovery_calls) == (1 if case == "exception_hook_consumes" else 0)
+    assert len(recovery_calls) == int(cancel_in_hook)
     assert agent._message_history == original_history
     assert_cancelled_once(result, cancel_ids, statuses)
     assert streaming_backoff.delays == []
     streaming_backoff.warning.assert_not_called()
     streaming_backoff.log.assert_not_called()
+    streaming_backoff.diagnostics.assert_not_called()
 
 
 async def test_context_exit_translation_skips_streaming_backoff(streaming_backoff):
