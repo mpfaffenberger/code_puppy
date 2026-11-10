@@ -1,18 +1,8 @@
-"""Agent run orchestration: streaming retries, signal/key cancellation.
+"""Agent run orchestration: model execution, retries, and cancellation.
 
 Replaces the monolithic ``BaseAgent.run_with_mcp`` coroutine. Everything here
-is a free function; the agent is passed in explicitly. Integration points
-include:
-
-- Plugin-supplied async context managers wrap each physical model attempt (see
-  ``on_agent_run_context``); used e.g. by the DBOS plugin to set a workflow
-  ID and swap MCP toolsets in/out.
-- SIGINT fallback-handler choice driven by ``sigint_fallback_cancels()``
-  (the key listener always owns cancel; ^C is a pure keybinding)
-- Windows terminal reset on graceful SIGINT
-- ``is_awaiting_user_input()`` guards interrupt handling
-- Subagent task cancellation via ``_active_subagent_tasks``
-- ``_RUNNING_PROCESSES`` check before cancelling the agent
+is a free function; the agent is passed in explicitly. Interactive signal and
+key-listener ownership lives in :mod:`code_puppy.agents._run_signals`.
 """
 
 from __future__ import annotations
@@ -754,6 +744,18 @@ async def _run_with_mcp_impl(
 ) -> Any:
     """Body of :func:`run_with_mcp` (depth bookkeeping lives in the wrapper)."""
 
+    owner_task = asyncio.current_task()
+    owner_cancel_baseline = owner_task.cancelling() if owner_task is not None else 0
+
+    def _owner_cancel_pending() -> bool:
+        return (
+            owner_task is not None and owner_task.cancelling() > owner_cancel_baseline
+        )
+
+    def _raise_if_owner_cancel_pending() -> None:
+        if _owner_cancel_pending():
+            raise asyncio.CancelledError
+
     # Scrub stale PauseController state from a previous cancelled run before
     # touching anything: without this, a leftover steer queue would silently
     # poison this run. NEVER from a nested run — the "stale" steers it would
@@ -793,6 +795,9 @@ async def _run_with_mcp_impl(
     except Exception:
         # Hook failures must never block the run.
         pass
+    if _owner_cancel_pending():
+        await _run_cancel_cleanup(drain_pause=not is_nested_run)
+        raise asyncio.CancelledError
 
     # Let a ``model_select`` hook route THIS turn to a different model (e.g.
     # small-vs-large by complexity) before the pydantic agent is built. This
@@ -1075,6 +1080,7 @@ async def _run_with_mcp_impl(
         except Exception:
             # Hook failures never block the agent.
             pass
+        _raise_if_owner_cancel_pending()
 
         try:
             from code_puppy.mcp_ import manager as _mcp_manager_module
@@ -1085,6 +1091,7 @@ async def _run_with_mcp_impl(
         except Exception:
             # MCP trouble must never block the agent run itself.
             pass
+        _raise_if_owner_cancel_pending()
 
         agent_task = asyncio.create_task(run_agent_task())
         result = await agent_task
@@ -1093,8 +1100,14 @@ async def _run_with_mcp_impl(
         if agent_task.cancelling():
             await _run_cancel_cleanup(drain_pause=not is_nested_run)
             result = None
+            if is_nested_run and _owner_cancel_pending():
+                raise asyncio.CancelledError
         run_success = not run_was_cancelled
         run_response_text = _extract_response_text(result) if run_success else ""
+        if run_success and hasattr(result, "all_messages"):
+            # End hooks are deliberately interruptible. Persist the completed
+            # turn before dispatch so Ctrl+C cannot discard its final answer.
+            agent._message_history = list(result.all_messages())
         try:
             # Property access (not a call): `result.usage()` is a deprecated
             # callable-property since pydantic-ai 1.107 and warns when called.
@@ -1135,9 +1148,10 @@ async def _run_with_mcp_impl(
         if agent_task is not None:
             agent_task.cancel()
         await _run_cancel_cleanup(drain_pause=not is_nested_run)
-        # Cancellation before task creation belongs to the outer owner and
-        # must keep propagating; model-phase cancellation remains a handled run.
-        if agent_task is None:
+        # Cancellation before task creation belongs to the outer owner. A
+        # nested model-phase cancellation must also propagate so its parent
+        # cannot resume paid work after the user cancelled the shared owner.
+        if agent_task is None or (is_nested_run and _owner_cancel_pending()):
             raise
     except KeyboardInterrupt:
         run_was_cancelled = True

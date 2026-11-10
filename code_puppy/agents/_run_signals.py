@@ -1,9 +1,7 @@
-"""Factory helpers for key-listener callbacks used by ``run_with_mcp``.
+"""Interactive cancellation ownership and pause-state helpers.
 
-Extracted from ``_runtime.py`` to keep that module under the 600-line cap.
-Each factory returns a thread-safe callable that closes over the agent
-task + event loop and schedules the right action from the key-listener
-daemon thread.
+The top-level run owns signal handling, key listeners, shell cancellation,
+and teardown here. Nested runs inherit that owner.
 """
 
 from __future__ import annotations
@@ -77,10 +75,10 @@ def sigint_should_cancel() -> bool:
 
 
 def make_schedule_cancel(
-    agent_task: "asyncio.Task[Any]",
+    owner_task: "asyncio.Task[Any]",
     loop: asyncio.AbstractEventLoop,
 ) -> Callable[[], None]:
-    """Build the ``schedule_agent_cancel`` callback for the key listener.
+    """Build a callback that cancels the task owning the interactive run.
 
     The returned callback accepts ``force``: when ``True`` it skips the
     kill-running-shells step. The shell SIGINT handler uses
@@ -116,7 +114,7 @@ def make_schedule_cancel(
             kill_all_running_shell_processes,
         )
 
-        if agent_task.done():
+        if owner_task.done():
             return
         # Escalation: the user already cancelled, waited, and is cancelling
         # again — the unwind is stuck. Abandon the run so the REPL (and
@@ -132,7 +130,7 @@ def make_schedule_cancel(
             # End hooks may have started after the first cancellation. Send a
             # fresh request before releasing the prompt so that phase is not
             # left running in the detached task.
-            loop.call_soon_threadsafe(agent_task.cancel)
+            loop.call_soon_threadsafe(owner_task.cancel)
             loop.call_soon_threadsafe(request_run_detach)
             return
         if not first_cancel_at:
@@ -159,7 +157,7 @@ def make_schedule_cancel(
             for task in list(_active_subagent_tasks):
                 if not task.done():
                     loop.call_soon_threadsafe(task.cancel)
-        loop.call_soon_threadsafe(agent_task.cancel)
+        loop.call_soon_threadsafe(owner_task.cancel)
 
     return schedule_agent_cancel
 

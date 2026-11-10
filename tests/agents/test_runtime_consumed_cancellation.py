@@ -11,10 +11,11 @@ import pytest
 from pydantic_ai.exceptions import UsageLimitExceeded
 
 from code_puppy import agent_completion_inbox
-from code_puppy.agents import _run_signals, _runtime
+from code_puppy.agents import _key_listeners, _run_signals, _runtime
 from code_puppy.callbacks import register_callback
 from code_puppy.interactive_support import _interactive_sigint_guard
 from code_puppy.messaging.pause_controller import get_pause_controller
+from code_puppy.tools import command_runner
 from tests.agents.test_runtime_cancellation import (  # noqa: F401
     DummyAgent,
     isolated_runtime,
@@ -95,8 +96,17 @@ async def test_result_hook_consumed_cancel_stops_retry(repl_guard):
 
 
 @pytest.mark.skipif(not hasattr(signal, "SIGINT"), reason="SIGINT unavailable")
-async def test_result_hook_consumed_cancel_cleans_before_return(repl_guard):
+async def test_result_hook_consumed_cancel_cleans_before_return(
+    repl_guard, monkeypatch: pytest.MonkeyPatch
+):
     hook_started = asyncio.Event()
+    rendered: list[str] = []
+    monkeypatch.setattr(_runtime, "should_render_fallback", lambda *_a, **_k: True)
+    monkeypatch.setattr(
+        _runtime,
+        "render_result_without_streaming",
+        lambda result: rendered.append(result.tag),
+    )
 
     async def swallow(*_args: Any, **_kwargs: Any) -> None:
         hook_started.set()
@@ -118,6 +128,8 @@ async def test_result_hook_consumed_cancel_cleans_before_return(repl_guard):
     result = await asyncio.wait_for(task, timeout=5)
 
     assert implementation.calls == ["hello"]
+    assert rendered == []
+    assert command_runner._AGENT_CANCEL_CB is None
     assert_cancelled_once(result, cancel_ids, statuses)
 
 
@@ -351,8 +363,11 @@ async def test_sigint_during_mcp_wait_balances_terminal_lifecycle(
     assert _runtime._active_run_depth == 0
 
 
+@pytest.mark.parametrize("queued_steer", [False, True])
 @pytest.mark.skipif(not hasattr(signal, "SIGINT"), reason="SIGINT unavailable")
-async def test_consumed_initial_provider_cancel_stops_follow_up_work(repl_guard):
+async def test_consumed_initial_provider_cancel_stops_follow_up_work(
+    repl_guard, queued_steer: bool
+):
     class SwallowingAgent(RecordingAgent):
         def __init__(self) -> None:
             super().__init__()
@@ -367,15 +382,167 @@ async def test_consumed_initial_provider_cancel_stops_follow_up_work(repl_guard)
                 return Result("cancelled-initial")
 
     implementation = SwallowingAgent()
-    cancel_ids, statuses = register_run_outcomes()
-    get_pause_controller().request_steer("must not run", mode="queue")
-    task = asyncio.create_task(
-        _runtime.run_with_mcp(DummyAgent(implementation), "hello")
+    agent = DummyAgent(implementation)
+    result_hooks: list[str] = []
+    register_callback(
+        "agent_run_result",
+        lambda result, *_args, **_kwargs: result_hooks.append(result.tag),
     )
+    cancel_ids, statuses = register_run_outcomes()
+    if queued_steer:
+        get_pause_controller().request_steer("must not run", mode="queue")
+    task = asyncio.create_task(_runtime.run_with_mcp(agent, "hello"))
     await asyncio.wait_for(implementation.started.wait(), timeout=5)
 
     os.kill(os.getpid(), signal.SIGINT)
     result = await asyncio.wait_for(task, timeout=5)
 
     assert implementation.calls == ["hello"]
+    assert result_hooks == []
+    assert "history-from-cancelled-initial" not in agent._message_history
     assert_cancelled_once(result, cancel_ids, statuses)
+
+
+@pytest.mark.parametrize("phase", ["prompt", "start"])
+@pytest.mark.parametrize("translate", [False, True])
+async def test_consumed_early_cancel_never_starts_model(
+    repl_guard, phase: str, translate: bool
+):
+    hook_started = asyncio.Event()
+
+    async def consume_cancel(*_args: Any, **_kwargs: Any) -> None:
+        hook_started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            if translate:
+                raise RuntimeError("translated cancellation") from None
+
+    implementation = RecordingAgent()
+    cancel_ids, _statuses = register_run_outcomes()
+    register_callback(
+        "user_prompt_submit" if phase == "prompt" else "agent_run_start",
+        consume_cancel,
+    )
+    task = asyncio.create_task(
+        _runtime.run_with_mcp(DummyAgent(implementation), "hello")
+    )
+    await asyncio.wait_for(hook_started.wait(), timeout=5)
+    os.kill(os.getpid(), signal.SIGINT)
+
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(task, timeout=5)
+
+    assert implementation.calls == []
+    assert len(cancel_ids) == 1
+
+
+async def test_sigint_during_successful_end_hook_preserves_history(repl_guard):
+    hook_started = asyncio.Event()
+    interrupted = asyncio.Event()
+    statuses: list[bool] = []
+
+    async def slow_end(*_args: Any, **_kwargs: Any) -> None:
+        hook_started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            interrupted.set()
+            raise
+
+    agent = DummyAgent(RecordingAgent())
+    register_callback("agent_run_end", lambda *args: statuses.append(args[3]))
+    register_callback("agent_run_end", slow_end)
+    task = asyncio.create_task(_runtime.run_with_mcp(agent, "hello"))
+    await asyncio.wait_for(hook_started.wait(), timeout=5)
+    os.kill(os.getpid(), signal.SIGINT)
+
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(task, timeout=5)
+
+    assert interrupted.is_set()
+    assert statuses == [True]
+    assert agent._message_history == ["history-from-result"]
+    assert command_runner._AGENT_CANCEL_CB is None
+
+
+@pytest.mark.parametrize("slow_phase", ["cancel", "end"])
+async def test_second_sigint_interrupts_terminal_hook_once(repl_guard, slow_phase: str):
+    model_started = asyncio.Event()
+    hook_started = asyncio.Event()
+    interrupted = asyncio.Event()
+
+    class Hanging:
+        async def run(self, *_args: Any, **_kwargs: Any) -> Result:
+            model_started.set()
+            await asyncio.Event().wait()
+
+    async def slow_hook(*_args: Any, **_kwargs: Any) -> None:
+        hook_started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            interrupted.set()
+            raise
+
+    cancel_ids, statuses = register_run_outcomes()
+    register_callback("agent_run_" + slow_phase, slow_hook)
+    task = asyncio.create_task(_runtime.run_with_mcp(DummyAgent(Hanging()), "hello"))
+    await asyncio.wait_for(model_started.wait(), timeout=5)
+    os.kill(os.getpid(), signal.SIGINT)
+    await asyncio.wait_for(hook_started.wait(), timeout=5)
+    os.kill(os.getpid(), signal.SIGINT)
+
+    if slow_phase == "end":
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(task, timeout=5)
+    else:
+        assert await asyncio.wait_for(task, timeout=5) is None
+
+    assert interrupted.is_set()
+    assert len(cancel_ids) == 1
+    assert statuses == [False]
+
+
+async def test_nested_cancel_propagates_without_steer_or_owner_damage():
+    nested_started = asyncio.Event()
+    parent_steps: list[str] = []
+    owner_survived: list[bool] = []
+    steer_states: list[bool] = []
+
+    class NestedHang:
+        async def run(self, *_args: Any, **_kwargs: Any) -> Result:
+            nested_started.set()
+            await asyncio.Event().wait()
+
+    class Parent:
+        async def run(self, *_args: Any, **_kwargs: Any) -> Result:
+            parent_steps.append("before-nested")
+            try:
+                await _runtime.run_with_mcp(DummyAgent(NestedHang()), "nested")
+            except asyncio.CancelledError:
+                owner_survived.append(
+                    _key_listeners._resolve_cancel_handler(None) is not None
+                )
+                raise
+            parent_steps.append("after-nested")
+            return Result("parent")
+
+    cancel_ids, statuses = register_run_outcomes()
+    controller = get_pause_controller()
+    register_callback(
+        "agent_run_cancel",
+        lambda *_args: steer_states.append(controller.has_pending_steer()),
+    )
+    task = asyncio.create_task(_runtime.run_with_mcp(DummyAgent(Parent()), "hello"))
+    await asyncio.wait_for(nested_started.wait(), timeout=5)
+    controller.request_steer("outer steer", mode="queue")
+    _key_listeners._resolve_cancel_handler(None)()
+    assert await asyncio.wait_for(task, timeout=5) is None
+
+    assert parent_steps == ["before-nested"]
+    assert owner_survived == [True]
+    assert steer_states == [True, False]
+    assert len(cancel_ids) == 2
+    assert statuses == [False, False]
+    assert _key_listeners._resolve_cancel_handler(None) is None
