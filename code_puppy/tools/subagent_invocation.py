@@ -246,6 +246,7 @@ async def _invoke_agent_impl(
     include_usage_metrics: bool = False,
     is_fork: bool = False,
     background: bool = False,
+    session_id_is_resolved: bool = False,
 ) -> AgentInvokeOutput:
     """Invoke a sub-agent, optionally suppressing its standard response message.
 
@@ -266,6 +267,10 @@ async def _invoke_agent_impl(
     feature-detects this kwarg via ``inspect.signature`` before passing it).
     It flags the emitted ``SubAgentInvocationMessage`` so renderers can mark
     the invocation as background -- it does not change execution semantics.
+
+    ``session_id_is_resolved`` is reserved for ``/fork``, which must publish
+    its final generated identity before prompt and lifecycle hooks run.
+    Ordinary callers retain the forgiving base-name suffix behavior.
     """
     from code_puppy.agents.agent_manager import load_agent
 
@@ -314,13 +319,18 @@ async def _invoke_agent_impl(
         hash_suffix = _generate_session_hash_suffix()
         safe_agent_name = _sanitize_for_session_id(agent_name) or "agent"
         session_id = f"{safe_agent_name}-session-{hash_suffix}"
-    elif is_new_session:
+    elif is_new_session and not session_id_is_resolved:
         # New session with user base name: append hash suffix, sanitized to a
         # valid kebab-case ID (forgiving of casing/underscores).
         hash_suffix = _generate_session_hash_suffix()
         safe_base = _sanitize_for_session_id(session_id) or "session"
         session_id = f"{safe_base}-{hash_suffix}"
     # else: continuing existing session, use session_id as-is
+
+    if session_id_is_resolved:
+        # `/fork` publishes its final identity before entering this function.
+        # Reuse it for message groups, request correlation, and tool hooks.
+        group_id = session_id
 
     # Lazy imports to avoid circular dependency
     from code_puppy.agents.subagent_stream_handler import subagent_stream_handler

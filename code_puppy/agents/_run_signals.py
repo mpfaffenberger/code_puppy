@@ -240,6 +240,16 @@ def reset_pause_state_at_run_start() -> None:
         )
 
 
+def prepare_completion_injection(agent: Any, result: Any) -> Optional[str]:
+    """Claim one literal child report without treating it as user input."""
+    from code_puppy.agent_completion_inbox import pop_completion
+
+    completion = pop_completion(agent)
+    if completion is not None and hasattr(result, "all_messages"):
+        agent._message_history = list(result.all_messages())
+    return completion
+
+
 def prepare_queued_steer_injection(agent: Any, result: Any) -> Optional[Any]:
     """Drain ONE queue-mode steer and prep for between-turns injection.
 
@@ -260,14 +270,7 @@ def prepare_queued_steer_injection(agent: Any, result: Any) -> Optional[Any]:
       - Re-queues any leftover steers (we deliberately process ONE per
         loop iteration to keep turn boundaries clean for the model).
     """
-    from code_puppy.agent_completion_inbox import pop_completion
     from code_puppy.messaging.pause_controller import get_pause_controller
-
-    completion = pop_completion(agent)
-    if completion is not None:
-        if hasattr(result, "all_messages"):
-            agent._message_history = list(result.all_messages())
-        return completion
 
     pc = get_pause_controller()
     pending = pc.drain_pending_steer_queued()
@@ -356,6 +359,7 @@ __all__ = [
     "install_detach_event",
     "make_schedule_cancel",
     "mcp_preparation_cancellation",
+    "prepare_completion_injection",
     "prepare_queued_steer_injection",
     "request_run_detach",
     "reset_pause_state_at_run_start",
