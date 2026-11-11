@@ -1021,7 +1021,10 @@ async def on_pre_tool_call(
     Returns:
         List of results from registered callbacks.
     """
-    return await _trigger_callbacks("pre_tool_call", tool_name, tool_args, context)
+    from code_puppy.tool_identity import tool_call_identity
+
+    with tool_call_identity(context):
+        return await _trigger_callbacks("pre_tool_call", tool_name, tool_args, context)
 
 
 async def on_post_tool_call(
@@ -1046,9 +1049,12 @@ async def on_post_tool_call(
     Returns:
         List of results from registered callbacks.
     """
-    return await _trigger_callbacks(
-        "post_tool_call", tool_name, tool_args, result, duration_ms, context
-    )
+    from code_puppy.tool_identity import tool_call_identity
+
+    with tool_call_identity(context):
+        return await _trigger_callbacks(
+            "post_tool_call", tool_name, tool_args, result, duration_ms, context
+        )
 
 
 def on_thinking_display_filter(
