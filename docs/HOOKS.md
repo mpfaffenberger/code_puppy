@@ -4,6 +4,16 @@ Hooks let you intercept and control every tool call the agent makes — before i
 
 ---
 
+## In-process identity contract
+
+`callbacks.on_pre_tool_call` and `on_post_tool_call` capture the incoming runtime
+ID and terminal outcome before dispatching hooks. `code_puppy.tool_identity.current_tool_identity()`
+returns an immutable, task-local snapshot during dispatch (including a captured
+missing ID), or `None` outside dispatch. Nested/parallel calls and cancellation
+restore the enclosing scope. Hooks may still mutate their context and arguments;
+observers should use the snapshot for correlation, not mutable metadata. This
+seam does not invent IDs or terminal outcomes on cores that do not supply them.
+
 ## How It Works
 
 ```text
