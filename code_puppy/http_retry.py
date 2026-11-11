@@ -30,6 +30,18 @@ except ImportError:  # pragma: no cover - fallback when messaging is unavailable
         pass
 
 
+async def _is_usage_limit(response: Any) -> bool:
+    """Lazy bridge to the auto-resume detector; ``False`` on any problem."""
+    if getattr(response, "status_code", None) != 429:
+        return False
+    try:
+        from code_puppy.agents.usage_limit_resume import response_is_usage_limit
+
+        return await response_is_usage_limit(response)
+    except Exception:
+        return False
+
+
 def describe_exception(exc: BaseException) -> str:
     """Return a descriptive string for an exception, falling back gracefully.
 
@@ -95,6 +107,11 @@ class RetryingSendMixin:
 
                 # Check for retryable status
                 if response.status_code not in self.retry_status_codes:
+                    return response
+
+                # Opt-in usage cap ("try again in 47 minutes"): seconds-scale
+                # backoff can't help; let the turn-level auto-resume wait it out.
+                if await _is_usage_limit(response):
                     return response
 
                 # Close response if we're going to retry
