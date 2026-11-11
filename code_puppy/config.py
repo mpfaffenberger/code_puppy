@@ -671,6 +671,14 @@ def get_config_keys():
     default_keys.append("enable_universal_constructor")
     # Add hook retry limit key
     default_keys.append("max_hook_retries")
+    # Opt-in auto-resume after a provider usage cap ("try again in N minutes")
+    default_keys.extend(
+        [
+            "auto_resume_on_usage_limit",
+            "auto_resume_max_wait_minutes",
+            "auto_resume_max_resumes",
+        ]
+    )
     # Add streaming control key
     default_keys.append("enable_streaming")
     # Add suppress directory listing key

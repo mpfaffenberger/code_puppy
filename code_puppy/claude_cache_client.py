@@ -457,6 +457,14 @@ class ClaudeCacheAsyncClient(ClaudeOAuthTransport, httpx2.AsyncClient):
                     return response
                 status_code = response.status_code
                 await self._record_retryable_response(response)
+                if status_code == 429:
+                    from code_puppy.agents.usage_limit_resume import (
+                        response_is_usage_limit,
+                    )
+
+                    # Opt-in usage cap: the turn-level auto-resume waits it out.
+                    if await response_is_usage_limit(response):
+                        return response
                 await response.aclose()
             except (httpx2.ConnectError, httpx2.ReadTimeout, httpx2.PoolTimeout) as exc:
                 last_exception = exc

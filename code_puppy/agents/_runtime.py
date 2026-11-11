@@ -473,6 +473,7 @@ def streaming_retry(
         async def runner() -> Any:
             streak = 0  # consecutive retriable failures with no net-new progress
             total = 0  # every retriable failure, for the absolute backstop
+            usage_resumes = 0  # opt-in waits for a "try again in N min" cap
             last_progress: Any = None
             if progress_fn is not None:
                 try:
@@ -483,6 +484,32 @@ def streaming_retry(
                 try:
                     return await factory()
                 except Exception as exc:
+                    # Opt-in: a usage cap with a reset time waits it out and
+                    # re-runs from the checkpoint, outside the backoff budget.
+                    from code_puppy.agents import usage_limit_resume as ulr
+
+                    usage_wait = (
+                        ulr.usage_limit_wait_seconds(exc) if ulr.is_enabled() else None
+                    )
+                    if usage_wait is not None:
+                        max_resumes = ulr.get_max_resumes()
+                        if usage_wait > ulr.get_max_wait_minutes() * 60:
+                            emit_warning(ulr.describe_too_long(usage_wait))
+                            raise
+                        if usage_resumes < max_resumes:
+                            usage_resumes += 1
+                            log_error(
+                                exc,
+                                context=(
+                                    "streaming_retry: usage limit, auto-resuming in "
+                                    f"{usage_wait:.0f}s "
+                                    f"(resume {usage_resumes}/{max_resumes})"
+                                ),
+                            )
+                            await ulr.wait_for_reset(
+                                usage_wait, usage_resumes, max_resumes
+                            )
+                            continue
                     if not should_retry_streaming(exc):
                         raise
                     total += 1
