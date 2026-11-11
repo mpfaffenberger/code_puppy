@@ -17,6 +17,7 @@ from typing import Any, Optional
 
 from rich.text import Text
 
+from code_puppy.agents._multimodal_error_hint import multimodal_error_hint
 from code_puppy.agents._token_limit_hint import token_limit_hint
 from code_puppy.error_logging import log_error
 from code_puppy.messaging import emit_info, emit_warning
@@ -124,6 +125,13 @@ def emit_exception_diagnostics(
 
     try:
         hint = token_limit_hint(exc, model_name)
+        if hint:
+            emit_warning(hint, group_id=group_id)
+    except Exception:  # pragma: no cover - a hint must never cascade
+        pass
+
+    try:
+        hint = multimodal_error_hint(exc)
         if hint:
             emit_warning(hint, group_id=group_id)
     except Exception:  # pragma: no cover - a hint must never cascade

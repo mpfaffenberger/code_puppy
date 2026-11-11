@@ -1,6 +1,6 @@
 """Speculative CodeMode capability wiring, switched by one config flag.
 
-Uses speculative programmatic tool calling from pydantic-ai-harness 0.33.0.
+Uses speculative programmatic tool calling from pydantic-ai-harness.
 
 When ``enable_speculative_code_mode`` is on, every agent (main and sub-agent)
 has its whole tool surface, MCP servers and plugin tools included, folded
@@ -25,7 +25,6 @@ the current agent.
 
 from __future__ import annotations
 
-import os
 import warnings
 from pathlib import Path, PureWindowsPath
 from typing import Any, Callable, List, Sequence
@@ -39,10 +38,11 @@ from pydantic_monty import MountDir, OSAccess
 from pydantic_ai_harness.code_mode import CodeMode
 
 from code_puppy.agents._code_mode_guidance import CodeModeGuidance
-from code_puppy.agents._code_mode_session import SessionCodeMode, repl_path_for
+from code_puppy.agents._code_mode_session import FileReplStore, repl_path_for
 from code_puppy.agents._wire_tool_names import StreamedToolNameNormalizer
 from code_puppy.capabilities.eager_timing import EagerTiming
 from code_puppy.config import get_speculative_code_mode_enabled
+from code_puppy.tools.common import get_working_directory
 
 # Code Puppy owns terminal output, including when observability is disabled.
 pydantic_ai.BANNER_ENABLED = False
@@ -61,10 +61,13 @@ for _invalid_escape_category in (SyntaxWarning, DeprecationWarning):
 # MCP servers routinely ship tools without an output schema (Blender's
 # screenshot tools, for one); the sandbox signature just degrades to
 # ``-> Any``. Nothing the user can act on, so keep it off the terminal. The
-# harness's name-collision warning is actionable and stays visible.
+# wording differs by harness version ("tool X has no return schema" vs
+# "N tools have no return schema"), and newer releases raise it as a
+# ``UserWarning`` subclass, so a loose pattern on the base category covers
+# both. The harness's name-collision warning is actionable and stays visible.
 warnings.filterwarnings(
     "ignore",
-    message=r"CodeMode: tool .* has no return schema",
+    message=r"CodeMode: .*no return schema",
     category=UserWarning,
 )
 
@@ -235,11 +238,11 @@ def build_speculative_code_mode(
     speculate = DeclaredSpeculation(
         [name for name in SANDBOXED_READ_ONLY_TOOLS if name in agent_tools]
     )
-    workspace = os.getcwd()
+    workspace = get_working_directory()
     mount_path = sandbox_mount_path(workspace)
     return [
-        SessionCodeMode(
-            repl_path=repl_path,
+        CodeMode(
+            repl_store=FileReplStore(repl_path) if repl_path is not None else None,
             tools=_sandbox_tool,
             speculate=speculate,
             # Composed tiers: eager runs each streamed statement in the live REPL as it

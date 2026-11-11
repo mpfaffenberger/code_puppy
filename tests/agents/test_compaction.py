@@ -18,6 +18,7 @@ import pytest
 from opentelemetry.trace import NoOpTracer
 from pydantic_ai.exceptions import ModelHTTPError, UsageLimitExceeded
 from pydantic_ai.messages import (
+    CompactionPart,
     ModelMessage,
     ModelRequest,
     ModelResponse,
@@ -313,11 +314,17 @@ class TestCompact:
             )
 
         assert len(new_msgs) < len(msgs)
-        assert any(
-            "HARNESS_SUMMARY" in str(getattr(p, "content", ""))
+        summaries = [
+            p
             for m in new_msgs
+            if isinstance(m, ModelRequest)
             for p in m.parts
-        ), "summarizer output missing from result"
+            if isinstance(p, CompactionPart)
+        ]
+        assert len(summaries) == 1, "summarizer output missing from result"
+        assert "HARNESS_SUMMARY" in summaries[0].content
+        assert summaries[0].provider_name is None
+        assert summaries[0].metadata["pydantic-ai-harness.compaction.summary.v1"]
         assert len(dropped) > 0
 
     async def test_summarization_failure_falls_back_to_sliding_window(self):

@@ -4,20 +4,22 @@ build-backend = "hatchling.build"
 
 [project]
 name = "code-puppy"
-version = "0.0.933"
+version = "0.0.969"
 description = "Code generation agent"
 readme = "README.md"
 requires-python = ">=3.11,<3.15"
 dependencies = [
-    "code-puppy-core-plugins>=0.0.95",
-    "logfire>=4.0",
-    "pydantic-ai-slim[openai,anthropic,mcp]==2.51.0",
-    "pydantic-ai-harness[code-mode]==0.35.0",
-    # Monty 1.0 removed max_duration_secs, still used by harness CodeMode.
-    "pydantic-monty<1",
-    "anyio>=4.7.0",
+    "code-puppy-core-plugins>=0.0.109",
+    "pydantic-ai-slim[openai,anthropic,mcp]==2.64.0",
+    "pydantic-ai-harness[code-mode]==0.64.0",
+    # Imported directly by code_puppy.agents; range mirrors pydantic-ai-harness[code-mode].
+    "pydantic-monty>=1.4.0,<2",
+    # Security floor: 4.14.2 fixes CVE-2026-63374 and CVE-2026-64847.
+    "anyio>=4.14.2",
     "typer>=0.12.0",
     "mcp>=1.9.4",
+    # Imported directly by code_puppy.mcp_; range mirrors pydantic-ai-slim[mcp].
+    "fastmcp-slim[client]>=3.3.0,<5",
     # FastMCP's OAuth callback server explicitly uses Uvicorn websockets-sansio.
     "websockets>=14.0",
     "httpx[http2]>=0.24.1",
@@ -38,6 +40,10 @@ dependencies = [
     "anthropic>=1.0.0,<2",
     "boto3>=1.43.9",
     "keyring>=24.0.0",
+    # cryptography 49+ publishes arm64-only macOS wheels, so Intel Macs fall back
+    # to a source build that needs Rust + OpenSSL. 48.x ships universal2 wheels.
+    # Transitive via azure-identity/msal/pyjwt/authlib; drop once x86_64 returns.
+    "cryptography<49; sys_platform == 'darwin' and platform_machine == 'x86_64'",
     "agent-client-protocol>=0.11.0,<0.12",
 ]
 dev-dependencies = [
@@ -66,7 +72,7 @@ classifiers = [
 bedrock = ["boto3>=1.35.0"]
 durable = ["dbos>=2.11.0"]
 computer-use = [
-    "code-puppy-core-plugins[computer-use]>=0.0.95",
+    "code-puppy-core-plugins[computer-use]>=0.0.109",
 ]
 
 [project.urls]
@@ -77,9 +83,6 @@ HomePage = "https://github.com/mpfaffenberger/code_puppy"
 [project.scripts]
 code-puppy = "code_puppy.main:main_entry"
 pup = "code_puppy.main:main_entry"
-
-[tool.logfire]
-ignore_no_config = true
 
 [tool.hatch.build]
 packages = ["code_puppy"]

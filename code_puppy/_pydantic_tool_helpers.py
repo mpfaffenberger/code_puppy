@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 _CLAUDE_CODE_TOOL_PREFIX = "cp_"
@@ -131,11 +132,29 @@ def _handled_result_for_blocks(callback_results: list) -> str | None:
     return None
 
 
+def _raise_if_cancel_pending() -> None:
+    """Re-assert a cancellation that a pre-tool callback absorbed.
+
+    Well-behaved code balances its own cancels with ``Task.uncancel()``, so a
+    positive count means a cancel is still pending. That is policy, not proof
+    of external intent. The raise is a fresh ``CancelledError``: the original
+    was consumed by whoever absorbed it. The count is left untouched so outer
+    layers still see the cancellation.
+    """
+    try:
+        task = asyncio.current_task()
+    except RuntimeError:
+        return
+    if task is not None and task.cancelling() > 0:
+        raise asyncio.CancelledError("tool call cancelled before execution")
+
+
 __all__ = [
     "_block_reason",
     "_handled_result_for_blocks",
     "_handled_tool_result",
     "_normalize_claude_code_tool_name",
+    "_raise_if_cancel_pending",
     "_tool_args_for_pre_tool_call",
     "_writeback_tool_args",
 ]

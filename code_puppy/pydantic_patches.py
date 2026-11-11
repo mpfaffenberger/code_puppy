@@ -12,8 +12,8 @@ idempotent and NEVER raises, but failures are not silent:
   correctness layer silently degraded (e.g. tool-call hooks not firing).
 
 Logging uses the stdlib ``logging`` module, NOT ``code_puppy.messaging``:
-patches apply at the very top of ``cli_runner`` before the messaging
-system is up (see cli_runner.py lines 6-9).
+patches apply during ``code_puppy.cli_runner`` facade startup, before the
+messaging system is up.
 
 Usage:
     from code_puppy.pydantic_patches import apply_all_patches
@@ -31,6 +31,7 @@ from code_puppy._pydantic_tool_helpers import (
     _block_reason,
     _handled_result_for_blocks,
     _normalize_claude_code_tool_name,
+    _raise_if_cancel_pending,
     _tool_args_for_pre_tool_call,
     _writeback_tool_args,
 )
@@ -262,6 +263,9 @@ def _sanitize_tool_call_args(manager: Any, call: Any) -> None:
 # summary line can distinguish real breakage from skipped optional deps.
 _LOUD_FAILURES: list[str] = []
 
+# (patch name, exception) pairs waiting for errors.log; see _report_patch_failures.
+_PENDING_REPORTS: list[tuple[str, BaseException]] = []
+
 
 def _patch_failed(
     patch_name: str,
@@ -271,6 +275,7 @@ def _patch_failed(
 ) -> bool:
     """Log a loud, actionable error for a patch that failed to apply."""
     _LOUD_FAILURES.append(patch_name)
+    _PENDING_REPORTS.append((patch_name, exc))
     logger.error(
         "pydantic_patches: %s FAILED to apply (%s internals changed?): %r — %s",
         patch_name,
@@ -598,6 +603,10 @@ def patch_tool_call_callbacks() -> bool:
                 )
             except Exception:
                 pass  # import/dispatch failure leaves nothing to act on
+
+            # A callback may have absorbed a cancel; re-assert it before any
+            # callback result is honored or the tool runs.
+            _raise_if_cancel_pending()
 
             # Collect non-blocking hook context messages (e.g. PreToolUse
             # stdout) so the model sees them — otherwise they're lost.
@@ -1030,6 +1039,33 @@ def patch_silence_pydantic_serializer_warnings() -> bool:
     return True
 
 
+def _report_patch_failures() -> None:
+    """Write each collected patch failure to errors.log, then forget them.
+
+    Runs only after the last patch, so recording one failure cannot interleave
+    with the patches still to be applied. Never raises.
+
+    Called by: ``apply_all_patches``.
+    """
+    failures = list(_PENDING_REPORTS)
+    _PENDING_REPORTS.clear()
+    if not failures:
+        return
+    try:
+        from code_puppy.error_logging import log_error
+
+        for name, exc in failures:
+            log_error(
+                exc,
+                context=(
+                    "code_puppy.pydantic_patches::apply_all_patches: "
+                    f"startup/patches: apply the {name} patch"
+                ),
+            )
+    except Exception:
+        logger.debug("reporting patch failures to errors.log failed", exc_info=True)
+
+
 _ALL_PATCHES = (
     patch_silence_anthropic_sampling_warnings,
     patch_silence_pydantic_serializer_warnings,
@@ -1055,12 +1091,14 @@ def apply_all_patches() -> dict[str, bool]:
     optional dependencies) and reflected as ``False`` in the result.
     """
     _LOUD_FAILURES.clear()
+    _PENDING_REPORTS.clear()
     results: dict[str, bool] = {}
     for patch in _ALL_PATCHES:
         try:
             results[patch.__name__] = bool(patch())
         except Exception as exc:  # pragma: no cover - patches must not raise
             _LOUD_FAILURES.append(patch.__name__)
+            _PENDING_REPORTS.append((patch.__name__, exc))
             logger.error(
                 "pydantic_patches: %s raised unexpectedly: %r", patch.__name__, exc
             )
@@ -1072,4 +1110,5 @@ def apply_all_patches() -> dict[str, bool]:
             len(_LOUD_FAILURES),
             ", ".join(_LOUD_FAILURES),
         )
+    _report_patch_failures()
     return results

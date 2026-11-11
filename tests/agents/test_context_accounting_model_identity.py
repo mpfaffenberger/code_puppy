@@ -99,7 +99,9 @@ async def test_real_anthropic_response_alias_anchors_and_survives_resume(streami
                 pass
 
         result = await Agent(
-            model, capabilities=[build_model_message_transform("alias-test")]
+            model,
+            capabilities=[build_model_message_transform("alias-test")],
+            model_settings={"max_tokens": 1024},
         ).run("hello", event_stream_handler=consume if streaming else None)
     history = result.all_messages()
     assert history[-1].model_name == "claude-sonnet-4-5-20250929"

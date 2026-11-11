@@ -64,16 +64,17 @@ from code_puppy.tools.subagent_usage_metrics import (
 _active_subagent_tasks: Set[asyncio.Task] = set()
 
 # Sub-agents interrupted by cancellation, drained into the parent's history at
-# the next run start (single seam shared by invoke_agent and /fork). Same-loop
-# populate/drain makes a plain list safe.
-_interrupted_subagents: list[dict] = []
+# the next run start (single seam shared by invoke_agent and /fork). Records are
+# filed per conversation root (None = terminal) so one ACP session never sees
+# another's notes. Same-loop populate/drain makes a plain dict safe.
+_interrupted_subagents: dict[str | None, list[dict]] = {}
 
 
 def record_interrupted_subagent(
     *, agent_name: str, session_id: str, saved_count: int | None
 ) -> None:
     """Remember that ``agent_name``'s session was interrupted."""
-    _interrupted_subagents.append(
+    _interrupted_subagents.setdefault(get_conversation_root_id(), []).append(
         {
             "agent_name": agent_name,
             "session_id": session_id,
@@ -83,10 +84,20 @@ def record_interrupted_subagent(
 
 
 def drain_interrupted_subagents() -> list[dict]:
-    """Return and clear all pending interrupted-subagent records."""
-    drained = list(_interrupted_subagents)
-    _interrupted_subagents.clear()
-    return drained
+    """Return and clear the current conversation root's interrupted records."""
+    return _interrupted_subagents.pop(get_conversation_root_id(), [])
+
+
+def peek_interrupted_subagents(key: str | None = None) -> list[dict]:
+    """Return copies of ``key``'s records (default: current root) without clearing."""
+    if key is None:
+        key = get_conversation_root_id()
+    return [dict(rec) for rec in _interrupted_subagents.get(key, [])]
+
+
+def clear_interrupted_subagents(key: str | None) -> None:
+    """Drop ``key``'s records exactly (``None`` is the terminal bucket)."""
+    _interrupted_subagents.pop(key, None)
 
 
 def _subagent_recursion_blocked() -> bool:
@@ -166,18 +177,17 @@ def _subagent_identity_prompt(agent_name: str) -> str:
     depth = get_subagent_depth() + 1
     limit = get_subagent_recursion_limit()
     chain = " -> ".join(("main agent", *get_subagent_chain(), agent_name))
-    remaining = max(limit - depth, 0)
     return f"""## Sub-agent execution context (mandatory)
 
 You are the sub-agent `{agent_name}`, not the main agent. Your nesting depth is
-{depth} (main agent = 0). Invocation chain: {chain}. The configured maximum
-sub-agent depth is {limit}; {remaining} deeper level(s) remain.
+{depth} (main agent = 0). Invocation chain: {chain}.
 
-Complete your assigned task directly. Prefer doing the work yourself over
-spawning more agents, but delegation is permitted -- including invoking an agent
-whose name matches your own -- as long as it serves the task. The recursion guard
-above enforces the depth cap automatically, so nesting beyond it is refused
-rather than forbidden by convention."""
+Complete your assigned task directly and return the result to your caller. Do
+not delegate further unless your caller explicitly asks you to; if you do, use
+one concurrent batch of direct children, synthesize their results yourself, and
+do not chain follow-up sub-agent calls. The runtime depth guard (max {limit})
+rejects deeper calls. Remaining depth capacity alone is not a reason to
+delegate."""
 
 
 def _contains_cancellation(exc: BaseException) -> bool:
@@ -798,9 +808,13 @@ def register_invoke_agent(agent):
     ) -> AgentInvokeOutput | dict:
         """Invoke a specific sub-agent using its configured model.
 
-        Prefer doing the work directly, but delegation is allowed -- including
-        to an agent whose name matches the caller's. Nesting is capped by the
-        recursion guard rather than by convention.
+        Prefer handling small work directly. When a task has independent,
+        tightly scoped pieces, invoke them as multiple sub-agents concurrently
+        in one batch (several invoke_agent calls in the same response) rather
+        than one at a time. Invoke direct children only and tell each child to
+        complete its task without delegating further. After the batch returns,
+        synthesize the results yourself instead of starting follow-up chains of
+        sub-agent calls. The runtime recursion guard remains the depth backstop.
 
         Args:
             agent_name: Name of the sub-agent to invoke.
@@ -808,6 +822,8 @@ def register_invoke_agent(agent):
             session_id: Optional kebab-case session id for continuing memory.
             background: Return immediately and deliver completion automatically
                 to the main agent, even after its turn ends. Defaults to False.
+                Not needed for parallel calls; use it only when you do not need
+                the result this turn.
 
         Returns:
             AgentInvokeOutput: Contains response, agent_name, session_id,
@@ -859,9 +875,14 @@ def register_invoke_agent_with_model(agent):
 
         Use this only when a model override is intentionally required. For
         normal delegation, use invoke_agent so the sub-agent's configured model
-        is respected. Prefer doing the work directly, but delegation is allowed
-        -- including to an agent whose name matches the caller's. Nesting is
-        capped by the recursion guard rather than by convention.
+        is respected. Prefer handling small work directly. When a task has
+        independent, tightly scoped pieces, invoke them as multiple sub-agents
+        concurrently in one batch (several invoke_agent calls in the same
+        response) rather than one at a time. Invoke direct children only and
+        tell each child to complete its task without delegating further. After
+        the batch returns, synthesize the results yourself instead of starting
+        follow-up chains of sub-agent calls. The runtime recursion guard remains
+        the depth backstop.
 
         Args:
             agent_name: Name of the sub-agent to invoke.

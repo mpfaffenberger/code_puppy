@@ -146,10 +146,9 @@ def _render_question_panel_unsafe(
         other_idx = len(question.options)
         # Get the stored "Other" text for this question
         other_text = state.get_other_text_for_question(state.current_question_index)
-        # Build the description - show stored text if available
-        # Escape user input to prevent Rich markup injection
+        # _render_option escapes the description, so pass it raw
         if other_text:
-            other_desc = f'"{rich_escape(other_text)}"'
+            other_desc = f'"{other_text}"'
         else:
             other_desc = OTHER_OPTION_DESCRIPTION
         _render_option(
@@ -170,7 +169,7 @@ def _render_question_panel_unsafe(
             f"{pad}[{colors.input_label}]{t('ask_user_question.input.custom_option')}[/{colors.input_label}]"
         )
         console.print(
-            f"{pad}[{colors.input_text}]> {state.other_text_buffer}_[/{colors.input_text}]"
+            f"{pad}[{colors.input_text}]> {rich_escape(state.other_text_buffer + '_')}[/{colors.input_text}]"
         )
         console.print()
         console.print(

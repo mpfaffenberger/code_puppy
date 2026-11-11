@@ -4,6 +4,7 @@ Covers ClipboardAttachmentManager, singleton pattern, image capture,
 size limiting, error handling, and cross-platform detection.
 """
 
+import io
 from unittest.mock import MagicMock, patch
 
 
@@ -23,7 +24,7 @@ class TestCaptureClipboardImageToPending:
 
         with patch(
             "code_puppy.command_line.clipboard.get_clipboard_image",
-            return_value=fake_png,
+            return_value=(fake_png, "image/png"),
         ):
             # First capture should succeed
             result1 = clipboard.capture_clipboard_image_to_pending()
@@ -63,7 +64,7 @@ class TestCaptureClipboardImageToPending:
 
         with patch(
             "code_puppy.command_line.clipboard.get_clipboard_image",
-            return_value=fake_png,
+            return_value=(fake_png, "image/png"),
         ):
             result = clipboard.capture_clipboard_image_to_pending()
 
@@ -212,7 +213,9 @@ class TestGetClipboardImage:
             result = get_clipboard_image()
 
         assert result is not None
-        assert result.startswith(b"\x89PNG")
+        data, media_type = result
+        assert data.startswith(b"\x89PNG")
+        assert media_type == "image/png"
 
 
 class TestGetClipboardImageAsBinaryContent:
@@ -228,7 +231,7 @@ class TestGetClipboardImageAsBinaryContent:
 
         with patch(
             "code_puppy.command_line.clipboard.get_clipboard_image",
-            return_value=fake_png,
+            return_value=(fake_png, "image/png"),
         ):
             result = get_clipboard_image_as_binary_content()
 
@@ -264,96 +267,70 @@ class TestGetClipboardImageAsBinaryContent:
 class TestGetClipboardImageLinux:
     """Tests for get_clipboard_image on Linux."""
 
-    def test_linux_large_image_pil_unavailable(self):
-        from code_puppy.command_line.clipboard import (
-            MAX_IMAGE_SIZE_BYTES,
-            get_clipboard_image,
-        )
+    def test_linux_image_pil_unavailable(self):
+        from code_puppy.command_line.clipboard import get_clipboard_image
 
-        large_bytes = b"x" * (MAX_IMAGE_SIZE_BYTES + 1)
         with (
             patch("code_puppy.command_line.clipboard.sys.platform", "linux"),
             patch(
                 "code_puppy.command_line.clipboard._get_linux_clipboard_image",
-                return_value=large_bytes,
+                return_value=b"pngdata",
             ),
             patch("code_puppy.command_line.clipboard.PIL_AVAILABLE", False),
         ):
             assert get_clipboard_image() is None
 
-    def test_linux_large_image_resize_exception(self):
-        from code_puppy.command_line.clipboard import (
-            MAX_IMAGE_SIZE_BYTES,
-            get_clipboard_image,
-        )
-
-        large_bytes = b"x" * (MAX_IMAGE_SIZE_BYTES + 1)
-        mock_img = MagicMock()
+    def test_linux_normalize_exception(self):
+        from code_puppy.command_line.clipboard import get_clipboard_image
 
         with (
             patch("code_puppy.command_line.clipboard.sys.platform", "linux"),
             patch(
                 "code_puppy.command_line.clipboard._get_linux_clipboard_image",
-                return_value=large_bytes,
+                return_value=b"pngdata",
             ),
             patch("code_puppy.command_line.clipboard.PIL_AVAILABLE", True),
             patch(
                 "code_puppy.command_line.clipboard._safe_open_image",
-                return_value=mock_img,
+                return_value=MagicMock(),
             ),
             patch(
-                "code_puppy.command_line.clipboard._resize_image_if_needed",
-                side_effect=RuntimeError("resize fail"),
+                "code_puppy.command_line.clipboard.normalize_image_bytes",
+                side_effect=RuntimeError("normalize fail"),
             ),
         ):
             assert get_clipboard_image() is None
 
-    def test_linux_large_image_resize_success(self):
-        from code_puppy.command_line.clipboard import (
-            MAX_IMAGE_SIZE_BYTES,
-            get_clipboard_image,
-        )
-
-        large_bytes = b"x" * (MAX_IMAGE_SIZE_BYTES + 1)
-        mock_img = MagicMock()
-        resized_img = MagicMock()
-
-        def save_side_effect(buffer, **kwargs):
-            buffer.write(b"resized_png")
-
-        resized_img.save.side_effect = save_side_effect
+    def test_linux_normalize_success(self):
+        from code_puppy.command_line.clipboard import get_clipboard_image
 
         with (
             patch("code_puppy.command_line.clipboard.sys.platform", "linux"),
             patch(
                 "code_puppy.command_line.clipboard._get_linux_clipboard_image",
-                return_value=large_bytes,
+                return_value=b"big_png",
             ),
             patch("code_puppy.command_line.clipboard.PIL_AVAILABLE", True),
             patch(
                 "code_puppy.command_line.clipboard._safe_open_image",
-                return_value=mock_img,
+                return_value=MagicMock(),
             ),
             patch(
-                "code_puppy.command_line.clipboard._resize_image_if_needed",
-                return_value=resized_img,
+                "code_puppy.command_line.clipboard.normalize_image_bytes",
+                return_value=(b"resized_png", "image/png"),
             ),
         ):
             result = get_clipboard_image()
-        assert result == b"resized_png"
+        assert result == (b"resized_png", "image/png")
 
-    def test_linux_large_image_verification_fails(self):
-        from code_puppy.command_line.clipboard import (
-            MAX_IMAGE_SIZE_BYTES,
-            get_clipboard_image,
-        )
+    def test_linux_image_verification_fails(self):
+        from code_puppy.command_line.clipboard import get_clipboard_image
 
-        large_bytes = b"x" * (MAX_IMAGE_SIZE_BYTES + 1)
         with (
             patch("code_puppy.command_line.clipboard.sys.platform", "linux"),
             patch(
                 "code_puppy.command_line.clipboard._get_linux_clipboard_image",
-                return_value=large_bytes,
+                return_value=b"pngdata",
             ),
             patch("code_puppy.command_line.clipboard.PIL_AVAILABLE", True),
             patch(
@@ -392,7 +369,7 @@ class TestGetClipboardImageLinux:
             ),
         ):
             result = get_clipboard_image()
-        assert result == small_bytes
+        assert result == (small_bytes, "image/png")
 
     def test_linux_small_image_verification_fails(self):
         from code_puppy.command_line.clipboard import get_clipboard_image
@@ -413,63 +390,47 @@ class TestGetClipboardImageLinux:
 
 
 class TestGetClipboardImageModes:
-    """Tests for image mode handling in get_clipboard_image."""
+    """Format preservation for PIL-sourced clipboard images."""
 
-    def _make_mock_image(self, mode, has_transparency=False):
-        mock_image = MagicMock()
-        mock_image.mode = mode
-        mock_image.width = 100
-        mock_image.height = 100
-        mock_image.info = {"transparency": True} if has_transparency else {}
+    def test_rgb_screenshot_saved_as_png(self):
+        from PIL import Image
 
-        def save_as_png(buffer, format, **kwargs):
-            buffer.write(b"\x89PNG\r\n\x1a\n" + b"\x00" * 50)
-
-        mock_image.save.side_effect = save_as_png
-        return mock_image
-
-    def test_l_mode_converted_to_rgb(self):
         from code_puppy.command_line.clipboard import get_clipboard_image
 
-        mock_image = self._make_mock_image("L")
-        converted = self._make_mock_image("RGB")
-        mock_image.convert.return_value = converted
+        image = Image.new("RGB", (64, 64), color=(10, 20, 30))
 
         with (
             patch("code_puppy.command_line.clipboard.PIL_AVAILABLE", True),
             patch("code_puppy.command_line.clipboard.sys.platform", "darwin"),
             patch("code_puppy.command_line.clipboard.ImageGrab") as mock_grab,
-            patch("code_puppy.command_line.clipboard.Image") as mock_img_mod,
-            patch(
-                "code_puppy.command_line.clipboard._resize_image_if_needed",
-                return_value=converted,
-            ),
         ):
-            mock_img_mod.Image = type(mock_image)
-            mock_grab.grabclipboard.return_value = mock_image
+            mock_grab.grabclipboard.return_value = image
             result = get_clipboard_image()
-        assert result is not None
-        mock_image.convert.assert_called_once_with("RGB")
 
-    def test_rgba_mode_kept(self):
+        assert result is not None
+        data, media_type = result
+        assert media_type == "image/png"
+        assert data[:8] == b"\x89PNG\r\n\x1a\n"
+
+    def test_rgba_screenshot_keeps_transparency(self):
+        from PIL import Image
+
         from code_puppy.command_line.clipboard import get_clipboard_image
 
-        mock_image = self._make_mock_image("RGBA")
+        image = Image.new("RGBA", (64, 64), color=(10, 20, 30, 40))
+
         with (
             patch("code_puppy.command_line.clipboard.PIL_AVAILABLE", True),
             patch("code_puppy.command_line.clipboard.sys.platform", "darwin"),
             patch("code_puppy.command_line.clipboard.ImageGrab") as mock_grab,
-            patch("code_puppy.command_line.clipboard.Image") as mock_img_mod,
-            patch(
-                "code_puppy.command_line.clipboard._resize_image_if_needed",
-                return_value=mock_image,
-            ),
         ):
-            mock_img_mod.Image = type(mock_image)
-            mock_grab.grabclipboard.return_value = mock_image
+            mock_grab.grabclipboard.return_value = image
             result = get_clipboard_image()
+
         assert result is not None
-        mock_image.convert.assert_not_called()
+        data, media_type = result
+        assert media_type == "image/png"
+        assert Image.open(io.BytesIO(data)).mode == "RGBA"
 
 
 class TestGetClipboardManager:

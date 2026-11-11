@@ -145,6 +145,7 @@ class TestHandleShowCommand:
                 return_value={"reasoning_effort": "medium", "verbosity": "medium"},
             ),
             patch("code_puppy.config.get_value"),
+            patch("code_puppy.config.get_agency_level", return_value="medium"),
             patch(
                 "code_puppy.keymap.get_cancel_agent_display_name", return_value="ctrl+c"
             ),
@@ -173,8 +174,14 @@ class TestHandleShowCommand:
             patches[14],
             patches[15],
             patches[16],
+            patches[17] as emit_info,
         ):
             assert handle_show_command("/show") is True
+            status = emit_info.call_args.args[0].plain
+            assert any(
+                "agency_level:" in line and "medium" in line
+                for line in status.splitlines()
+            )
 
 
 class TestHandleUnpinCommand:

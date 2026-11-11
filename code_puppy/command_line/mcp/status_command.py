@@ -4,11 +4,12 @@ MCP Status Command - Shows detailed status for MCP servers.
 
 import logging
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Union
 
 from rich.panel import Panel
 from rich.text import Text
 
+from code_puppy.i18n import ngettext, t
 from code_puppy.mcp_.managed_server import ServerState
 from code_puppy.messaging import emit_error, emit_info
 
@@ -51,7 +52,8 @@ class StatusCommand(MCPCommandBase):
 
                 if not server_id:
                     emit_info(
-                        f"Server '{server_name}' not found", message_group=group_id
+                        t("mcp.server.not_found", server=server_name),
+                        message_group=group_id,
                     )
                     suggest_similar_servers(
                         self.manager, server_name, group_id=group_id
@@ -66,7 +68,7 @@ class StatusCommand(MCPCommandBase):
 
         except Exception as e:
             logger.error(f"Error showing server status: {e}")
-            emit_info(f"Failed to get server status: {e}", message_group=group_id)
+            emit_info(t("mcp.status.failed", error=e), message_group=group_id)
 
     def _show_detailed_server_status(
         self, server_id: str, server_name: str, group_id: Optional[str] = None
@@ -87,20 +89,21 @@ class StatusCommand(MCPCommandBase):
 
             if not status.get("exists", True):
                 emit_info(
-                    f"Server '{server_name}' not found or not accessible",
+                    t("mcp.status.not_accessible", server=server_name),
                     message_group=group_id,
                 )
                 return
 
-            # Create detailed status panel
-            status_lines = []
+            def line(label_key: str, value: Union[str, Text]) -> Text:
+                # Bold translated label; the value is never parsed as markup.
+                return Text.assemble((t(label_key), "bold"), " ", value)
 
             # Basic information
-            status_lines.append(f"[bold]Server:[/bold] {server_name}")
-            status_lines.append(f"[bold]ID:[/bold] {server_id}")
-            status_lines.append(
-                f"[bold]Type:[/bold] {status.get('type', 'unknown').upper()}"
-            )
+            status_lines = [
+                line("mcp.status.label.server", server_name),
+                line("mcp.status.label.id", server_id),
+                line("mcp.status.label.type", status.get("type", "unknown").upper()),
+            ]
 
             # State and status
             state = status.get("state", "unknown")
@@ -109,11 +112,14 @@ class StatusCommand(MCPCommandBase):
                 if state in [s.value for s in ServerState]
                 else ServerState.STOPPED
             )
-            status_lines.append(f"[bold]State:[/bold] {state_display}")
+            status_lines.append(line("mcp.status.label.state", state_display.plain))
 
             enabled = status.get("enabled", False)
             status_lines.append(
-                f"[bold]Enabled:[/bold] {'✓ Yes' if enabled else '✗ No'}"
+                line(
+                    "mcp.status.label.enabled",
+                    t("mcp.status.enabled_yes" if enabled else "mcp.status.enabled_no"),
+                )
             )
 
             # Check async lifecycle manager status if available
@@ -122,17 +128,21 @@ class StatusCommand(MCPCommandBase):
 
                 lifecycle_mgr = get_lifecycle_manager()
                 if lifecycle_mgr.is_running(server_id):
-                    status_lines.append(
-                        "[bold]Process:[/bold] [green]✓ Active (subprocess/connection running)[/green]"
-                    )
+                    process = Text(t("mcp.status.process_active"), style="green")
                 else:
-                    status_lines.append("[bold]Process:[/bold] [dim]Not active[/dim]")
+                    process = Text(t("mcp.status.process_inactive"), style="dim")
+                status_lines.append(line("mcp.status.label.process", process))
             except Exception:
                 pass  # Lifecycle manager not available
 
             quarantined = status.get("quarantined", False)
             if quarantined:
-                status_lines.append("[bold]Quarantined:[/bold] [yellow]⚠ Yes[/yellow]")
+                status_lines.append(
+                    line(
+                        "mcp.status.label.quarantined",
+                        Text(t("mcp.status.quarantined_yes"), style="yellow"),
+                    )
+                )
 
             # Timing information
             uptime = status.get("tracker_uptime")
@@ -142,26 +152,36 @@ class StatusCommand(MCPCommandBase):
                     if hasattr(uptime, "total_seconds")
                     else uptime
                 )
-                status_lines.append(f"[bold]Uptime:[/bold] {uptime_str}")
+                status_lines.append(line("mcp.status.label.uptime", uptime_str))
 
             # Error information
             error_msg = status.get("error_message")
             if error_msg:
-                status_lines.append(f"[bold]Error:[/bold] [red]{error_msg}[/red]")
+                status_lines.append(
+                    line("mcp.status.label.error", Text(str(error_msg), style="red"))
+                )
 
             # Event information
             event_count = status.get("recent_events_count", 0)
-            status_lines.append(f"[bold]Recent Events:[/bold] {event_count}")
+            status_lines.append(
+                line("mcp.status.label.recent_events", str(event_count))
+            )
 
             # Metadata
             metadata = status.get("tracker_metadata", {})
             if metadata:
-                status_lines.append(f"[bold]Metadata:[/bold] {len(metadata)} keys")
+                status_lines.append(
+                    line(
+                        "mcp.status.label.metadata",
+                        ngettext("mcp.status.metadata_keys", len(metadata)),
+                    )
+                )
 
             # Create and show the panel
-            panel_content = Text.from_markup("\n".join(status_lines))
             panel = Panel(
-                panel_content, title=f"🔌 {server_name} Status", border_style="cyan"
+                Text("\n").join(status_lines),
+                title=Text(t("mcp.status.title", server=server_name)),
+                border_style="cyan",
             )
 
             emit_info(panel, message_group=group_id)
@@ -169,7 +189,7 @@ class StatusCommand(MCPCommandBase):
             # Show recent events if available
             recent_events = status.get("recent_events", [])
             if recent_events:
-                emit_info("\n📋 Recent Events:", message_group=group_id)
+                emit_info("\n" + t("mcp.status.recent_events"), message_group=group_id)
                 for event in recent_events[-5:]:  # Show last 5 events
                     timestamp = datetime.fromisoformat(event["timestamp"])
                     time_str = timestamp.strftime("%H:%M:%S")
@@ -181,4 +201,4 @@ class StatusCommand(MCPCommandBase):
             logger.error(
                 f"Error getting detailed status for server '{server_name}': {e}"
             )
-            emit_error(f"Error getting server status: {e}", message_group=group_id)
+            emit_error(t("mcp.status.error", error=e), message_group=group_id)

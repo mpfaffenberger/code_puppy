@@ -239,18 +239,6 @@ def get_enable_streaming() -> bool:
     return get_truthy_bool_value("enable_streaming", True)
 
 
-def get_enable_logfire() -> bool:
-    """
-    Get the enable_logfire configuration value.
-    Controls whether Logfire observability instrumentation is enabled.
-    Strictly opt-in: defaults to False.
-    """
-    val = get_value("enable_logfire")
-    if val is None:
-        return False  # Opt-in: no telemetry unless the user asks for it
-    return str(val).lower() in ("1", "true", "yes", "on")
-
-
 def get_retry_main_strategy() -> str:
     """Effective backoff strategy for the main agent loop.
 
@@ -653,7 +641,7 @@ def get_model_max_output_tokens(
 def get_config_keys():
     """
     Returns the list of all config keys currently in puppy.cfg,
-    plus certain preset expected keys (e.g. "yolo_mode", "model", "compaction_strategy", "message_limit", "allow_recursion").
+    plus core menu settings, preset expected keys, and plugin settings.
 
     Only core-owned keys belong in ``default_keys``: plugins declare theirs
     through the ``register_settings`` hook (see :func:`_plugin_setting_keys`).
@@ -685,8 +673,6 @@ def get_config_keys():
     default_keys.append("max_hook_retries")
     # Add streaming control key
     default_keys.append("enable_streaming")
-    # Opt-in Logfire observability (see code_puppy/observability.py)
-    default_keys.append("enable_logfire")
     # Add suppress directory listing key
     default_keys.append("suppress_directory_listing")
     # Add cancel agent key configuration
@@ -719,9 +705,29 @@ def get_config_keys():
     default_keys.append("retry_subagent_strategy")
     default_keys.append("retry_subagent_max_attempts")
 
+    # Core-owned controls without curated menu entries. Plugin-owned controls
+    # must come from register_settings, not this fallback list.
+    default_keys.extend(
+        (
+            "classic_prompt",
+            "command_timeout_seconds",
+            "disabled_plugins",
+            "enable_speculative_code_mode",
+            "osc_palette_json",
+            "port_base",
+        )
+    )
+
+    # Import lazily: the catalog imports config getters while it is built.
+    # Reuse the catalog rather than maintaining a second list of its keys.
+    from code_puppy.command_line.set_menu_catalog import SETTINGS_CATEGORIES
+
     config = _load_config()
     keys = set(config[DEFAULT_SECTION].keys()) if DEFAULT_SECTION in config else set()
     keys.update(default_keys)
+    keys.update(
+        setting.key for category in SETTINGS_CATEGORIES for setting in category.settings
+    )
     keys.update(_plugin_setting_keys())
     return sorted(keys)
 
@@ -1626,14 +1632,18 @@ def get_user_agents_directory() -> str:
 def get_project_agents_directory() -> Optional[str]:
     """Get the project-local agents directory path.
 
-    Looks for a .code_puppy/agents/ directory in the current working directory.
+    Looks for a .code_puppy/agents/ directory in the active working directory
+    (see tools.common.get_working_directory()).
     Unlike get_user_agents_directory(), this does NOT create the directory
     if it doesn't exist -- the team must create it intentionally.
 
     Returns:
         Path to the project's agents directory if it exists, or None.
     """
-    project_agents_dir = os.path.join(os.getcwd(), ".code_puppy", "agents")
+    # Lazy: config.py must not import tools at module load time.
+    from code_puppy.tools.common import get_working_directory
+
+    project_agents_dir = os.path.join(get_working_directory(), ".code_puppy", "agents")
     if os.path.isdir(project_agents_dir):
         return project_agents_dir
     return None
@@ -1779,6 +1789,29 @@ def get_grep_max_matches() -> int:
         return max(1, int(val))
     except (ValueError, TypeError):
         return GREP_MAX_MATCHES_DEFAULT
+
+
+#: Default ceiling for a normalized image attachment, in KiB of encoded bytes.
+IMAGE_ATTACHMENT_MAX_KB_DEFAULT = 1024
+
+
+def get_image_attachment_max_kb() -> int:
+    """Return the attachment ceiling in KiB (``image_attachment_max_kb``).
+
+    Attachments are normalized down to this size before they go into the
+    conversation, so the value caps both the upload and every later replay of
+    the image. Defaults to ``IMAGE_ATTACHMENT_MAX_KB_DEFAULT`` (1 MiB) when
+    unset, non-numeric, or non-positive — a zero/negative ceiling has no
+    sensible meaning and would just make attaching impossible.
+    """
+    val = get_value("image_attachment_max_kb")
+    if val is None or not str(val).strip():
+        return IMAGE_ATTACHMENT_MAX_KB_DEFAULT
+    try:
+        kb = int(str(val).strip())
+    except (ValueError, TypeError):
+        return IMAGE_ATTACHMENT_MAX_KB_DEFAULT
+    return kb if kb > 0 else IMAGE_ATTACHMENT_MAX_KB_DEFAULT
 
 
 def get_disable_dangerous_command_guard() -> bool:

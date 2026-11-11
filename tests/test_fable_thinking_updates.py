@@ -39,6 +39,9 @@ class TestShouldUseThinkingUpdates:
             ("claude-fable-5-1", None, True),
             ("claude-fable-5.1", None, True),
             ("claude-5-1-fable", None, True),
+            ("claude-fable-5-2", None, True),
+            ("claude-code-claude-fable-5-2-long", None, True),
+            ("claude-fable-5.2", None, True),
             # The alias doesn't contain the tag, but the actual_model_id does
             ("fable", "claude-fable-5-1", True),
             # Fable 5 (no minor) gets summarized, not updates
@@ -50,6 +53,9 @@ class TestShouldUseThinkingUpdates:
             "fable_5_1_dashed",
             "fable_5_1_dotted",
             "five_1_fable",
+            "fable_5_2_dashed",
+            "fable_5_2_long_alias",
+            "fable_5_2_dotted",
             "via_actual_model_id",
             "fable_5_not_updates",
             "sonnet_5_not_updates",

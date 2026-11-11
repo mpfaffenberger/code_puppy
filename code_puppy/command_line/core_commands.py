@@ -176,6 +176,7 @@ def handle_paste_command(command: str) -> bool:
     description="Run the interactive tutorial wizard",
     usage="/tutorial",
     category="core",
+    interactive=True,
 )
 def handle_tutorial_command(command: str) -> bool:
     """Run the interactive tutorial wizard.
@@ -254,6 +255,7 @@ def handle_exit_command(command: str) -> bool:
     usage="/agent <name>, /a <name>",
     aliases=["a", "agents"],
     category="core",
+    interactive=True,
 )
 def handle_agent_command(command: str) -> bool:
     """Handle agent switching."""
@@ -432,6 +434,7 @@ def handle_agent_command(command: str) -> bool:
     usage="/model, /m <model>",
     aliases=["m"],
     category="core",
+    interactive=True,
 )
 def handle_model_command(command: str) -> bool:
     """Set the active model."""
@@ -502,6 +505,7 @@ def handle_model_command(command: str) -> bool:
     description="Browse and add models from models.dev catalog",
     usage="/add_model",
     category="core",
+    interactive=True,
 )
 def handle_add_model_command(command: str) -> bool:
     """Launch interactive model browser TUI."""
@@ -568,6 +572,7 @@ def handle_refresh_models_command(command: str) -> bool:
     usage="/model_settings [--show [model_name]]",
     aliases=["ms"],
     category="config",
+    interactive=True,
 )
 def handle_model_settings_command(command: str) -> bool:
     """Launch interactive model settings TUI.

@@ -16,7 +16,6 @@ from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 from pydantic_ai.models.test import TestModel
 from pydantic_ai.tools import ToolDefinition
 from pydantic_ai_harness.code_mode import CodeMode
-from pydantic_monty import ResourceLimits
 
 from code_puppy.agents import _code_mode
 from code_puppy.agents._code_mode import (
@@ -155,16 +154,15 @@ class TestSandboxMountPath:
 
 @pytest.mark.asyncio
 async def test_run_code_executes_trivial_snippet_with_compatible_monty(flag):
-    """Harness 0.35 excludes Monty 1.x, which removed max_duration_secs."""
-    assert importlib.metadata.version("pydantic-ai-harness") == "0.35.0"
-    monty_requirement = next(
-        Requirement(dependency)
-        for dependency in requires("code-puppy") or []
-        if Requirement(dependency).name == "pydantic-monty"
-    )
-    assert monty_requirement.specifier.contains("0.0.23")
-    assert not monty_requirement.specifier.contains("1.0.0")
-    assert "max_duration_secs" in ResourceLimits.__annotations__
+    """Our Monty range and the harness's must both admit the installed Monty."""
+    installed = importlib.metadata.version("pydantic-monty")
+    for distribution in ("code-puppy", "pydantic-ai-harness"):
+        monty_requirement = next(
+            Requirement(dependency)
+            for dependency in requires(distribution) or []
+            if Requirement(dependency).name == "pydantic-monty"
+        )
+        assert monty_requirement.specifier.contains(installed)
 
     assert "2" in await _run_snippet("1 + 1")
 

@@ -61,6 +61,7 @@ from code_puppy.events.bridge import CapabilityEventBridge
 from code_puppy.messaging import emit_error, emit_info, emit_warning
 from code_puppy.model_factory import ModelFactory, make_model_settings
 from code_puppy.model_utils import static_then_runtime
+from code_puppy.tools.common import get_working_directory
 
 if TYPE_CHECKING:
     from code_puppy.model_utils import PreparedPrompt
@@ -111,9 +112,10 @@ def load_puppy_rules() -> Optional[str]:
             break
 
     project_rules: Optional[str] = None
+    project_base = Path(get_working_directory())
 
     # Priority 1: Check .code_puppy/ directory (preferred location)
-    code_puppy_dir = Path(_CODE_PUPPY_DIR)
+    code_puppy_dir = project_base / _CODE_PUPPY_DIR
     if code_puppy_dir.is_dir():
         for name in _AGENT_RULE_FILES:
             candidate = code_puppy_dir / name
@@ -123,7 +125,7 @@ def load_puppy_rules() -> Optional[str]:
                     continue
                 project_rules = _truncate_agents_md(
                     text,
-                    source=f"project {candidate}",
+                    source=f"project {Path(_CODE_PUPPY_DIR) / name}",
                     max_chars=max_chars,
                 )
                 break
@@ -131,14 +133,14 @@ def load_puppy_rules() -> Optional[str]:
     # Priority 2: Fallback to project root
     if project_rules is None:
         for name in _AGENT_RULE_FILES:
-            candidate = Path(name)
+            candidate = project_base / name
             if candidate.exists() and not _same_file(candidate, global_file):
                 text = _read_rules_text(candidate)
                 if text is None:
                     continue
                 project_rules = _truncate_agents_md(
                     text,
-                    source=f"project {candidate}",
+                    source=f"project {name}",
                     max_chars=max_chars,
                 )
                 break
@@ -311,11 +313,16 @@ def _build_gpt_5_6_invoke_agent_guard_text() -> str:
     limit = get_subagent_recursion_limit_gpt_5_6()
     return (
         "\n\n## Sub-Agent Delegation (GPT-5.6)\n"
-        "Use `invoke_agent` only for focused work that benefits from separate "
-        "context or specialized tools. Handle work directly when you can. "
+        "Use `invoke_agent` for focused work that benefits from separate "
+        "context or specialized tools; handle small work directly. When a task "
+        "has independent, tightly scoped pieces, invoke them as multiple "
+        "sub-agents concurrently in one batch (several `invoke_agent` calls in "
+        "the same response) rather than one at a time. Each must be a direct "
+        "child told not to delegate further. Wait for the batch, then "
+        "synthesize the results yourself; "
+        "do not start recursive or repeated follow-up delegation chains. "
         "Never invoke `planning-agent`. "
-        f"Hard cap: as a GPT-5.6 caller you may only invoke a sub-agent while "
-        f"the resulting chain depth stays at or below {limit} "
+        f"Hard cap: the resulting chain depth must stay at or below {limit} "
         f"(main agent = depth 0). Do not attempt deeper chains.\n"
     )
 
@@ -447,7 +454,9 @@ def build_pydantic_agent(
             # ToolOutputLimits reduces oversized tool returns on a different
             # hook (after_tool_execute), so its position is inert; the
             # response clamp runs before_model_request after compaction and
-            # steering. The plugin transform wraps the final model request.
+            # steering. The plugin transform is the innermost capability
+            # (before_model_request runs it last), so it sees the final
+            # compacted, steered request.
             capabilities=[
                 *build_tool_output_limits(),
                 history_compaction,

@@ -107,6 +107,30 @@ class TestBooleanGetters:
         cp_config.set_config_value("grep_max_matches", "lots")
         assert cp_config.get_grep_max_matches() == cp_config.GREP_MAX_MATCHES_DEFAULT
 
+    def test_get_image_attachment_max_kb_default(self):
+        assert (
+            cp_config.get_image_attachment_max_kb()
+            == cp_config.IMAGE_ATTACHMENT_MAX_KB_DEFAULT
+        )
+
+    def test_get_image_attachment_max_kb_configured(self):
+        cp_config.set_config_value("image_attachment_max_kb", "2048")
+        assert cp_config.get_image_attachment_max_kb() == 2048
+
+    def test_get_image_attachment_max_kb_rejects_non_positive(self):
+        cp_config.set_config_value("image_attachment_max_kb", "0")
+        assert (
+            cp_config.get_image_attachment_max_kb()
+            == cp_config.IMAGE_ATTACHMENT_MAX_KB_DEFAULT
+        )
+
+    def test_get_image_attachment_max_kb_garbage_falls_back(self):
+        cp_config.set_config_value("image_attachment_max_kb", "big")
+        assert (
+            cp_config.get_image_attachment_max_kb()
+            == cp_config.IMAGE_ATTACHMENT_MAX_KB_DEFAULT
+        )
+
     def test_get_http2_values(self):
         cp_config.set_http2(True)
         assert cp_config.get_http2() is True

@@ -353,6 +353,7 @@ async def interactive_uc_picker() -> Optional[str]:
     description="Universal Constructor - browse and manage custom tools",
     usage="/uc",
     category="tools",
+    interactive=True,
 )
 def handle_uc_command(command: str) -> bool:
     """Handle the /uc command - opens the interactive TUI."""

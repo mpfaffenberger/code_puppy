@@ -153,7 +153,9 @@ def _matches_model_tag(candidate: str, tag: str) -> bool:
     That is cute, but wrong: those are Sonnet 3.5 and Sonnet 4.5 respectively,
     NOT Sonnet 5. Treat tags as alphanumeric-delimited segments and reject
     any ``X-5-sonnet`` / ``X.5-sonnet`` (or ``-opus`` / ``-fable``) shape where ``X`` is
-    any leading major-version digit.
+    any leading major-version digit. The guard keys off the ``5-<family>`` tag
+    shape rather than a family list, so a new family (``5-haiku``) is covered
+    the moment its tag is added.
     """
     start = 0
     while True:
@@ -165,7 +167,7 @@ def _matches_model_tag(candidate: str, tag: str) -> bool:
         left_is_boundary = index == 0 or not candidate[index - 1].isalnum()
         right_is_boundary = end == len(candidate) or not candidate[end].isalnum()
         old_minor_version_shape = (
-            tag in {"5-sonnet", "5-opus", "5-fable"}
+            tag.startswith("5-")
             and index >= 2
             and candidate[index - 1] in "-."
             and candidate[index - 2].isdigit()
@@ -208,6 +210,8 @@ _ADAPTIVE_TAGS: tuple[str, ...] = (
     "5-opus",
     "fable-5",
     "5-fable",
+    "haiku-5",
+    "5-haiku",
 )
 
 _SUMMARY_TAGS: tuple[str, ...] = (
@@ -221,6 +225,8 @@ _SUMMARY_TAGS: tuple[str, ...] = (
     "5-opus",
     "fable-5",
     "5-fable",
+    "haiku-5",
+    "5-haiku",
 )
 
 # Models that accept ``display: "updates"`` (progress updates surfaced as
@@ -233,43 +239,11 @@ _UPDATES_TAGS: tuple[str, ...] = (
     "5-1-fable",
     "fable-5.1",
     "5.1-fable",
+    "fable-5-2",
+    "5-2-fable",
+    "fable-5.2",
+    "5.2-fable",
 )
-
-
-def anthropic_forced_tool_choice_unsupported(
-    model_name: str, actual_model_id: str | None = None
-) -> bool:
-    """Return whether an Anthropic model rejects forced ``tool_choice``.
-
-    pydantic-ai 2.51.0 (our pinned version) correctly excludes
-    claude-opus-5-5 from forced tool_choice (``any``/``tool``) support,
-    but claude-sonnet-5-5 has the identical issue and wasn't covered
-    until pydantic-ai 2.52.0. Its profile source confirms both models
-    were tested and are both affected::
-
-        # `claude-opus-5-5` returns a 400 for both shapes where
-        # `claude-opus-5` returns 200, and likewise `claude-sonnet-5-5`
-        # where `claude-sonnet-5` returns 200.
-        supports_forced_tool_choice = not model_name.startswith(
-            ('claude-fable-5-1', 'claude-mythos-5-1', 'claude-opus-5-5',
-             'claude-sonnet-5-5')
-        )
-
-    This is a stopgap until we bump past 2.52.0 -- remove this function
-    (and its call sites) once we do, and let pydantic-ai's own profile
-    table make the call again.
-
-    Args:
-        model_name: The model alias/key from models.json (e.g. ``"sonnet"``).
-        actual_model_id: The real API model ID from config (e.g.
-            ``"claude-sonnet-5-5"``). This is what pydantic-ai profiles at
-            runtime, so it is checked too.
-    """
-    _KNOWN_GAPS = ("claude-sonnet-5-5",)
-    candidates = [model_name.lower()]
-    if actual_model_id:
-        candidates.append(actual_model_id.lower())
-    return any(candidate.startswith(_KNOWN_GAPS) for candidate in candidates)
 
 
 def anthropic_disallows_sampling_settings(
@@ -312,7 +286,8 @@ def supports_adaptive_thinking(
 ) -> bool:
     """Return whether a model supports adaptive extended-thinking.
 
-    Opus 4-6/4-7/4-8, Sonnet 4-6, Sonnet 5, Opus 5, and Fable 5 accept (and require)
+    Opus 4-6/4-7/4-8, Sonnet 4-6, and the 5-series (Sonnet, Opus, Fable, Haiku)
+    accept (and require)
     ``thinking={"type": "adaptive"}`` at the wire level. Every other Claude
     variant wants the classic ``type: "enabled"`` shape.
 
@@ -329,8 +304,8 @@ def get_default_extended_thinking(
 ) -> str:
     """Return the default extended_thinking mode for an Anthropic model.
 
-    Opus 4-6, Opus 4-7, Opus 4-8, Sonnet 4-6, Sonnet 5, Opus 5, and Fable 5
-    models default to ``"adaptive"`` thinking; all other Anthropic models default to
+    Opus 4-6, Opus 4-7, Opus 4-8, Sonnet 4-6, and 5-series (Sonnet, Opus,
+    Fable, Haiku) models default to ``"adaptive"`` thinking; all other Anthropic models default to
     ``"enabled"``.
 
     Args:
@@ -351,7 +326,8 @@ def should_use_anthropic_thinking_summary(
 ) -> bool:
     """Return whether Anthropic adaptive thinking should request summary display.
 
-    Anthropic's newer Opus 4.7+, Opus 4.8, Sonnet 5, Opus 5, and Fable 5 models accept
+    Anthropic's newer Opus 4.7+, Opus 4.8, and 5-series (Sonnet, Opus, Fable,
+    Haiku) models accept
     ``display: \"summarized\"`` alongside ``thinking={"type": "adaptive"}`` to
     surface a condensed reasoning trace instead of the full block.
     """

@@ -348,7 +348,7 @@ class TestHeaderTransformation:
         ClaudeCacheAsyncClient._transform_headers_for_claude_code(headers)
 
         assert headers["user-agent"] == CLAUDE_CLI_USER_AGENT
-        assert headers["user-agent"].startswith("claude-cli/2.1.280 ")
+        assert headers["user-agent"].startswith("claude-cli/2.1.290 ")
 
     def test_transform_headers_adds_oauth_beta(self):
         """Test that oauth beta is always added."""

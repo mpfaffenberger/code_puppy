@@ -20,6 +20,9 @@ class TestSupportsAdaptiveThinking:
             ("claude-5-opus", None, True),
             ("claude-4.5-opus", None, False),
             ("claude-haiku-4-5", None, False),
+            ("claude-code-claude-haiku-5-5", None, True),
+            ("claude-5-haiku", None, True),
+            ("claude-3-5-haiku", None, False),
             # The alias doesn't contain the tag, but the actual_model_id does
             ("bedrock-opus", "us.anthropic.claude-opus-4-7", True),
             ("gpt-4o", None, False),
@@ -31,7 +34,10 @@ class TestSupportsAdaptiveThinking:
             "opus_5_by_alias",
             "five_opus_by_alias",
             "opus_4_5_minor_version_not_adaptive",
-            "haiku_not_adaptive",
+            "haiku_4_5_not_adaptive",
+            "haiku_5_5_adaptive",
+            "five_haiku_by_alias",
+            "haiku_3_5_minor_version_not_adaptive",
             "bedrock_opus_via_actual_model_id",
             "unknown_model",
         ],
@@ -92,7 +98,11 @@ class TestShouldUseThinkingSummary:
 
 
 class TestResolveAnthropicThinkingPayload:
-    """Opus 5 must always resolve to the adaptive wire shape."""
+    """5-series models must always resolve to the adaptive wire shape.
+
+    Haiku 5.5 regressed here: classic ``enabled`` + ``budget_tokens`` is
+    rejected by pydantic-ai before the request is even sent.
+    """
 
     @pytest.mark.parametrize(
         "mode, expected",
@@ -103,8 +113,10 @@ class TestResolveAnthropicThinkingPayload:
         ],
         ids=["enabled_coerced_to_adaptive", "adaptive_passthrough", "disabled_omits"],
     )
-    @pytest.mark.parametrize("alias", ["claude-opus-5", "claude-5-opus"])
-    def test_opus_5_payload(self, alias, mode, expected):
+    @pytest.mark.parametrize(
+        "alias", ["claude-opus-5", "claude-5-opus", "claude-code-claude-haiku-5-5"]
+    )
+    def test_5_series_payload(self, alias, mode, expected):
         from code_puppy.model_utils import resolve_anthropic_thinking_payload
 
         result = resolve_anthropic_thinking_payload(

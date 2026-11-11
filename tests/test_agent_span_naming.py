@@ -1,13 +1,13 @@
 """Observability span-naming contract for pydantic-ai agents.
 
-pydantic-ai names the per-run OTel span ``invoke_agent {agent.name}`` (and the
-Logfire message ``{agent.name} run``). When ``name=`` is omitted, pydantic-ai
-*infers* a name from the caller's frame variables, which produced traces like
-``invoke_agent temp_agent`` (every sub-agent!) and ``invoke_agent
-pydantic_agent`` (the main agent). These tests pin the fix: both construction
-paths must pass the *logical* agent name explicitly.
+pydantic-ai names the per-run OTel span ``invoke_agent {agent.name}``. When
+``name=`` is omitted, pydantic-ai *infers* a name from the caller's frame
+variables, which produced traces like ``invoke_agent temp_agent`` (every
+sub-agent!) and ``invoke_agent pydantic_agent`` (the main agent). These tests
+pin the fix: both construction paths must pass the *logical* agent name
+explicitly.
 
-No Logfire/OTel wiring is needed here -- asserting ``.name`` on the built
+No OTel wiring is needed here -- asserting ``.name`` on the built
 pydantic-ai agent is exactly what instrumentation consumes
 (``ctx.agent.name``), so it locks the span name without global tracer state.
 """

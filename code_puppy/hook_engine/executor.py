@@ -34,6 +34,14 @@ from .models import EventData, ExecutionResult, HookConfig
 logger = logging.getLogger(__name__)
 
 
+def _project_dir() -> str:
+    # Per-chat folder from the ContextVar override (no os.chdir). Lazy import
+    # keeps tools.common out of hook_engine's import-time dependencies.
+    from code_puppy.tools.common import get_working_directory
+
+    return get_working_directory()
+
+
 def _build_stdin_payload(event_data: EventData) -> bytes:
     """
     Build the JSON payload sent to hook scripts via stdin.
@@ -66,7 +74,7 @@ def _build_stdin_payload(event_data: EventData) -> bytes:
         "hook_event_name": event_data.event_type,
         "tool_name": event_data.tool_name,
         "tool_input": _make_serializable(event_data.tool_args),
-        "cwd": os.getcwd(),
+        "cwd": _project_dir(),
         "permission_mode": "default",
     }
     if "result" in event_data.context:
@@ -174,7 +182,7 @@ async def execute_hook(
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            cwd=os.getcwd(),
+            cwd=_project_dir(),
             env=env,
         )
 
@@ -245,7 +253,7 @@ def _substitute_variables(
     env_vars: Dict[str, str],
 ) -> str:
     substitutions = {
-        "CLAUDE_PROJECT_DIR": os.getcwd(),
+        "CLAUDE_PROJECT_DIR": _project_dir(),
         "tool_name": event_data.tool_name,
         "event_type": event_data.event_type,
         "file": _extract_file_path(event_data.tool_args) or "",
@@ -450,7 +458,7 @@ def _build_environment(
     # authenticate. The credential scrub stays on the model's own
     # run_shell_command (command_runner._child_process_env).
     env = dict(os.environ)
-    env["CLAUDE_PROJECT_DIR"] = os.getcwd()
+    env["CLAUDE_PROJECT_DIR"] = _project_dir()
     env["CLAUDE_TOOL_INPUT"] = json.dumps(event_data.tool_args)
     env["CLAUDE_TOOL_NAME"] = event_data.tool_name
     env["CLAUDE_HOOK_EVENT"] = event_data.event_type

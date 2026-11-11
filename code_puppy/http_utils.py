@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     import requests
 from code_puppy.ca_bundle import write_public_and_corporate_bundle
 from code_puppy.config import DATA_DIR, get_http2
+from code_puppy.i18n import t
 
 from .http_retry import RetryingSendMixin
 
@@ -29,6 +30,34 @@ class ProxyConfig:
     http2_enabled: bool
 
 
+#: The insecure-TLS warning fires once per process: the client factory runs on
+#: every model construction, and a warning per request would drown the UI.
+_INSECURE_SKIP_VERIFY_WARNED = False
+
+
+def _warn_insecure_skip_verify() -> None:
+    """Tell the user, loudly and once, that TLS verification is off."""
+    global _INSECURE_SKIP_VERIFY_WARNED
+    if _INSECURE_SKIP_VERIFY_WARNED:
+        return
+    _INSECURE_SKIP_VERIFY_WARNED = True
+    emit_warning(t("http_utils.insecure_skip_verify"))
+
+
+#: The missing-CA-bundle warning fires once per process, like the insecure
+#: one: the bundle is read per client build, and a warning per build would
+#: repeat the same line on every model switch.
+_MISSING_CERT_BUNDLE_WARNED: set[str] = set()
+
+
+def _warn_missing_cert_bundle(name: str, path: str) -> None:
+    """Warn when a CA-bundle environment variable points at a missing file."""
+    if name in _MISSING_CERT_BUNDLE_WARNED:
+        return
+    _MISSING_CERT_BUNDLE_WARNED.add(name)
+    emit_warning(t("http_utils.cert_bundle_missing", name=name, path=path))
+
+
 def resolve_proxy_config(verify: Union[bool, str, None] = None) -> ProxyConfig:
     """Resolve client TLS, retry, and environment-proxy settings.
 
@@ -36,6 +65,13 @@ def resolve_proxy_config(verify: Union[bool, str, None] = None) -> ProxyConfig:
     are honored per destination. This centralizes TLS and retry settings shared by
     the legacy ``httpx`` and ``httpx2`` client factories so proxy handling
     cannot drift between the two.
+
+    Certificate verification is **never** disabled implicitly. Turning it off
+    requires the explicit ``CODE_PUPPY_INSECURE_SKIP_VERIFY=1`` opt-in, which
+    also emits a loud warning: unverified TLS means every API key and every
+    prompt travels over a connection anyone on the path can rewrite.
+    ``CODE_PUPPY_DISABLE_RETRY_TRANSPORT`` only swaps the retrying transport
+    for the plain one -- it says nothing about TLS and must not change it.
     """
     if verify is None:
         verify = get_cert_bundle_path()
@@ -46,6 +82,10 @@ def resolve_proxy_config(verify: Union[bool, str, None] = None) -> ProxyConfig:
         "CODE_PUPPY_DISABLE_RETRY_TRANSPORT", ""
     ).lower() in ("1", "true", "yes")
 
+    insecure_skip_verify = os.environ.get(
+        "CODE_PUPPY_INSECURE_SKIP_VERIFY", ""
+    ).lower() in ("1", "true", "yes")
+
     has_proxy = bool(
         os.environ.get("HTTP_PROXY")
         or os.environ.get("HTTPS_PROXY")
@@ -54,9 +94,13 @@ def resolve_proxy_config(verify: Union[bool, str, None] = None) -> ProxyConfig:
     )
 
     # Determine trust_env and verify based on proxy/retry settings
-    if disable_retry:
-        # Test mode: disable SSL verification for proxy testing
+    if insecure_skip_verify:
+        # Explicit opt-in only: certificate checking off for every request.
         verify = False
+        trust_env = True
+        _warn_insecure_skip_verify()
+    elif disable_retry:
+        # Plain transport, but TLS verification stays exactly as configured.
         trust_env = True
     elif has_proxy:
         # Production proxy: keep SSL verification enabled
@@ -118,6 +162,13 @@ def get_cert_bundle_path() -> str | None:
         None,
     )
     if not ssl_cert_file:
+        # A configured-but-missing bundle is a misconfiguration: it used to be
+        # ignored silently, so the user had no idea their trust store was not
+        # the one they asked for.
+        for name in ("SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE"):
+            value = os.environ.get(name)
+            if value and not os.path.isfile(value):
+                _warn_missing_cert_bundle(name, value)
         return None
     # Preserve deliberately restricted/pinned file trust when requested.
     if os.environ.get("CODE_PUPPY_COMBINE_CA_BUNDLE", "true").lower() in (

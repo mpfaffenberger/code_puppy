@@ -75,14 +75,20 @@ def save(key: str, value: str) -> None:
 def migrate(paths: list[str]) -> None:
     """Migrate configs as a batch, preflighting conflicts before any writes.
 
-    Keep source files intact on storage failure. Only remove a legacy value if
-    it still equals the value successfully persisted (concurrent edits survive).
+    A key whose legacy values disagree with each other or with the shared
+    store is skipped with a warning instead of blocking startup: none of its
+    values are overwritten or removed. Keep source files intact on storage
+    failure. Only remove a legacy value if it still equals the value
+    successfully persisted (concurrent edits survive).
     """
     from code_puppy import config
     from code_puppy.i18n import t
+    from code_puppy.messaging import bus_emit_warning
 
     with path_lock(str(Path(config.CONFIG_DIR) / "provider_credentials")):
         pending: dict[str, str] = {}
+        conflicts: set[str] = set()
+        sources: dict[str, list[str]] = {}
         for path in paths:
             parser = load_config(path)
             for key, value in (
@@ -92,10 +98,21 @@ def migrate(paths: list[str]) -> None:
             ):
                 if not value or not is_credential_key(key):
                     continue
+                sources.setdefault(key, []).append(path)
                 existing = pending.get(key) or get(key)
                 if existing is not None and existing != value:
-                    raise ValueError(t("credentials.migration_conflict", key=key))
+                    conflicts.add(key)
                 pending[key] = value
+        for key in sorted(conflicts):
+            del pending[key]
+            # Startup runs before any renderer; only the bus buffers until then.
+            bus_emit_warning(
+                t(
+                    "credentials.migration_skipped",
+                    key=key,
+                    paths=", ".join(sources[key]),
+                )
+            )
         for key, value in pending.items():
             secret_store.set_secret(_name(key), value)
             if get(key) != value:

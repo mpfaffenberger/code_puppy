@@ -45,7 +45,9 @@ MAX_RETRIES = 5
 TOOL_PREFIX = "cp_"
 FINE_GRAINED_TOOL_STREAMING_BETA = "fine-grained-tool-streaming-2025-05-14"
 
-CLAUDE_CLI_USER_AGENT = "claude-cli/2.1.280 (external, cli)"
+# Newer models enforce a minimum CLI version from this string
+# (claude-fable-5-2 400s anything below 2.1.290).
+CLAUDE_CLI_USER_AGENT = "claude-cli/2.1.290 (external, cli)"
 
 # The Claude Code OAuth endpoint fingerprints this exact string as the FIRST
 # system block; requests that lead with anything else get rejected. Mirrors
@@ -147,8 +149,8 @@ class ClaudeCacheAsyncClient(ClaudeOAuthTransport, httpx2.AsyncClient):
             text = first.get("text") if isinstance(first, dict) else None
             if text == CLAUDE_CODE_SYSTEM_PROMPT:
                 return None
-            # Compaction adds a SystemPromptPart that the SDK joins to the
-            # signature. A matching prefix is not a standalone identity block.
+            # Adjacent system prompts can be joined to the signature by the
+            # SDK. A matching prefix is not a standalone identity block.
             # Keep metadata (including cache_control) on the remainder so its
             # cache boundary still follows all the original content.
             if isinstance(text, str) and text.startswith(CLAUDE_CODE_SYSTEM_PROMPT):

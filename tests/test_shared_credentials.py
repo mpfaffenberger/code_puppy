@@ -27,6 +27,14 @@ def legacy(path, value, key="openai_api_key"):
     return str(path)
 
 
+@pytest.fixture
+def warned(monkeypatch):
+    # Startup migrates before any renderer runs; only bus messages survive.
+    messages = []
+    monkeypatch.setattr("code_puppy.messaging.bus_emit_warning", messages.append)
+    return messages
+
+
 def test_save_shared_not_profile(store):
     config.set_config_value("openai_api_key", "test-key")
     assert shared.get("OPENAI_API_KEY") == "test-key"
@@ -42,25 +50,40 @@ def test_migration_removes_verified_values(store, tmp_path):
     assert load_config(path).get(config.DEFAULT_SECTION, "owner_name") == "Mike"
 
 
-def test_conflict_preflight_is_non_destructive(store, tmp_path):
+def test_conflict_is_skipped_without_blocking(store, tmp_path, warned):
     a = legacy(tmp_path / "a.cfg", "first-secret")
     b = legacy(tmp_path / "b.cfg", "second-secret")
-    with pytest.raises(ValueError) as error:
-        shared.migrate([a, b])
+    shared.migrate([a, b])
     assert not store
     assert "first-secret" in Path(a).read_text()
     assert "second-secret" in Path(b).read_text()
-    assert "first-secret" not in str(error.value)
-    assert "second-secret" not in str(error.value)
+    assert len(warned) == 1 and "openai_api_key" in warned[0]
+    assert a in warned[0] and b in warned[0]
+    assert "first-secret" not in warned[0]
+    assert "second-secret" not in warned[0]
 
 
-def test_shared_conflict_preserves_values(store, tmp_path):
+def test_shared_conflict_preserves_values(store, tmp_path, warned):
     store["provider_OPENAI_API_KEY"] = "shared-secret"
     path = legacy(tmp_path / "puppy.cfg", "legacy-secret")
-    with pytest.raises(ValueError):
-        shared.migrate([path])
+    shared.migrate([path])
     assert shared.get("OPENAI_API_KEY") == "shared-secret"
     assert "legacy-secret" in Path(path).read_text()
+    assert len(warned) == 1 and path in warned[0]
+
+
+def test_conflict_does_not_block_other_keys(store, tmp_path, warned):
+    store["provider_OPENAI_API_KEY"] = "shared-secret"
+    path = tmp_path / "puppy.cfg"
+    path.write_text(
+        f"[{config.DEFAULT_SECTION}]\n"
+        "openai_api_key = legacy-secret\nanthropic_api_key = other-secret\n"
+    )
+    shared.migrate([str(path)])
+    assert shared.get("ANTHROPIC_API_KEY") == "other-secret"
+    assert "other-secret" not in path.read_text()
+    assert "legacy-secret" in path.read_text()
+    assert len(warned) == 1
 
 
 def test_failed_storage_keeps_legacy(store, tmp_path, monkeypatch):

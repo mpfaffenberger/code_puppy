@@ -296,10 +296,16 @@ def reset_windows_terminal_full() -> None:
 
 
 #: Escape codes undoing every visual mode we could have left enabled:
-#: DECSTR soft reset, attributes off, cursor visible, alternate screen off.
+#: DECSTR soft reset, attributes off, cursor visible.
 #: Deliberately NOT the full RIS (``\\x1bc``) that ``reset(1)`` sends -- that
 #: clears the screen, wiping the output the user just asked for.
-_UNIX_TERMINAL_RESET = "\x1b[!p\x1b[0m\x1b[?25h\x1b[?1049l"
+#: Deliberately NOT ``\\x1b[?1049l`` either: leaving the alternate screen also
+#: restores the last saved cursor (the bottom bar saves one on teardown), so
+#: the shell prompt overwrites everything printed after it -- "Goodbye!" and
+#: any shutdown output. Every alternate-screen user (the splash, and anything
+#: using termflow's ``alt_screen``/``terminal_session``) leaves it in its own
+#: ``finally`` / context manager.
+_UNIX_TERMINAL_RESET = "\x1b[!p\x1b[0m\x1b[?25h"
 
 
 def reset_unix_terminal() -> None:

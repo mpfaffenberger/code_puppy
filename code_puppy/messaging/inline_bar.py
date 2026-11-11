@@ -41,6 +41,7 @@ from typing import Iterator, Optional, TextIO
 
 from .bar_rendering import (
     CLEAR_LINE,
+    CLEAR_SCREEN,
     CURSOR_HIDE,
     CURSOR_SHOW,
     WRAP_OFF,
@@ -159,6 +160,20 @@ class InlineBottomBar(BottomBar):
                     self._write(CURSOR_HIDE)
                     self._commit_partial_line()
                     self._paint_inline()
+
+    def clear_screen(self) -> None:
+        """Wipe the viewport and repaint the cached bar at the top (Ctrl+L)."""
+        if not self._is_tty():
+            return
+        with self._lock:
+            if not self._active or self._suspend_depth > 0:
+                return
+            self._cancel_repaint_timer()
+            self._write(CLEAR_SCREEN)
+            self._displayed_rows = 0
+            self._at_line_start = True
+            self._ensure_inline_geometry()
+            self._paint_inline()
 
     def set_panel_lines(self, lines) -> None:
         from rich.text import Text
