@@ -22,23 +22,33 @@ async def test_mutable_context_does_not_change_identity_or_argument_contract(pha
 
     def mutate(name, args, *rest):
         rest[-1]["tool_call_id"] = "mutated"
+        rest[-1]["outcome"] = "ok"
         args["changed"] = True
 
     def observe(name, args, *rest):
         identity = current_tool_identity()
-        seen.append((identity.tool_call_id, dict(args), dict(rest[-1])))
+        seen.append(
+            (identity.tool_call_id, identity.outcome, dict(args), dict(rest[-1]))
+        )
         with pytest.raises(FrozenInstanceError):
             identity.tool_call_id = "forged"
 
     callbacks.register_callback(phase, mutate)
     callbacks.register_callback(phase, observe)
-    context = {"tool_call_id": "original"}
+    context = {"tool_call_id": "original", "outcome": "blocked"}
     args = {}
     if phase == "pre_tool_call":
         await callbacks.on_pre_tool_call("operation", args, context)
     else:
         await callbacks.on_post_tool_call("operation", args, "result", 0, context)
-    assert seen == [("original", {"changed": True}, {"tool_call_id": "mutated"})]
+    assert seen == [
+        (
+            "original",
+            "blocked",
+            {"changed": True},
+            {"tool_call_id": "mutated", "outcome": "ok"},
+        )
+    ]
     assert current_tool_identity() is None
 
 
