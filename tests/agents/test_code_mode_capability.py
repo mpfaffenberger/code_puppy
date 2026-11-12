@@ -29,6 +29,7 @@ from code_puppy.agents._code_mode import (
     sandbox_mount_path,
 )
 from code_puppy.agents._code_mode_guidance import CODE_MODE_GUIDANCE, CodeModeGuidance
+from code_puppy.agents._code_mode_redirect import RunCodeRedirect
 
 from code_puppy.agents._wire_tool_names import StreamedToolNameNormalizer
 from code_puppy.agents.agent_code_puppy import CodePuppyAgent
@@ -93,8 +94,8 @@ class TestBuildSpeculativeCodeMode:
         """The flag alone decides; there is no per-agent attribute to set."""
         tools = CodePuppyAgent().get_available_tools()
 
-        code_mode, silencer, timing, normalizer, guidance = build_speculative_code_mode(
-            tools
+        code_mode, silencer, timing, normalizer, redirect, guidance = (
+            build_speculative_code_mode(tools)
         )
 
         assert isinstance(code_mode, CodeMode)
@@ -104,6 +105,7 @@ class TestBuildSpeculativeCodeMode:
         assert isinstance(silencer, SilenceToolOutput)
         assert isinstance(timing, EagerTiming)
         assert isinstance(normalizer, StreamedToolNameNormalizer)
+        assert isinstance(redirect, RunCodeRedirect)
         assert isinstance(guidance, CodeModeGuidance)
 
     def test_sandbox_gets_workspace_mount_and_os_access(self, flag):

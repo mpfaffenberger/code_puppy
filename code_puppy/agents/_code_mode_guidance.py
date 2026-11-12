@@ -64,6 +64,8 @@ work, with every tool call that step needs:
 - Reads whose arguments are all literals start running while you write
   (speculation); loops and computed arguments are still fine. Writes and shell commands can run as soon
   as their statement closes: obtain approval BEFORE emitting them.
+- Also absent: `os.system`, `os.popen`, `socket`. A missing module is final: use
+  the shell.
 """
 
 
