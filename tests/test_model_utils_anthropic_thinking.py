@@ -98,7 +98,7 @@ class TestShouldUseThinkingSummary:
 
 
 class TestResolveAnthropicThinkingPayload:
-    """5-series models must always resolve to the adaptive wire shape.
+    """Enabled thinking on 5-series models uses the adaptive wire shape.
 
     Haiku 5.5 regressed here: classic ``enabled`` + ``budget_tokens`` is
     rejected by pydantic-ai before the request is even sent.
@@ -109,9 +109,8 @@ class TestResolveAnthropicThinkingPayload:
         [
             ("enabled", {"type": "adaptive", "display": "summarized"}),
             ("adaptive", {"type": "adaptive", "display": "summarized"}),
-            ("disabled", None),
         ],
-        ids=["enabled_coerced_to_adaptive", "adaptive_passthrough", "disabled_omits"],
+        ids=["enabled_coerced_to_adaptive", "adaptive_passthrough"],
     )
     @pytest.mark.parametrize(
         "alias", ["claude-opus-5", "claude-5-opus", "claude-code-claude-haiku-5-5"]
@@ -123,3 +122,29 @@ class TestResolveAnthropicThinkingPayload:
             mode, budget_tokens=1024, model_name=alias, actual_model_id=None
         )
         assert result == expected
+
+    @pytest.mark.parametrize(
+        "alias, actual_model_id, expected",
+        [
+            ("claude-opus-5", None, {"type": "disabled"}),
+            ("claude-5-opus", None, None),
+            ("claude-code-claude-haiku-5-5", None, None),
+            ("claude-opus-5", "claude-fable-5", None),
+            ("my-model", "claude-sonnet-5", {"type": "disabled"}),
+            ("bedrock-opus", "us.anthropic.claude-opus-5-v1:0", {"type": "disabled"}),
+            ("bedrock-sonnet", "anthropic.claude-sonnet-5-v1:0", {"type": "disabled"}),
+        ],
+    )
+    def test_disabled_uses_actual_model_profile(self, alias, actual_model_id, expected):
+        """Use the actual model's off switch and retain unknown alias behavior."""
+        from code_puppy.model_utils import resolve_anthropic_thinking_payload
+
+        assert (
+            resolve_anthropic_thinking_payload(
+                "disabled",
+                budget_tokens=1024,
+                model_name=alias,
+                actual_model_id=actual_model_id,
+            )
+            == expected
+        )
