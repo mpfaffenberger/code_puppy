@@ -19,6 +19,7 @@ clai2 symbol                                Seam that would replace it
 ``self_update.*``, ``cli._update``          pluggable update source
 ``splash_art``, ``branding``, ``welcome``   pluggable branding
 ``builtins.DEFAULT_PLUGINS/STOCK_PLUGINS``  distribution-supplied default plugins
+``app.create_stock_agent``                  configurable agent name and docs capability
 ``ProcessPlugins._discover``                pluggable drop-in discovery
 ==========================================  =====================================
 
@@ -34,7 +35,7 @@ import os
 import sys
 from pathlib import Path
 from types import ModuleType
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from code_puppy import identity
 
@@ -96,6 +97,7 @@ def install() -> None:
     _install_updates()
     _install_branding()
     _install_plugins()
+    _install_agent()
     _installed = True
 
 
@@ -147,6 +149,28 @@ def _install_branding() -> None:
 
     _replace(upstream_branding, "print_banner", branding.print_banner)
     _replace(welcome, "print_welcome", branding.print_welcome)
+
+
+def _install_agent() -> None:
+    from pydantic_clai2 import app
+    from pydantic_clai2.runtime.session import StockAgent
+
+    def create_stock_agent(model: Any = None) -> Any:
+        """clai2's stock agent under Code Puppy's name, without clai2's docs capability.
+
+        That capability lets the model read clai2's own docs to answer questions
+        about "CLAI itself". They describe clai2's commands and folders, not
+        Code Puppy's, and put the name CLAI in every system prompt.
+        """
+        return StockAgent(
+            model,
+            deps_type=type(None),
+            output_type=str,
+            capabilities=[],
+            name=identity.AGENT_NAME,
+        )
+
+    _replace(app, "create_stock_agent", create_stock_agent)
 
 
 def is_legacy_plugin(entry: Path) -> bool:

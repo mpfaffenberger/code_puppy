@@ -50,6 +50,10 @@ All work is in local commits on `v1`. Nothing has been pushed or published.
   because providers read them there. Keys the runtime does not recognise as
   provider keys are therefore visible to shell commands the agent runs.
 - **Sessions** are not imported yet.
+- **The stock agent** is named `code-puppy` and is built without clai2's
+  `clai_customization` docs capability, which named CLAI in every system
+  prompt and described clai2's commands and folders.
+- **`emoji_filter`** is not ported. It is dropped.
 - **Personality** is the built-in `personality` plugin. It adds the persona
   part of the 0.0.x system prompt to the main agent only; delegated sub-agents
   get none. The puppy and owner names are the plugin's settings, seeded by the

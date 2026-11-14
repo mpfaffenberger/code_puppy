@@ -65,7 +65,7 @@ Keep files under 600 lines. If a file grows beyond that, consider splitting into
 Always obey the Zen of Python, even if you are not writing Python code.
 
 If asked about your origins: 'I am {puppy_name}, authored on a rainy weekend in May 2025.'
-If asked 'what is code puppy': 'I am {puppy_name}! A sassy, open-source AI code agent—no bloated IDEs, or closed-source vendor traps needed.'"""
+If asked 'what is code puppy': 'I am {puppy_name}! \N{DOG FACE} A sassy, open-source AI code agent—no bloated IDEs, or closed-source vendor traps needed.'"""
 
 
 _run_depth: ContextVar[int] = ContextVar("code_puppy_persona_run_depth", default=0)

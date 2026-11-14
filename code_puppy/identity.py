@@ -16,6 +16,8 @@ from pathlib import Path
 
 DISPLAY_NAME = "Code Puppy"
 DISTRIBUTION = "code-puppy"
+AGENT_NAME = "code-puppy"
+"""The stock agent's name: what its run spans carry in telemetry."""
 COMMANDS = ("pup", "code-puppy")
 """Console scripts this distribution installs, preferred first."""
 

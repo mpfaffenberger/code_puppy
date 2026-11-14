@@ -43,7 +43,7 @@ from code_puppy import callbacks, identity, messaging, plugins
 from code_puppy.compat import tools
 from code_puppy.plugins import trust
 
-AGENT_NAME = "code-puppy"
+AGENT_NAME = identity.AGENT_NAME
 MANAGE_COMMAND = "puppy-plugins"
 DEFAULT_BLOCK_REASON = "Blocked by a Code Puppy plugin."
 

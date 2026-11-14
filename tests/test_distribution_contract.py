@@ -39,6 +39,8 @@ REPLACED = [
     ("pydantic_clai2.config.builtins", "DEFAULT_PLUGINS"),
     ("pydantic_clai2.config.builtins", "STOCK_PLUGINS"),
     ("pydantic_clai2.plugins.process_plugins", "ProcessPlugins"),
+    ("pydantic_clai2.app", "create_stock_agent"),
+    ("pydantic_clai2.runtime.session", "StockAgent"),
 ]
 
 
@@ -109,6 +111,17 @@ def test_default_plugin_sets_keep_their_identity(installed_distribution: None) -
     ids = [plugin.id for plugin in builtins.STOCK_PLUGINS]
     assert ids[0] == "coder" and len(ids) == len(set(ids))
     assert all(plugin in builtins.STOCK_PLUGINS for plugin in PUPPY_PLUGINS)
+
+
+def test_the_stock_agent_is_built_as_code_puppy(installed_distribution: None) -> None:
+    from pydantic_clai2 import app
+    from pydantic_clai2.cli import headless
+    from pydantic_clai2.runtime.session import StockAgent
+
+    agent = app.create_stock_agent("test")
+    assert isinstance(agent, StockAgent) and agent.name == "code-puppy"
+    # The headless CLI imported the factory under another name; it must be ours too.
+    assert headless.create_agent is app.create_stock_agent
 
 
 def test_legacy_plugin_folders_are_left_to_the_compat_bridge(

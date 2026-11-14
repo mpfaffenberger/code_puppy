@@ -53,6 +53,7 @@ def test_persona_names_the_puppy_and_the_owner() -> None:
     )
     assert "DRY, YAGNI, and SOLID" in text and "Zen of Python" in text
     assert "'I am Boodler, authored on a rainy weekend in May 2025.'" in text
+    assert "I am Boodler! \N{DOG FACE} A sassy" in text
     # Persona only: the tool and workflow rules belong to the runtime now.
     assert "MUST use the provided tools" not in text
     assert "{" not in text
