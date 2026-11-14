@@ -1,3 +1,16 @@
+> **This is the 1.0 release-candidate branch (`v1`).** Code Puppy 1.0 is a
+> rebuild on [pydantic-clai2](https://github.com/pydantic/pydantic-ai/tree/main/src/pydantic_clai2)
+> and [pydantic-ai-harness](https://pydantic.dev/docs/ai/harness/). Most of this
+> README still describes 0.0.x and has not been rewritten yet.
+>
+> - Try it: `uvx code-puppy@1.0.0rc1` (once published). Plain `uvx code-puppy` stays on 0.0.x.
+> - Your 0.0.x settings, API keys and MCP servers are carried over on first start;
+>   `pup migrate --dry-run` shows what would move. 0.0.x files are never modified.
+> - 0.0.x plugins keep loading; `/puppy-plugins` lists them.
+> - **Windows:** the runtime has no local workspace on Windows yet, so the agent
+>   cannot edit files or run commands there.
+> - Plan and status: [`docs/upgrade/code_puppy_1_0_rewrite_plan.md`](docs/upgrade/code_puppy_1_0_rewrite_plan.md).
+
 <div align="center">
 
 ![Code Puppy Logo](code_puppy.png)

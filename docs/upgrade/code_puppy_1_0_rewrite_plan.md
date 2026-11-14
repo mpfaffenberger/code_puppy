@@ -1,8 +1,59 @@
 # Code Puppy 1.0 rewrite plan
 
-Status: direction agreed (section 11). Nothing in this plan has been implemented yet.
+Status: in progress on branch `v1`. Phases 0 to 2 are built, phase 3 is partly
+built, phases 4 to 6 are not started. Section 0 has the details.
 Target version: `1.0.0rc1`, then `rcN` until cutover to `1.0.0`.
 Release candidates are opt-in; `uvx code-puppy` keeps resolving to 0.0.x (section 13).
+
+## 0. Implementation status (2026-11-14)
+
+All work is in local commits on `v1`. Nothing has been pushed or published.
+
+| Phase | State | What exists |
+|---|---|---|
+| 0 Groundwork | built | Version `1.0.0rc1`; `publish.yml` bumps `rc` on `v1` and pushes to the triggering branch; version guard with tests |
+| 1 Skeleton | built | 0.0.x runtime and tests removed (222,143 lines); `pup` starts pydantic-clai2 0.68.0 as Code Puppy; `/update` rewritten |
+| 2 Migration | built, partial scope | Settings, API keys and MCP servers carry over; `pup migrate [--dry-run]` |
+| 3 Compat | partly built | Facades, plugin discovery, trust, bridge with 15 hooks. No JSON agents yet |
+| 4 Native plugins | not started | None of the surviving core plugins is ported |
+| 5 New capabilities | not started | |
+| 6 Harden and cut over | not started | `README.md` and `docs/` still describe 0.0.x, apart from a notice |
+
+### Blockers found while building
+
+1. **Windows has no local workspace.** pydantic-ai's `LocalWorkspaceBackend`
+   raises `NotImplementedError` off POSIX, and clai2 documents "On Windows,
+   CLAI does not provide an agent workspace or repository context yet." This
+   holds on 0.68.0 and on `main` as of 2026-11-13. On Windows the stock
+   agent's turn fails with "`Coder` needs a workspace", so 1.0 cannot edit
+   files or run commands there. It needs a Windows workspace backend upstream.
+   Until then Windows cannot be a release gate, and 1.0 would be a regression
+   for Windows users of 0.0.x.
+2. **No identity seam upstream.** clai2 0.68.0 gives a distribution no way to
+   supply names, paths or default plugins. `code_puppy/distribution.py`
+   replaces about 20 clai2 names at startup instead, covered by
+   `tests/test_distribution_contract.py`. Text inside clai2 still says "CLAI"
+   and `clai2` in places (`--help`, some messages), and project settings
+   still live in `.clai/`.
+
+### Differences from the plan below
+
+- **Hooks:** 15 are supported, not the 22 proposed in section 6.1. Not yet
+  fired: `file_permission`, `register_agent_tools`, `register_agents`,
+  `register_skills`, `register_settings`, `register_model_type`,
+  `load_models_config`, `stream_event`.
+- **Legacy keys** live in a separate `puppy.db`, not under a `legacy.` prefix
+  in `config.db`: clai2 rejects setting names it does not know.
+- **Models:** only `openai`, `anthropic` and `openrouter` model entries are
+  translated. Other types are reported and left for `/model`.
+- **API keys** are exported to the environment at startup, as 0.0.x did,
+  because providers read them there. Keys the runtime does not recognise as
+  provider keys are therefore visible to shell commands the agent runs.
+- **Sessions** are not imported yet.
+- **`pup update` on Windows** hands the install to a new window instead of
+  refusing, which is where it differs from clai2.
+- **CI:** the workflow edits have not run on GitHub. The test suite passes
+  locally on Windows with Python 3.13 only.
 
 ## 1. Outcome
 
@@ -190,8 +241,8 @@ Rules:
 
 - Idempotent. A marker row records the migrated source and its hash.
 - Non-destructive. The old files are never modified or deleted.
-- Keys with no equivalent are stored under a `legacy.` prefix, so the config
-  facade still returns them to old plugins.
+- Keys with no equivalent are kept in `puppy.db`, so the config facade still
+  returns them to old plugins.
 - `pup migrate --dry-run` prints what would change.
 - Sessions are imported on demand, not in bulk. The old pickle formats are the
   riskiest input, and most old sessions are never reopened.
