@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -24,6 +25,20 @@ def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     for name in XDG_VARIABLES:
         monkeypatch.delenv(name, raising=False)
     return folder
+
+
+@pytest.fixture(autouse=True)
+def no_os_keyring() -> Iterator[None]:
+    """Keep tests out of the real OS keyring; credentials fall back to files."""
+    import keyring
+    from keyring.backends.fail import Keyring
+
+    previous = keyring.get_keyring()
+    keyring.set_keyring(Keyring())
+    try:
+        yield
+    finally:
+        keyring.set_keyring(previous)
 
 
 @pytest.fixture

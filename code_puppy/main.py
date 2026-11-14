@@ -51,9 +51,48 @@ def splash_wanted(argv: list[str], database: Path) -> bool:
     return row is None or json.loads(row[0]) is True
 
 
+def _migrate_legacy_setup() -> None:
+    """Carry a 0.0.x setup over on first start, then expose saved API keys.
+
+    Must never block startup.
+    """
+    from code_puppy import api_keys, migrate
+
+    try:
+        for line in migrate.auto():
+            # stderr: `pup -p ...` output is often piped, and must stay clean.
+            print(line, file=sys.stderr)
+    except Exception as exc:  # noqa: BLE001 - a bad legacy file must not stop pup
+        print(
+            f"Could not bring over the 0.0.x setup ({type(exc).__name__}: {exc}). "
+            f"Run `{identity.COMMANDS[0]} migrate` to retry.",
+            file=sys.stderr,
+        )
+    try:
+        api_keys.export_saved_keys()
+    except Exception as exc:  # noqa: BLE001 - a locked keyring must not stop pup
+        print(
+            f"Could not read saved API keys ({type(exc).__name__}: {exc}).",
+            file=sys.stderr,
+        )
+
+
+def _own_command(argv: list[str]) -> int | None:
+    """Run a subcommand that belongs to Code Puppy rather than the runtime."""
+    if argv[1:2] != ["migrate"]:
+        return None
+    from code_puppy import distribution, migrate
+
+    distribution.install()
+    return migrate.main(argv[2:])
+
+
 def main_entry() -> None:
     """Start Code Puppy: pydantic-clai2 with Code Puppy's identity installed."""
     _load_dotenv()
+    code = _own_command(sys.argv)
+    if code is not None:
+        raise SystemExit(code)
 
     from code_puppy import distribution
 
@@ -67,6 +106,7 @@ def main_entry() -> None:
     splash.start()
     try:
         distribution.install()
+        _migrate_legacy_setup()
         from pydantic_clai2.__main__ import quiet_telemetry_logs
         from pydantic_clai2.cli.cli import run
 
