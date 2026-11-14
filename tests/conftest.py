@@ -41,6 +41,34 @@ def no_os_keyring() -> Iterator[None]:
         keyring.set_keyring(previous)
 
 
+@pytest.fixture(autouse=True)
+def clean_legacy_state(tmp_path: Path) -> Iterator[None]:
+    """0.0.x compat state is process-global; give every test a clean copy.
+
+    Only modules imported from the test's own temp folder are unloaded: the
+    runtime's modules must stay loaded, or they would lose Code Puppy's identity.
+    """
+    import sys
+
+    from code_puppy import callbacks, messaging, plugins
+
+    path = list(sys.path)
+    callbacks.clear_callbacks()
+    plugins.reset_for_tests()
+    try:
+        yield
+    finally:
+        callbacks.clear_callbacks()
+        plugins.reset_for_tests()
+        messaging.set_console(None)
+        root = str(tmp_path)
+        for name, module in list(sys.modules.items()):
+            origin = getattr(module, "__file__", None) or ""
+            if origin.startswith(root) or name == plugins.PROJECT_NAMESPACE:
+                del sys.modules[name]
+        sys.path[:] = path
+
+
 @pytest.fixture
 def installed_distribution() -> None:
     """clai2 running as Code Puppy, as ``main`` sets it up before the CLI starts."""

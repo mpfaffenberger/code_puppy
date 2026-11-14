@@ -159,7 +159,7 @@ def _install_plugins() -> None:
     from pydantic_clai2.config import builtins
     from pydantic_clai2.plugins import process_plugins
 
-    from code_puppy.plugins import PUPPY_PLUGINS
+    from code_puppy.builtin_plugins import PUPPY_PLUGINS
 
     _replace(builtins, "DEFAULT_PLUGINS", (*builtins.DEFAULT_PLUGINS, *PUPPY_PLUGINS))
     _replace(builtins, "STOCK_PLUGINS", (*builtins.STOCK_PLUGINS, *PUPPY_PLUGINS))

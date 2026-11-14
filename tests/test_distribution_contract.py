@@ -102,7 +102,7 @@ def test_default_plugin_sets_keep_their_identity(installed_distribution: None) -
     from pydantic_clai2 import app
     from pydantic_clai2.config import builtins
 
-    from code_puppy.plugins import PUPPY_PLUGINS
+    from code_puppy.builtin_plugins import PUPPY_PLUGINS
 
     assert app.DEFAULT_PLUGINS is builtins.DEFAULT_PLUGINS
     assert app.STOCK_PLUGINS is builtins.STOCK_PLUGINS
