@@ -17,6 +17,8 @@ dependency of Code Puppy, so it updates with Code Puppy instead.
 """
 
 PUPPY_PLUGINS: tuple[PluginSettings, ...] = (
+    # The main agent's name, tone and opinions. See `code_puppy.personality`.
+    PluginSettings(id="personality", factory="code_puppy.personality:Personality"),
     PluginSettings(
         id="legacy_plugins", factory="code_puppy.compat.bridge:LegacyPlugins"
     ),

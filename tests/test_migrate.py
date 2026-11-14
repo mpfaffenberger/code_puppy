@@ -103,9 +103,20 @@ def test_settings_translation() -> None:
         "run.request_limit": 250,
         "run.permissions": "read-only",
         "run.speculative_code_mode": True,
-        "run.instructions": "Your name is Boodler. Your user's name is Mike.",
     }
     assert result.notes == []
+    # The names are the personality plugin's business, not the user's instructions.
+    assert "run.instructions" not in result.values
+
+
+def test_names_become_personality_settings() -> None:
+    assert translate.names(
+        {"puppy_name": " Boodler ", "owner_name": "Mike", "model": "m"}
+    ) == {
+        "puppy_name": "Boodler",
+        "owner_name": "Mike",
+    }
+    assert translate.names({"puppy_name": "  ", "model": "m"}) == {}
 
 
 def test_settings_translation_reports_what_it_cannot_carry() -> None:
@@ -184,7 +195,11 @@ def test_apply_writes_every_store(legacy_home: Path) -> None:
     assert settings.request_limit == 250
     assert settings.permissions == "read-only"
     assert settings.speculative_code_mode is True
-    assert settings.instructions == "Your name is Boodler. Your user's name is Mike."
+    assert settings.instructions == ""  # the user's own slot is left to the user
+
+    (declaration,) = [p for p in SettingsStore().plugins() if p.id == "personality"]
+    assert declaration.factory == "code_puppy.personality:Personality"
+    assert declaration.settings == {"puppy_name": "Boodler", "owner_name": "Mike"}
 
     keys = {name: key.get_secret_value() for name, key in load_keys().items()}
     assert keys == {
@@ -199,7 +214,32 @@ def test_apply_writes_every_store(legacy_home: Path) -> None:
     legacy = LegacyStore()
     assert legacy.get("temperature") == "0.2" and legacy.get("puppy_name") == "Boodler"
     assert legacy.get("openai_api_key") is None  # secrets are not copied in the clear
-    assert result.summary() == "5 settings, 2 API keys, 2 MCP servers"
+    assert result.summary() == "4 settings, 2 API keys, 2 MCP servers, 2 names"
+
+
+def test_names_already_set_in_1_0_are_kept(legacy_home: Path) -> None:
+    from pydantic_clai2.config import PluginSettings
+    from pydantic_clai2.config.settings_store import SettingsStore
+
+    SettingsStore().save_plugin(
+        PluginSettings(
+            id="personality",
+            factory="code_puppy.personality:Personality",
+            settings={"puppy_name": "Rex"},
+        )
+    )
+    result = runner.apply(runner.build_plan())
+    assert result.names == []
+    (declaration,) = [p for p in SettingsStore().plugins() if p.id == "personality"]
+    assert declaration.settings == {"puppy_name": "Rex"}
+
+
+def test_0_0_x_plugins_read_the_live_names(legacy_home: Path) -> None:
+    from code_puppy import config
+
+    assert (config.get_puppy_name(), config.get_owner_name()) == ("Puppy", "Master")
+    runner.apply(runner.build_plan())
+    assert (config.get_puppy_name(), config.get_owner_name()) == ("Boodler", "Mike")
 
 
 def test_legacy_files_are_never_modified(legacy_home: Path) -> None:
@@ -255,7 +295,10 @@ def test_cli_applies_and_reports(
     legacy_home: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     assert migrate.main([]) == 0
-    assert "Wrote: 5 settings, 2 API keys, 2 MCP servers." in capsys.readouterr().out
+    assert (
+        "Wrote: 4 settings, 2 API keys, 2 MCP servers, 2 names."
+        in capsys.readouterr().out
+    )
 
 
 # --- saved keys reach providers ---------------------------------------------

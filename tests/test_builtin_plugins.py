@@ -19,7 +19,11 @@ def test_every_shipped_declaration_names_a_plugin_class(
 ) -> None:
     from pydantic_clai2.plugins import Plugin
 
-    assert [plugin.id for plugin in PUPPY_PLUGINS] == ["legacy_plugins", "claude_code"]
+    assert [plugin.id for plugin in PUPPY_PLUGINS] == [
+        "personality",
+        "legacy_plugins",
+        "claude_code",
+    ]
     for plugin in PUPPY_PLUGINS:
         module, _, attribute = plugin.factory.partition(":")
         assert issubclass(getattr(importlib.import_module(module), attribute), Plugin)

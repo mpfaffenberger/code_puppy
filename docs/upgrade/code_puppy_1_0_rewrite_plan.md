@@ -50,6 +50,11 @@ All work is in local commits on `v1`. Nothing has been pushed or published.
   because providers read them there. Keys the runtime does not recognise as
   provider keys are therefore visible to shell commands the agent runs.
 - **Sessions** are not imported yet.
+- **Personality** is the built-in `personality` plugin. It adds the persona
+  part of the 0.0.x system prompt to the main agent only; delegated sub-agents
+  get none. The puppy and owner names are the plugin's settings, seeded by the
+  migration and editable in `/plugins`. The 0.0.x tool and workflow rules were
+  not carried over, since the runtime has its own.
 - **Claude Code models** come from the `pydantic-claude-code` package, a hard
   dependency shipped as the built-in `claude_code` plugin (`claude-code:`
   models, `/login claude-code`). It replaces the `claude_code_oauth` port

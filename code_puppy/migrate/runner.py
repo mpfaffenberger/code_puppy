@@ -33,6 +33,8 @@ class Plan:
     keys: dict[str, str] = field(default_factory=dict)
     servers: dict[str, Any] = field(default_factory=dict)
     preferences: dict[str, str] = field(default_factory=dict)
+    names: dict[str, str] = field(default_factory=dict)
+    """Puppy and owner names, which become the personality plugin's settings."""
     notes: list[str] = field(default_factory=list)
 
     def describe(self) -> list[str]:
@@ -45,6 +47,7 @@ class Plan:
             f"  mcp      {name} ({server.type})"
             for name, server in self.servers.items()
         ]
+        lines += [f"  persona  {key} = {value!r}" for key, value in self.names.items()]
         if self.preferences:
             lines.append(
                 f"  legacy   {len(self.preferences)} puppy.cfg keys kept for 0.0.x plugins"
@@ -61,17 +64,21 @@ class Result:
     keys: list[str] = field(default_factory=list)
     servers: list[str] = field(default_factory=list)
     preferences: list[str] = field(default_factory=list)
+    names: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
 
     @property
     def changed(self) -> bool:
-        return bool(self.settings or self.keys or self.servers or self.preferences)
+        return bool(
+            self.settings or self.keys or self.servers or self.preferences or self.names
+        )
 
     def summary(self) -> str:
         counts = [
             (len(self.settings), "setting"),
             (len(self.keys), "API key"),
             (len(self.servers), "MCP server"),
+            (len(self.names), "name"),
         ]
         parts = [f"{n} {noun}{'s' if n != 1 else ''}" for n, noun in counts if n]
         return ", ".join(parts) or "nothing new"
@@ -89,6 +96,7 @@ def build_plan(files: sources.LegacyFiles | None = None) -> Plan:
         settings=translated.values,
         keys=translate.api_keys(config),
         preferences=translate.preferences(config),
+        names=translate.names(config),
         notes=translated.notes,
     )
     adapter: TypeAdapter[Any] = TypeAdapter(Server)
@@ -143,10 +151,35 @@ def apply(plan: Plan, *, legacy: LegacyStore | None = None) -> Result:
         else:
             result.servers.append(name)
 
+    result.names = _save_names(store, plan.names, result.notes)
+
     legacy = legacy or LegacyStore()
     result.preferences = legacy.set_missing(plan.preferences)
     legacy.set_meta(MIGRATED_KEY, plan.fingerprint)
     return result
+
+
+def _save_names(store: Any, names: dict[str, str], notes: list[str]) -> list[str]:
+    """Seed the personality plugin's settings, unless the user already has some."""
+    from pydantic_clai2.config import PluginSettings
+
+    from code_puppy import personality
+
+    if not names:
+        return []
+    try:
+        personality.PersonalitySettings.model_validate(names)
+    except ValidationError as exc:
+        notes.append(f"Skipped puppy and owner names: {exc.errors()[0]['msg']}.")
+        return []
+    declaration = PluginSettings(
+        id=personality.PLUGIN_ID, factory=personality.FACTORY, settings=dict(names)
+    )
+    try:
+        store.save_plugin(declaration, overwrite=False)
+    except ValueError:
+        return []  # Already configured in 1.0.
+    return sorted(names)
 
 
 def auto() -> list[str]:

@@ -96,9 +96,23 @@ def get_message_limit(default: int = 1000) -> int:
     return int(value) if value and value.isdigit() else default
 
 
+def _personality_name(key: str, default: str) -> str:
+    """A name from the personality plugin's settings, where 1.0 keeps them."""
+    from pydantic_clai2.config.settings_store import SettingsStore
+
+    from code_puppy import personality
+
+    for plugin in SettingsStore().plugins():
+        if plugin.id == personality.PLUGIN_ID:
+            value = plugin.settings.get(key)
+            if isinstance(value, str) and value:
+                return value
+    return LegacyStore().get(key) or default
+
+
 def get_puppy_name() -> str:
-    return get_value("puppy_name") or "Puppy"
+    return _personality_name("puppy_name", "Puppy")
 
 
 def get_owner_name() -> str:
-    return get_value("owner_name") or "Master"
+    return _personality_name("owner_name", "Master")

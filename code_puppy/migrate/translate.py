@@ -60,16 +60,14 @@ def model_reference(name: str, catalog: Mapping[str, Mapping[str, Any]]) -> str 
     return f"{prefix}:{model}"
 
 
-def persona(config: Mapping[str, str]) -> str:
-    """The puppy and owner names 0.0.x put in its system prompt, as instructions."""
-    puppy = config.get("puppy_name", "").strip()
-    owner = config.get("owner_name", "").strip()
-    parts = []
-    if puppy:
-        parts.append(f"Your name is {puppy}.")
-    if owner:
-        parts.append(f"Your user's name is {owner}.")
-    return " ".join(parts)
+NAME_KEYS = ("puppy_name", "owner_name")
+
+
+def names(config: Mapping[str, str]) -> dict[str, str]:
+    """The puppy and owner names 0.0.x put in its system prompt, as personality settings."""
+    return {
+        key: config[key].strip() for key in NAME_KEYS if config.get(key, "").strip()
+    }
 
 
 def settings(
@@ -101,9 +99,6 @@ def settings(
         result.values["run.speculative_code_mode"] = is_truthy(
             config["enable_speculative_code_mode"]
         )
-    instructions = persona(config)
-    if instructions:
-        result.values["run.instructions"] = instructions
     return result
 
 
