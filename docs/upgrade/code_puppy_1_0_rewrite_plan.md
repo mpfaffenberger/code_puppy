@@ -26,9 +26,22 @@ All work is in local commits on `v1`. Nothing has been pushed or published.
    CLAI does not provide an agent workspace or repository context yet." This
    holds on 0.68.0 and on `main` as of 2026-11-13. On Windows the stock
    agent's turn fails with "`Coder` needs a workspace", so 1.0 cannot edit
-   files or run commands there. It needs a Windows workspace backend upstream.
-   Until then Windows cannot be a release gate, and 1.0 would be a regression
-   for Windows users of 0.0.x.
+   files or run commands there. Until that changes Windows cannot be a release
+   gate, and 1.0 would be a regression for Windows users of 0.0.x.
+
+   The gap is wider than the one backend. The layers above it assume a POSIX
+   shell and POSIX paths: `pydantic_ai.workspaces.Workspace` builds `sh`
+   commands with `shlex` and `posixpath`, the harness `Shell` toolset wraps
+   commands in `sh` and tests paths with `posixpath.isabs`, and the backend
+   conformance suite is written in `sh`. A `cmd.exe` backend cannot satisfy
+   them. The routes are:
+
+   - **WSL.** Works today with no code: inside WSL the platform is POSIX.
+   - **A Git Bash-backed backend.** Commands run in `bash.exe` and paths are
+     reported in `/c/...` form and translated for file operations. It could
+     live here or upstream, and the conformance suite can verify it.
+   - **Native Windows support upstream.** The proper fix, and the largest: the
+     workspace, shell and conformance layers would all need a Windows mode.
 2. **No identity seam upstream.** clai2 0.68.0 gives a distribution no way to
    supply names, paths or default plugins. `code_puppy/distribution.py`
    replaces about 20 clai2 names at startup instead, covered by
