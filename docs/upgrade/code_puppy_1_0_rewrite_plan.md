@@ -49,7 +49,11 @@ All work is in local commits on `v1`. Nothing has been pushed or published.
 - **API keys** are exported to the environment at startup, as 0.0.x did,
   because providers read them there. Keys the runtime does not recognise as
   provider keys are therefore visible to shell commands the agent runs.
-- **Sessions** are not imported yet.
+- **Sessions** from 0.0.x are an import source for `/resume`, registered beside
+  the runtime's Claude Code and Codex sources. They are listed in the browser
+  and copied into `sessions.db` when one is picked; nothing is converted up
+  front. `/resume puppy` lists only them. Sub-agent transcripts are not
+  carried over.
 - **The stock agent** is named `code-puppy` and is built without clai2's
   `clai_customization` docs capability, which named CLAI in every system
   prompt and described clai2's commands and folders.

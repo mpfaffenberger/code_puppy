@@ -20,8 +20,12 @@ clai2 symbol                                Seam that would replace it
 ``splash_art``, ``branding``, ``welcome``   pluggable branding
 ``builtins.DEFAULT_PLUGINS/STOCK_PLUGINS``  distribution-supplied default plugins
 ``app.create_stock_agent``                  configurable agent name and docs capability
+``imported_sessions.IMPORT_SOURCES``        registering a session import source
 ``ProcessPlugins._discover``                pluggable drop-in discovery
 ==========================================  =====================================
+
+The 0.0.x session source is also added to ``imported_sessions._SOURCES`` and to
+the session browser's ``_FILTERS``, beside clai2's own entries.
 
 clai2 modules bind these names with ``from x import y``. :func:`_replace`
 therefore swaps a name on its owning module *and* on every clai2 module that
@@ -98,6 +102,7 @@ def install() -> None:
     _install_branding()
     _install_plugins()
     _install_agent()
+    _install_sessions()
     _installed = True
 
 
@@ -171,6 +176,33 @@ def _install_agent() -> None:
         )
 
     _replace(app, "create_stock_agent", create_stock_agent)
+
+
+def _install_sessions() -> None:
+    """Offer 0.0.x sessions in ``/resume``, as Claude Code's and Codex's are."""
+    from pydantic_clai2.runtime import imported_sessions
+    from pydantic_clai2.ui.menus import session_browser
+
+    from code_puppy import legacy_sessions as legacy
+
+    source = legacy.SOURCE
+    imported_sessions._SOURCES[source] = imported_sessions._Source(
+        label=legacy.LABEL,
+        home=legacy.home,
+        files=legacy.files,
+        find=legacy.find,
+        titles=legacy.titles,
+        header=legacy.header,
+        messages=legacy.messages,
+        tasks=legacy.tasks,
+    )
+    _replace(
+        imported_sessions,
+        "IMPORT_SOURCES",
+        (*imported_sessions.IMPORT_SOURCES, source),
+    )
+    # Built from IMPORT_SOURCES when the browser was imported, so extend it too.
+    _replace(session_browser, "_FILTERS", (*session_browser._FILTERS, source))
 
 
 def is_legacy_plugin(entry: Path) -> bool:

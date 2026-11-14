@@ -21,6 +21,7 @@ Plan and status: `docs/upgrade/code_puppy_1_0_rewrite_plan.md`.
 | `code_puppy/migrate/` | One-time carry-over of a 0.0.x setup |
 | `code_puppy/legacy_store.py` | `puppy.db`: Code Puppy's own SQLite file |
 | `code_puppy/api_keys.py` | Exports saved API keys for model providers |
+| `code_puppy/legacy_sessions.py` | 0.0.x sessions as an import source for `/resume` |
 | `code_puppy/builtin_plugins.py` | Plugin declarations Code Puppy ships |
 | `code_puppy/personality.py` | The `personality` plugin: the main agent's name, tone and opinions |
 | `code_puppy/compat/` | Bridge that runs 0.0.x plugins |
