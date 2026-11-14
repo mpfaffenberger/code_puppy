@@ -9,8 +9,21 @@ from __future__ import annotations
 
 from pydantic_clai2.config import PluginSettings
 
+CLAUDE_CODE_NO_UPDATE_CHECK = "CLAUDE_CODE_NO_UPDATE_CHECK"
+"""Turns off the Claude Code plugin's own update notice.
+
+The notice tells users to reinstall the plugin as a drop-in. Here it is a
+dependency of Code Puppy, so it updates with Code Puppy instead.
+"""
+
 PUPPY_PLUGINS: tuple[PluginSettings, ...] = (
     PluginSettings(
         id="legacy_plugins", factory="code_puppy.compat.bridge:LegacyPlugins"
+    ),
+    # Claude Code subscription models, from the `pydantic-claude-code` package.
+    # Same id as that plugin's drop-in install, so a user's own copy replaces
+    # this one instead of loading beside it.
+    PluginSettings(
+        id="claude_code", factory="pydantic_ai_claude_code.clai2:ClaudeCodePlugin"
     ),
 )

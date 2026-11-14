@@ -30,6 +30,7 @@ imported afterwards pick up the replacement from the owning module.
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -159,7 +160,9 @@ def _install_plugins() -> None:
     from pydantic_clai2.config import builtins
     from pydantic_clai2.plugins import process_plugins
 
-    from code_puppy.builtin_plugins import PUPPY_PLUGINS
+    from code_puppy.builtin_plugins import CLAUDE_CODE_NO_UPDATE_CHECK, PUPPY_PLUGINS
+
+    os.environ.setdefault(CLAUDE_CODE_NO_UPDATE_CHECK, "1")
 
     _replace(builtins, "DEFAULT_PLUGINS", (*builtins.DEFAULT_PLUGINS, *PUPPY_PLUGINS))
     _replace(builtins, "STOCK_PLUGINS", (*builtins.STOCK_PLUGINS, *PUPPY_PLUGINS))

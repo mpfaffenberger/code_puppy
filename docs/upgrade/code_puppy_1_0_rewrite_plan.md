@@ -50,6 +50,11 @@ All work is in local commits on `v1`. Nothing has been pushed or published.
   because providers read them there. Keys the runtime does not recognise as
   provider keys are therefore visible to shell commands the agent runs.
 - **Sessions** are not imported yet.
+- **Claude Code models** come from the `pydantic-claude-code` package, a hard
+  dependency shipped as the built-in `claude_code` plugin (`claude-code:`
+  models, `/login claude-code`). It replaces the `claude_code_oauth` port
+  listed in section 8. The similarly named `pydantic-ai-claude-code` on PyPI
+  is an unrelated project and must not be used.
 - **`pup update` on Windows** hands the install to a new window instead of
   refusing, which is where it differs from clai2.
 - **CI:** the workflow edits have not run on GitHub. The test suite passes

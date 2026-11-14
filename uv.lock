@@ -340,6 +340,7 @@ source = { editable = "." }
 dependencies = [
     { name = "packaging" },
     { name = "pydantic-clai2" },
+    { name = "pydantic-claude-code" },
 ]
 
 [package.dev-dependencies]
@@ -354,6 +355,7 @@ dev = [
 requires-dist = [
     { name = "packaging", specifier = ">=24.0" },
     { name = "pydantic-clai2", specifier = "==0.68.0" },
+    { name = "pydantic-claude-code", specifier = ">=0.7.5,<0.8" },
 ]
 
 [package.metadata.requires-dev]
@@ -1516,6 +1518,19 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/91/7e/aa20a866656cd180d28878fab49c705eccf1c41087059c6ee292b634e767/pydantic_clai2-0.68.0.tar.gz", hash = "sha256:dd8e72f928d7006709a1374045eeea4170965471b3c09767d11237e3b525e48c", size = 1049006, upload-time = "2026-11-12T02:30:21.547Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/60/eb/597a069305c4c7fcd254d49b09a8b0819b1ee183226f21176c7b86f8606b/pydantic_clai2-0.68.0-py3-none-any.whl", hash = "sha256:2e7d8776aa9f8fd187cf4dfa5cbd220db80ef65b0492df362b85e7c706b6391b", size = 1207973, upload-time = "2026-11-12T02:30:10.158Z" },
+]
+
+[[package]]
+name = "pydantic-claude-code"
+version = "0.7.5"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "keyring" },
+    { name = "pydantic-ai-slim", extra = ["anthropic"] },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ad/77/f2384fe15af01e5f0365278b85650e849c4a8dd18cb18b18dcc25e2eb75f/pydantic_claude_code-0.7.5.tar.gz", hash = "sha256:fd897813db77260d41d0dbdfc327657bca203f93fa79eba50d2864720d574b30", size = 188494, upload-time = "2026-11-10T15:47:10.288Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/9a/09/e98415a73aff29c2ab2650db629db560b5e691393993e280aeaeaaa73a21/pydantic_claude_code-0.7.5-py3-none-any.whl", hash = "sha256:c9e052d00f663b7dd941abaf0e3916718a80502254d1963bda5e7be289033bdf", size = 32375, upload-time = "2026-11-10T15:47:09.419Z" },
 ]
 
 [[package]]

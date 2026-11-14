@@ -29,6 +29,8 @@ Plan and status: `docs/upgrade/code_puppy_1_0_rewrite_plan.md`.
 
 1. **One pin.** `pydantic-clai2` is pinned exactly and carries the harness and
    `pydantic-ai-slim` pins. Never add a direct pin for either.
+   Claude Code models come from **`pydantic-claude-code`**. Do not "fix" that
+   to `pydantic-ai-claude-code`: that PyPI name is someone else's project.
 2. **Replacements live in `distribution.py`.** If you must replace another
    clai2 name, add it there with `_replace`, add a row to the table in its
    docstring, and add it to `REPLACED` in

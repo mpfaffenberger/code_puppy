@@ -13,6 +13,11 @@ dependencies = [
     # pydantic-ai-harness and pydantic-ai-slim exactly, so this one pin fixes
     # the whole runtime. Do not add direct harness/slim pins beside it.
     "pydantic-clai2==0.68.0",
+    # Claude Code subscription models (`claude-code:` prefix, `/login claude-code`),
+    # shipped as a built-in plugin. Mind the name: this is `pydantic-claude-code`.
+    # `pydantic-ai-claude-code` on PyPI is an unrelated project by another author,
+    # even though this package's repository and import name are spelled that way.
+    "pydantic-claude-code>=0.7.5,<0.8",
     # Imported directly by code_puppy.update (version ordering, pre-releases).
     "packaging>=24.0",
 ]
