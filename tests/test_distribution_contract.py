@@ -40,6 +40,7 @@ REPLACED = [
     ("pydantic_clai2.config.builtins", "STOCK_PLUGINS"),
     ("pydantic_clai2.plugins.process_plugins", "ProcessPlugins"),
     ("pydantic_clai2.app", "create_stock_agent"),
+    ("pydantic_clai2.app", "chat"),
     ("pydantic_clai2.runtime.imported_sessions", "IMPORT_SOURCES"),
     ("pydantic_clai2.runtime.imported_sessions", "_SOURCES"),
     ("pydantic_clai2.runtime.imported_sessions", "_Source"),

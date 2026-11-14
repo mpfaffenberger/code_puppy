@@ -52,6 +52,20 @@ class PersonalitySettings(BaseModel):
     )
 
 
+def default_name(key: str) -> str:
+    """The name a setting has until somebody chooses one."""
+    return str(PersonalitySettings.model_fields[key].default)
+
+
+def name_problem(key: str, text: str) -> str | None:
+    """Why ``text`` cannot be this name, in the settings model's words; ``None`` when it can."""
+    try:
+        PersonalitySettings.model_validate({key: text})
+    except ValueError as exc:
+        return str(exc).splitlines()[-1].strip()
+    return None
+
+
 def persona(puppy_name: str, owner_name: str) -> str:
     """The persona instructions for one puppy and one owner."""
     return f"""\
@@ -124,7 +138,7 @@ class PersonalitySource:
                 key=key,
                 label=label,
                 description=fields[key].description or "",
-                default=str(fields[key].default),
+                default=default_name(key),
             )
             for key, label in ROW_LABELS.items()
         )
@@ -138,19 +152,14 @@ class PersonalitySource:
         return PersonalitySettings.model_validate(data)
 
     def problem(self, row: FieldRow, text: str) -> str | None:
-        try:
-            self._updated(row, text)
-        except ValueError as exc:
-            return str(exc).splitlines()[-1].strip()
-        return None
+        return name_problem(row.key, text.strip())
 
     def apply(self, row: FieldRow, raw: str) -> str:
         self.host.save_settings(self._updated(row, raw))
         return f"Saved {row.label}."
 
     def reset(self, row: FieldRow) -> str:
-        default = str(PersonalitySettings.model_fields[row.key].default)
-        self.host.save_settings(self._updated(row, default))
+        self.host.save_settings(self._updated(row, default_name(row.key)))
         return f"Reset {row.label}."
 
 

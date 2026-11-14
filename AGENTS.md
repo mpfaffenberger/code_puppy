@@ -24,6 +24,7 @@ Plan and status: `docs/upgrade/code_puppy_1_0_rewrite_plan.md`.
 | `code_puppy/legacy_sessions.py` | 0.0.x sessions as an import source for `/resume` |
 | `code_puppy/builtin_plugins.py` | Plugin declarations Code Puppy ships |
 | `code_puppy/personality.py` | The `personality` plugin: the main agent's name, tone and opinions |
+| `code_puppy/first_run.py` | First interactive launch: asks the puppy's and owner's names, once |
 | `code_puppy/compat/` | Bridge that runs 0.0.x plugins |
 | `code_puppy/callbacks.py`, `config.py`, `messaging/`, `i18n/`, `plugins/` | 0.0.x import paths, kept as thin facades |
 

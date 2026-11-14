@@ -20,6 +20,7 @@ clai2 symbol                                Seam that would replace it
 ``splash_art``, ``branding``, ``welcome``   pluggable branding
 ``builtins.DEFAULT_PLUGINS/STOCK_PLUGINS``  distribution-supplied default plugins
 ``app.create_stock_agent``                  configurable agent name and docs capability
+``app.chat``                                a hook before an interactive session starts
 ``imported_sessions.IMPORT_SOURCES``        registering a session import source
 ``ProcessPlugins._discover``                pluggable drop-in discovery
 ==========================================  =====================================
@@ -90,6 +91,43 @@ def install_splash() -> None:
     _splash_installed = True
 
 
+def _install_first_run() -> None:
+    from pydantic_clai2 import app
+
+    start_chat = app.chat
+
+    def chat(agent: Any, **options: Any) -> Any:
+        """clai2's terminal session, after the puppy has a name.
+
+        Deliberately not ``async``: the questions are asked when the session's
+        coroutine is created, before the event loop that runs it exists, so
+        Ctrl-C at a question behaves as it does at any plain prompt.
+
+        ``chat`` is the one launch path with a person at the keyboard; ``-p``,
+        ``--web`` and subcommands never call it. ``load_plugins=False`` is a
+        caller-supplied agent, which gets no persona to name.
+        """
+        from code_puppy import first_run
+
+        store = options.get("store")
+        if (
+            store is not None
+            and options.get("load_plugins", True)
+            and first_run.at_a_terminal()
+        ):
+            try:
+                first_run.welcome(store)
+            except Exception as exc:  # noqa: BLE001 - naming must never stop pup
+                print(
+                    f"Skipped naming the puppy ({type(exc).__name__}: {exc}). "
+                    f"Use {first_run.CONFIGURE} instead.",
+                    file=sys.stderr,
+                )
+        return start_chat(agent, **options)
+
+    _replace(app, "chat", chat)
+
+
 def install() -> None:
     """Apply every replacement. Idempotent; call before importing the clai2 CLI."""
     global _installed
@@ -102,6 +140,7 @@ def install() -> None:
     _install_branding()
     _install_plugins()
     _install_agent()
+    _install_first_run()
     _install_sessions()
     _installed = True
 
