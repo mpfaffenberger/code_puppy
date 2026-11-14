@@ -47,70 +47,10 @@ jobs:
         run: uv venv
 
       - name: Install dependencies
-        run: uv pip install -e .
-
-      - name: Provision CI model (lilac synthetic GLM-5.2)
-        # models.json ships empty. CI gets its model from extra_models.json,
-        # exactly like a real user would after running /add_model.
-        run: |
-          mkdir -p "$HOME/.code_puppy"
-          cat > "$HOME/.code_puppy/extra_models.json" <<'JSON'
-          {
-            "lilac-zai-org-glm-5.2": {
-              "type": "custom_openai",
-              "provider": "lilac",
-              "name": "zai-org/glm-5.2",
-              "custom_endpoint": {
-                "url": "https://api.getlilac.com/v1",
-                "api_key": "$LILAC_API_KEY"
-              },
-              "context_length": 524288,
-              "supported_settings": ["temperature", "seed", "top_p"]
-            }
-          }
-          JSON
-          # Tests isolate user config, and several fallback contracts require a
-          # non-empty bundled catalog. Keep this test-only copy out of releases:
-          # the publish job starts from a fresh checkout.
-          cp "$HOME/.code_puppy/extra_models.json" code_puppy/models.json
-          echo "Wrote CI model catalog and test-only bundled fallback"
-
-      - name: Debug environment variables
-        env:
-          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY || 'fake-key-for-ci-testing' }}
-          CONTEXT7_API_KEY: ${{ secrets.CONTEXT7_API_KEY || 'fake-key-for-ci-testing' }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || 'fake-key-for-ci-testing' }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY || 'fake-key-for-ci-testing' }}
-          SYN_API_KEY: ${{ secrets.SYN_API_KEY || 'fake-key-for-ci-testing' }}
-          LILAC_API_KEY: ${{ secrets.LILAC_API_KEY || 'fake-key-for-ci-testing' }}
-        run: |
-          echo "=== DEBUG: Environment Variables ==="
-          echo "CEREBRAS_API_KEY is set: ${{ secrets.CEREBRAS_API_KEY != '' }}"
-          echo "CONTEXT7_API_KEY is set: ${{ secrets.CONTEXT7_API_KEY != '' }}"
-          echo "OPENAI_API_KEY is set: ${{ secrets.OPENAI_API_KEY != '' }}"
-          echo "ANTHROPIC_API_KEY is set: ${{ secrets.ANTHROPIC_API_KEY != '' }}"
-          echo "SYN_API_KEY is set: ${{ secrets.SYN_API_KEY != '' }}"
-          echo "CEREBRAS_API_KEY length: ${#CEREBRAS_API_KEY}"
-          echo "CONTEXT7_API_KEY length: ${#CONTEXT7_API_KEY}"
-          echo "OPENAI_API_KEY length: ${#OPENAI_API_KEY}"
-          echo "ANTHROPIC_API_KEY length: ${#ANTHROPIC_API_KEY}"
-          echo "SYN_API_KEY length: ${#SYN_API_KEY}"
-          echo "=== END DEBUG ==="
+        run: uv sync
 
       - name: Run tests
-        env:
-          CI: '1'
-          CODE_PUPPY_TEST_FAST: '1'
-          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY || 'fake-key-for-ci-testing' }}
-          CONTEXT7_API_KEY: ${{ secrets.CONTEXT7_API_KEY || 'fake-key-for-ci-testing' }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || 'fake-key-for-ci-testing' }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY || 'fake-key-for-ci-testing' }}
-          SYN_API_KEY: ${{ secrets.SYN_API_KEY || 'fake-key-for-ci-testing' }}
-          LILAC_API_KEY: ${{ secrets.LILAC_API_KEY || 'fake-key-for-ci-testing' }}
-        run: |
-          echo "Running tests on ${{ runner.os }} with Python ${{ matrix.python-version }}..."
-          echo "Required environment variables are set (using CI fallbacks if secrets not available)"
-          uv run pytest tests/ -v --cov=code_puppy --cov-report=term-missing
+        run: uv run pytest
 
   build-publish:
     runs-on: ubuntu-latest

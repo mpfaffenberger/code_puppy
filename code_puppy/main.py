@@ -1,42 +1,85 @@
-"""Main entry point for Code Puppy CLI.
+"""Entry point for ``pup`` and ``code-puppy``.
 
-This module re-exports the main_entry function from cli_runner for backwards
-compatibility. All the actual logic lives in cli_runner.py.
-
-The neon splash starts BEFORE the cli_runner import below: that import pulls
-in pydantic-ai, prompt_toolkit, rich, and friends (~seconds of cold start),
-which is exactly the window the shimmer covers. ``code_puppy.splash`` is
-stdlib-only by design -- keep it that way, and keep it first.
-
-In-tree plugins that must run setup before those heavy imports (see
-``code_puppy.early_startup``) are given their turn inside the same window.
+Import-light until the splash is up: the heavy agent and UI imports run while
+it animates. The order below is load-bearing; see ``distribution``.
 """
 
-from code_puppy.splash import start_splash
+from __future__ import annotations
 
-_splash = start_splash()
-try:
+import json
+import os
+import sqlite3
+import sys
+import warnings
+from pathlib import Path
+
+from code_puppy import identity
+
+NO_SPLASH_VARIABLES = ("CODE_PUPPY_NO_SPLASH", "CLAI_NO_SPLASH")
+
+
+def _load_dotenv() -> None:
+    """Load the project's ``.env`` so settings and keys see it; never fatal."""
+    from dotenv import find_dotenv, load_dotenv
+
+    dotenv_path = ".env"
     try:
-        # Before the runner import so an import-time crash is recorded too.
-        from code_puppy.error_hooks import install_error_hooks
+        dotenv_path = find_dotenv(usecwd=True)
+        # Named pipes must not block startup.
+        if Path(dotenv_path).is_file():
+            load_dotenv(dotenv_path)
+    except (OSError, UnicodeDecodeError) as exc:
+        print(f"Ignoring `.env` at {dotenv_path!r}: {exc}", file=sys.stderr)
 
-        install_error_hooks()
-    except Exception:
-        import logging
 
-        logging.getLogger(__name__).debug(
-            "installing the error hooks failed", exc_info=True
-        )
-    # Plugin setup that must precede the heavy imports. Failed hooks are
-    # recorded in errors.log before the runner import; never raises.
-    from code_puppy.early_startup import report_failures, run_early_startup
+def splash_wanted(argv: list[str], database: Path) -> bool:
+    """Bare interactive launches animate, unless the user turned the splash off."""
+    if len(argv) != 1 or any(os.getenv(name) for name in NO_SPLASH_VARIABLES):
+        return False
+    if not database.exists():
+        return True
+    try:
+        connection = sqlite3.connect(f"{database.as_uri()}?mode=ro", uri=True)
+        try:
+            row = connection.execute(
+                "SELECT value_json FROM settings WHERE key = 'display.splash'"
+            ).fetchone()
+        finally:
+            connection.close()
+    except (sqlite3.Error, ValueError):
+        return False
+    return row is None or json.loads(row[0]) is True
 
-    report_failures(run_early_startup())
-    from code_puppy.cli_runner import main_entry
-finally:
-    _splash.stop()
 
-__all__ = ["main_entry"]
+def main_entry() -> None:
+    """Start Code Puppy: pydantic-clai2 with Code Puppy's identity installed."""
+    _load_dotenv()
+
+    from code_puppy import distribution
+
+    distribution.install_splash()
+    from pydantic_clai2.ui.rendering.splash import Splash
+
+    os.environ["PYDANTIC_AI_NO_BANNER"] = "1"
+    splash = Splash(
+        enabled=splash_wanted(sys.argv, identity.config_dir() / "config.db")
+    )
+    splash.start()
+    try:
+        distribution.install()
+        from pydantic_clai2.__main__ import quiet_telemetry_logs
+        from pydantic_clai2.cli.cli import run
+
+        with warnings.catch_warnings(), quiet_telemetry_logs():
+            if not sys.warnoptions:
+                # Library warnings are advice for whoever wired the agent, not
+                # the person at the prompt, and stderr output tears through the
+                # live display. `-W` or `PYTHONWARNINGS` restores them.
+                warnings.simplefilter("ignore", Warning)
+            run(splash=splash)
+    finally:
+        splash.stop()
+
 
 if __name__ == "__main__":
     main_entry()

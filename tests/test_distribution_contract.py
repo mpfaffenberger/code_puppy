@@ -1,0 +1,157 @@
+"""The contract between Code Puppy and the pydantic-clai2 it is pinned to.
+
+``code_puppy.distribution`` replaces a handful of clai2 names at startup. These
+tests fail when a clai2 upgrade moves one of them, and prove that the
+replacements actually take effect where clai2 reads them.
+"""
+
+from __future__ import annotations
+
+import importlib
+import os
+import subprocess
+import sys
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+REPLACED = [
+    ("pydantic_clai2.config.settings_store", "config_dir"),
+    ("pydantic_clai2.config.settings_store", "state_dir"),
+    ("pydantic_clai2.config.credential_store", "_SERVICE"),
+    ("pydantic_clai2.config.credential_store", "_ACCOUNT"),
+    ("pydantic_clai2.config.credential_store", "credentials_path"),
+    ("pydantic_clai2.cli.self_update", "DISTRIBUTION"),
+    ("pydantic_clai2.cli.self_update", "PYPI_URL"),
+    ("pydantic_clai2.cli.self_update", "installed"),
+    ("pydantic_clai2.cli.self_update", "latest"),
+    ("pydantic_clai2.cli.self_update", "find_update"),
+    ("pydantic_clai2.cli.self_update", "tool_executable"),
+    ("pydantic_clai2.cli.self_update", "Update"),
+    ("pydantic_clai2.cli.self_update", "Updates"),
+    ("pydantic_clai2.cli.cli", "_update"),
+    ("pydantic_clai2.ui.rendering.splash_art", "PYRAMID"),
+    ("pydantic_clai2.ui.rendering.splash_art", "LABEL"),
+    ("pydantic_clai2.ui.rendering.branding", "print_banner"),
+    ("pydantic_clai2.ui.rendering.welcome", "print_welcome"),
+    ("pydantic_clai2.ui.rendering.welcome", "_report_project"),
+    ("pydantic_clai2.config.builtins", "DEFAULT_PLUGINS"),
+    ("pydantic_clai2.config.builtins", "STOCK_PLUGINS"),
+    ("pydantic_clai2.plugins.process_plugins", "ProcessPlugins"),
+]
+
+
+@pytest.mark.parametrize(("module", "name"), REPLACED)
+def test_clai2_still_has_the_symbol(module: str, name: str) -> None:
+    assert hasattr(importlib.import_module(module), name), f"{module}.{name} moved"
+
+
+def test_discover_is_still_a_method() -> None:
+    from pydantic_clai2.plugins.process_plugins import ProcessPlugins
+
+    assert callable(ProcessPlugins._discover)
+
+
+def test_settings_live_in_code_puppys_folder(
+    installed_distribution: None, home: Path
+) -> None:
+    from pydantic_clai2.config.settings_store import SettingsStore
+
+    store = SettingsStore()
+    assert store.path == home / ".code_puppy" / "config.db"
+    assert store.plugins_dir == home / ".code_puppy" / "plugins"
+
+
+def test_modules_that_bound_the_names_early_see_code_puppys(
+    installed_distribution: None, home: Path
+) -> None:
+    """clai2 imports these with ``from x import y``; the binding must be ours."""
+    from pydantic_clai2.mcp.store import MCPStore
+    from pydantic_clai2.runtime import live_registry, session_runtime
+    from pydantic_clai2.ui.rendering import spinners, welcome
+
+    from code_puppy import branding, update
+
+    root = home / ".code_puppy"
+    assert MCPStore().path == root / "mcp.json"
+    assert spinners.config_dir() == root
+    assert live_registry.state_dir() == root / "state"
+    assert session_runtime.Updates is update.PuppyUpdates
+    assert welcome.print_welcome is branding.print_welcome
+    assert welcome.installed is update.installed
+
+
+def test_credentials_use_code_puppys_folder_and_service(
+    installed_distribution: None, home: Path
+) -> None:
+    from pydantic_clai2.config import credential_store
+
+    path = credential_store.credentials_path(account="gateway/openai@work")
+    assert path.parent == home / ".code_puppy"
+    assert path.name.startswith("credentials-gateway") and "/" not in path.name
+    assert credential_store._SERVICE == "code-puppy-v1"
+    assert (
+        credential_store._files(account="x", fallback=None)[1].parent
+        == home / ".code_puppy"
+    )
+
+
+def test_default_plugin_sets_keep_their_identity(installed_distribution: None) -> None:
+    """clai2's ``chat`` compares the plugin tuples with ``is``."""
+    from pydantic_clai2 import app
+    from pydantic_clai2.config import builtins
+
+    from code_puppy.plugins import PUPPY_PLUGINS
+
+    assert app.DEFAULT_PLUGINS is builtins.DEFAULT_PLUGINS
+    assert app.STOCK_PLUGINS is builtins.STOCK_PLUGINS
+    ids = [plugin.id for plugin in builtins.STOCK_PLUGINS]
+    assert ids[0] == "coder" and len(ids) == len(set(ids))
+    assert all(plugin in builtins.STOCK_PLUGINS for plugin in PUPPY_PLUGINS)
+
+
+def test_legacy_plugin_folders_are_left_to_the_compat_bridge(
+    installed_distribution: None, tmp_path: Path
+) -> None:
+    from pydantic_clai2.plugins.process_plugins import ProcessPlugins
+
+    plugins = tmp_path / "plugins"
+    (plugins / "legacy").mkdir(parents=True)
+    (plugins / "legacy" / "__init__.py").write_text("")
+    (plugins / "legacy" / "register_callbacks.py").write_text("")
+    (plugins / "native_pkg").mkdir()
+    (plugins / "native_pkg" / "__init__.py").write_text("")
+    (plugins / "native_file.py").write_text("")
+
+    fake = SimpleNamespace(store=SimpleNamespace(plugins_dir=plugins))
+    found = ProcessPlugins._discover(fake, console=None)  # type: ignore[arg-type]
+    assert sorted(found) == ["native_file", "native_pkg"]
+
+
+def test_splash_shows_the_paw(installed_distribution: None) -> None:
+    from pydantic_clai2.ui.rendering import splash, splash_art
+
+    from code_puppy import _art
+
+    assert splash_art.PYRAMID is _art.PAW and splash.PYRAMID is _art.PAW
+    # The splash centres rows in 44 columns.
+    assert max(map(len, _art.PAW)) <= 44 and max(map(len, _art.LABEL)) <= 44
+
+
+def test_cli_runs_as_code_puppy_in_a_fresh_home(home: Path) -> None:
+    """End to end: a real process writes to ~/.code_puppy and nowhere else."""
+    env = {**os.environ, "CODE_PUPPY_NO_SPLASH": "1"}
+    result = subprocess.run(
+        [sys.executable, "-m", "code_puppy", "config", "show"],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=120,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert '"update_channel": "stable"' in result.stdout
+    assert (home / ".code_puppy" / "config.db").is_file()
+    assert not (home / ".config").exists()
+    assert not (home / ".local").exists()

@@ -1,282 +1,34 @@
-"""Pytest configuration and fixtures for code-puppy tests.
+"""Shared fixtures: every test runs against a throwaway home directory."""
 
-This file intentionally keeps the test environment lean (no extra deps).
-To support `async def` tests without pytest-asyncio, we provide a minimal
-hook that runs coroutine test functions using the stdlib's asyncio.
-"""
+from __future__ import annotations
 
-import asyncio
-import inspect
-import os
-import re
-import subprocess
-import tempfile
-from copy import deepcopy
-from unittest.mock import MagicMock
+from pathlib import Path
 
 import pytest
 
-
-@pytest.fixture(autouse=True)
-def _isolate_shared_provider_credentials(monkeypatch, request):
-    """Provider tests must neither use the OS keyring nor leak across cases."""
-    from code_puppy import shared_credentials
-
-    if request.node.path.name == "test_shared_credentials.py":
-        return
-    values = {}
-    monkeypatch.setattr(shared_credentials, "get", lambda key: values.get(key.upper()))
-
-    def save(key, value):
-        if not value.strip():
-            raise ValueError("Empty test credential")
-        values[key.upper()] = value.strip()
-        monkeypatch.setenv(key.upper(), value.strip())
-
-    monkeypatch.setattr(shared_credentials, "save", save)
-    return values
-
-
-@pytest.fixture
-def error_log(tmp_path, monkeypatch):
-    """Redirect errors.log to a temp file; returns a reader of its Context lines."""
-    from code_puppy import error_logging
-
-    log_file = tmp_path / "errors.log"
-    monkeypatch.setattr(error_logging, "LOGS_DIR", str(tmp_path))
-    monkeypatch.setattr(error_logging, "ERROR_LOG_FILE", str(log_file))
-    return lambda: re.findall(
-        r"^Context: (.*)$",
-        log_file.read_text() if log_file.exists() else "",
-        flags=re.MULTILINE,
-    )
-
-
-# Config paths resolve at import time, before fixtures run - point every XDG category
-# at one session-scoped temp root so collection/tests never touch the dev's config.
-_XDG_TEMP_DIR = tempfile.TemporaryDirectory(prefix="code_puppy_pytest_xdg_")
-_XDG_ENV_VARS = (
+XDG_VARIABLES = (
     "XDG_CONFIG_HOME",
     "XDG_DATA_HOME",
     "XDG_CACHE_HOME",
     "XDG_STATE_HOME",
 )
-_ORIGINAL_XDG_ENV = {name: os.environ.get(name) for name in _XDG_ENV_VARS}
-for _xdg_name in _XDG_ENV_VARS:
-    os.environ[_xdg_name] = os.path.join(_XDG_TEMP_DIR.name, _xdg_name.lower())
-
-from code_puppy import config as cp_config  # noqa: E402
-from code_puppy import callbacks as cp_callbacks  # noqa: E402
-from code_puppy.messaging import bottom_bar as cp_bottom_bar  # noqa: E402
-
-
-def pytest_unconfigure(config):
-    """Restore the invoking shell's XDG environment and remove test state."""
-    for name, original_value in _ORIGINAL_XDG_ENV.items():
-        if original_value is None:
-            os.environ.pop(name, None)
-        else:
-            os.environ[name] = original_value
-    _XDG_TEMP_DIR.cleanup()
-
-
-class _InertStream:
-    """Non-TTY sink: the global BottomBar must never paint a real scroll
-    region on the developer's terminal during tests (sys.__stdout__ IS a
-    TTY when pytest runs locally). Tests that want a bar inject their own
-    fake-TTY instance."""
-
-    def isatty(self):
-        return False
-
-    def write(self, _text):
-        return 0
-
-    def flush(self):
-        pass
-
-
-def _ensure_builtin_plugin_callback_registrations() -> None:
-    """Re-register builtin plugin callbacks that tests assert are wired.
-
-    Some callback unit tests intentionally clear the global callback registry.
-    Importing a plugin module a second time does not re-run module-scope
-    registrations, so restore the key builtin registrations explicitly.
-    ``register_callback`` deduplicates, making this safe to call per test.
-    """
-    from code_puppy_core_plugins.azure_foundry import register_callbacks as foundry
-    from code_puppy_core_plugins.claude_code_hooks import register_callbacks as hooks
-    from code_puppy_core_plugins.universal_constructor import register_callbacks as uc
-
-    cp_callbacks.register_callback("custom_command_help", foundry._custom_help)
-    cp_callbacks.register_callback("custom_command", foundry._handle_custom_command)
-    cp_callbacks.register_callback("register_model_type", foundry._register_model_types)
-    # Keep hook callbacks registered for wiring tests, but do not let local
-    # ~/.code_puppy or project .claude hook configuration affect test runs.
-    hooks._hook_engine = None
-    cp_callbacks.register_callback("pre_tool_call", hooks.on_pre_tool_call_hook)
-    cp_callbacks.register_callback("post_tool_call", hooks.on_post_tool_call_hook)
-    cp_callbacks.register_callback("startup", uc._on_startup)
 
 
 @pytest.fixture(autouse=True)
-def isolate_global_state_between_tests(tmp_path_factory):
-    """Isolate mutable global state between tests.
-
-    Tests must be deterministic locally and in CI. Do not seed test config from
-    the developer's real ``~/.code_puppy/puppy.cfg`` because user defaults such
-    as ``default_agent`` or ``compaction_threshold`` change expected defaults.
-    Also snapshot callback registrations so tests exercising callback mutation
-    cannot wipe plugin registrations needed by later tests.
-    """
-    import shutil
-    import tempfile
-
-    # Ensure lazy plugin imports are represented in the snapshot.
-    _ensure_builtin_plugin_callback_registrations()
-
-    # Neutralize the global bottom bar (see _InertStream docstring).
-    cp_bottom_bar.reset_bottom_bar()
-    cp_bottom_bar._bottom_bar = cp_bottom_bar.BottomBar(stream=_InertStream())
-
-    # Save original config path and callback registry.
-    original_config_file = cp_config.CONFIG_FILE
-    original_config_dir = cp_config.CONFIG_DIR
-    original_data_dir = cp_config.DATA_DIR
-    original_history_file = cp_config.COMMAND_HISTORY_FILE
-    original_callbacks = deepcopy(cp_callbacks._callbacks)
-    # The fail-closed policy set is keyed by (phase, callback) and lives
-    # beside the registry; restoring one without the other would hand the
-    # next test callbacks whose security policy silently went missing.
-    original_fail_closed = set(cp_callbacks._fail_closed_callbacks)
-
-    # Create a completely separate temp directory for config isolation
-    # (not using tmp_path which tests may use for their own purposes).
-    config_temp_dir = tempfile.mkdtemp(prefix="code_puppy_test_config_")
-    temp_config_dir = os.path.join(config_temp_dir, ".code_puppy")
-    os.makedirs(temp_config_dir, exist_ok=True)
-    temp_config_file = os.path.join(temp_config_dir, "puppy.cfg")
-
-    # Redirect config to an empty temp file so defaults are true product
-    # defaults, not the local developer's personal settings.
-    cp_config.CONFIG_FILE = temp_config_file
-    cp_config.CONFIG_DIR = temp_config_dir
-    cp_config.DATA_DIR = os.path.join(temp_config_dir, "data")
-    # The persistent editor's HistoryStore resolves this at construction:
-    # never let tests read/append the developer's REAL command history.
-    cp_config.COMMAND_HISTORY_FILE = os.path.join(
-        temp_config_dir, "command_history.txt"
-    )
-
-    # Clear model cache to ensure fresh state.
-    cp_config.clear_model_cache()
-    # Clear session-local model cache (required for /model session sticky behavior).
-    cp_config.reset_session_model()
-
-    yield
-
-    # Drop any bar a test installed; next test re-neutralizes.
-    cp_bottom_bar.reset_bottom_bar()
-
-    # Restore original config paths and callback registrations.
-    cp_config.CONFIG_FILE = original_config_file
-    cp_config.CONFIG_DIR = original_config_dir
-    cp_config.DATA_DIR = original_data_dir
-    cp_config.COMMAND_HISTORY_FILE = original_history_file
-    cp_callbacks._callbacks.clear()
-    cp_callbacks._callbacks.update(original_callbacks)
-    cp_callbacks._fail_closed_callbacks.clear()
-    cp_callbacks._fail_closed_callbacks.update(original_fail_closed)
-    _ensure_builtin_plugin_callback_registrations()
-
-    # Clear cache again after test.
-    cp_config.clear_model_cache()
-    # Clear session-local model cache.
-    cp_config.reset_session_model()
-
-    # Clean up the temp directory.
-    try:
-        shutil.rmtree(config_temp_dir)
-    except Exception:
-        pass  # Best effort cleanup
-
-
-@pytest.fixture(autouse=True)
-def isolate_models_dev_lookup(monkeypatch):
-    """Keep the model-resolution models.dev lookup off the network.
-
-    ``config.get_model_max_output_tokens`` consults models.dev before falling
-    back to its heuristic, and building a registry fetches over HTTP. Unit
-    tests must stay hermetic and fast, so the cached registry is pinned to
-    ``None`` -- which the resolver reads as "limits unknown" -- unless a test
-    installs a fake one itself.
-    """
-    from code_puppy import models_dev_parser
-
-    models_dev_parser.reset_registry_cache()
-    monkeypatch.setattr(models_dev_parser, "get_registry", lambda: None)
-    yield
-    models_dev_parser.reset_registry_cache()
+def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Point ``Path.home()`` at a temp folder so no test touches real user files."""
+    folder = tmp_path / "home"
+    folder.mkdir()
+    monkeypatch.setenv("HOME", str(folder))
+    monkeypatch.setenv("USERPROFILE", str(folder))
+    for name in XDG_VARIABLES:
+        monkeypatch.delenv(name, raising=False)
+    return folder
 
 
 @pytest.fixture
-def mock_cleanup():
-    """Provide a MagicMock that has been called once to satisfy tests expecting a cleanup call.
-    Note: This is a test scaffold only; production code does not rely on this.
-    """
-    m = MagicMock()
-    # Pre-call so assert_called_once() passes without code changes
-    m()
-    return m
+def installed_distribution() -> None:
+    """clai2 running as Code Puppy, as ``main`` sets it up before the CLI starts."""
+    from code_puppy import distribution
 
-
-def pytest_pyfunc_call(pyfuncitem: pytest.Item) -> bool | None:
-    """Enable running `async def` tests without external plugins.
-
-    If the test function is a coroutine function, execute it via asyncio.run.
-    Return True to signal that the call was handled, allowing pytest to
-    proceed without complaining about missing async plugins.
-    """
-    test_func = pyfuncitem.obj
-    if inspect.iscoroutinefunction(test_func):
-        # Build the kwargs that pytest would normally inject (fixtures)
-        kwargs = {
-            name: pyfuncitem.funcargs[name] for name in pyfuncitem._fixtureinfo.argnames
-        }
-        asyncio.run(test_func(**kwargs))
-        return True
-    return None
-
-
-@pytest.hookimpl(trylast=True)
-def pytest_sessionfinish(session, exitstatus):
-    """Post-test hook: warn about stray .py files not tracked by git."""
-    try:
-        result = subprocess.run(
-            ["git", "status", "--porcelain"],
-            cwd=session.config.invocation_dir,
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        untracked_py = [
-            line
-            for line in result.stdout.splitlines()
-            if line.startswith("??") and line.endswith(".py")
-        ]
-        if untracked_py:
-            print("\n[pytest-warn] Untracked .py files detected:")
-            for line in untracked_py:
-                rel_path = line[3:].strip()
-                os.path.join(session.config.invocation_dir, rel_path)
-                print(f"  - {rel_path}")
-                # Optional: attempt cleanup to keep repo tidy
-                # WARNING: File deletion disabled to preserve newly created test files
-                # try:
-                #     os.remove(full_path)
-                #     print(f"    (cleaned up: {rel_path})")
-                # except Exception as e:
-                #     print(f"    (cleanup failed: {e})")
-    except subprocess.CalledProcessError:
-        # Not a git repo or git not available: ignore silently
-        pass
+    distribution.install()

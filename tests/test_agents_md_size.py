@@ -1,21 +1,19 @@
-"""The repo's own AGENTS.md must fit the default rules cap.
+"""The repo's own AGENTS.md must stay small.
 
-``load_puppy_rules`` keeps only the first ``AGENTS_MD_MAX_CHARS_DEFAULT``
-characters of each rules file, so anything past the cap silently drops out of
-every agent's system prompt. The file crept over the cap for ten commits
-without anyone noticing, cutting off the Rules section entirely.
+The file is sent to the model with every request, so each character costs
+tokens on every turn of every session in this repository. Reference material
+belongs in ``docs/``.
 """
 
 from pathlib import Path
 
-from code_puppy.config import AGENTS_MD_MAX_CHARS_DEFAULT
-
+AGENTS_MD_BUDGET = 10_000
 REPO_AGENTS_MD = Path(__file__).resolve().parents[1] / "AGENTS.md"
 
 
-def test_repo_agents_md_fits_default_cap():
+def test_repo_agents_md_fits_budget():
     length = len(REPO_AGENTS_MD.read_text(encoding="utf-8"))
-    assert length <= AGENTS_MD_MAX_CHARS_DEFAULT, (
-        f"AGENTS.md is {length:,} chars; Code Puppy truncates it at "
-        f"{AGENTS_MD_MAX_CHARS_DEFAULT:,}. Move reference material into docs/."
+    assert length <= AGENTS_MD_BUDGET, (
+        f"AGENTS.md is {length:,} chars; the budget is {AGENTS_MD_BUDGET:,}. "
+        "Move reference material into docs/."
     )
