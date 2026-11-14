@@ -38,7 +38,11 @@ All work is in local commits on `v1`. Nothing has been pushed or published.
    call sites to change. (`Workspace` also builds `sh` commands, but only to
    derive file operations for backends that cannot do them natively.)
 
-   Upstream tracks the gap in pydantic/pydantic-ai#9873, which proposes a
+   The chosen direction is pydantic/pydantic-ai#13472: an optional
+   `WindowsWorkspace` on PowerShell that `Coder` falls back to on Windows,
+   with a Windows path for the `shell` job wrapper, `grep` and path handling.
+
+   The gap was first raised in pydantic/pydantic-ai#9873, which proposes a
    Job Object and `cmd.exe` inside `LocalWorkspaceBackend` and is waiting on a
    maintainer decision. A comment there reports that `DockerSandboxBackend`
    fails on Windows as well, because it builds a `LocalWorkspaceBackend` to
