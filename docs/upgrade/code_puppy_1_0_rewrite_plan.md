@@ -29,12 +29,20 @@ All work is in local commits on `v1`. Nothing has been pushed or published.
    files or run commands there. Until that changes Windows cannot be a release
    gate, and 1.0 would be a regression for Windows users of 0.0.x.
 
-   The gap is wider than the one backend. The layers above it assume a POSIX
-   shell and POSIX paths: `pydantic_ai.workspaces.Workspace` builds `sh`
-   commands with `shlex` and `posixpath`, the harness `Shell` toolset wraps
-   commands in `sh` and tests paths with `posixpath.isabs`, and the backend
-   conformance suite is written in `sh`. A `cmd.exe` backend cannot satisfy
-   them. The routes are:
+   The gap is wider than the one backend. The harness above it assumes a
+   POSIX shell and POSIX paths: the `Shell` toolset wraps each command in `sh`
+   to track the working directory and tests paths with `posixpath.isabs`, and
+   the filesystem toolset's `root_spelling` has the same absoluteness check.
+   The backend conformance suite expects a real POSIX shell too; its opt-out is
+   documented as for test doubles only. A `cmd.exe` backend would need those
+   call sites to change. (`Workspace` also builds `sh` commands, but only to
+   derive file operations for backends that cannot do them natively.)
+
+   Upstream tracks the gap in pydantic/pydantic-ai#9873, which proposes a
+   Job Object and `cmd.exe` inside `LocalWorkspaceBackend` and is waiting on a
+   maintainer decision. A comment there reports that `DockerSandboxBackend`
+   fails on Windows as well, because it builds a `LocalWorkspaceBackend` to
+   drive the `docker` CLI. The routes are:
 
    - **WSL.** Works today with no code: inside WSL the platform is POSIX.
    - **A Git Bash-backed backend.** Commands run in `bash.exe` and paths are
