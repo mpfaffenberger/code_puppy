@@ -415,9 +415,12 @@ class QuestionRequest(BaseMessage):
     questions: List[Dict[str, Any]] = Field(
         description="Serialized Question objects (header/question/multi_select/options)"
     )
-    timeout: int = Field(
-        default=300,
-        description="Inactivity timeout in seconds before the request auto-cancels",
+    timeout: Optional[int] = Field(
+        default=None,
+        description=(
+            "Inactivity timeout in seconds before the request auto-cancels; "
+            "None means wait indefinitely for the user"
+        ),
     )
 
 

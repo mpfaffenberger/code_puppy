@@ -49,6 +49,19 @@ def _cancelled_response() -> AskUserQuestionOutput:
     return AskUserQuestionOutput.cancelled_response()
 
 
+def _timed_out_response(timeout: int | None) -> AskUserQuestionOutput:
+    """Create the response for a picker that reported ``timed_out=True``.
+
+    A timeout with no configured timeout is a contradiction, so it is surfaced
+    as an error rather than a bogus ``timeout_response(None)``.
+    """
+    if timeout is None:
+        return AskUserQuestionOutput.error_response(
+            "Interaction ended as timed out, but no timeout was configured"
+        )
+    return AskUserQuestionOutput.timeout_response(timeout)
+
+
 def is_interactive() -> bool:
     """
     Check if we're running in an interactive terminal.
@@ -155,11 +168,7 @@ def ask_user_question(
         )
 
         if timed_out:
-            if timeout is None:
-                return AskUserQuestionOutput.error_response(
-                    "Interaction ended as timed out, but no timeout was configured"
-                )
-            return AskUserQuestionOutput.timeout_response(timeout)
+            return _timed_out_response(timeout)
 
         if cancelled:
             return _cancelled_response()
@@ -174,7 +183,7 @@ def ask_user_question(
 
 
 def _run_textual_picker(
-    questions: list[Question], timeout: int
+    questions: list[Question], timeout: int | None
 ) -> AskUserQuestionOutput:
     """Render the questions via the Textual modal over the message bus.
 
@@ -192,7 +201,7 @@ def _run_textual_picker(
         return AskUserQuestionOutput.error_response(f"Interaction error: {exc!s}")
 
     if timed_out:
-        return AskUserQuestionOutput.timeout_response(timeout)
+        return _timed_out_response(timeout)
     if cancelled:
         return _cancelled_response()
 

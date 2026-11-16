@@ -387,7 +387,7 @@ class MessageBus:
     async def request_questions(
         self,
         questions: List[Dict[str, Any]],
-        timeout: int = 300,
+        timeout: Optional[int] = None,
     ) -> Tuple[List[Dict[str, Any]], bool, bool]:
         """Request answers to one or more multiple-choice questions.
 
@@ -397,6 +397,7 @@ class MessageBus:
         Args:
             questions: Serialized Question dicts (header/question/options/...).
             timeout: Inactivity timeout in seconds (informational for the UI).
+                ``None`` means wait indefinitely.
 
         Returns:
             Tuple of (answers, cancelled, timed_out) where ``answers`` is a list
@@ -410,7 +411,7 @@ class MessageBus:
         )
 
         with self._lock:
-            self._pending_requests[prompt_id] = future
+            self._pending_requests[prompt_id] = (loop, future)
 
         request = QuestionRequest(
             prompt_id=prompt_id,
@@ -428,7 +429,7 @@ class MessageBus:
     def ask_questions_blocking(
         self,
         questions: List[Dict[str, Any]],
-        timeout: int = 300,
+        timeout: Optional[int] = None,
     ) -> Tuple[List[Dict[str, Any]], bool, bool]:
         """Synchronous bridge to :meth:`request_questions` for non-async callers.
 

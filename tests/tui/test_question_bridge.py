@@ -5,8 +5,14 @@ Covers:
 * the handler routing to the bus in textual mode (mapping all three outcomes)
 """
 
+import asyncio
+
+import pytest
+
 import code_puppy.tools.ask_user_question.handler as handler_mod
 from code_puppy.messaging import get_message_bus, reset_message_bus
+from code_puppy.messaging.commands import QuestionResponse
+from code_puppy.messaging.messages import QuestionRequest
 from code_puppy.tools.ask_user_question.handler import ask_user_question
 
 _QUESTIONS = [
@@ -30,6 +36,43 @@ def test_ask_questions_blocking_no_loop_returns_cancelled():
     assert answers == []
     assert cancelled is True
     assert timed_out is False
+
+
+@pytest.mark.parametrize("timeout", [None, 42])
+@pytest.mark.asyncio
+async def test_request_questions_emits_request_with_tool_timeout(timeout):
+    """The REAL bus must accept the tool's default ``timeout=None`` (wait forever).
+
+    Regression: ``QuestionRequest.timeout`` was typed ``int`` while the tool's
+    default was ``None``, so every TUI ask blew up with a pydantic error
+    before the modal ever rendered. Nothing mocked here on purpose.
+    """
+    reset_message_bus()
+    bus = get_message_bus()
+    emitted: list[QuestionRequest] = []
+
+    async def answer_when_emitted():
+        while not emitted:
+            await asyncio.sleep(0)
+        bus.provide_response(
+            QuestionResponse(prompt_id=emitted[0].prompt_id, cancelled=True)
+        )
+
+    original_emit = bus.emit
+
+    def capture_emit(message):
+        if isinstance(message, QuestionRequest):
+            emitted.append(message)
+        return original_emit(message)
+
+    bus.emit = capture_emit
+    responder = asyncio.create_task(answer_when_emitted())
+    answers, cancelled, _ = await bus.request_questions(_QUESTIONS, timeout)
+    await responder
+
+    assert emitted[0].timeout == timeout
+    assert answers == []
+    assert cancelled is True
 
 
 def test_handler_routes_to_bus_in_textual_mode(monkeypatch):
