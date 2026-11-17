@@ -404,8 +404,9 @@ def resolve_anthropic_thinking_payload(
     Args:
         extended_thinking: The internal mode. Any of ``"enabled"`` /
             ``"adaptive"`` produces a payload (coerced to the model's shape).
-            Anything else (``"off"``, ``"disabled"``, unknown, ``None``)
-            returns ``None`` so the caller omits ``anthropic_thinking``.
+            ``"off"`` and ``"disabled"`` send the profile's off switch when
+            omission would enable thinking. Classic and always-thinking models,
+            unknown modes, and ``None`` keep the omitted parameter.
         budget_tokens: Token budget for classic ``type: "enabled"`` mode.
             Ignored on adaptive-supporting models (they compute their own).
         model_name: The model alias/key (drives adaptive/summary detection).
@@ -421,6 +422,16 @@ def resolve_anthropic_thinking_payload(
         Dict suitable for ``AnthropicModelSettings.anthropic_thinking``,
         or ``None`` when thinking should be omitted entirely.
     """
+    if extended_thinking in ("off", "disabled"):
+        from pydantic_ai.providers.anthropic import AnthropicProvider
+
+        profile = AnthropicProvider.model_profile(actual_model_id or model_name)
+        if profile and not profile.get("thinking_always_enabled", False):
+            if profile.get("anthropic_disables_thinking_with_between_tools", False):
+                return {"type": "between_tools"}
+            if profile.get("thinking_enabled_by_default", False):
+                return {"type": "disabled"}
+        return None
     if extended_thinking not in ("enabled", "adaptive"):
         return None
     if supports_adaptive_thinking(model_name, actual_model_id):
