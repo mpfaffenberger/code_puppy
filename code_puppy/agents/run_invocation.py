@@ -10,6 +10,13 @@ from pydantic_ai.exceptions import RunCancelled
 from code_puppy.callbacks import on_agent_exception
 
 
+def _raise_if_cancel_pending() -> None:
+    # Consumed cancellation remains authoritative until its owner uncancels it.
+    task = asyncio.current_task()
+    if task is not None and task.cancelling():
+        raise asyncio.CancelledError
+
+
 class ModelCall:
     """Run one physical attempt against a freshly resolved client.
 
@@ -29,11 +36,17 @@ class ModelCall:
         self.contexts = contexts
 
     async def run(self, prompt: Any, **kwargs: Any) -> Any:
-        current = self.resolve()
-        async with AsyncExitStack() as stack:
-            for context in self.contexts(current):
-                await stack.enter_async_context(context)
-            return await current.run(prompt, **kwargs)
+        _raise_if_cancel_pending()
+        try:
+            current = self.resolve()
+            async with AsyncExitStack() as stack:
+                for context in self.contexts(current):
+                    await stack.enter_async_context(context)
+                    _raise_if_cancel_pending()
+                return await current.run(prompt, **kwargs)
+        except Exception:
+            _raise_if_cancel_pending()
+            raise
 
 
 async def run_with_exception_retry(
@@ -53,12 +66,14 @@ async def run_with_exception_retry(
     except Exception as exc:
         if isinstance(exc, ExceptionGroup) and exc.subgroup(RunCancelled) is not None:
             raise  # Preserve the whole original group, including sibling errors.
+        _raise_if_cancel_pending()
         hook_results = await on_agent_exception(
             exc,
             agent=agent,
             agent_name=agent.name,
             model_name=agent.get_model_name(),
         )
+        _raise_if_cancel_pending()
         retry_req = next(
             (r for r in hook_results if isinstance(r, dict) and r.get("retry")),
             None,
