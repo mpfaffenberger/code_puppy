@@ -9,6 +9,8 @@ from typing import Callable, List, Tuple
 from pydantic import BaseModel, conint
 from pydantic_ai import RunContext
 
+from code_puppy.config import get_speculative_code_mode_enabled
+
 # ---------------------------------------------------------------------------
 # Module-level helper functions (exposed for unit tests _and_ used as tools)
 # ---------------------------------------------------------------------------
@@ -20,10 +22,9 @@ from code_puppy.messaging import (  # New structured messaging types
     GrepResultMessage,
     get_message_bus,
 )
-from code_puppy.config import get_speculative_code_mode_enabled
-from code_puppy.tools.common import resolve_path, _sanitize_string, read_text_sanitized
-from code_puppy.tools.ripgrep import find_ripgrep
 from code_puppy.tools import fs_access
+from code_puppy.tools.common import _sanitize_string, read_text_sanitized, resolve_path
+from code_puppy.tools.ripgrep import find_ripgrep
 
 
 # Pydantic models for tool return types
@@ -304,15 +305,17 @@ def _list_files(
     # Create a temporary ignore file with our ignore patterns (local rg path)
     ignore_file = None
     try:
-        rg_path = find_ripgrep()
-
-        if not rg_path and recursive and not _use_backend:
-            # Only need ripgrep for recursive listings
-            error_msg = "Error: ripgrep (rg) not found. Please install ripgrep to use this tool."
-            return ListFileOutput(content=error_msg, error=error_msg)
-
-        # Only use ripgrep for recursive listings
+        # Resolve and probe rg only when this listing will actually invoke it.
+        # Non-recursive and backend listings use no subprocess at all.
         if recursive and not _use_backend:
+            rg_path = find_ripgrep()
+            if not rg_path:
+                error_msg = (
+                    "Error: ripgrep (rg) not found. "
+                    "Please install ripgrep to use this tool."
+                )
+                return ListFileOutput(content=error_msg, error=error_msg)
+
             # Build command for ripgrep --files
             cmd = [rg_path, "--files"]
 
