@@ -37,7 +37,6 @@ from code_puppy.terminal_utils import (
     reset_windows_terminal_full,
 )
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -384,13 +383,15 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                                 )
                             )
                             emit_info(t("cli.autosave.loaded_path", path=session_path))
-
-                            # Display recent message history for context
                             from code_puppy.command_line.autosave_menu import (
                                 display_resumed_history,
                             )
+                            from code_puppy.resume_advice import suggest_compaction
 
                             display_resumed_history(history)
+                            suggest_compaction(
+                                total_tokens, agent._get_model_context_length()
+                            )
                         else:
                             # Non-TTY: point to the explicit flag, not an input prompt.
                             from code_puppy.messaging import emit_warning
