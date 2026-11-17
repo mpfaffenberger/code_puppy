@@ -38,6 +38,7 @@ from pydantic_monty import MountDir, OSAccess
 from pydantic_ai_harness.code_mode import CodeMode
 
 from code_puppy.agents._code_mode_guidance import CodeModeGuidance
+from code_puppy.agents._code_mode_redirect import SHELL_TOOL_NAME, RunCodeRedirect
 from code_puppy.agents._code_mode_session import FileReplStore, repl_path_for
 from code_puppy.agents._wire_tool_names import StreamedToolNameNormalizer
 from code_puppy.capabilities.eager_timing import EagerTiming
@@ -262,5 +263,10 @@ def build_speculative_code_mode(
         SilenceToolOutput(),
         EagerTiming(),
         StreamedToolNameNormalizer(),
+        # Turns run_code failures a retry cannot fix (missing modules, repeats)
+        # into a redirect instead of a spent retry budget.
+        RunCodeRedirect(
+            shell_tool=SHELL_TOOL_NAME if SHELL_TOOL_NAME in agent_tools else None
+        ),
         CodeModeGuidance(host_path=workspace, mount_path=mount_path),
     ]
