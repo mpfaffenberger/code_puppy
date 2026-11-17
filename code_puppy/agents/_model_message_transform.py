@@ -1,4 +1,9 @@
-"""Plugin transforms for final outbound model messages."""
+"""The plugin guard boundary for messages leaving Code Puppy for a model.
+
+Every conversational model entry point must install
+:func:`build_model_message_transform`. Deliberately private inference is the
+only documented exception; see ``docs/MODEL_INPUT_BOUNDARY.md``.
+"""
 
 from dataclasses import replace
 from typing import Any
@@ -53,7 +58,7 @@ class _ContinuationObserver(WrapperModel):
 
 
 def build_model_message_transform(agent_name: str | None, owner: Any = None) -> Hooks:
-    """Build the request-only plugin transform for an agent.
+    """Build the request-only outbound guard for an agent.
 
     The transform runs in ``before_model_request`` as the innermost
     capability, so it sees what the request really sends: the history after

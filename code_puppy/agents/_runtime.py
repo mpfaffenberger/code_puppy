@@ -25,6 +25,7 @@ import ssl
 import sys
 import threading
 import uuid
+from contextlib import nullcontext
 from typing import Any, Callable, Iterator, List, Optional, Sequence, Type, Union
 
 import httpcore
@@ -78,6 +79,7 @@ from code_puppy.agents._run_signals import (
     drain_pause_state_on_cancel,
     inject_interrupted_subagent_notes,
     make_schedule_cancel,
+    prepare_completion_injection,
     prepare_queued_steer_injection,
     reset_pause_state_at_run_start,
     sigint_should_cancel,
@@ -86,6 +88,7 @@ from code_puppy.agents._token_limit_hint import resolve_model_name
 from code_puppy.agents.event_stream_handler import event_stream_handler
 from code_puppy.agents.run_invocation import ModelCall, run_with_exception_retry
 from code_puppy.callbacks import (
+    hook_retry_prompt_submit_context,
     on_agent_event_stream_start,
     on_agent_run_cancel,
     on_agent_run_context,
@@ -707,6 +710,35 @@ def _collect_exceptions(
 _active_run_depth = 0
 
 
+async def apply_user_prompt_submit(prompt: str, session_id: str | None) -> str:
+    """Run prompt-submit callbacks and apply the last non-empty rewrite."""
+    try:
+        submit_results = await on_user_prompt_submit(prompt, session_id)
+        for result in submit_results:
+            if isinstance(result, str) and result:
+                prompt = result
+    except Exception:
+        # Plugin-controlled exception types, messages and traces can contain prompts.
+        try:
+            from code_puppy.error_logging import log_error
+
+            log_error(
+                RuntimeError("prompt-submit dispatch failed"),
+                context="_runtime::apply_user_prompt_submit",
+                include_traceback=False,
+            )
+        except Exception:
+            pass  # A wrapped logger must not defeat fail-open dispatch.
+    return prompt
+
+
+async def apply_attachment_free_user_prompt_submit(
+    prompt: str, session_id: str | None
+) -> str:
+    """Apply prompt hooks for an attachment-free generated submission."""
+    return await apply_user_prompt_submit(prompt, session_id)
+
+
 async def run_with_mcp(
     agent: Any,
     prompt: str,
@@ -764,16 +796,9 @@ async def _run_with_mcp_impl(
     prompt = _sanitize_prompt(prompt)
     group_id = str(uuid.uuid4())
 
-    # Fire user_prompt_submit hooks BEFORE the prompt is sent; plugins (e.g.
-    # claude_code_hooks) may return a replacement prompt string.
-    try:
-        submit_results = await on_user_prompt_submit(prompt, group_id)
-        for r in submit_results:
-            if isinstance(r, str) and r:
-                prompt = r
-    except Exception:
-        # Hook failures must never block the run.
-        pass
+    # Fire user_prompt_submit hooks BEFORE the prompt is sent; plugins may
+    # return replacement prompt strings.
+    prompt = await apply_user_prompt_submit(prompt, group_id)
 
     # Let a ``model_select`` hook route THIS turn to a different model (e.g.
     # small-vs-large by complexity) before the pydantic agent is built. This
@@ -860,9 +885,33 @@ async def _run_with_mcp_impl(
         # ``now``-mode steers are injected by make_steer_history_processor
         # (before every model call); ``queue``-mode ones drain between runs
         # below — additive, won't interrupt in-progress work.
-        async def _follow_up_run(follow_up_prompt: Any) -> Any:
+        async def _follow_up_run(
+            follow_up_prompt: Any,
+            *,
+            is_hook_retry: bool = False,
+            is_completion: bool = False,
+        ) -> Any:
+            prompt_scope = (
+                hook_retry_prompt_submit_context() if is_hook_retry else nullcontext()
+            )
+            with prompt_scope:
+                if is_completion:
+                    submitted_prompt = follow_up_prompt
+                elif isinstance(follow_up_prompt, list):
+                    text = follow_up_prompt[0] if follow_up_prompt else ""
+                    extras = follow_up_prompt[1:]
+                    submitted_text = await apply_user_prompt_submit(
+                        _sanitize_prompt(text), group_id
+                    )
+                    submitted_prompt = _build_prompt_payload(
+                        submitted_text, extras, None
+                    )
+                else:
+                    submitted_prompt = await apply_attachment_free_user_prompt_submit(
+                        _sanitize_prompt(follow_up_prompt), group_id
+                    )
             call = _main_retry(
-                resumable_call(agent, invocation, follow_up_prompt, **run_options)
+                resumable_call(agent, invocation, submitted_prompt, **run_options)
             )
             return await run_with_exception_retry(call, agent=agent)
 
@@ -880,8 +929,13 @@ async def _run_with_mcp_impl(
         may_drain_queued_steers = not is_nested_run
 
         while True:
-            # 1) Drain queue-mode steers FIRST (user-priority over hook retries).
+            # 1) Drain completions and queued user steers before hook retries.
             if may_drain_queued_steers and queued_steers_used < max_queued_steers:
+                completion = prepare_completion_injection(agent, result)
+                if completion is not None:
+                    queued_steers_used += 1
+                    result = await _follow_up_run(completion, is_completion=True)
+                    continue
                 steer_text = prepare_queued_steer_injection(agent, result)
                 if steer_text is not None:
                     queued_steers_used += 1
@@ -903,12 +957,14 @@ async def _run_with_mcp_impl(
             if not retry_req:
                 break
 
-            retry_prompt = retry_req.get("prompt", "Please continue.")
+            retry_prompt = retry_req.get("prompt")
+            if not isinstance(retry_prompt, str) or not retry_prompt:
+                retry_prompt = "Please continue."
             retry_delay = retry_req.get("delay", 1.0)
             if hasattr(result, "all_messages"):
                 agent._message_history = list(result.all_messages())
             await asyncio.sleep(retry_delay)
-            result = await _follow_up_run(retry_prompt)
+            result = await _follow_up_run(retry_prompt, is_hook_retry=True)
             hook_retries_used += 1
 
         # Fallback render when streaming didn't surface any text to the user.
