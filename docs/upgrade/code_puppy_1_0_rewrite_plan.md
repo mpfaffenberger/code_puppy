@@ -42,6 +42,25 @@ All work is in local commits on `v1`. Nothing has been pushed or published.
    `WindowsWorkspace` on PowerShell that `Coder` falls back to on Windows,
    with a Windows path for the `shell` job wrapper, `grep` and path handling.
 
+   **Landed upstream, not yet released.** pydantic/pydantic-ai#13475 merged
+   on 2026-11-15 and closed #13472; clai2 on `main` gives Windows runs a
+   `WindowsWorkspace`. The newest PyPI release is still 0.68.0 (2026-11-12),
+   which does not have it, so Windows works in the first RC pinned to the
+   release after that. Checked on Windows 11 with PowerShell 5.1 against
+   `main` at `25b102d12` (2026-11-17), with no change to Code Puppy:
+
+   - `pup -m test -p ...` runs a full turn with `coder` on, and the file
+     tools, `grep` and `shell` all work, with file access held inside the
+     project folder.
+   - The suite passes except `tests/test_system_prompt.py`, which runs
+     `pup plugins disable coder` first. `main` refuses that from the command
+     line, and the step is unnecessary once Windows has a workspace: drop it
+     in the commit that bumps the pin.
+   - Each `shell` call took 2.6 to 5.8 seconds for a trivial command
+     (`cmd /c ver` alone takes 0.07). The workspace started six PowerShell
+     processes per call: the launcher, then five reads of the job's status
+     and log files. The launcher's wrapper and the command are two more.
+
    The gap was first raised in pydantic/pydantic-ai#9873, which proposes a
    Job Object and `cmd.exe` inside `LocalWorkspaceBackend` and is waiting on a
    maintainer decision. A comment there reports that `DockerSandboxBackend`
