@@ -449,6 +449,7 @@
     "one": "Se escribió {count} archivo.",
     "other": "Se escribieron {count} archivos."
   },
+  "grep.results_truncated": "Se muestran 50 coincidencias; existen más coincidencias. Continúa con el valor next_offset devuelto antes de afirmar que los resultados están completos.",
   "help.keybinding.ctrl_enter.description": "Redirigir la ejecución actual de inmediato (o enviar normalmente si no hay ninguna ejecución activa)",
   "help.keybinding.ctrl_enter.label": "Ctrl+Enter",
   "help.keybinding.newline.description": "Insertar un salto de línea (Ctrl+J es la opción más fiable entre terminales)",
