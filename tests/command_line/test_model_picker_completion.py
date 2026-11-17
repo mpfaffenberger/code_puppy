@@ -127,6 +127,58 @@ class TestModelNameCompleter:
             assert len(completions) == 1
             assert completions[0].text == "claude-3"
 
+    def test_survives_no_active_model(self):
+        """Regression: get_active_model() returns None when nothing is
+        configured (fresh install before /add_model). The completer used to
+        call None.lower() and blow up inside the completion thread -- the
+        exact moment the user types /model to FIX the missing model."""
+        from code_puppy.command_line.model_picker_completion import ModelNameCompleter
+
+        with (
+            patch(
+                "code_puppy.command_line.model_picker_completion._load_models_config",
+                return_value={
+                    "gpt-4": {"description": "Fast all-round model"},
+                    "claude-3": {"description": "Deep reasoning model"},
+                },
+            ),
+            patch(
+                "code_puppy.command_line.model_picker_completion.get_active_model",
+                return_value=None,
+            ),
+        ):
+            c = ModelNameCompleter(trigger="/model")
+            completions = list(c.get_completions(self._make_doc("/model "), None))
+
+        assert [c.text for c in completions] == ["gpt-4", "claude-3"]
+        # No model is active -> nobody gets the "active" checkmark.
+        assert all("✓" not in str(c.display_meta) for c in completions)
+
+    def test_reads_active_model_once_per_pass(self):
+        """The active model cannot change while the catalog is walked, so it
+        must be resolved once per completion pass, not once per model."""
+        from code_puppy.command_line.model_picker_completion import ModelNameCompleter
+
+        with (
+            patch(
+                "code_puppy.command_line.model_picker_completion._load_models_config",
+                return_value={
+                    "gpt-4": {},
+                    "claude-3": {},
+                    "gemini-2": {},
+                },
+            ),
+            patch(
+                "code_puppy.command_line.model_picker_completion.get_active_model",
+                return_value="gpt-4",
+            ) as mock_active,
+        ):
+            c = ModelNameCompleter(trigger="/model")
+            completions = list(c.get_completions(self._make_doc("/model "), None))
+
+        assert len(completions) == 3
+        assert mock_active.call_count == 1
+
     def test_sees_model_added_after_construction(self):
         """Regression: /add_model writes extra_models.json, but completer
         stacks (the persistent prompt caches its stack for the whole
