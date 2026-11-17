@@ -65,7 +65,8 @@ _NAMESPACES = {
     "tools.shell": (("tools.shell.",), 14),
     "renderer": (("renderer.",), 26),
     "model_factory": (("model_factory.",), 15),
-    "agent_menu": (("agent_menu.",), 10),
+    # agent_reload.* holds the pin-reload messages that left agent_menu.*.
+    "agent_menu": (("agent_menu.", "agent_reload."), 9),
     "browser.automation": (("browser.automation.",), 37),
     "browser.interaction": (("browser.interaction.",), 18),
     "browser.navigation": (("browser.navigation.",), 8),

@@ -12,6 +12,7 @@ import time
 from pathlib import Path
 
 from code_puppy import callbacks
+from code_puppy.agents import apply_agent_reloads
 from code_puppy.command_line.attachments import parse_prompt_attachments
 from code_puppy.config import (
     AUTOSAVE_DIR,
@@ -36,7 +37,6 @@ from code_puppy.terminal_utils import (
     reset_windows_terminal_ansi,
     reset_windows_terminal_full,
 )
-
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +82,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         from code_puppy.agents import get_current_agent
         from code_puppy.messaging import emit_info, emit_success, emit_system_message
 
+        apply_agent_reloads(get_current_agent)
         agent = get_current_agent()
         emit_info(t("cli.initial_command.processing", command=initial_command))
 
@@ -421,6 +422,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             try:
                 # Use our custom helper to enable attachment handling with
                 # the bottom-bar run UI active for the duration.
+                apply_agent_reloads(lambda: current_agent)
                 result, current_agent_task = await run_prompt_with_attachments(
                     current_agent,
                     task,
@@ -467,9 +469,8 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 if hasattr(display_console.file, "flush"):
                     display_console.file.flush()
 
-                await asyncio.sleep(
-                    0.1
-                )  # Brief pause to ensure all messages are rendered
+                # Brief pause to ensure all messages are rendered.
+                await asyncio.sleep(0.1)
 
             except KeyboardInterrupt:
                 # Defense-in-depth: a bare KeyboardInterrupt mid-unwind must not
@@ -490,9 +491,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             # Auto-save session if enabled (moved outside the try block to avoid being swallowed)
             _save_autosave_snapshot()
 
-            # ================================================================
             # CONTINUATION LOOP: plugins may request follow-up prompt runs.
-            # ================================================================
             from code_puppy.callbacks import (
                 on_interactive_turn_cancel,
                 on_interactive_turn_end,
@@ -540,6 +539,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 continuation_error = None
 
                 try:
+                    apply_agent_reloads(lambda: current_agent)
                     result, current_agent_task = await run_prompt_with_attachments(
                         current_agent,
                         next_prompt,
