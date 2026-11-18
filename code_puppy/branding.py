@@ -41,7 +41,7 @@ def print_banner(console: Console) -> None:
                 for index, line in enumerate(lines):
                     console.print(Text(line, style=theme.BANNER[min(index // 2, 2)]))
                 return
-        console.print(identity.DISPLAY_NAME, style=theme.LOGO)
+        console.print(identity.DISPLAY_NAME, style=theme.LOGO, highlight=False)
 
 
 def print_welcome(
@@ -53,7 +53,9 @@ def print_welcome(
     muted = theme.color(theme.MUTED)
     console.print()
     print_banner(console)
-    console.print(version_line(), style=muted)
+    # `highlight=False` throughout: Rich would recolour the version numbers and
+    # the slash commands as if this text were a Python repr.
+    console.print(version_line(), style=muted, highlight=False)
     if worktree is not None:
         # Soft wrap keeps the path copyable: hard wrapping would break it.
         console.print(
@@ -63,5 +65,6 @@ def print_welcome(
         "/new starts a session; /resume restores one; /exit quits. "
         "Esc or Ctrl-C interrupts a turn.",
         style=muted,
+        highlight=False,
     )
     welcome._report_project(project, console)

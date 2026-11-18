@@ -44,11 +44,12 @@ def _emit(kind: str, content: Any) -> None:
     if not isinstance(content, str):
         console.print(content, style=style)
         return
+    # `highlight=False`: a message is prose, not a Python repr for Rich to recolour.
     try:
-        console.print(content, style=style)
+        console.print(content, style=style, highlight=False)
     except MarkupError:
         # Plain text that only looks like markup, such as "[/path]".
-        console.print(content, style=style, markup=False)
+        console.print(content, style=style, markup=False, highlight=False)
 
 
 def emit_info(content: Any = "", *args: Any, **metadata: Any) -> None:
