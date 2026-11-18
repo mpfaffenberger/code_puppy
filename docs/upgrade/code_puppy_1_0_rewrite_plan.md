@@ -5,14 +5,14 @@ built, phases 4 to 6 are not started. Section 0 has the details.
 Target version: `1.0.0rc1`, then `rcN` until cutover to `1.0.0`.
 Release candidates are opt-in; `uvx code-puppy` keeps resolving to 0.0.x (section 13).
 
-## 0. Implementation status (2026-11-14)
+## 0. Implementation status (2026-11-18)
 
 All work is in local commits on `v1`. Nothing has been pushed or published.
 
 | Phase | State | What exists |
 |---|---|---|
 | 0 Groundwork | built | Version `1.0.0rc1`; `publish.yml` bumps `rc` on `v1` and pushes to the triggering branch; version guard with tests |
-| 1 Skeleton | built | 0.0.x runtime and tests removed (222,143 lines); `pup` starts pydantic-clai2 0.68.0 as Code Puppy; `/update` rewritten |
+| 1 Skeleton | built | 0.0.x runtime and tests removed (222,143 lines); `pup` starts pydantic-clai2 0.70.0 as Code Puppy; `/update` rewritten |
 | 2 Migration | built, partial scope | Settings, API keys and MCP servers carry over; `pup migrate [--dry-run]` |
 | 3 Compat | partly built | Facades, plugin discovery, trust, bridge with 15 hooks. No JSON agents yet |
 | 4 Native plugins | not started | None of the surviving core plugins is ported |
@@ -21,13 +21,12 @@ All work is in local commits on `v1`. Nothing has been pushed or published.
 
 ### Blockers found while building
 
-1. **Windows has no local workspace.** pydantic-ai's `LocalWorkspaceBackend`
-   raises `NotImplementedError` off POSIX, and clai2 documents "On Windows,
-   CLAI does not provide an agent workspace or repository context yet." This
-   holds on 0.68.0 and on `main` as of 2026-11-13. On Windows the stock
-   agent's turn fails with "`Coder` needs a workspace", so 1.0 cannot edit
-   files or run commands there. Until that changes Windows cannot be a release
-   gate, and 1.0 would be a regression for Windows users of 0.0.x.
+1. **Windows had no local workspace. Fixed upstream in 0.69.0.** Through
+   0.68.0, pydantic-ai's `LocalWorkspaceBackend` raised `NotImplementedError`
+   off POSIX and clai2 attached no workspace on Windows, so the stock agent's
+   turn failed with "`Coder` needs a workspace" and 1.0 could not edit files
+   or run commands there. The fix is described under "Fixed" below; the rest
+   of this item is the analysis from before it, kept as history.
 
    The gap is wider than the one backend. The harness above it assumes a
    POSIX shell and POSIX paths: the `Shell` toolset wraps each command in `sh`
@@ -42,24 +41,25 @@ All work is in local commits on `v1`. Nothing has been pushed or published.
    `WindowsWorkspace` on PowerShell that `Coder` falls back to on Windows,
    with a Windows path for the `shell` job wrapper, `grep` and path handling.
 
-   **Landed upstream, not yet released.** pydantic/pydantic-ai#13475 merged
-   on 2026-11-15 and closed #13472; clai2 on `main` gives Windows runs a
-   `WindowsWorkspace`. The newest PyPI release is still 0.68.0 (2026-11-12),
-   which does not have it, so Windows works in the first RC pinned to the
-   release after that. Checked on Windows 11 with PowerShell 5.1 against
-   `main` at `25b102d12` (2026-11-17), with no change to Code Puppy:
+   **Fixed.** pydantic/pydantic-ai#13475 merged on 2026-11-15, closed #13472
+   and shipped in 0.69.0: clai2 gives Windows runs a `WindowsWorkspace`. This
+   branch pins 0.70.0 (2026-11-17). Checked on Windows 11 with PowerShell 5.1:
 
-   - `pup -m test -p ...` runs a full turn with `coder` on, and the file
-     tools, `grep` and `shell` all work, with file access held inside the
-     project folder.
-   - The suite passes except `tests/test_system_prompt.py`, which runs
-     `pup plugins disable coder` first. `main` refuses that from the command
-     line, and the step is unnecessary once Windows has a workspace: drop it
-     in the commit that bumps the pin.
-   - Each `shell` call took 2.6 to 5.8 seconds for a trivial command
-     (`cmd /c ver` alone takes 0.07). The workspace started six PowerShell
-     processes per call: the launcher, then five reads of the job's status
-     and log files. The launcher's wrapper and the command are two more.
+   - On the 0.70.0 pin, `pup -m test -p ...` runs a full turn with `coder` on
+     and the test model's tool calls execute.
+   - Against `main` at `25b102d12`, a scripted model exercised each tool: the
+     file tools, `grep` and `shell` all work, with file access held inside
+     the project folder. This was not repeated on 0.70.0.
+   - `tests/test_system_prompt.py` no longer turns `coder` off first. 0.70.0
+     refuses `pup plugins disable` from the command line, and the step was
+     only there because Windows had no workspace.
+   - Against the same `main`, each `shell` call took 2.6 to 5.8 seconds for a
+     trivial command (`cmd /c ver` alone takes 0.07). The workspace started
+     six PowerShell processes per call: the launcher, then five reads of the
+     job's status and log files. The launcher's wrapper and the command are
+     two more. One machine only; how much of the time is the machine is open.
+   - Not yet done: an interactive session on a real Windows console with a
+     real model.
 
    The gap was first raised in pydantic/pydantic-ai#9873, which proposes a
    Job Object and `cmd.exe` inside `LocalWorkspaceBackend` and is waiting on a

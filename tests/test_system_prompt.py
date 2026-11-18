@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 import textwrap
@@ -53,10 +54,8 @@ def test_the_stock_agent_is_code_puppy_and_never_hears_of_clai(
 ) -> None:
     """A native drop-in plugin records the first request of a real stock-agent turn.
 
-    ``coder`` is turned off so the turn reaches the model on every platform
-    (the runtime has no local workspace on Windows). The test model then calls
-    tools with made-up arguments and the turn fails; only the first request's
-    instructions matter here.
+    The test model then calls every tool with made-up arguments, inside the
+    temp work folder; only the first request's instructions matter here.
     """
     plugins = home / ".code_puppy" / "plugins"
     plugins.mkdir(parents=True)
@@ -71,8 +70,6 @@ def test_the_stock_agent_is_code_puppy_and_never_hears_of_clai(
         "PYTHONIOENCODING": "utf-8",
     }
 
-    disabled = pup("plugins", "disable", "coder", env=env, cwd=work)
-    assert disabled.returncode == 0, disabled.stderr
     pup("-m", "test", "-p", "say hi", env=env, cwd=work)
 
     first = log.read_text(encoding="utf-8").split("=====")[0]
@@ -85,4 +82,5 @@ def test_the_stock_agent_is_code_puppy_and_never_hears_of_clai(
     )
     assert "I am Puppy! \N{DOG FACE} A sassy" in instructions
     # clai2's docs capability is gone, and nothing else names the runtime to the model.
-    assert "clai" not in instructions.lower()
+    # As a word: `coder` tells the model not to "claim" unfinished work is done.
+    assert not re.search(r"\bclai2?\b|pydantic[-_]clai", instructions, re.IGNORECASE)

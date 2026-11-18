@@ -97,7 +97,7 @@ renames a tool, or guards written against the old names stop matching.
 
 ## Known gaps
 
-- **Windows:** the runtime has no local workspace on Windows yet, so the stock
-  agent cannot edit files or run commands there. Everything else works.
+- **Windows:** the agent's commands run in PowerShell, not `sh` (the runtime's
+  `WindowsWorkspace`). No interactive session with a real model has been run yet.
 - JSON agents, the `/agent` command and ports of the retired core plugins are
   not built yet. See the plan.

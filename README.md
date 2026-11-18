@@ -7,8 +7,7 @@
 > - Your 0.0.x settings, API keys and MCP servers are carried over on first start;
 >   `pup migrate --dry-run` shows what would move. 0.0.x files are never modified.
 > - 0.0.x plugins keep loading; `/puppy-plugins` lists them.
-> - **Windows:** the runtime has no local workspace on Windows yet, so the agent
->   cannot edit files or run commands there.
+> - **Windows:** the agent runs its commands in PowerShell.
 > - Plan and status: [`docs/upgrade/code_puppy_1_0_rewrite_plan.md`](docs/upgrade/code_puppy_1_0_rewrite_plan.md).
 
 <div align="center">

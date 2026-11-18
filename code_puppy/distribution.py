@@ -1,7 +1,7 @@
 """Make pydantic-clai2 run as Code Puppy.
 
 Code Puppy 1.0 is a distribution of pydantic-clai2: clai2 owns the agent loop,
-the terminal UI, sessions and plugins. clai2 0.68 has no way for a
+the terminal UI, sessions and plugins. clai2 0.70 has no way for a
 distribution to supply its identity, so the names below are replaced on its
 modules at startup.
 
