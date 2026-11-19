@@ -112,7 +112,7 @@ class TestFilePathCompleterMissedLines:
 class TestLoadContextCompletionException:
     """Cover lines 50-52."""
 
-    def test_exception_listing_sessions_silently_ignored(self):
+    def test_exception_listing_sessions_silently_ignored(self) -> None:
         from code_puppy.command_line.load_context_completion import LoadContextCompleter
 
         completer = LoadContextCompleter()
