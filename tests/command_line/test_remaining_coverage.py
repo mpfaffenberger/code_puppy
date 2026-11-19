@@ -195,11 +195,11 @@ def test_load_context_completion_exception():
     doc.cursor_position = len(doc.text_before_cursor)
     complete_event = MagicMock()
 
-    # Make Path(...).exists() raise to trigger the except Exception branch
-    with patch("code_puppy.command_line.load_context_completion.Path") as mock_path:
-        mock_path.return_value.__truediv__ = MagicMock(
-            side_effect=PermissionError("denied")
-        )
+    # Make listing sessions raise to trigger the except Exception branch
+    with patch(
+        "code_puppy.session_storage.list_sessions",
+        side_effect=PermissionError("denied"),
+    ):
         results = list(completer.get_completions(doc, complete_event))
         assert results == []
 
