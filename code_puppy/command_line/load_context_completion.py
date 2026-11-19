@@ -2,7 +2,7 @@ from pathlib import Path
 
 from termflow.tui.completion import Completer, Completion
 
-from code_puppy.config import CONFIG_DIR
+from code_puppy.config import AUTOSAVE_DIR
 
 
 class LoadContextCompleter(Completer):
@@ -38,8 +38,8 @@ class LoadContextCompleter(Completer):
         try:
             from code_puppy.session_storage import list_sessions
 
-            contexts_dir = Path(CONFIG_DIR) / "contexts"
-            for session_name in list_sessions(contexts_dir):
+            # Same directory /dump_context writes to and /load_context reads from.
+            for session_name in list_sessions(Path(AUTOSAVE_DIR)):
                 if session_name.startswith(session_filter):
                     yield Completion(
                         session_name,

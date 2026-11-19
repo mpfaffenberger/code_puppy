@@ -112,13 +112,13 @@ class TestFilePathCompleterMissedLines:
 class TestLoadContextCompletionException:
     """Cover lines 50-52."""
 
-    def test_exception_in_glob_silently_ignored(self):
+    def test_exception_listing_sessions_silently_ignored(self) -> None:
         from code_puppy.command_line.load_context_completion import LoadContextCompleter
 
         completer = LoadContextCompleter()
-        # Make contexts_dir.exists() raise
+        # Make the sessions dir's .exists() raise
         with patch(
-            "code_puppy.command_line.load_context_completion.CONFIG_DIR",
+            "code_puppy.command_line.load_context_completion.AUTOSAVE_DIR",
             "/nonexistent/x/y/z",
         ):
             with patch("pathlib.Path.exists", side_effect=PermissionError("nope")):
