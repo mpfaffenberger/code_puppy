@@ -68,6 +68,10 @@ Plan and status: `docs/upgrade/code_puppy_1_0_rewrite_plan.md`.
   it turns `1.0.0rc1` into a stable `1.0.1`.
   `scripts/check_release_version.py` fails the publish job if that happens.
 - A release candidate can only depend on packages released to PyPI.
+  Between runtime releases `v1` may build against a commit of pydantic-ai
+  `main`: `[tool.uv.sources]` in `pyproject.toml`, all four packages at one
+  `rev`. The release guard refuses to publish in that state. Restore
+  `pydantic-clai2==X.Y.Z` and delete the sources first.
 - Pushing to `v1` or `main` publishes. Do not push without being asked.
 
 ## Writing a plugin

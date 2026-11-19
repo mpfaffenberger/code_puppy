@@ -9,10 +9,16 @@ Release candidates are opt-in; `uvx code-puppy` keeps resolving to 0.0.x (sectio
 
 All work is in local commits on `v1`. Nothing has been pushed or published.
 
+**Not publishable as it stands.** Since 2026-11-18 the runtime is built from
+pydantic-ai `main` at `6e0219d25` (84 commits after 0.70.0) through
+`[tool.uv.sources]`, to pick up work that is not released yet.
+`scripts/check_release_version.py` fails the publish job until
+`pydantic-clai2==X.Y.Z` is restored and the sources are deleted.
+
 | Phase | State | What exists |
 |---|---|---|
 | 0 Groundwork | built | Version `1.0.0rc1`; `publish.yml` bumps `rc` on `v1` and pushes to the triggering branch; version guard with tests |
-| 1 Skeleton | built | 0.0.x runtime and tests removed (222,143 lines); `pup` starts pydantic-clai2 0.70.0 as Code Puppy; `/update` rewritten |
+| 1 Skeleton | built | 0.0.x runtime and tests removed (222,143 lines); `pup` starts pydantic-clai2 (`main` at `6e0219d25`, see above) as Code Puppy; `/update` rewritten |
 | 2 Migration | built, partial scope | Settings, API keys and MCP servers carry over; `pup migrate [--dry-run]` |
 | 3 Compat | partly built | Facades, plugin discovery, trust, bridge with 15 hooks. No JSON agents yet |
 | 4 Native plugins | not started | None of the surviving core plugins is ported |

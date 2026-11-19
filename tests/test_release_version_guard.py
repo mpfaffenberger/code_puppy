@@ -50,8 +50,63 @@ def test_refused(branch: str, version: str, fragment: str) -> None:
     assert problem is not None and fragment in problem
 
 
-def test_main_exit_codes(capsys: pytest.CaptureFixture[str]) -> None:
-    assert guard.main(["prog", "v1", "1.0.0rc2"]) == 0
-    assert guard.main(["prog", "v1", "1.0.1"]) == 1
-    assert guard.main(["prog"]) == 2
+RELEASABLE = """
+[project]
+dependencies = ["pydantic-clai2==0.70.0", "packaging>=24.0"]
+"""
+
+
+def test_main_exit_codes(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(RELEASABLE, encoding="utf-8")
+
+    assert guard.main(["prog", "v1", "1.0.0rc2"], pyproject=pyproject) == 0
+    assert guard.main(["prog", "v1", "1.0.1"], pyproject=pyproject) == 1
+    assert guard.main(["prog"], pyproject=pyproject) == 2
     assert "Refusing to publish" in capsys.readouterr().out
+
+
+def test_a_build_against_unreleased_runtime_is_refused(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`[tool.uv.sources]` never reaches PyPI, so the upload would depend on the wrong runtime."""
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(
+        '[project]\ndependencies = ["pydantic-clai2"]\n'
+        "[tool.uv.sources]\n"
+        'pydantic-clai2 = { git = "https://github.com/pydantic/pydantic-ai", rev = "abc" }\n',
+        encoding="utf-8",
+    )
+
+    assert guard.main(["prog", "v1", "1.0.0rc2"], pyproject=pyproject) == 1
+    assert (
+        "pydantic-clai2 come from `[tool.uv.sources]`, not PyPI"
+        in capsys.readouterr().out
+    )
+
+
+@pytest.mark.parametrize(
+    "requirement",
+    [
+        "pydantic-clai2",
+        "pydantic-clai2>=0.70.0",
+        "pydantic_clai2==0.70.*",
+        "pydantic-clai2 @ git+https://github.com/pydantic/pydantic-ai",
+    ],
+)
+def test_a_loose_runtime_pin_is_refused(requirement: str) -> None:
+    problem = guard.dependency_problem({"project": {"dependencies": [requirement]}})
+    assert problem is not None and "is not an exact pin" in problem
+
+
+@pytest.mark.parametrize(
+    "pyproject",
+    [
+        {"project": {"dependencies": ["pydantic-clai2==0.70.0", "packaging>=24.0"]}},
+        # 0.0.x on `main` has no runtime to pin.
+        {"project": {"dependencies": ["rich>=13"]}},
+        {},
+    ],
+)
+def test_released_dependencies_are_allowed(pyproject: dict[str, object]) -> None:
+    assert guard.dependency_problem(pyproject) is None

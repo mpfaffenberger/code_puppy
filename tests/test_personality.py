@@ -15,7 +15,7 @@ from pydantic_ai.messages import (
     ToolCallPart,
 )
 from pydantic_ai.models.function import AgentInfo, FunctionModel
-from pydantic_ai_harness.subagents import SELF_AGENT_NAME, SubAgents
+from pydantic_ai_harness.sub_agents import SELF_AGENT_NAME, SubAgents
 
 from code_puppy import personality
 from code_puppy.personality import Personality, PersonalitySettings, PersonalitySource

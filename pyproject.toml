@@ -12,7 +12,12 @@ dependencies = [
     # Code Puppy 1.0 is a distribution of pydantic-clai2. clai2 pins
     # pydantic-ai-harness and pydantic-ai-slim exactly, so this one pin fixes
     # the whole runtime. Do not add direct harness/slim pins beside it.
-    "pydantic-clai2==0.70.0",
+    #
+    # TEMPORARY: unpinned here because `[tool.uv.sources]` below builds it from a
+    # commit on pydantic-ai `main`. Restore `pydantic-clai2==X.Y.Z` and delete
+    # those sources before publishing: `scripts/check_release_version.py`
+    # refuses to release until then.
+    "pydantic-clai2",
     # Claude Code subscription models (`claude-code:` prefix, `/login claude-code`),
     # shipped as a built-in plugin. Mind the name: this is `pydantic-claude-code`.
     # `pydantic-ai-claude-code` on PyPI is an unrelated project by another author,
@@ -54,6 +59,16 @@ asyncio_mode = "auto"
 
 [tool.uv]
 python-preference = "only-managed"
+
+# TEMPORARY: the runtime from pydantic-ai `main` at 6e0219d25 (2026-11-19), 84
+# commits after 0.70.0. All four come from the one commit, because clai2 pins
+# the other three to its own build; they are the packages clai2's own `main`
+# update channel installs together. To move the pin, change every `rev`.
+[tool.uv.sources]
+pydantic-clai2 = { git = "https://github.com/pydantic/pydantic-ai", rev = "6e0219d251dfde9a9445c019504a8079142bbb7a", subdirectory = "src/pydantic_clai2" }
+pydantic-ai-harness = { git = "https://github.com/pydantic/pydantic-ai", rev = "6e0219d251dfde9a9445c019504a8079142bbb7a", subdirectory = "src/pydantic_ai_harness" }
+pydantic-ai-slim = { git = "https://github.com/pydantic/pydantic-ai", rev = "6e0219d251dfde9a9445c019504a8079142bbb7a", subdirectory = "pydantic_ai_slim" }
+pydantic-graph = { git = "https://github.com/pydantic/pydantic-ai", rev = "6e0219d251dfde9a9445c019504a8079142bbb7a", subdirectory = "pydantic_graph" }
 
 [dependency-groups]
 dev = [
