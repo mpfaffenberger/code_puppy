@@ -33,6 +33,9 @@ Plan and status: `docs/upgrade/code_puppy_1_0_rewrite_plan.md`.
 
 1. **One pin.** `pydantic-ai-pax` is pinned exactly and carries the harness and
    `pydantic-ai-slim` pins. Never add a direct pin for either.
+   It is required with every extra it offers (the `/sandbox` providers,
+   `typesafe`), so nothing answers "support is not installed";
+   `tests/test_optional_support.py` fails when pax adds one.
    `pydantic-clai2` is now only an alias package (`import pydantic_clai2`
    resolves to `pydantic_ai_pax`). It is a dependency solely because
    `pydantic-claude-code` 0.7.x imports the old name; pin it to pax's version,

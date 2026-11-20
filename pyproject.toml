@@ -18,7 +18,12 @@ dependencies = [
     # commit on pydantic-ai `main`. Restore `pydantic-ai-pax==X.Y.Z` and delete
     # those sources before publishing: `scripts/check_release_version.py`
     # refuses to release until then.
-    "pydantic-ai-pax",
+    #
+    # Every extra pax offers is installed, so nothing in Code Puppy answers
+    # "support is not installed": the eight `/sandbox` providers, and the
+    # `typesafe` model provider. `tests/test_optional_support.py` fails when
+    # pax grows an extra that is not listed here.
+    "pydantic-ai-pax[boxd,daytona,e2b,kubernetes,modal,opensandbox,render,sprites,typesafe]",
     # TEMPORARY: the deprecated alias package, which makes `import pydantic_clai2`
     # resolve to `pydantic_ai_pax`. `pydantic-claude-code` 0.7.x imports the
     # runtime under the old name. Drop this once a release of it imports

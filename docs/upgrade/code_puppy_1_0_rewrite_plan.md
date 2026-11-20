@@ -24,6 +24,14 @@ this document predates the rename and still says clai2; read it as pax.
   `/update` menu and in `herdr`'s relaunch command. Code Puppy replaces it
   with the command the user ran.
 
+**Every pax extra is installed.** Code Puppy requires pax with all nine of its
+extras: the eight `/sandbox` providers (boxd, Daytona, E2B, Kubernetes, Modal,
+OpenSandbox, Render, Sprites) and the `typesafe` model provider. Without them
+`/sandbox modal` answered "Modal support is not installed. Install CLAI with
+it: uv tool install 'pydantic-ai-pax[modal]'", which is advice for another
+product. Measured on Windows: 62 more packages and about 140 MB (272 to
+412 MB), with no change in start-up time, since none is imported until used.
+
 **Not publishable as it stands.** The runtime is built from pydantic-ai `main`
 at `000da4b4a` (2026-11-20, 31 commits after 0.71.0) through
 `[tool.uv.sources]`: `pydantic-ai-pax` is not on PyPI yet.
