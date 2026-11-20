@@ -5,20 +5,35 @@ built, phases 4 to 6 are not started. Section 0 has the details.
 Target version: `1.0.0rc1`, then `rcN` until cutover to `1.0.0`.
 Release candidates are opt-in; `uvx code-puppy` keeps resolving to 0.0.x (section 13).
 
-## 0. Implementation status (2026-11-18)
+## 0. Implementation status (2026-11-19)
 
 All work is in local commits on `v1`. Nothing has been pushed or published.
 
-**Not publishable as it stands.** Since 2026-11-18 the runtime is built from
-pydantic-ai `main` at `6e0219d25` (84 commits after 0.70.0) through
-`[tool.uv.sources]`, to pick up work that is not released yet.
+**The runtime was renamed.** `pydantic-clai2` became `pydantic-ai-pax` on
+2026-11-19 (pydantic/pydantic-ai#13885): the import is `pydantic_ai_pax` and
+the command is `pax`. Code Puppy imports the new name throughout. The rest of
+this document predates the rename and still says clai2; read it as pax.
+
+- `pydantic-clai2` survives upstream as an alias package. Code Puppy depends
+  on it for one reason: `pydantic-claude-code` 0.7.6 imports the runtime as
+  `pydantic_clai2`. Its `main` already loads under either name (#25 there), so
+  the alias goes once that is released.
+- pax did not rename what it stores: the config folder name, keyring service,
+  `CLAI_*` variables and the `.clai/` project folder are unchanged upstream.
+- pax now has `cli/install.py:command_name()`, which says `pax` in the
+  `/update` menu and in `herdr`'s relaunch command. Code Puppy replaces it
+  with the command the user ran.
+
+**Not publishable as it stands.** The runtime is built from pydantic-ai `main`
+at `000da4b4a` (2026-11-20, 31 commits after 0.71.0) through
+`[tool.uv.sources]`: `pydantic-ai-pax` is not on PyPI yet.
 `scripts/check_release_version.py` fails the publish job until
-`pydantic-clai2==X.Y.Z` is restored and the sources are deleted.
+`pydantic-ai-pax==X.Y.Z` is restored and the sources are deleted.
 
 | Phase | State | What exists |
 |---|---|---|
 | 0 Groundwork | built | Version `1.0.0rc1`; `publish.yml` bumps `rc` on `v1` and pushes to the triggering branch; version guard with tests |
-| 1 Skeleton | built | 0.0.x runtime and tests removed (222,143 lines); `pup` starts pydantic-clai2 (`main` at `6e0219d25`, see above) as Code Puppy; `/update` rewritten |
+| 1 Skeleton | built | 0.0.x runtime and tests removed (222,143 lines); `pup` starts pydantic-ai-pax (`main` at `000da4b4a`, see above) as Code Puppy; `/update` rewritten |
 | 2 Migration | built, partial scope | Settings, API keys and MCP servers carry over; `pup migrate [--dry-run]` |
 | 3 Compat | partly built | Facades, plugin discovery, trust, bridge with 15 hooks. No JSON agents yet |
 | 4 Native plugins | not started | None of the surviving core plugins is ported |

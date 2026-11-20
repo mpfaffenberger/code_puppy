@@ -1,6 +1,6 @@
 """Run Code Puppy 0.0.x plugins inside 1.0.
 
-One pydantic-clai2 plugin that loads every 0.0.x plugin (see
+One pydantic-ai-pax plugin that loads every 0.0.x plugin (see
 ``code_puppy.plugins``) and fires their callbacks at the equivalent 1.0
 moments. ``code_puppy.callbacks`` documents which hooks are supported.
 
@@ -28,8 +28,8 @@ from pydantic_ai.capabilities import (
 from pydantic_ai.exceptions import SkipToolExecution
 from pydantic_ai.messages import ToolCallPart
 from pydantic_ai.tools import ToolDefinition
-from pydantic_clai2.commands import Command
-from pydantic_clai2.plugins import (
+from pydantic_ai_pax.commands import Command
+from pydantic_ai_pax.plugins import (
     NoSettings,
     Plugin,
     PluginHost,

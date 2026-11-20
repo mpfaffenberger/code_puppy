@@ -224,7 +224,7 @@ class Host:
 
 @pytest.fixture
 def bridge(installed_distribution: None) -> Any:
-    from pydantic_clai2.plugins import NoSettings
+    from pydantic_ai_pax.plugins import NoSettings
 
     from code_puppy.compat.bridge import LegacyPlugins
 
@@ -365,7 +365,7 @@ def test_capabilities_follow_what_plugins_registered(bridge: Any) -> None:
 async def test_turn_moments_fire_legacy_hooks_and_can_replace_the_prompt(
     bridge: Any,
 ) -> None:
-    from pydantic_clai2.plugins import TurnEnd, TurnStart
+    from pydantic_ai_pax.plugins import TurnEnd, TurnStart
 
     log: list[tuple[Any, ...]] = []
     callbacks.register_callback(

@@ -71,7 +71,7 @@ def clean_legacy_state(tmp_path: Path) -> Iterator[None]:
 
 @pytest.fixture
 def installed_distribution() -> None:
-    """clai2 running as Code Puppy, as ``main`` sets it up before the CLI starts."""
+    """pax running as Code Puppy, as ``main`` sets it up before the CLI starts."""
     from code_puppy import distribution
 
     distribution.install()

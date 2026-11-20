@@ -86,7 +86,7 @@ class Result:
 
 def build_plan(files: sources.LegacyFiles | None = None) -> Plan:
     """Read the legacy files and translate them; writes nothing."""
-    from pydantic_clai2.mcp.settings import Server
+    from pydantic_ai_pax.mcp.settings import Server
 
     files = files or sources.legacy_files()
     config = sources.read_config(files.config)
@@ -115,9 +115,9 @@ def build_plan(files: sources.LegacyFiles | None = None) -> Plan:
 
 def apply(plan: Plan, *, legacy: LegacyStore | None = None) -> Result:
     """Write what 1.0 does not have yet, then record the legacy fingerprint."""
-    from pydantic_clai2.config.api_keys import save_key
-    from pydantic_clai2.config.settings_store import SettingsStore
-    from pydantic_clai2.mcp.store import MCPStore
+    from pydantic_ai_pax.config.api_keys import save_key
+    from pydantic_ai_pax.config.settings_store import SettingsStore
+    from pydantic_ai_pax.mcp.store import MCPStore
 
     result = Result(notes=list(plan.notes))
     store = SettingsStore()
@@ -161,7 +161,7 @@ def apply(plan: Plan, *, legacy: LegacyStore | None = None) -> Result:
 
 def _save_names(store: Any, names: dict[str, str], notes: list[str]) -> list[str]:
     """Seed the personality plugin's settings, unless the user already has some."""
-    from pydantic_clai2.config import PluginSettings
+    from pydantic_ai_pax.config import PluginSettings
 
     from code_puppy import personality
 

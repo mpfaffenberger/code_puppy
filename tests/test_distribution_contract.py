@@ -1,8 +1,8 @@
-"""The contract between Code Puppy and the pydantic-clai2 it is pinned to.
+"""The contract between Code Puppy and the pydantic-ai-pax it is pinned to.
 
-``code_puppy.distribution`` replaces a handful of clai2 names at startup. These
-tests fail when a clai2 upgrade moves one of them, and prove that the
-replacements actually take effect where clai2 reads them.
+``code_puppy.distribution`` replaces a handful of pax names at startup. These
+tests fail when a pax upgrade moves one of them, and prove that the
+replacements actually take effect where pax reads them.
 """
 
 from __future__ import annotations
@@ -19,53 +19,54 @@ import pytest
 from code_puppy.colors import NEON, ROLES, SHADES
 
 REPLACED = [
-    ("pydantic_clai2.config.settings_store", "config_dir"),
-    ("pydantic_clai2.config.settings_store", "state_dir"),
-    ("pydantic_clai2.config.credential_store", "_SERVICE"),
-    ("pydantic_clai2.config.credential_store", "_ACCOUNT"),
-    ("pydantic_clai2.config.credential_store", "credentials_path"),
-    ("pydantic_clai2.cli.self_update", "DISTRIBUTION"),
-    ("pydantic_clai2.cli.self_update", "PYPI_URL"),
-    ("pydantic_clai2.cli.self_update", "installed"),
-    ("pydantic_clai2.cli.self_update", "latest"),
-    ("pydantic_clai2.cli.self_update", "find_update"),
-    ("pydantic_clai2.cli.self_update", "tool_executable"),
-    ("pydantic_clai2.cli.self_update", "Update"),
-    ("pydantic_clai2.cli.self_update", "Updates"),
-    ("pydantic_clai2.cli.cli", "_update"),
-    ("pydantic_clai2.ui.rendering.splash_art", "PYRAMID"),
-    ("pydantic_clai2.ui.rendering.splash_art", "LABEL"),
+    ("pydantic_ai_pax.config.settings_store", "config_dir"),
+    ("pydantic_ai_pax.config.settings_store", "state_dir"),
+    ("pydantic_ai_pax.config.credential_store", "_SERVICE"),
+    ("pydantic_ai_pax.config.credential_store", "_ACCOUNT"),
+    ("pydantic_ai_pax.config.credential_store", "credentials_path"),
+    ("pydantic_ai_pax.cli.self_update", "DISTRIBUTION"),
+    ("pydantic_ai_pax.cli.self_update", "PYPI_URL"),
+    ("pydantic_ai_pax.cli.self_update", "installed"),
+    ("pydantic_ai_pax.cli.self_update", "latest"),
+    ("pydantic_ai_pax.cli.self_update", "find_update"),
+    ("pydantic_ai_pax.cli.self_update", "tool_executable"),
+    ("pydantic_ai_pax.cli.self_update", "Update"),
+    ("pydantic_ai_pax.cli.self_update", "Updates"),
+    ("pydantic_ai_pax.cli.cli", "_update"),
+    ("pydantic_ai_pax.cli.install", "command_name"),
+    ("pydantic_ai_pax.ui.rendering.splash_art", "PYRAMID"),
+    ("pydantic_ai_pax.ui.rendering.splash_art", "LABEL"),
     *(
-        ("pydantic_clai2.ui.rendering.theme", name)
+        ("pydantic_ai_pax.ui.rendering.theme", name)
         for name in (*SHADES, *ROLES, "_SLOTS", "_BASIC")
     ),
-    *(("pydantic_clai2.ui.rendering.splash", name) for name in NEON),
-    ("pydantic_clai2.ui.rendering.branding", "print_banner"),
-    ("pydantic_clai2.ui.rendering.welcome", "print_welcome"),
-    ("pydantic_clai2.ui.rendering.welcome", "_report_project"),
-    ("pydantic_clai2.config.builtins", "DEFAULT_PLUGINS"),
-    ("pydantic_clai2.config.builtins", "STOCK_PLUGINS"),
-    ("pydantic_clai2.plugins.process_plugins", "ProcessPlugins"),
-    ("pydantic_clai2.app", "create_stock_agent"),
-    ("pydantic_clai2.app", "chat"),
-    ("pydantic_clai2.runtime.imported_sessions", "IMPORT_SOURCES"),
-    ("pydantic_clai2.runtime.imported_sessions", "_SOURCES"),
-    ("pydantic_clai2.runtime.imported_sessions", "_Source"),
-    ("pydantic_clai2.runtime.imported_sessions", "ImportCatalog"),
-    ("pydantic_clai2.runtime.imported_sessions", "save_import"),
-    ("pydantic_clai2.runtime.imported_history", "framed"),
-    ("pydantic_clai2.ui.menus.session_browser", "_FILTERS"),
-    ("pydantic_clai2.runtime.session", "StockAgent"),
+    *(("pydantic_ai_pax.ui.rendering.splash", name) for name in NEON),
+    ("pydantic_ai_pax.ui.rendering.branding", "print_banner"),
+    ("pydantic_ai_pax.ui.rendering.welcome", "print_welcome"),
+    ("pydantic_ai_pax.ui.rendering.welcome", "_report_project"),
+    ("pydantic_ai_pax.config.builtins", "DEFAULT_PLUGINS"),
+    ("pydantic_ai_pax.config.builtins", "STOCK_PLUGINS"),
+    ("pydantic_ai_pax.plugins.process_plugins", "ProcessPlugins"),
+    ("pydantic_ai_pax.app", "create_stock_agent"),
+    ("pydantic_ai_pax.app", "chat"),
+    ("pydantic_ai_pax.runtime.imported_sessions", "IMPORT_SOURCES"),
+    ("pydantic_ai_pax.runtime.imported_sessions", "_SOURCES"),
+    ("pydantic_ai_pax.runtime.imported_sessions", "_Source"),
+    ("pydantic_ai_pax.runtime.imported_sessions", "ImportCatalog"),
+    ("pydantic_ai_pax.runtime.imported_sessions", "save_import"),
+    ("pydantic_ai_pax.runtime.imported_history", "framed"),
+    ("pydantic_ai_pax.ui.menus.session_browser", "_FILTERS"),
+    ("pydantic_ai_pax.runtime.session", "StockAgent"),
 ]
 
 
 @pytest.mark.parametrize(("module", "name"), REPLACED)
-def test_clai2_still_has_the_symbol(module: str, name: str) -> None:
+def test_pax_still_has_the_symbol(module: str, name: str) -> None:
     assert hasattr(importlib.import_module(module), name), f"{module}.{name} moved"
 
 
 def test_discover_is_still_a_method() -> None:
-    from pydantic_clai2.plugins.process_plugins import ProcessPlugins
+    from pydantic_ai_pax.plugins.process_plugins import ProcessPlugins
 
     assert callable(ProcessPlugins._discover)
 
@@ -73,7 +74,7 @@ def test_discover_is_still_a_method() -> None:
 def test_settings_live_in_code_puppys_folder(
     installed_distribution: None, home: Path
 ) -> None:
-    from pydantic_clai2.config.settings_store import SettingsStore
+    from pydantic_ai_pax.config.settings_store import SettingsStore
 
     store = SettingsStore()
     assert store.path == home / ".code_puppy" / "config.db"
@@ -83,10 +84,11 @@ def test_settings_live_in_code_puppys_folder(
 def test_modules_that_bound_the_names_early_see_code_puppys(
     installed_distribution: None, home: Path
 ) -> None:
-    """clai2 imports these with ``from x import y``; the binding must be ours."""
-    from pydantic_clai2.mcp.store import MCPStore
-    from pydantic_clai2.runtime import live_registry, session_runtime
-    from pydantic_clai2.ui.rendering import spinners, welcome
+    """pax imports these with ``from x import y``; the binding must be ours."""
+    from pydantic_ai_pax.mcp.store import MCPStore
+    from pydantic_ai_pax.runtime import live_registry, session_runtime
+    from pydantic_ai_pax.ui.menus import update_menu
+    from pydantic_ai_pax.ui.rendering import spinners, welcome
 
     from code_puppy import branding, update
 
@@ -97,12 +99,14 @@ def test_modules_that_bound_the_names_early_see_code_puppys(
     assert session_runtime.Updates is update.PuppyUpdates
     assert welcome.print_welcome is branding.print_welcome
     assert welcome.installed is update.installed
+    # The `/update` menu names the command to the user.
+    assert update_menu.command_name is update.command_name
 
 
 def test_credentials_use_code_puppys_folder_and_service(
     installed_distribution: None, home: Path
 ) -> None:
-    from pydantic_clai2.config import credential_store
+    from pydantic_ai_pax.config import credential_store
 
     path = credential_store.credentials_path(account="gateway/openai@work")
     assert path.parent == home / ".code_puppy"
@@ -115,9 +119,9 @@ def test_credentials_use_code_puppys_folder_and_service(
 
 
 def test_default_plugin_sets_keep_their_identity(installed_distribution: None) -> None:
-    """clai2's ``chat`` compares the plugin tuples with ``is``."""
-    from pydantic_clai2 import app
-    from pydantic_clai2.config import builtins
+    """pax's ``chat`` compares the plugin tuples with ``is``."""
+    from pydantic_ai_pax import app
+    from pydantic_ai_pax.config import builtins
 
     from code_puppy.builtin_plugins import PUPPY_PLUGINS
 
@@ -129,9 +133,9 @@ def test_default_plugin_sets_keep_their_identity(installed_distribution: None) -
 
 
 def test_the_stock_agent_is_built_as_code_puppy(installed_distribution: None) -> None:
-    from pydantic_clai2 import app
-    from pydantic_clai2.cli import headless
-    from pydantic_clai2.runtime.session import StockAgent
+    from pydantic_ai_pax import app
+    from pydantic_ai_pax.cli import headless
+    from pydantic_ai_pax.runtime.session import StockAgent
 
     agent = app.create_stock_agent("test")
     assert isinstance(agent, StockAgent) and agent.name == "code-puppy"
@@ -142,7 +146,7 @@ def test_the_stock_agent_is_built_as_code_puppy(installed_distribution: None) ->
 def test_legacy_plugin_folders_are_left_to_the_compat_bridge(
     installed_distribution: None, tmp_path: Path
 ) -> None:
-    from pydantic_clai2.plugins.process_plugins import ProcessPlugins
+    from pydantic_ai_pax.plugins.process_plugins import ProcessPlugins
 
     plugins = tmp_path / "plugins"
     (plugins / "legacy").mkdir(parents=True)
@@ -158,7 +162,7 @@ def test_legacy_plugin_folders_are_left_to_the_compat_bridge(
 
 
 def test_splash_shows_the_paw(installed_distribution: None) -> None:
-    from pydantic_clai2.ui.rendering import splash, splash_art
+    from pydantic_ai_pax.ui.rendering import splash, splash_art
 
     from code_puppy import _art
 

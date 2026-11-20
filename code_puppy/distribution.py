@@ -1,22 +1,23 @@
-"""Make pydantic-clai2 run as Code Puppy.
+"""Make pydantic-ai-pax run as Code Puppy.
 
-Code Puppy 1.0 is a distribution of pydantic-clai2: clai2 owns the agent loop,
-the terminal UI, sessions and plugins. clai2 0.70 has no way for a
-distribution to supply its identity, so the names below are replaced on its
-modules at startup.
+Code Puppy 1.0 is a distribution of pydantic-ai-pax: pax owns the agent loop,
+the terminal UI, sessions and plugins. pax has no way for a distribution to
+supply its identity, so the names below are replaced on its modules at
+startup. (pax was named pydantic-clai2 until 2026-11-19.)
 
 Every replacement lives in this file and nowhere else. Each one is temporary:
-it goes away when clai2 grows the matching seam, and
-``tests/test_distribution_contract.py`` fails if a clai2 upgrade moves or
+it goes away when pax grows the matching seam, and
+``tests/test_distribution_contract.py`` fails if a pax upgrade moves or
 renames a symbol this file relies on.
 
 ==========================================  =====================================
-clai2 symbol                                Seam that would replace it
+pax symbol                                  Seam that would replace it
 ==========================================  =====================================
 ``settings_store.config_dir/state_dir``     configurable config and state roots
 ``credential_store._SERVICE``               configurable keyring service
 ``credential_store.credentials_path``       credentials under the config root
 ``self_update.*``, ``cli._update``          pluggable update source
+``install.command_name``                    configurable command name
 ``splash_art``, ``branding``, ``welcome``   pluggable branding
 ``theme`` colours, ``splash`` colours       a distribution-supplied default theme
 ``builtins.DEFAULT_PLUGINS/STOCK_PLUGINS``  distribution-supplied default plugins
@@ -27,10 +28,10 @@ clai2 symbol                                Seam that would replace it
 ==========================================  =====================================
 
 The 0.0.x session source is also added to ``imported_sessions._SOURCES`` and to
-the session browser's ``_FILTERS``, beside clai2's own entries.
+the session browser's ``_FILTERS``, beside pax's own entries.
 
-clai2 modules bind these names with ``from x import y``. :func:`_replace`
-therefore swaps a name on its owning module *and* on every clai2 module that
+pax modules bind these names with ``from x import y``. :func:`_replace`
+therefore swaps a name on its owning module *and* on every pax module that
 already imported it, so the result does not depend on import order. Modules
 imported afterwards pick up the replacement from the owning module.
 """
@@ -51,14 +52,14 @@ if TYPE_CHECKING:
 LEGACY_PLUGIN_MARKER = "register_callbacks.py"
 """A plugins folder containing this file is a 0.0.x plugin, loaded by the compat bridge."""
 
-RUNTIME_PACKAGE = "pydantic_clai2"
+RUNTIME_PACKAGE = "pydantic_ai_pax"
 
 _splash_installed = False
 _installed = False
 
 
 def _replace(owner: ModuleType, name: str, new: object) -> None:
-    """Swap ``owner.name`` for ``new`` everywhere clai2 already holds the old object.
+    """Swap ``owner.name`` for ``new`` everywhere pax already holds the old object.
 
     Only for functions, classes and tuples, which are matched by identity.
     Strings are set on the owning module directly: identity says nothing
@@ -83,7 +84,7 @@ def install_splash() -> None:
     global _splash_installed
     if _splash_installed:
         return
-    from pydantic_clai2.ui.rendering import splash_art
+    from pydantic_ai_pax.ui.rendering import splash_art
 
     from code_puppy import _art
 
@@ -94,13 +95,13 @@ def install_splash() -> None:
 
 
 def _install_theme() -> None:
-    """Paint clai2's default theme in Code Puppy's colours.
+    """Paint pax's default theme in Code Puppy's colours.
 
-    Runs before any clai2 module but the splash art is imported: several bind
+    Runs before any pax module but the splash art is imported: several bind
     theme colours at import time, in dicts and default arguments that
     :func:`_replace` cannot reach.
     """
-    from pydantic_clai2.ui.rendering import theme
+    from pydantic_ai_pax.ui.rendering import theme
 
     from code_puppy import colors
 
@@ -112,19 +113,19 @@ def _install_theme() -> None:
     theme._SLOTS = {shade.colour: shade.slot for shade in shades}
     theme._BASIC = {shade.colour: shade.sgr for shade in shades}
 
-    from pydantic_clai2.ui.rendering import splash
+    from pydantic_ai_pax.ui.rendering import splash
 
     for name, shade in colors.NEON.items():
         setattr(splash, name, shade.colour)
 
 
 def _install_first_run() -> None:
-    from pydantic_clai2 import app
+    from pydantic_ai_pax import app
 
     start_chat = app.chat
 
     def chat(agent: Any, **options: Any) -> Any:
-        """clai2's terminal session, after the puppy has a name.
+        """pax's terminal session, after the puppy has a name.
 
         Deliberately not ``async``: the questions are asked when the session's
         coroutine is created, before the event loop that runs it exists, so
@@ -156,7 +157,7 @@ def _install_first_run() -> None:
 
 
 def install() -> None:
-    """Apply every replacement. Idempotent; call before importing the clai2 CLI."""
+    """Apply every replacement. Idempotent; call before importing the pax CLI."""
     global _installed
     if _installed:
         return
@@ -173,19 +174,19 @@ def install() -> None:
 
 
 def _install_paths() -> None:
-    from pydantic_clai2.config import settings_store
+    from pydantic_ai_pax.config import settings_store
 
     _replace(settings_store, "config_dir", identity.config_dir)
     _replace(settings_store, "state_dir", identity.runtime_state_dir)
 
 
 def _install_credentials() -> None:
-    from pydantic_clai2.config import credential_store
+    from pydantic_ai_pax.config import credential_store
 
     upstream_path = credential_store.credentials_path
 
     def credentials_path(*, account: str = credential_store._ACCOUNT) -> Path:
-        """clai2's file name for ``account``, in Code Puppy's config folder."""
+        """pax's file name for ``account``, in Code Puppy's config folder."""
         return identity.config_dir() / upstream_path(account=account).name
 
     credential_store._SERVICE = identity.KEYRING_SERVICE
@@ -193,7 +194,7 @@ def _install_credentials() -> None:
 
 
 def _install_updates() -> None:
-    from pydantic_clai2.cli import self_update
+    from pydantic_ai_pax.cli import self_update
 
     from code_puppy import update
 
@@ -206,31 +207,36 @@ def _install_updates() -> None:
     _replace(self_update, "Update", update.PuppyUpdate)
     _replace(self_update, "Updates", update.PuppyUpdates)
 
-    from pydantic_clai2.cli import cli
+    from pydantic_ai_pax.cli import install as tool_install
+
+    # Read by the `/update` menu's wording and by `herdr` to relaunch a session.
+    _replace(tool_install, "command_name", update.command_name)
+
+    from pydantic_ai_pax.cli import cli
 
     _replace(cli, "_update", update.cli_update)
 
 
 def _install_branding() -> None:
-    from pydantic_clai2.ui.rendering import branding as upstream_branding
+    from pydantic_ai_pax.ui.rendering import branding as upstream_branding
 
     from code_puppy import branding
 
-    from pydantic_clai2.ui.rendering import welcome
+    from pydantic_ai_pax.ui.rendering import welcome
 
     _replace(upstream_branding, "print_banner", branding.print_banner)
     _replace(welcome, "print_welcome", branding.print_welcome)
 
 
 def _install_agent() -> None:
-    from pydantic_clai2 import app
-    from pydantic_clai2.runtime.session import StockAgent
+    from pydantic_ai_pax import app
+    from pydantic_ai_pax.runtime.session import StockAgent
 
     def create_stock_agent(model: Any = None) -> Any:
-        """clai2's stock agent under Code Puppy's name, without clai2's docs capability.
+        """pax's stock agent under Code Puppy's name, without pax's docs capability.
 
-        That capability lets the model read clai2's own docs to answer questions
-        about "CLAI itself". They describe clai2's commands and folders, not
+        That capability lets the model read pax's own docs to answer questions
+        about "CLAI itself". They describe pax's commands and folders, not
         Code Puppy's, and put the name CLAI in every system prompt.
         """
         return StockAgent(
@@ -246,8 +252,8 @@ def _install_agent() -> None:
 
 def _install_sessions() -> None:
     """Offer 0.0.x sessions in ``/resume``, as Claude Code's and Codex's are."""
-    from pydantic_clai2.runtime import imported_sessions
-    from pydantic_clai2.ui.menus import session_browser
+    from pydantic_ai_pax.runtime import imported_sessions
+    from pydantic_ai_pax.ui.menus import session_browser
 
     from code_puppy import legacy_sessions as legacy
 
@@ -279,8 +285,8 @@ def is_legacy_plugin(entry: Path) -> bool:
 
 
 def _install_plugins() -> None:
-    from pydantic_clai2.config import builtins
-    from pydantic_clai2.plugins import process_plugins
+    from pydantic_ai_pax.config import builtins
+    from pydantic_ai_pax.plugins import process_plugins
 
     from code_puppy.builtin_plugins import CLAUDE_CODE_NO_UPDATE_CHECK, PUPPY_PLUGINS
 
@@ -294,7 +300,7 @@ def _install_plugins() -> None:
     def _discover(
         self: process_plugins.ProcessPlugins, console: Console
     ) -> dict[str, Path]:
-        """clai2's drop-in scan, minus 0.0.x plugin folders that share the directory."""
+        """pax's drop-in scan, minus 0.0.x plugin folders that share the directory."""
         found = upstream_discover(self, console)
         return {
             name: path for name, path in found.items() if not is_legacy_plugin(path)

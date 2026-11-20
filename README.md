@@ -1,5 +1,5 @@
 > **This is the 1.0 release-candidate branch (`v1`).** Code Puppy 1.0 is a
-> rebuild on [pydantic-clai2](https://github.com/pydantic/pydantic-ai/tree/main/src/pydantic_clai2)
+> rebuild on [pydantic-ai-pax](https://github.com/pydantic/pydantic-ai/tree/main/src/pydantic_ai_pax)
 > and [pydantic-ai-harness](https://pydantic.dev/docs/ai/harness/). Most of this
 > README still describes 0.0.x and has not been rewritten yet.
 >

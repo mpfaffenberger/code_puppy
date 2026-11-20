@@ -11,13 +11,13 @@ from rich.text import Text
 from code_puppy import identity
 
 if TYPE_CHECKING:
-    from pydantic_clai2.config.project_settings import ProjectSettings
-    from pydantic_clai2.runtime.worktrees import Worktree
+    from pydantic_ai_pax.config.project_settings import ProjectSettings
+    from pydantic_ai_pax.runtime.worktrees import Worktree
     from rich.console import Console
 
 BANNER_TEXT = "CODE PUPPY"
 BANNER_COMPACT = "PUP"
-RUNTIME_DISTRIBUTION = "pydantic-clai2"
+RUNTIME_DISTRIBUTION = "pydantic-ai-pax"
 
 
 def version_line() -> str:
@@ -31,7 +31,7 @@ def version_line() -> str:
 
 def print_banner(console: Console) -> None:
     """Print the wordmark, falling back to shorter forms on a narrow terminal."""
-    from pydantic_clai2.ui.rendering import theme
+    from pydantic_ai_pax.ui.rendering import theme
 
     figlet = Figlet(font="ansi_shadow", width=200)
     with theme.branded():
@@ -48,7 +48,7 @@ def print_welcome(
     project: ProjectSettings, console: Console, *, worktree: Worktree | None = None
 ) -> None:
     """The banner, version and hints a fresh launch and ``/clear`` show."""
-    from pydantic_clai2.ui.rendering import theme, welcome
+    from pydantic_ai_pax.ui.rendering import theme, welcome
 
     muted = theme.color(theme.MUTED)
     console.print()

@@ -339,6 +339,7 @@ version = "1.0.0rc1"
 source = { editable = "." }
 dependencies = [
     { name = "packaging" },
+    { name = "pydantic-ai-pax" },
     { name = "pydantic-clai2" },
     { name = "pydantic-claude-code" },
 ]
@@ -354,7 +355,8 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "packaging", specifier = ">=24.0" },
-    { name = "pydantic-clai2", git = "https://github.com/pydantic/pydantic-ai?subdirectory=src%2Fpydantic_clai2&rev=6e0219d251dfde9a9445c019504a8079142bbb7a" },
+    { name = "pydantic-ai-pax", git = "https://github.com/pydantic/pydantic-ai?subdirectory=src%2Fpydantic_ai_pax&rev=000da4b4a05462d1b9989a9400c40bd4f9c8c8e7" },
+    { name = "pydantic-clai2", git = "https://github.com/pydantic/pydantic-ai?subdirectory=src%2Fpydantic_clai2&rev=000da4b4a05462d1b9989a9400c40bd4f9c8c8e7" },
     { name = "pydantic-claude-code", specifier = ">=0.7.5,<0.8" },
 ]
 
@@ -1438,8 +1440,8 @@ email = [
 
 [[package]]
 name = "pydantic-ai-harness"
-version = "0.70.1.dev84+6e0219d25"
-source = { git = "https://github.com/pydantic/pydantic-ai?subdirectory=src%2Fpydantic_ai_harness&rev=6e0219d251dfde9a9445c019504a8079142bbb7a#6e0219d251dfde9a9445c019504a8079142bbb7a" }
+version = "0.71.1.dev31+000da4b4a"
+source = { git = "https://github.com/pydantic/pydantic-ai?subdirectory=src%2Fpydantic_ai_harness&rev=000da4b4a05462d1b9989a9400c40bd4f9c8c8e7#000da4b4a05462d1b9989a9400c40bd4f9c8c8e7" }
 dependencies = [
     { name = "genai-prices" },
     { name = "httpx2" },
@@ -1456,9 +1458,36 @@ skills = [
 ]
 
 [[package]]
+name = "pydantic-ai-pax"
+version = "0.71.1.dev31+000da4b4a"
+source = { git = "https://github.com/pydantic/pydantic-ai?subdirectory=src%2Fpydantic_ai_pax&rev=000da4b4a05462d1b9989a9400c40bd4f9c8c8e7#000da4b4a05462d1b9989a9400c40bd4f9c8c8e7" }
+dependencies = [
+    { name = "cryptography" },
+    { name = "fastapi" },
+    { name = "fastmcp-slim", extra = ["client"] },
+    { name = "genai-prices" },
+    { name = "httpx" },
+    { name = "keyring" },
+    { name = "logfire", extra = ["httpx"] },
+    { name = "opentelemetry-instrumentation-httpx" },
+    { name = "pillow" },
+    { name = "prompt-toolkit" },
+    { name = "pydantic-ai-harness", extra = ["coder", "skills"] },
+    { name = "pydantic-ai-slim", extra = ["anthropic", "mcp", "openai"] },
+    { name = "pydantic-monty" },
+    { name = "pyfiglet" },
+    { name = "python-dotenv" },
+    { name = "pyyaml" },
+    { name = "rich" },
+    { name = "termflow-md" },
+    { name = "uvicorn" },
+    { name = "websockets" },
+]
+
+[[package]]
 name = "pydantic-ai-slim"
-version = "2.70.1.dev84+6e0219d25"
-source = { git = "https://github.com/pydantic/pydantic-ai?subdirectory=pydantic_ai_slim&rev=6e0219d251dfde9a9445c019504a8079142bbb7a#6e0219d251dfde9a9445c019504a8079142bbb7a" }
+version = "2.71.1.dev31+000da4b4a"
+source = { git = "https://github.com/pydantic/pydantic-ai?subdirectory=pydantic_ai_slim&rev=000da4b4a05462d1b9989a9400c40bd4f9c8c8e7#000da4b4a05462d1b9989a9400c40bd4f9c8c8e7" }
 dependencies = [
     { name = "anyio" },
     { name = "genai-prices" },
@@ -1484,42 +1513,23 @@ openai = [
 
 [[package]]
 name = "pydantic-clai2"
-version = "0.70.1.dev84+6e0219d25"
-source = { git = "https://github.com/pydantic/pydantic-ai?subdirectory=src%2Fpydantic_clai2&rev=6e0219d251dfde9a9445c019504a8079142bbb7a#6e0219d251dfde9a9445c019504a8079142bbb7a" }
+version = "0.71.1.dev31+000da4b4a"
+source = { git = "https://github.com/pydantic/pydantic-ai?subdirectory=src%2Fpydantic_clai2&rev=000da4b4a05462d1b9989a9400c40bd4f9c8c8e7#000da4b4a05462d1b9989a9400c40bd4f9c8c8e7" }
 dependencies = [
-    { name = "cryptography" },
-    { name = "fastapi" },
-    { name = "fastmcp-slim", extra = ["client"] },
-    { name = "genai-prices" },
-    { name = "httpx" },
-    { name = "keyring" },
-    { name = "logfire", extra = ["httpx"] },
-    { name = "opentelemetry-instrumentation-httpx" },
-    { name = "pillow" },
-    { name = "prompt-toolkit" },
-    { name = "pydantic-ai-harness", extra = ["coder", "skills"] },
-    { name = "pydantic-ai-slim", extra = ["anthropic", "mcp", "openai"] },
-    { name = "pydantic-monty" },
-    { name = "pyfiglet" },
-    { name = "python-dotenv" },
-    { name = "pyyaml" },
-    { name = "rich" },
-    { name = "termflow-md" },
-    { name = "uvicorn" },
-    { name = "websockets" },
+    { name = "pydantic-ai-pax" },
 ]
 
 [[package]]
 name = "pydantic-claude-code"
-version = "0.7.5"
+version = "0.7.6"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "keyring" },
     { name = "pydantic-ai-slim", extra = ["anthropic"] },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ad/77/f2384fe15af01e5f0365278b85650e849c4a8dd18cb18b18dcc25e2eb75f/pydantic_claude_code-0.7.5.tar.gz", hash = "sha256:fd897813db77260d41d0dbdfc327657bca203f93fa79eba50d2864720d574b30", size = 188494, upload-time = "2026-11-10T15:47:10.288Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/9a/ba/14696b6fd10ebe5e9a734a947b2c1c4f8683f144af01af03249030325167/pydantic_claude_code-0.7.6.tar.gz", hash = "sha256:804985c3387a769f52946a2887ee1e6f558cca78261386ad0e300993ab823c05", size = 189291, upload-time = "2026-11-18T20:29:24.806Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/9a/09/e98415a73aff29c2ab2650db629db560b5e691393993e280aeaeaaa73a21/pydantic_claude_code-0.7.5-py3-none-any.whl", hash = "sha256:c9e052d00f663b7dd941abaf0e3916718a80502254d1963bda5e7be289033bdf", size = 32375, upload-time = "2026-11-10T15:47:09.419Z" },
+    { url = "https://files.pythonhosted.org/packages/62/63/259d1d811c9d4ab9b3000c5e2c1728cdf72d3e39dd27eaf5b56d981de85a/pydantic_claude_code-0.7.6-py3-none-any.whl", hash = "sha256:61aa7abc57b22a1ef931afd1d3fda2bddb8dccda4089086ac0913583031fe335", size = 32708, upload-time = "2026-11-18T20:29:23.635Z" },
 ]
 
 [[package]]
@@ -1626,8 +1636,8 @@ wheels = [
 
 [[package]]
 name = "pydantic-graph"
-version = "2.70.1.dev84+6e0219d25"
-source = { git = "https://github.com/pydantic/pydantic-ai?subdirectory=pydantic_graph&rev=6e0219d251dfde9a9445c019504a8079142bbb7a#6e0219d251dfde9a9445c019504a8079142bbb7a" }
+version = "2.71.1.dev31+000da4b4a"
+source = { git = "https://github.com/pydantic/pydantic-ai?subdirectory=pydantic_graph&rev=000da4b4a05462d1b9989a9400c40bd4f9c8c8e7#000da4b4a05462d1b9989a9400c40bd4f9c8c8e7" }
 dependencies = [
     { name = "anyio" },
     { name = "logfire-api" },

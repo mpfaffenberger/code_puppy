@@ -133,7 +133,7 @@ def test_config_reads_migrated_values_and_names(
 def test_runtime_owned_keys_come_from_the_runtime(
     home: Path, installed_distribution: None
 ) -> None:
-    from pydantic_clai2.config.settings_store import SettingsStore
+    from pydantic_ai_pax.config.settings_store import SettingsStore
 
     store = SettingsStore()
     store.set("model", "anthropic:claude-sonnet-5")

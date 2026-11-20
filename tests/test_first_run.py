@@ -15,7 +15,7 @@ from code_puppy.personality import FACTORY, PLUGIN_ID, PersonalitySettings
 
 @pytest.fixture
 def store(home: Path, installed_distribution: None) -> Any:
-    from pydantic_clai2.config.settings_store import SettingsStore
+    from pydantic_ai_pax.config.settings_store import SettingsStore
 
     return SettingsStore()
 
@@ -38,7 +38,7 @@ def saved_names(store: Any) -> dict[str, Any]:
 
 
 def declare(store: Any, **fields: Any) -> None:
-    from pydantic_clai2.config import PluginSettings
+    from pydantic_ai_pax.config import PluginSettings
 
     store.save_plugin(PluginSettings(id=PLUGIN_ID, factory=FACTORY, **fields))
 
@@ -162,11 +162,11 @@ def test_ctrl_c_at_a_question_backs_out(
 def launch(
     store: Any, monkeypatch: pytest.MonkeyPatch
 ) -> Callable[..., dict[str, Any]]:
-    """Start a session through the installed ``chat``, with clai2's own stubbed out.
+    """Start a session through the installed ``chat``, with pax's own stubbed out.
 
-    ``Rex`` and ``Sam`` are waiting on stdin. Returns what clai2's ``chat`` was given.
+    ``Rex`` and ``Sam`` are waiting on stdin. Returns what pax's ``chat`` was given.
     """
-    from pydantic_clai2 import app
+    from pydantic_ai_pax import app
 
     from code_puppy import distribution
 

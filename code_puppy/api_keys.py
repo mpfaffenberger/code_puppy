@@ -24,8 +24,8 @@ def export_saved_keys(environ: MutableMapping[str, str] = os.environ) -> list[st
 
     Does not touch the keyring unless a key bundle exists.
     """
-    from pydantic_clai2.config.api_keys import load_keys
-    from pydantic_clai2.config.credential_store import has_credentials
+    from pydantic_ai_pax.config.api_keys import load_keys
+    from pydantic_ai_pax.config.credential_store import has_credentials
 
     if not has_credentials(account=KEY_ACCOUNT):
         return []

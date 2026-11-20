@@ -1,9 +1,10 @@
 # Contributing to Code Puppy (1.0 line, branch `v1`)
 
 > **Golden rule:** Code Puppy 1.0 is a *distribution* of
-> [`pydantic-clai2`](https://github.com/pydantic/pydantic-ai/tree/main/src/pydantic_clai2).
+> [`pydantic-ai-pax`](https://github.com/pydantic/pydantic-ai/tree/main/src/pydantic_ai_pax)
+> ("pax"; named `pydantic-clai2` until 2026-11-19).
 > The runtime owns the agent loop, terminal UI, sessions, models, MCP and
-> plugins. Do not reimplement any of that here. New behaviour is a clai2
+> plugins. Do not reimplement any of that here. New behaviour is a pax
 > `Plugin`, a `pydantic-ai-harness` capability, or an upstream change.
 
 Plan and status: `docs/upgrade/code_puppy_1_0_rewrite_plan.md`.
@@ -15,7 +16,7 @@ Plan and status: `docs/upgrade/code_puppy_1_0_rewrite_plan.md`.
 |---|---|
 | `code_puppy/main.py` | Entry point for `pup` / `code-puppy`; import-light until the splash is up |
 | `code_puppy/identity.py` | Names and directories. Stdlib-only |
-| `code_puppy/distribution.py` | **Every** replacement of a clai2 name. Nowhere else |
+| `code_puppy/distribution.py` | **Every** replacement of a pax name. Nowhere else |
 | `code_puppy/update.py` | `/update`, `pup update`: PyPI lookup, version rules, wording |
 | `code_puppy/branding.py`, `_art.py` | Banner, welcome lines, splash art |
 | `code_puppy/migrate/` | One-time carry-over of a 0.0.x setup |
@@ -30,12 +31,16 @@ Plan and status: `docs/upgrade/code_puppy_1_0_rewrite_plan.md`.
 
 ## Rules
 
-1. **One pin.** `pydantic-clai2` is pinned exactly and carries the harness and
+1. **One pin.** `pydantic-ai-pax` is pinned exactly and carries the harness and
    `pydantic-ai-slim` pins. Never add a direct pin for either.
+   `pydantic-clai2` is now only an alias package (`import pydantic_clai2`
+   resolves to `pydantic_ai_pax`). It is a dependency solely because
+   `pydantic-claude-code` 0.7.x imports the old name; pin it to pax's version,
+   import `pydantic_ai_pax` in our code, and drop it when that plugin moves.
    Claude Code models come from **`pydantic-claude-code`**. Do not "fix" that
    to `pydantic-ai-claude-code`: that PyPI name is someone else's project.
 2. **Replacements live in `distribution.py`.** If you must replace another
-   clai2 name, add it there with `_replace`, add a row to the table in its
+   pax name, add it there with `_replace`, add a row to the table in its
    docstring, and add it to `REPLACED` in
    `tests/test_distribution_contract.py`. Each one is debt: prefer an upstream
    seam.
@@ -69,14 +74,14 @@ Plan and status: `docs/upgrade/code_puppy_1_0_rewrite_plan.md`.
   `scripts/check_release_version.py` fails the publish job if that happens.
 - A release candidate can only depend on packages released to PyPI.
   Between runtime releases `v1` may build against a commit of pydantic-ai
-  `main`: `[tool.uv.sources]` in `pyproject.toml`, all four packages at one
+  `main`: `[tool.uv.sources]` in `pyproject.toml`, every package at one
   `rev`. The release guard refuses to publish in that state. Restore
-  `pydantic-clai2==X.Y.Z` and delete the sources first.
+  `pydantic-ai-pax==X.Y.Z` and delete the sources first.
 - Pushing to `v1` or `main` publishes. Do not push without being asked.
 
 ## Writing a plugin
 
-Use the clai2 `Plugin` API (`pydantic_clai2/_docs/PLUGINS.md` in the installed
+Use the pax `Plugin` API (`pydantic_ai_pax/_docs/PLUGINS.md` in the installed
 package). A plugin Code Puppy ships gets a declaration in
 `code_puppy/builtin_plugins.py`. A user drops a file or package into
 `~/.code_puppy/plugins/`.

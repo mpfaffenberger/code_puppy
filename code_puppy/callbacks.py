@@ -14,7 +14,7 @@ Hooks come in three tiers:
   plugins. They register and never fire too, and are listed separately so the
   bridge can say which is which.
 
-New plugins should use the pydantic-clai2 ``Plugin`` API instead.
+New plugins should use the pydantic-ai-pax ``Plugin`` API instead.
 """
 
 from __future__ import annotations

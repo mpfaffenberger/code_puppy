@@ -34,7 +34,7 @@ def printed(show: Callable[[Console], None], *, highlight: bool) -> str:
 def test_the_welcome_is_printed_as_written(
     installed_distribution: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from pydantic_clai2.ui.rendering import welcome
+    from pydantic_ai_pax.ui.rendering import welcome
 
     # The runtime's project report is not Code Puppy's text.
     monkeypatch.setattr(welcome, "_report_project", lambda project, console: None)

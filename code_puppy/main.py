@@ -88,7 +88,7 @@ def _own_command(argv: list[str]) -> int | None:
 
 
 def main_entry() -> None:
-    """Start Code Puppy: pydantic-clai2 with Code Puppy's identity installed."""
+    """Start Code Puppy: pydantic-ai-pax with Code Puppy's identity installed."""
     _load_dotenv()
     code = _own_command(sys.argv)
     if code is not None:
@@ -97,7 +97,7 @@ def main_entry() -> None:
     from code_puppy import distribution
 
     distribution.install_splash()
-    from pydantic_clai2.ui.rendering.splash import Splash
+    from pydantic_ai_pax.ui.rendering.splash import Splash
 
     os.environ["PYDANTIC_AI_NO_BANNER"] = "1"
     splash = Splash(
@@ -107,8 +107,8 @@ def main_entry() -> None:
     try:
         distribution.install()
         _migrate_legacy_setup()
-        from pydantic_clai2.__main__ import quiet_telemetry_logs
-        from pydantic_clai2.cli.cli import run
+        from pydantic_ai_pax.__main__ import quiet_telemetry_logs
+        from pydantic_ai_pax.cli.cli import run
 
         with warnings.catch_warnings(), quiet_telemetry_logs():
             if not sys.warnoptions:

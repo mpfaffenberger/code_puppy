@@ -18,7 +18,7 @@ see ``trust``. On a name clash the project copy replaces the user one.
 The retired ``code-puppy-core-plugins`` distribution is skipped: its plugins
 were written against 0.0.x internals and have native replacements.
 
-New plugins should be pydantic-clai2 ``Plugin`` subclasses instead.
+New plugins should be pydantic-ai-pax ``Plugin`` subclasses instead.
 """
 
 from __future__ import annotations

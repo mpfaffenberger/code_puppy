@@ -39,7 +39,7 @@ TRUTHY = frozenset({"1", "true", "yes", "on"})
 
 def _runtime_value(key: str) -> str | None:
     """A key the runtime owns, in the string form 0.0.x returned."""
-    from pydantic_clai2.config.settings_store import SettingsStore
+    from pydantic_ai_pax.config.settings_store import SettingsStore
 
     settings = SettingsStore().load()
     if key == "model":
@@ -98,7 +98,7 @@ def get_message_limit(default: int = 1000) -> int:
 
 def _personality_name(key: str, default: str) -> str:
     """A name from the personality plugin's settings, where 1.0 keeps them."""
-    from pydantic_clai2.config.settings_store import SettingsStore
+    from pydantic_ai_pax.config.settings_store import SettingsStore
 
     from code_puppy import personality
 

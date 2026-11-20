@@ -1,6 +1,6 @@
 """``puppy.db``: Code Puppy's own SQLite file, beside the runtime's ``config.db``.
 
-pydantic-clai2 owns ``config.db`` and rejects setting names it does not know.
+pydantic-ai-pax owns ``config.db`` and rejects setting names it does not know.
 Everything that belongs to Code Puppy alone lives here instead:
 
 * ``legacy_settings``: 0.0.x ``puppy.cfg`` keys with no 1.0 equivalent, and

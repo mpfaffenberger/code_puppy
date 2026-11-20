@@ -52,7 +52,7 @@ def test_refused(branch: str, version: str, fragment: str) -> None:
 
 RELEASABLE = """
 [project]
-dependencies = ["pydantic-clai2==0.70.0", "packaging>=24.0"]
+dependencies = ["pydantic-ai-pax==0.70.0", "packaging>=24.0"]
 """
 
 
@@ -72,15 +72,15 @@ def test_a_build_against_unreleased_runtime_is_refused(
     """`[tool.uv.sources]` never reaches PyPI, so the upload would depend on the wrong runtime."""
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text(
-        '[project]\ndependencies = ["pydantic-clai2"]\n'
+        '[project]\ndependencies = ["pydantic-ai-pax"]\n'
         "[tool.uv.sources]\n"
-        'pydantic-clai2 = { git = "https://github.com/pydantic/pydantic-ai", rev = "abc" }\n',
+        'pydantic-ai-pax = { git = "https://github.com/pydantic/pydantic-ai", rev = "abc" }\n',
         encoding="utf-8",
     )
 
     assert guard.main(["prog", "v1", "1.0.0rc2"], pyproject=pyproject) == 1
     assert (
-        "pydantic-clai2 come from `[tool.uv.sources]`, not PyPI"
+        "pydantic-ai-pax come from `[tool.uv.sources]`, not PyPI"
         in capsys.readouterr().out
     )
 
@@ -88,10 +88,12 @@ def test_a_build_against_unreleased_runtime_is_refused(
 @pytest.mark.parametrize(
     "requirement",
     [
+        "pydantic-ai-pax",
+        "pydantic-ai-pax>=0.70.0",
+        "pydantic_ai_pax==0.70.*",
+        "pydantic-ai-pax @ git+https://github.com/pydantic/pydantic-ai",
+        # The alias package: loose, it could resolve to the pre-rename runtime.
         "pydantic-clai2",
-        "pydantic-clai2>=0.70.0",
-        "pydantic_clai2==0.70.*",
-        "pydantic-clai2 @ git+https://github.com/pydantic/pydantic-ai",
     ],
 )
 def test_a_loose_runtime_pin_is_refused(requirement: str) -> None:
@@ -102,7 +104,12 @@ def test_a_loose_runtime_pin_is_refused(requirement: str) -> None:
 @pytest.mark.parametrize(
     "pyproject",
     [
-        {"project": {"dependencies": ["pydantic-clai2==0.70.0", "packaging>=24.0"]}},
+        {"project": {"dependencies": ["pydantic-ai-pax==0.72.0", "packaging>=24.0"]}},
+        {
+            "project": {
+                "dependencies": ["pydantic-ai-pax==0.72.0", "pydantic-clai2==0.72.0"]
+            }
+        },
         # 0.0.x on `main` has no runtime to pin.
         {"project": {"dependencies": ["rich>=13"]}},
         {},

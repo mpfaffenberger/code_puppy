@@ -1,6 +1,6 @@
 """``/update``, ``pup update`` and ``pup --update`` for Code Puppy.
 
-Works like pydantic-clai2's updater, which supplies the machinery (background
+Works like pydantic-ai-pax's updater, which supplies the machinery (background
 check, status-row notice, update menu, ``uv tool install``, restart into the
 new build, the Windows install-after-exit window). This module supplies what
 is specific to Code Puppy: which package to look up, which versions count as
@@ -11,7 +11,7 @@ Channels (``/set updates.channel stable|main``):
 * ``stable`` follows stable PyPI releases of ``code-puppy``.
 * ``main`` also follows pre-releases (release candidates).
 
-Two rules differ from clai2 on purpose:
+Two rules differ from pax on purpose:
 
 * A running pre-release follows pre-releases on either channel. Someone testing
   ``1.0.0rc1`` keeps getting release candidates and lands on ``1.0.0`` when it
@@ -33,15 +33,15 @@ from typing import TYPE_CHECKING, Any
 
 from anyio import CancelScope, run_process, to_thread
 from packaging.version import InvalidVersion, Version
-from pydantic_clai2.cli.self_update import (
+from pydantic_ai_pax.cli.self_update import (
     TIMEOUT,
     Installed,
     Update,
     Updates,
     powershell,
 )
-from pydantic_clai2.config import UpdateChannel
-from pydantic_clai2.plugins import InstallProgress, UpdateStage
+from pydantic_ai_pax.config import UpdateChannel
+from pydantic_ai_pax.plugins import InstallProgress, UpdateStage
 
 from code_puppy.identity import COMMANDS, DISPLAY_NAME, DISTRIBUTION
 
@@ -163,6 +163,11 @@ def launch_names(
     return [f"{name}.exe" for name in names] if windows else names
 
 
+def command_name() -> str:
+    """The command the user ran, wherever pax would name its own ``pax``."""
+    return launch_names(windows=False)[0]
+
+
 async def tool_executable(uv: str) -> str | None:
     """The ``pup`` that ``uv tool install`` just wrote to uv's tool bin directory."""
     result = await run_process([uv, "tool", "dir", "--bin"], check=False)
@@ -197,7 +202,7 @@ def after_exit_script(command: Sequence[str], *, pid: int) -> str:
 
 @dataclass(kw_only=True)
 class PuppyUpdates(Updates):
-    """clai2's ``Updates`` with Code Puppy's lookup, version rules and wording."""
+    """pax's ``Updates`` with Code Puppy's lookup, version rules and wording."""
 
     current: Installed = field(default_factory=installed)
     fetch: Callable[[UpdateChannel], str] = latest

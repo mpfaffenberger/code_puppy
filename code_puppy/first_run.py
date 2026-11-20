@@ -106,7 +106,7 @@ def ask(keys: Sequence[str], *, read: Read, write: Write) -> dict[str, str]:
 
 def save(store: Any, answers: dict[str, str]) -> PersonalitySettings:
     """Add the answers to the plugin's saved settings; return the names now in effect."""
-    from pydantic_clai2.config import PluginSettings
+    from pydantic_ai_pax.config import PluginSettings
 
     declaration = _declaration(store) or PluginSettings(id=PLUGIN_ID, factory=FACTORY)
     settings = {**declaration.settings, **answers}

@@ -17,7 +17,7 @@ from code_puppy.builtin_plugins import PUPPY_PLUGINS
 def test_every_shipped_declaration_names_a_plugin_class(
     installed_distribution: None,
 ) -> None:
-    from pydantic_clai2.plugins import Plugin
+    from pydantic_ai_pax.plugins import Plugin
 
     assert [plugin.id for plugin in PUPPY_PLUGINS] == [
         "personality",

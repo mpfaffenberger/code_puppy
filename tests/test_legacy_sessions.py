@@ -206,8 +206,8 @@ def test_clean_drops_only_a_trailing_unanswered_call() -> None:
 def test_puppy_is_an_import_source_beside_claude_and_codex(
     installed_distribution: None,
 ) -> None:
-    from pydantic_clai2.runtime import imported_sessions, sessions
-    from pydantic_clai2.ui.menus import session_browser
+    from pydantic_ai_pax.runtime import imported_sessions, sessions
+    from pydantic_ai_pax.ui.menus import session_browser
 
     assert imported_sessions.IMPORT_SOURCES == ("claude", "codex", "puppy")
     assert sessions.IMPORT_SOURCES is imported_sessions.IMPORT_SOURCES
@@ -222,7 +222,7 @@ async def test_a_session_is_listed_then_copied_into_the_store_when_picked(
     from pydantic_ai_harness.step_persistence.conversations import (
         SqliteConversationStore,
     )
-    from pydantic_clai2.runtime.imported_sessions import (
+    from pydantic_ai_pax.runtime.imported_sessions import (
         ImportCatalog,
         save_import,
         source_of,

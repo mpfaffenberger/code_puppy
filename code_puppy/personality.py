@@ -24,8 +24,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from pydantic_ai import RunContext
 from pydantic_ai.capabilities import AbstractCapability, AgentCapability, WrapRunHandler
 from pydantic_ai.run import AgentRunResult
-from pydantic_clai2.plugins import Plugin, PluginHost
-from pydantic_clai2.plugins.menus import FieldRow, SettingsMenu
+from pydantic_ai_pax.plugins import Plugin, PluginHost
+from pydantic_ai_pax.plugins.menus import FieldRow, SettingsMenu
 
 PLUGIN_ID = "personality"
 FACTORY = "code_puppy.personality:Personality"

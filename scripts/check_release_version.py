@@ -35,8 +35,12 @@ from packaging.version import InvalidVersion, Version
 STABLE_BRANCH = "main"
 RC_BRANCH = "v1"
 FIRST_REWRITE_RELEASE = Version("1.0.0rc1")
-RUNTIME = "pydantic-clai2"
-"""Pinned exactly: it carries the pins of everything else in the runtime."""
+RUNTIME = ("pydantic-ai-pax", "pydantic-clai2")
+"""Pinned exactly. pax carries the pins of everything else in the runtime.
+
+``pydantic-clai2`` is its deprecated alias package since the rename, and was
+the runtime itself before it: a loose requirement could resolve to an old one.
+"""
 PYPROJECT = Path(__file__).resolve().parent.parent / "pyproject.toml"
 
 
@@ -87,10 +91,9 @@ def dependency_problem(pyproject: Mapping[str, Any]) -> str | None:
         )
     for text in pyproject.get("project", {}).get("dependencies", []):
         requirement = Requirement(text)
-        if canonicalize_name(requirement.name) == RUNTIME and not _pinned_exactly(
-            requirement
-        ):
-            return f"`{text}` is not an exact pin; use `{RUNTIME}==X.Y.Z`"
+        name = canonicalize_name(requirement.name)
+        if name in RUNTIME and not _pinned_exactly(requirement):
+            return f"`{text}` is not an exact pin; use `{name}==X.Y.Z`"
     return None
 
 

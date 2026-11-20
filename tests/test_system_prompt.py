@@ -15,7 +15,7 @@ SPY_PLUGIN = """
     from typing import Any
 
     from pydantic_ai.capabilities import AgentCapability, Hooks
-    from pydantic_clai2.plugins import Plugin
+    from pydantic_ai_pax.plugins import Plugin
 
 
     class Spy(Plugin):
@@ -49,7 +49,7 @@ def pup(*args: str, env: dict[str, str], cwd: Path) -> subprocess.CompletedProce
     )
 
 
-def test_the_stock_agent_is_code_puppy_and_never_hears_of_clai(
+def test_the_stock_agent_is_code_puppy_and_never_hears_of_pax(
     home: Path, tmp_path: Path
 ) -> None:
     """A native drop-in plugin records the first request of a real stock-agent turn.
@@ -81,6 +81,9 @@ def test_the_stock_agent_is_code_puppy_and_never_hears_of_clai(
         in instructions
     )
     assert "I am Puppy! \N{DOG FACE} A sassy" in instructions
-    # clai2's docs capability is gone, and nothing else names the runtime to the model.
+    # pax's docs capability is gone, and nothing else names the runtime to the model.
     # As a word: `coder` tells the model not to "claim" unfinished work is done.
-    assert not re.search(r"\bclai2?\b|pydantic[-_]clai", instructions, re.IGNORECASE)
+    # pax was named clai2, and still calls itself CLAI in places.
+    assert not re.search(
+        r"\bpax\b|\bclai2?\b|pydantic[-_](ai[-_]pax|clai)", instructions, re.IGNORECASE
+    )

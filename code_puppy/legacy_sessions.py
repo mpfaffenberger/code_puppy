@@ -29,7 +29,7 @@ from pydantic_ai.messages import (
     ModelResponse,
     ToolCallPart,
 )
-from pydantic_clai2.runtime.imported_history import Header, framed, title_text
+from pydantic_ai_pax.runtime.imported_history import Header, framed, title_text
 
 from code_puppy import identity
 

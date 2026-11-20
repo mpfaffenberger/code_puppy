@@ -8,7 +8,7 @@ from typing import Any
 
 import httpx
 import pytest
-from pydantic_clai2.cli.self_update import Installed
+from pydantic_ai_pax.cli.self_update import Installed
 
 from code_puppy import update
 
@@ -102,6 +102,17 @@ def test_install_command_pins_the_exact_version() -> None:
         "code-puppy==1.0.0rc2",
     ]
     assert found.overrides() == ""
+
+
+@pytest.mark.parametrize(
+    ("argv0", "expected"),
+    [("/bin/code-puppy", "code-puppy"), ("/bin/pup", "pup"), ("/bin/pytest", "pup")],
+)
+def test_command_name_is_the_command_that_ran(
+    argv0: str, expected: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("sys.argv", [argv0])
+    assert update.command_name() == expected
 
 
 def test_launch_names_prefer_the_command_that_ran() -> None:

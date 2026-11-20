@@ -184,9 +184,9 @@ def test_plan_describes_without_revealing_secrets(legacy_home: Path) -> None:
 
 
 def test_apply_writes_every_store(legacy_home: Path) -> None:
-    from pydantic_clai2.config.api_keys import load_keys
-    from pydantic_clai2.config.settings_store import SettingsStore
-    from pydantic_clai2.mcp.store import MCPStore
+    from pydantic_ai_pax.config.api_keys import load_keys
+    from pydantic_ai_pax.config.settings_store import SettingsStore
+    from pydantic_ai_pax.mcp.store import MCPStore
 
     result = runner.apply(runner.build_plan())
 
@@ -218,8 +218,8 @@ def test_apply_writes_every_store(legacy_home: Path) -> None:
 
 
 def test_names_already_set_in_1_0_are_kept(legacy_home: Path) -> None:
-    from pydantic_clai2.config import PluginSettings
-    from pydantic_clai2.config.settings_store import SettingsStore
+    from pydantic_ai_pax.config import PluginSettings
+    from pydantic_ai_pax.config.settings_store import SettingsStore
 
     SettingsStore().save_plugin(
         PluginSettings(
@@ -250,7 +250,7 @@ def test_legacy_files_are_never_modified(legacy_home: Path) -> None:
 
 
 def test_second_run_changes_nothing_and_keeps_user_choices(legacy_home: Path) -> None:
-    from pydantic_clai2.config.settings_store import SettingsStore
+    from pydantic_ai_pax.config.settings_store import SettingsStore
 
     assert migrate.auto()  # first start reports what it brought over
     SettingsStore().set("run.request_limit", 999)  # the user changes a migrated value

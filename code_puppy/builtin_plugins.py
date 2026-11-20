@@ -1,13 +1,13 @@
-"""Plugins Code Puppy ships on top of pydantic-clai2's own.
+"""Plugins Code Puppy ships on top of pydantic-ai-pax's own.
 
-Each entry is a clai2 plugin declaration. ``distribution`` appends them to
-clai2's built-in set, so ``/plugins`` lists them as shipped and
+Each entry is a pax plugin declaration. ``distribution`` appends them to
+pax's built-in set, so ``/plugins`` lists them as shipped and
 ``/plugins remove`` restores their defaults.
 """
 
 from __future__ import annotations
 
-from pydantic_clai2.config import PluginSettings
+from pydantic_ai_pax.config import PluginSettings
 
 CLAUDE_CODE_NO_UPDATE_CHECK = "CLAUDE_CODE_NO_UPDATE_CHECK"
 """Turns off the Claude Code plugin's own update notice.

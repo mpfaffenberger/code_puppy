@@ -57,8 +57,8 @@ def test_colours_are_distinct() -> None:
     assert len(shades) == len(set(shades))
 
 
-def test_clai2_paints_with_code_puppys_colours(installed_distribution: None) -> None:
-    from pydantic_clai2.ui.rendering import splash, theme
+def test_pax_paints_with_code_puppys_colours(installed_distribution: None) -> None:
+    from pydantic_ai_pax.ui.rendering import splash, theme
 
     assert theme.ACCENT == f"bold {colors.BLUE}"
     assert theme.color(theme.ERROR) == colors.RED
@@ -70,7 +70,7 @@ def test_clai2_paints_with_code_puppys_colours(installed_distribution: None) -> 
 def test_sixteen_colour_terminals_get_0_0_x_codes(
     installed_distribution: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from pydantic_clai2.ui.rendering import theme
+    from pydantic_ai_pax.ui.rendering import theme
 
     monkeypatch.delenv("COLORTERM", raising=False)
     assert theme.sgr(theme.ACCENT) == "\x1b[1;94m"
@@ -81,7 +81,7 @@ def test_sixteen_colour_terminals_get_0_0_x_codes(
 def test_a_palette_paints_each_shade_from_its_slot(
     installed_distribution: None,
 ) -> None:
-    from pydantic_clai2.ui.rendering import theme
+    from pydantic_ai_pax.ui.rendering import theme
 
     name = next(choice for choice in theme.names() if choice != "default")
     with theme.use(lambda: name):

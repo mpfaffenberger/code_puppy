@@ -1,7 +1,7 @@
 """Code Puppy's startup art: the paw raster and the "PUP" lettering.
 
 Digits in ``PAW`` are shade tiers (0 blank .. 3 solid), the encoding
-pydantic-clai2's splash paints. ``LABEL`` is pyfiglet ``ansi_shadow``,
+pydantic-ai-pax's splash paints. ``LABEL`` is pyfiglet ``ansi_shadow``,
 baked so the splash stays import-light.
 """
 

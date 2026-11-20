@@ -6,7 +6,7 @@ blue → cyan → green banner. Named brights vanish on a light background
 (``bright_cyan`` on white is 1.25:1), so each hue here is a mid-tone that
 keeps at least 3.5:1 contrast on both a white and a near-black background.
 
-clai2's default theme speaks in Pydantic brand names (``LITHIUM``,
+pax's default theme speaks in Pydantic brand names (``LITHIUM``,
 ``CALCIUM``...). :data:`SHADES` says which puppy colour stands in for each;
 ``distribution`` installs them. Stdlib-only: it runs before the splash.
 """
@@ -54,7 +54,7 @@ SHADES = {
     "AI_CYAN": Shade(CYAN, 6, 36),
     "AI_YELLOW": Shade(YELLOW, 3, 33),
 }
-"""clai2 theme name → the puppy colour that replaces it."""
+"""pax theme name → the puppy colour that replaces it."""
 
 ROLES = {
     "ACCENT": f"bold {BLUE}",
@@ -71,7 +71,7 @@ ROLES = {
     "DIFF_ADDITION": "#0B1F0B",
     "DIFF_DELETION": "#390E1A",
 }
-"""clai2 theme roles, as 0.0.x coloured them."""
+"""pax theme roles, as 0.0.x coloured them."""
 
 NEON = {
     "PURPLE": Shade("#7A1191", 5, 35),
@@ -79,4 +79,4 @@ NEON = {
     "LIGHT_PURPLE": Shade("#FF5CF4", 13, 95),
     "SUGAR": Shade("#FFD1FB", 15, 97),
 }
-"""The 0.0.x splash's neon magenta paw, by the names clai2's splash paints with."""
+"""The 0.0.x splash's neon magenta paw, by the names pax's splash paints with."""
