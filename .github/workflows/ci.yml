@@ -85,9 +85,8 @@ jobs:
         # 0.16.0 sneak in and change the default rule set (5,901 "new" errors).
         run: pip install 'ruff>=0.15,<0.16'
 
-      - name: Install code_puppy
-        run: pip install .
-
+      # Nothing else is installed: ruff reads the source, and `pip install .`
+      # cannot resolve a runtime that `[tool.uv.sources]` builds from git.
       - name: Lint with ruff
         run: ruff check .
 

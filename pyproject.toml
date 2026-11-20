@@ -24,6 +24,16 @@ dependencies = [
     # `typesafe` model provider. `tests/test_optional_support.py` fails when
     # pax grows an extra that is not listed here.
     "pydantic-ai-pax[boxd,daytona,e2b,kubernetes,modal,opensandbox,render,sprites,typesafe]",
+    # Neither is imported here. Both keep an Intel Mac install to pre-built
+    # wheels, where a source build would need a Rust toolchain; the
+    # `intel-mac-wheels` CI job fails without them. Drop each once its x86_64
+    # macOS wheels return.
+    # - cryptography 49+ publishes arm64-only macOS wheels; 48.x ships
+    #   universal2. Transitive via pax, pyjwt and authlib.
+    # - cbor2 6 has no Intel macOS wheel; 5.x is pure Python and satisfies
+    #   modal's unpinned requirement.
+    "cryptography<49; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "cbor2<6; sys_platform == 'darwin' and platform_machine == 'x86_64'",
     # TEMPORARY: the deprecated alias package, which makes `import pydantic_clai2`
     # resolve to `pydantic_ai_pax`. `pydantic-claude-code` 0.7.x imports the
     # runtime under the old name. Drop this once a release of it imports
