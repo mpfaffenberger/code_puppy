@@ -16,6 +16,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from code_puppy.colors import NEON, ROLES, SHADES
+
 REPLACED = [
     ("pydantic_clai2.config.settings_store", "config_dir"),
     ("pydantic_clai2.config.settings_store", "state_dir"),
@@ -33,6 +35,11 @@ REPLACED = [
     ("pydantic_clai2.cli.cli", "_update"),
     ("pydantic_clai2.ui.rendering.splash_art", "PYRAMID"),
     ("pydantic_clai2.ui.rendering.splash_art", "LABEL"),
+    *(
+        ("pydantic_clai2.ui.rendering.theme", name)
+        for name in (*SHADES, *ROLES, "_SLOTS", "_BASIC")
+    ),
+    *(("pydantic_clai2.ui.rendering.splash", name) for name in NEON),
     ("pydantic_clai2.ui.rendering.branding", "print_banner"),
     ("pydantic_clai2.ui.rendering.welcome", "print_welcome"),
     ("pydantic_clai2.ui.rendering.welcome", "_report_project"),

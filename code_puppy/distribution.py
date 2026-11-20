@@ -18,6 +18,7 @@ clai2 symbol                                Seam that would replace it
 ``credential_store.credentials_path``       credentials under the config root
 ``self_update.*``, ``cli._update``          pluggable update source
 ``splash_art``, ``branding``, ``welcome``   pluggable branding
+``theme`` colours, ``splash`` colours       a distribution-supplied default theme
 ``builtins.DEFAULT_PLUGINS/STOCK_PLUGINS``  distribution-supplied default plugins
 ``app.create_stock_agent``                  configurable agent name and docs capability
 ``app.chat``                                a hook before an interactive session starts
@@ -86,9 +87,35 @@ def install_splash() -> None:
 
     from code_puppy import _art
 
+    _install_theme()
     _replace(splash_art, "PYRAMID", _art.PAW)
     _replace(splash_art, "LABEL", _art.LABEL)
     _splash_installed = True
+
+
+def _install_theme() -> None:
+    """Paint clai2's default theme in Code Puppy's colours.
+
+    Runs before any clai2 module but the splash art is imported: several bind
+    theme colours at import time, in dicts and default arguments that
+    :func:`_replace` cannot reach.
+    """
+    from pydantic_clai2.ui.rendering import theme
+
+    from code_puppy import colors
+
+    for name, shade in colors.SHADES.items():
+        setattr(theme, name, shade.colour)
+    for name, value in colors.ROLES.items():
+        setattr(theme, name, value)
+    shades = (*colors.SHADES.values(), *colors.NEON.values())
+    theme._SLOTS = {shade.colour: shade.slot for shade in shades}
+    theme._BASIC = {shade.colour: shade.sgr for shade in shades}
+
+    from pydantic_clai2.ui.rendering import splash
+
+    for name, shade in colors.NEON.items():
+        setattr(splash, name, shade.colour)
 
 
 def _install_first_run() -> None:
