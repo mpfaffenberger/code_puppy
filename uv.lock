@@ -3,8 +3,8 @@ revision = 3
 requires-python = ">=3.11, <3.15"
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'emscripten'",
-    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'emscripten'",
     "python_full_version >= '3.14' and sys_platform != 'emscripten'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'emscripten'",
     "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform != 'emscripten'",
     "python_full_version < '3.12'",
 ]
@@ -614,8 +614,8 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "packaging", specifier = ">=24.0" },
-    { name = "pydantic-ai-pax", extras = ["boxd", "daytona", "e2b", "kubernetes", "modal", "opensandbox", "render", "sprites", "typesafe"], git = "https://github.com/pydantic/pydantic-ai?subdirectory=src%2Fpydantic_ai_pax&rev=000da4b4a05462d1b9989a9400c40bd4f9c8c8e7" },
-    { name = "pydantic-clai2", git = "https://github.com/pydantic/pydantic-ai?subdirectory=src%2Fpydantic_clai2&rev=000da4b4a05462d1b9989a9400c40bd4f9c8c8e7" },
+    { name = "pydantic-ai-pax", extras = ["boxd", "daytona", "e2b", "kubernetes", "modal", "opensandbox", "render", "sprites", "typesafe"], git = "https://github.com/pydantic/pydantic-ai?subdirectory=src%2Fpydantic_ai_pax&rev=fcb45d846e0247930edfdbe643a09d0f1bd69a3a" },
+    { name = "pydantic-clai2", git = "https://github.com/pydantic/pydantic-ai?subdirectory=src%2Fpydantic_clai2&rev=fcb45d846e0247930edfdbe643a09d0f1bd69a3a" },
     { name = "pydantic-claude-code", specifier = ">=0.7.5,<0.8" },
 ]
 
@@ -2558,8 +2558,8 @@ email = [
 
 [[package]]
 name = "pydantic-ai-harness"
-version = "0.71.1.dev31+000da4b4a"
-source = { git = "https://github.com/pydantic/pydantic-ai?subdirectory=src%2Fpydantic_ai_harness&rev=000da4b4a05462d1b9989a9400c40bd4f9c8c8e7#000da4b4a05462d1b9989a9400c40bd4f9c8c8e7" }
+version = "0.71.1.dev52+fcb45d846"
+source = { git = "https://github.com/pydantic/pydantic-ai?subdirectory=src%2Fpydantic_ai_harness&rev=fcb45d846e0247930edfdbe643a09d0f1bd69a3a#fcb45d846e0247930edfdbe643a09d0f1bd69a3a" }
 dependencies = [
     { name = "genai-prices" },
     { name = "httpx2" },
@@ -2601,8 +2601,8 @@ sprites = [
 
 [[package]]
 name = "pydantic-ai-pax"
-version = "0.71.1.dev31+000da4b4a"
-source = { git = "https://github.com/pydantic/pydantic-ai?subdirectory=src%2Fpydantic_ai_pax&rev=000da4b4a05462d1b9989a9400c40bd4f9c8c8e7#000da4b4a05462d1b9989a9400c40bd4f9c8c8e7" }
+version = "0.71.1.dev52+fcb45d846"
+source = { git = "https://github.com/pydantic/pydantic-ai?subdirectory=src%2Fpydantic_ai_pax&rev=fcb45d846e0247930edfdbe643a09d0f1bd69a3a#fcb45d846e0247930edfdbe643a09d0f1bd69a3a" }
 dependencies = [
     { name = "cryptography" },
     { name = "fastapi" },
@@ -2657,8 +2657,8 @@ typesafe = [
 
 [[package]]
 name = "pydantic-ai-slim"
-version = "2.71.1.dev31+000da4b4a"
-source = { git = "https://github.com/pydantic/pydantic-ai?subdirectory=pydantic_ai_slim&rev=000da4b4a05462d1b9989a9400c40bd4f9c8c8e7#000da4b4a05462d1b9989a9400c40bd4f9c8c8e7" }
+version = "2.71.1.dev52+fcb45d846"
+source = { git = "https://github.com/pydantic/pydantic-ai?subdirectory=pydantic_ai_slim&rev=fcb45d846e0247930edfdbe643a09d0f1bd69a3a#fcb45d846e0247930edfdbe643a09d0f1bd69a3a" }
 dependencies = [
     { name = "anyio" },
     { name = "genai-prices" },
@@ -2687,8 +2687,8 @@ typesafe = [
 
 [[package]]
 name = "pydantic-clai2"
-version = "0.71.1.dev31+000da4b4a"
-source = { git = "https://github.com/pydantic/pydantic-ai?subdirectory=src%2Fpydantic_clai2&rev=000da4b4a05462d1b9989a9400c40bd4f9c8c8e7#000da4b4a05462d1b9989a9400c40bd4f9c8c8e7" }
+version = "0.71.1.dev52+fcb45d846"
+source = { git = "https://github.com/pydantic/pydantic-ai?subdirectory=src%2Fpydantic_clai2&rev=fcb45d846e0247930edfdbe643a09d0f1bd69a3a#fcb45d846e0247930edfdbe643a09d0f1bd69a3a" }
 dependencies = [
     { name = "pydantic-ai-pax" },
 ]
@@ -2814,8 +2814,8 @@ wheels = [
 
 [[package]]
 name = "pydantic-graph"
-version = "2.71.1.dev31+000da4b4a"
-source = { git = "https://github.com/pydantic/pydantic-ai?subdirectory=pydantic_graph&rev=000da4b4a05462d1b9989a9400c40bd4f9c8c8e7#000da4b4a05462d1b9989a9400c40bd4f9c8c8e7" }
+version = "2.71.1.dev52+fcb45d846"
+source = { git = "https://github.com/pydantic/pydantic-ai?subdirectory=pydantic_graph&rev=fcb45d846e0247930edfdbe643a09d0f1bd69a3a#fcb45d846e0247930edfdbe643a09d0f1bd69a3a" }
 dependencies = [
     { name = "anyio" },
     { name = "logfire-api" },

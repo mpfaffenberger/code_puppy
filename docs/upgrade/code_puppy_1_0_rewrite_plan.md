@@ -33,7 +33,7 @@ product. Measured on Windows: 62 more packages and about 140 MB (272 to
 412 MB), with no change in start-up time, since none is imported until used.
 
 **Not publishable as it stands.** The runtime is built from pydantic-ai `main`
-at `000da4b4a` (2026-11-20, 31 commits after 0.71.0) through
+at `fcb45d846` (2026-11-20, 52 commits after 0.71.0) through
 `[tool.uv.sources]`: `pydantic-ai-pax` is not on PyPI yet.
 `scripts/check_release_version.py` fails the publish job until
 `pydantic-ai-pax==X.Y.Z` is restored and the sources are deleted.
@@ -41,7 +41,7 @@ at `000da4b4a` (2026-11-20, 31 commits after 0.71.0) through
 | Phase | State | What exists |
 |---|---|---|
 | 0 Groundwork | built | Version `1.0.0rc1`; `publish.yml` bumps `rc` on `v1` and pushes to the triggering branch; version guard with tests |
-| 1 Skeleton | built | 0.0.x runtime and tests removed (222,143 lines); `pup` starts pydantic-ai-pax (`main` at `000da4b4a`, see above) as Code Puppy; `/update` rewritten |
+| 1 Skeleton | built | 0.0.x runtime and tests removed (222,143 lines); `pup` starts pydantic-ai-pax (`main` at `fcb45d846`, see above) as Code Puppy; `/update` rewritten |
 | 2 Migration | built, partial scope | Settings, API keys and MCP servers carry over; `pup migrate [--dry-run]` |
 | 3 Compat | partly built | Facades, plugin discovery, trust, bridge with 15 hooks. No JSON agents yet |
 | 4 Native plugins | not started | None of the surviving core plugins is ported |

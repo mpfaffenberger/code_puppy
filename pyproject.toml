@@ -71,16 +71,16 @@ asyncio_mode = "auto"
 [tool.uv]
 python-preference = "only-managed"
 
-# TEMPORARY: the runtime from pydantic-ai `main` at 000da4b4a (2026-11-20),
+# TEMPORARY: the runtime from pydantic-ai `main` at fcb45d846 (2026-11-20),
 # which no release contains yet: `pydantic-ai-pax` is not on PyPI. All five
 # come from the one commit, because pax pins the others to its own build. To
 # move the pin, change every `rev`.
 [tool.uv.sources]
-pydantic-ai-pax = { git = "https://github.com/pydantic/pydantic-ai", rev = "000da4b4a05462d1b9989a9400c40bd4f9c8c8e7", subdirectory = "src/pydantic_ai_pax" }
-pydantic-clai2 = { git = "https://github.com/pydantic/pydantic-ai", rev = "000da4b4a05462d1b9989a9400c40bd4f9c8c8e7", subdirectory = "src/pydantic_clai2" }
-pydantic-ai-harness = { git = "https://github.com/pydantic/pydantic-ai", rev = "000da4b4a05462d1b9989a9400c40bd4f9c8c8e7", subdirectory = "src/pydantic_ai_harness" }
-pydantic-ai-slim = { git = "https://github.com/pydantic/pydantic-ai", rev = "000da4b4a05462d1b9989a9400c40bd4f9c8c8e7", subdirectory = "pydantic_ai_slim" }
-pydantic-graph = { git = "https://github.com/pydantic/pydantic-ai", rev = "000da4b4a05462d1b9989a9400c40bd4f9c8c8e7", subdirectory = "pydantic_graph" }
+pydantic-ai-pax = { git = "https://github.com/pydantic/pydantic-ai", rev = "fcb45d846e0247930edfdbe643a09d0f1bd69a3a", subdirectory = "src/pydantic_ai_pax" }
+pydantic-clai2 = { git = "https://github.com/pydantic/pydantic-ai", rev = "fcb45d846e0247930edfdbe643a09d0f1bd69a3a", subdirectory = "src/pydantic_clai2" }
+pydantic-ai-harness = { git = "https://github.com/pydantic/pydantic-ai", rev = "fcb45d846e0247930edfdbe643a09d0f1bd69a3a", subdirectory = "src/pydantic_ai_harness" }
+pydantic-ai-slim = { git = "https://github.com/pydantic/pydantic-ai", rev = "fcb45d846e0247930edfdbe643a09d0f1bd69a3a", subdirectory = "pydantic_ai_slim" }
+pydantic-graph = { git = "https://github.com/pydantic/pydantic-ai", rev = "fcb45d846e0247930edfdbe643a09d0f1bd69a3a", subdirectory = "pydantic_graph" }
 
 [dependency-groups]
 dev = [
