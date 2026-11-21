@@ -42,7 +42,7 @@ at `fcb45d846` (2026-11-20, 52 commits after 0.71.0) through
 |---|---|---|
 | 0 Groundwork | built | Version `1.0.0rc1`; `publish.yml` bumps `rc` on `v1` and pushes to the triggering branch; version guard with tests |
 | 1 Skeleton | built | 0.0.x runtime and tests removed (222,143 lines); `pup` starts pydantic-ai-pax (`main` at `fcb45d846`, see above) as Code Puppy; `/update` rewritten |
-| 2 Migration | built, partial scope | Settings, API keys and MCP servers carry over; `pup migrate [--dry-run]` |
+| 2 Migration | built, partial scope | Settings and API keys carry over; re-add MCP servers in 1.0; `pup migrate [--dry-run]` |
 | 3 Compat | partly built | Facades, plugin discovery, trust, bridge with 15 hooks. No JSON agents yet |
 | 4 Native plugins | not started | None of the surviving core plugins is ported |
 | 5 New capabilities | not started | |
@@ -155,8 +155,8 @@ distribution of `pydantic-ai-pax` (named `pydantic-clai2` until 2026-11-19) on t
 Done means:
 
 - `pup` / `code-puppy` start the clai2 runtime with Code Puppy identity.
-- Existing settings, models, credentials, MCP servers, skills and agents carry
-  over automatically on first run.
+- Existing settings, models, credentials, skills and agents carry
+  over automatically on first run. Re-add MCP servers in 1.0.
 - Existing Code Puppy plugins and JSON agents keep working through a compat layer.
 - `code-puppy-core-plugins` is not a dependency.
 - The `code_puppy` package shrinks from about 97k lines to roughly 10k.
@@ -220,7 +220,7 @@ code_puppy/
   main.py            entry points: build identity, run migration, call clai2 chat()
   identity.py        name, config root (XDG dirs when set, else ~/.code_puppy),
                      splash, spinners, default instructions
-  migrate/           puppy.cfg, models, credentials, MCP servers, session importer
+  migrate/           puppy.cfg, models, credentials, session importer
   compat/            bridge plugin, hook map, tool aliases, JSON agents,
                      legacy plugin discovery and trust
   callbacks.py       facade: register_callback keeps its signature
@@ -324,7 +324,7 @@ Runs once at startup, before clai2 opens its stores.
 | `puppy.cfg` (configparser) | `config.db` settings table |
 | `models.json`, `extra_models.json` | saved models and providers |
 | `secret_store` entries | clai2 encrypted credential store |
-| `mcp_servers.json` | the `mcp` plugin's store |
+| `mcp_servers.json` | not imported; re-add the servers you need in 1.0 |
 | `.code_puppy/skills`, `.code_puppy/agents` | read in place, no copy |
 | saved sessions | an importer under `/resume`, beside the existing Claude Code and Codex importers |
 
@@ -414,8 +414,8 @@ Linux, storing state under the Code Puppy config root. Cold start is recorded.
 
 - Build section 7.
 
-Exit: a real 0.0.x home directory starts 1.0 with the same model, keys, MCP
-servers and settings, and a second start changes nothing.
+Exit: a real 0.0.x home directory starts 1.0 with the same model, keys
+and settings, and a second start changes nothing.
 
 **Phase 3: compat**
 

@@ -3,7 +3,7 @@
 Rules the migration keeps:
 
 * **Non-destructive.** 0.0.x files are only read.
-* **Never overrides a 1.0 choice.** A setting, key or MCP server that already
+* **Never overrides a 1.0 choice.** A setting or key that already
   exists in 1.0 is left alone, so running twice changes nothing.
 * **Runs once per legacy state.** The hash of the legacy files is recorded;
   the automatic run at startup does nothing until those files change.
@@ -13,9 +13,9 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
-from pydantic import JsonValue, TypeAdapter, ValidationError
+from pydantic import JsonValue, ValidationError
 
 from code_puppy import identity
 from code_puppy.legacy_store import LegacyStore
@@ -24,7 +24,8 @@ from code_puppy.migrate import sources, translate
 if TYPE_CHECKING:
     from pydantic_ai_pax.config.settings_store import SettingsStore
 
-MIGRATED_KEY = "migrated_fingerprint"
+EARLIER_RC_KEY = "migrated_fingerprint"
+MIGRATED_KEY = "migrated_fingerprint:v2"
 
 
 @dataclass(kw_only=True)
@@ -34,7 +35,6 @@ class Plan:
     fingerprint: str = ""
     settings: dict[str, JsonValue] = field(default_factory=dict)
     keys: dict[str, str] = field(default_factory=dict)
-    servers: dict[str, Any] = field(default_factory=dict)
     preferences: dict[str, str] = field(default_factory=dict)
     names: dict[str, str] = field(default_factory=dict)
     """Puppy and owner names, which become the personality plugin's settings."""
@@ -46,10 +46,6 @@ class Plan:
             f"  setting  {key} = {value!r}" for key, value in self.settings.items()
         ]
         lines += [f"  api key  {name}" for name in self.keys]
-        lines += [
-            f"  mcp      {name} ({server.type})"
-            for name, server in self.servers.items()
-        ]
         lines += [f"  persona  {key} = {value!r}" for key, value in self.names.items()]
         if self.preferences:
             lines.append(
@@ -65,22 +61,18 @@ class Result:
 
     settings: list[str] = field(default_factory=list)
     keys: list[str] = field(default_factory=list)
-    servers: list[str] = field(default_factory=list)
     preferences: list[str] = field(default_factory=list)
     names: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
 
     @property
     def changed(self) -> bool:
-        return bool(
-            self.settings or self.keys or self.servers or self.preferences or self.names
-        )
+        return bool(self.settings or self.keys or self.preferences or self.names)
 
     def summary(self) -> str:
         counts = [
             (len(self.settings), "setting"),
             (len(self.keys), "API key"),
-            (len(self.servers), "MCP server"),
             (len(self.names), "name"),
             (len(self.preferences), "legacy preference"),
         ]
@@ -90,8 +82,6 @@ class Result:
 
 def build_plan(files: sources.LegacyFiles | None = None) -> Plan:
     """Read the legacy files and translate them; writes nothing."""
-    from pydantic_ai_pax.mcp.settings import Server
-
     files = files or sources.legacy_files()
     config = sources.read_config(files.config)
     translated = translate.settings(config, sources.read_models(files.models))
@@ -103,17 +93,6 @@ def build_plan(files: sources.LegacyFiles | None = None) -> Plan:
         names=translate.names(config),
         notes=translated.notes,
     )
-    adapter: TypeAdapter[Any] = TypeAdapter(Server)
-    for name, raw in sources.read_mcp_servers(files.mcp_servers).items():
-        candidate, reason = translate.mcp_server(raw)
-        if candidate is None:
-            plan.notes.append(f"Skipped MCP server {name!r}: {reason}.")
-            continue
-        try:
-            plan.servers[name] = adapter.validate_python(candidate)
-        except ValidationError as exc:
-            problem = exc.errors()[0]["msg"]
-            plan.notes.append(f"Skipped MCP server {name!r}: {problem}.")
     return plan
 
 
@@ -121,7 +100,6 @@ def apply(plan: Plan, *, legacy: LegacyStore | None = None) -> Result:
     """Write what 1.0 does not have yet, then record the legacy fingerprint."""
     from pydantic_ai_pax.config.api_keys import save_key
     from pydantic_ai_pax.config.settings_store import SettingsStore
-    from pydantic_ai_pax.mcp.store import MCPStore
 
     result = Result(notes=list(plan.notes))
     store = SettingsStore()
@@ -142,18 +120,6 @@ def apply(plan: Plan, *, legacy: LegacyStore | None = None) -> Result:
         except ValueError:
             continue  # Already saved under that name, or not a usable name.
         result.keys.append(name)
-
-    mcp = MCPStore()
-    known = mcp.load().servers
-    for name, server in plan.servers.items():
-        if name in known:
-            continue
-        try:
-            mcp.put(name, server)
-        except ValueError as exc:
-            result.notes.append(f"Skipped MCP server {name!r}: {exc}")
-        else:
-            result.servers.append(name)
 
     result.names = _save_names(store, plan.names, result.notes)
 
@@ -195,7 +161,13 @@ def auto() -> list[str]:
     if not fingerprint:
         return []
     legacy = LegacyStore()
-    if legacy.meta(MIGRATED_KEY) == fingerprint:
+    previous = legacy.meta(MIGRATED_KEY)
+    if previous is None and legacy.meta(EARLIER_RC_KEY):
+        # The old digest included MCP. Baseline once rather than replaying
+        # imports that could restore settings or keys the user removed.
+        legacy.set_meta(MIGRATED_KEY, fingerprint)
+        return []
+    if previous == fingerprint:
         return []
     result = apply(build_plan(files), legacy=legacy)
     if not result.changed:
