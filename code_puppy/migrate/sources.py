@@ -24,13 +24,12 @@ class LegacyFiles:
     """Where 0.0.x kept the state worth carrying over."""
 
     config: Path
-    mcp_servers: Path
     models: tuple[Path, ...]
 
     def existing(self) -> list[Path]:
         return [
             path
-            for path in (self.config, self.mcp_servers, *self.models)
+            for path in (self.config, *self.models)
             if path.is_file()
         ]
 
@@ -55,7 +54,6 @@ def legacy_files() -> LegacyFiles:
     config, data = identity.config_dir(), identity.data_dir()
     return LegacyFiles(
         config=config / "puppy.cfg",
-        mcp_servers=config / "mcp_servers.json",
         models=tuple(data / name for name in MODEL_FILES),
     )
 
@@ -84,17 +82,6 @@ def read_json_object(path: Path) -> dict[str, Any]:
     except (OSError, ValueError):
         return {}
     return data if isinstance(data, dict) else {}
-
-
-def read_mcp_servers(path: Path) -> dict[str, dict[str, Any]]:
-    """Servers by name, from either wrapper key 0.0.x accepted."""
-    data = read_json_object(path)
-    servers = data.get("mcp_servers")
-    if servers is None:
-        servers = data.get("mcpServers")
-    if not isinstance(servers, dict):
-        return {}
-    return {str(name): raw for name, raw in servers.items() if isinstance(raw, dict)}
 
 
 def read_models(paths: tuple[Path, ...]) -> dict[str, dict[str, Any]]:

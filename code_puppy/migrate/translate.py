@@ -23,14 +23,6 @@ Only types whose provider ships with the runtime are listed. Anything else
 a wrong model name would fail on the user's first prompt.
 """
 
-MCP_TYPES = ("stdio", "http", "sse")
-MCP_FIELDS = {
-    "stdio": ("command", "args", "env", "cwd"),
-    "http": ("url", "headers"),
-    "sse": ("url", "headers"),
-}
-
-
 @dataclass(kw_only=True)
 class Translation:
     """What a batch of legacy values became, and what could not be carried over."""
@@ -120,30 +112,3 @@ def api_keys(config: Mapping[str, str]) -> dict[str, str]:
 def preferences(config: Mapping[str, str]) -> dict[str, str]:
     """Every non-secret ``puppy.cfg`` key, kept for 0.0.x plugins that read them."""
     return {key: value for key, value in config.items() if not is_secret(key)}
-
-
-def mcp_server(raw: Mapping[str, Any]) -> tuple[dict[str, JsonValue] | None, str]:
-    """A 0.0.x MCP server entry in the 1.0 shape, or ``None`` and the reason.
-
-    Servers are migrated with ``defer_loading`` on: their tools stay out of the
-    prompt until the model asks for the server.
-    """
-    kind = raw.get("type") or raw.get("transport")
-    if kind is None and "command" in raw:
-        kind = "stdio"
-    if kind not in MCP_TYPES:
-        return None, f"unknown transport {kind!r}"
-    server: dict[str, JsonValue] = {"type": kind, "defer_loading": True}
-    for name in MCP_FIELDS[kind]:
-        if raw.get(name) is not None:
-            server[name] = raw[name]
-    if raw.get("enabled") is False:
-        server["enabled"] = False
-    timeout = raw.get("timeout")
-    if (
-        isinstance(timeout, (int, float))
-        and not isinstance(timeout, bool)
-        and timeout > 0
-    ):
-        server["timeout"] = float(timeout)
-    return server, ""
