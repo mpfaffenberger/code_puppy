@@ -449,6 +449,7 @@
     "one": "{count} fichier écrit.",
     "other": "{count} fichiers écrits."
   },
+  "grep.results_truncated": "Affichage de 50 correspondances; d’autres correspondances existent. Continuez avec la valeur next_offset retournée avant d’affirmer que les résultats sont complets.",
   "help.keybinding.ctrl_enter.description": "Réorienter immédiatement l’exécution en cours (ou envoyer normalement lorsqu’aucune exécution n’est active)",
   "help.keybinding.ctrl_enter.label": "Ctrl+Enter",
   "help.keybinding.newline.description": "Insérer un saut de ligne (Ctrl+J est le plus fiable d’un terminal à l’autre)",
