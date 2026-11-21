@@ -3,11 +3,18 @@
 from __future__ import annotations
 
 from typing import Any
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from pydantic_ai import BinaryContent, DocumentUrl, ImageUrl
 
 from code_puppy.agents import _runtime
-from code_puppy.callbacks import _callbacks, clear_callbacks, register_callback
+from code_puppy.callbacks import (
+    _callbacks,
+    clear_callbacks,
+    is_hook_retry_prompt_submit,
+    register_callback,
+)
 
 
 class DummyResult:
@@ -251,6 +258,134 @@ async def test_multiple_agent_exception_callbacks_first_retry_wins(
     assert sleeps == [0.1]
 
 
+async def test_prompt_submit_wrapper_non_iterable_fails_open(
+    monkeypatch: pytest.MonkeyPatch,
+    diagnostics: list[BaseException],
+) -> None:
+    pydantic_agent = ScriptedPydanticAgent(DummyResult("ok"))
+    agent = DummyAgent(pydantic_agent)
+
+    async def broken_wrapper(_prompt: str, _session_id: str | None):
+        return None
+
+    monkeypatch.setattr(_runtime, "on_user_prompt_submit", broken_wrapper)
+
+    result = await _runtime.run_with_mcp(agent, "hello")
+
+    assert result.data == "ok"
+    assert pydantic_agent.calls[0]["prompt"] == "hello"
+    assert diagnostics == []
+
+
+async def test_queued_steer_followup_runs_prompt_submit_hooks(
+    monkeypatch: pytest.MonkeyPatch,
+    diagnostics: list[BaseException],
+) -> None:
+    first = DummyResult("first")
+    second = DummyResult("second")
+    pydantic_agent = ScriptedPydanticAgent(first, second)
+    agent = DummyAgent(pydantic_agent)
+    steers = ["queued steer"]
+    submitted: list[str] = []
+
+    def next_steer(*_: Any) -> str | None:
+        return steers.pop(0) if steers else None
+
+    def rewrite(prompt: str, _session_id: str | None = None) -> str:
+        submitted.append(prompt)
+        return f"checked: {prompt}"
+
+    monkeypatch.setattr(_runtime, "prepare_queued_steer_injection", next_steer)
+    register_callback("user_prompt_submit", rewrite)
+
+    result = await _runtime.run_with_mcp(agent, "hello")
+
+    assert result is second
+    assert submitted == ["hello", "queued steer"]
+    assert [call["prompt"] for call in pydantic_agent.calls] == [
+        "checked: hello",
+        "checked: queued steer",
+    ]
+    assert diagnostics == []
+
+
+async def test_multimodal_queued_followup_preserves_parts(
+    monkeypatch: pytest.MonkeyPatch,
+    diagnostics: list[BaseException],
+) -> None:
+    image = ImageUrl("https://example.test/image.png")
+    binary = BinaryContent(b"image bytes", media_type="image/png")
+    document = DocumentUrl("https://example.test/document.pdf")
+    text = "first text\nall queued text"
+    extras = [image, binary, document]
+    steers = [[text, *extras]]
+    submitted: list[str] = []
+    builder = MagicMock(wraps=_runtime._build_prompt_payload)
+    monkeypatch.setattr(_runtime, "_build_prompt_payload", builder)
+
+    def rewrite(prompt: str, _session_id: str | None = None) -> str:
+        submitted.append(prompt)
+        return f"checked: {prompt}"
+
+    register_callback("user_prompt_submit", rewrite)
+    monkeypatch.setattr(
+        _runtime,
+        "prepare_queued_steer_injection",
+        lambda *_: steers.pop(0) if steers else None,
+    )
+    second = DummyResult("second")
+    provider = ScriptedPydanticAgent(DummyResult("first"), second)
+
+    result = await _runtime.run_with_mcp(DummyAgent(provider), "hello")
+
+    assert result is second
+    assert provider.calls[1]["prompt"] == [f"checked: {text}", *extras]
+    assert submitted == ["hello", text]
+    assert builder.call_count == 2
+    assert builder.call_args_list[0].args == ("checked: hello", None, None)
+    assert builder.call_args_list[1].args == (f"checked: {text}", extras, None)
+    for actual, original in zip(provider.calls[1]["prompt"][1:], extras):
+        assert actual is original
+    assert diagnostics == []
+
+
+async def test_hook_followup_runs_prompt_submit_hooks(
+    monkeypatch: pytest.MonkeyPatch,
+    diagnostics: list[BaseException],
+) -> None:
+    first = DummyResult("first")
+    second = DummyResult("second")
+    pydantic_agent = ScriptedPydanticAgent(first, second)
+    agent = DummyAgent(pydantic_agent)
+    submitted: list[tuple[str, bool]] = []
+
+    def rewrite(prompt: str, _session_id: str | None = None) -> str:
+        submitted.append((prompt, is_hook_retry_prompt_submit()))
+        return f"checked: {prompt}"
+
+    register_callback("user_prompt_submit", rewrite)
+    monkeypatch.setattr(
+        _runtime,
+        "on_agent_run_result",
+        AsyncMock(
+            side_effect=[
+                [{"retry": True, "prompt": "hook followup", "delay": 0}],
+                [],
+            ]
+        ),
+    )
+
+    result = await _runtime.run_with_mcp(agent, "hello")
+
+    assert result is second
+    assert submitted == [("hello", False), ("hook followup", True)]
+    assert [call["prompt"] for call in pydantic_agent.calls] == [
+        "checked: hello",
+        "checked: hook followup",
+    ]
+    assert diagnostics == []
+
+
 @pytest.mark.parametrize("follow_up", ["hook", "queue"])
 async def test_explicit_follow_up_cancel_never_enters_recovery(
     monkeypatch: pytest.MonkeyPatch, follow_up: str
@@ -463,3 +598,76 @@ async def test_real_mcp_invalidation_keeps_built_client_for_in_flight_run(
     assert recovered == ([original_error] if invalidate_at == "recovery" else [])
     build.assert_not_called()
     assert agent._code_generation_agent is None
+
+
+async def test_hook_retry_marker_resets_before_later_queued_steer(
+    monkeypatch: pytest.MonkeyPatch,
+    diagnostics: list[BaseException],
+) -> None:
+    results = [DummyResult("first"), DummyResult("retry"), DummyResult("queued")]
+    pydantic_agent = ScriptedPydanticAgent(*results)
+    agent = DummyAgent(pydantic_agent)
+    submitted: list[tuple[str, bool]] = []
+    queue_checks = 0
+
+    def rewrite(prompt: str, _session_id: str | None = None) -> str:
+        submitted.append((prompt, is_hook_retry_prompt_submit()))
+        return prompt
+
+    def queued_steer(*_args: Any) -> str | None:
+        nonlocal queue_checks
+        queue_checks += 1
+        return "queued steer" if queue_checks == 2 else None
+
+    register_callback("user_prompt_submit", rewrite)
+    monkeypatch.setattr(_runtime, "prepare_queued_steer_injection", queued_steer)
+    monkeypatch.setattr(
+        _runtime,
+        "on_agent_run_result",
+        AsyncMock(
+            side_effect=[
+                [{"retry": True, "prompt": "hook retry", "delay": 0}],
+                [],
+            ]
+        ),
+    )
+
+    result = await _runtime.run_with_mcp(agent, "hello")
+
+    assert result is results[2]
+    assert submitted == [
+        ("hello", False),
+        ("hook retry", True),
+        ("queued steer", False),
+    ]
+    assert diagnostics == []
+
+
+@pytest.mark.parametrize("invalid_prompt", [None, ["not", "text"]])
+async def test_invalid_hook_retry_prompt_uses_documented_default(
+    monkeypatch: pytest.MonkeyPatch,
+    diagnostics: list[BaseException],
+    invalid_prompt: Any,
+) -> None:
+    results = [DummyResult("first"), DummyResult("second")]
+    pydantic_agent = ScriptedPydanticAgent(*results)
+    agent = DummyAgent(pydantic_agent)
+    monkeypatch.setattr(
+        _runtime,
+        "on_agent_run_result",
+        AsyncMock(
+            side_effect=[
+                [{"retry": True, "prompt": invalid_prompt, "delay": 0}],
+                [],
+            ]
+        ),
+    )
+
+    result = await _runtime.run_with_mcp(agent, "hello")
+
+    assert result is results[1]
+    assert [call["prompt"] for call in pydantic_agent.calls] == [
+        "hello",
+        "Please continue.",
+    ]
+    assert diagnostics == []
