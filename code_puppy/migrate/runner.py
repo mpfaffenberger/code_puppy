@@ -82,6 +82,7 @@ class Result:
             (len(self.keys), "API key"),
             (len(self.servers), "MCP server"),
             (len(self.names), "name"),
+            (len(self.preferences), "legacy preference"),
         ]
         parts = [f"{n} {noun}{'s' if n != 1 else ''}" for n, noun in counts if n]
         return ", ".join(parts) or "nothing new"

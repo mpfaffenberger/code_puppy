@@ -230,7 +230,21 @@ def test_apply_writes_every_store(legacy_home: Path) -> None:
     legacy = LegacyStore()
     assert legacy.get("temperature") == "0.2" and legacy.get("puppy_name") == "Boodler"
     assert legacy.get("openai_api_key") is None  # secrets are not copied in the clear
-    assert result.summary() == "4 settings, 2 API keys, 2 MCP servers, 2 names"
+    assert result.summary() == (
+        "4 settings, 2 API keys, 2 MCP servers, 2 names, 7 legacy preferences"
+    )
+
+
+def test_a_preferences_only_migration_does_not_claim_it_wrote_nothing(
+    legacy_home: Path,
+) -> None:
+    result = runner.apply(
+        runner.Plan(fingerprint="only-preferences", preferences={"temperature": "0.2"})
+    )
+
+    assert result.changed
+    assert result.summary() == "1 legacy preference"
+    assert LegacyStore().get("temperature") == "0.2"
 
 
 def test_names_already_set_in_1_0_are_kept(legacy_home: Path) -> None:
@@ -312,7 +326,7 @@ def test_cli_applies_and_reports(
 ) -> None:
     assert migrate.main([]) == 0
     assert (
-        "Wrote: 4 settings, 2 API keys, 2 MCP servers, 2 names."
+        "Wrote: 4 settings, 2 API keys, 2 MCP servers, 2 names, 7 legacy preferences."
         in capsys.readouterr().out
     )
 
