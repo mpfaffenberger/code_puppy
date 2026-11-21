@@ -4,55 +4,48 @@ build-backend = "hatchling.build"
 
 [project]
 name = "code-puppy"
-version = "0.0.970"
+version = "1.0.0rc1"
 description = "Code generation agent"
 readme = "README.md"
 requires-python = ">=3.11,<3.15"
 dependencies = [
-    "code-puppy-core-plugins>=0.0.110",
-    "pydantic-ai-slim[openai,anthropic,mcp]==2.64.0",
-    "pydantic-ai-harness[code-mode]==0.64.0",
-    # Imported directly by code_puppy.agents; range mirrors pydantic-ai-harness[code-mode].
-    "pydantic-monty>=1.4.0,<2",
-    # Security floor: 4.14.2 fixes CVE-2026-63374 and CVE-2026-64847.
-    "anyio>=4.14.2",
-    "typer>=0.12.0",
-    "mcp>=1.9.4",
-    # Imported directly by code_puppy.mcp_; range mirrors pydantic-ai-slim[mcp].
-    "fastmcp-slim[client]>=3.3.0,<5",
-    # FastMCP's OAuth callback server explicitly uses Uvicorn websockets-sansio.
-    "websockets>=14.0",
-    "httpx[http2]>=0.24.1",
-    "httpx2>=2.7",
-    "requests>=2.28.0",
-    "packaging>=24.0",
-    "rich>=13.4.2",
-    "pydantic>=2.4.0",
-    "python-dotenv>=1.0.0",
-    "json-repair>=0.46.2",
-    "pyfiglet>=0.8.post1",
-    "openai>=2.45.0",
-    "ripgrep==14.1.0; sys_platform != 'android'",
-    "playwright>=1.40.0; sys_platform != 'android'",
-    "termflow-md>=0.10.0",
-    "Pillow>=10.0.0",
-    "azure-identity>=1.15.0",
-    "anthropic>=1.0.0,<2",
-    "boto3>=1.43.9",
-    "keyring>=24.0.0",
-    # cryptography 49+ publishes arm64-only macOS wheels, so Intel Macs fall back
-    # to a source build that needs Rust + OpenSSL. 48.x ships universal2 wheels.
-    # Transitive via azure-identity/msal/pyjwt/authlib; drop once x86_64 returns.
+    # Code Puppy 1.0 is a distribution of pydantic-ai-pax (named pydantic-clai2
+    # until 2026-11-19). pax pins pydantic-ai-harness and pydantic-ai-slim
+    # exactly, so this one pin fixes the whole runtime. Do not add direct
+    # harness/slim pins beside it.
+    #
+    # TEMPORARY: unpinned here because `[tool.uv.sources]` below builds it from a
+    # commit on pydantic-ai `main`. Restore `pydantic-ai-pax==X.Y.Z` and delete
+    # those sources before publishing: `scripts/check_release_version.py`
+    # refuses to release until then.
+    #
+    # Every extra pax offers is installed, so nothing in Code Puppy answers
+    # "support is not installed": the eight `/sandbox` providers, and the
+    # `typesafe` model provider. `tests/test_optional_support.py` fails when
+    # pax grows an extra that is not listed here.
+    "pydantic-ai-pax[boxd,daytona,e2b,kubernetes,modal,opensandbox,render,sprites,typesafe]",
+    # Neither is imported here. Both keep an Intel Mac install to pre-built
+    # wheels, where a source build would need a Rust toolchain; the
+    # `intel-mac-wheels` CI job fails without them. Drop each once its x86_64
+    # macOS wheels return.
+    # - cryptography 49+ publishes arm64-only macOS wheels; 48.x ships
+    #   universal2. Transitive via pax, pyjwt and authlib.
+    # - cbor2 6 has no Intel macOS wheel; 5.x is pure Python and satisfies
+    #   modal's unpinned requirement.
     "cryptography<49; sys_platform == 'darwin' and platform_machine == 'x86_64'",
-    "agent-client-protocol>=0.11.0,<0.12",
-]
-dev-dependencies = [
-    "cryptography>=44.0.0",
-    "pytest>=8.3.4",
-    "pytest-cov>=6.1.1",
-    "pytest-asyncio>=0.23.1",
-    "ruff>=0.15,<0.16",
-    "pexpect>=4.9.0",
+    "cbor2<6; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    # TEMPORARY: the deprecated alias package, which makes `import pydantic_clai2`
+    # resolve to `pydantic_ai_pax`. `pydantic-claude-code` 0.7.x imports the
+    # runtime under the old name. Drop this once a release of it imports
+    # `pydantic_ai_pax`; until then pin it to the same version as pax.
+    "pydantic-clai2",
+    # Claude Code subscription models (`claude-code:` prefix, `/login claude-code`),
+    # shipped as a built-in plugin. Mind the name: this is `pydantic-claude-code`.
+    # `pydantic-ai-claude-code` on PyPI is an unrelated project by another author,
+    # even though this package's repository and import name are spelled that way.
+    "pydantic-claude-code>=0.7.5,<0.8",
+    # Imported directly by code_puppy.update (version ordering, pre-releases).
+    "packaging>=24.0",
 ]
 authors = [
     {name = "Michael Pfaffenberger"}
@@ -63,22 +56,15 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Topic :: Software Development :: Code Generators",
 ]
 
-[project.optional-dependencies]
-bedrock = ["boto3>=1.35.0"]
-durable = ["dbos>=2.11.0"]
-computer-use = [
-    "code-puppy-core-plugins[computer-use]>=0.0.110",
-]
-
 [project.urls]
 repository = "https://github.com/mpfaffenberger/code_puppy"
 HomePage = "https://github.com/mpfaffenberger/code_puppy"
-
 
 [project.scripts]
 code-puppy = "code_puppy.main:main_entry"
@@ -87,39 +73,34 @@ pup = "code_puppy.main:main_entry"
 [tool.hatch.build]
 packages = ["code_puppy"]
 
-[tool.hatch.build.targets.wheel.shared-data]
-"code_puppy/models.json" = "code_puppy/models.json"
-"code_puppy/models_dev_api.json" = "code_puppy/models_dev_api.json"
-
-[[tool.hatch.build.targets.sdist.include]]
-path = "code_puppy/models.json"
-
-[[tool.hatch.build.targets.sdist.include]]
-path = "code_puppy/models_dev_api.json"
-
-[tool.ruff.lint.per-file-ignores]
-"code_puppy/main.py" = ["E402"]
-"code_puppy/cli_runner.py" = ["E402"]
-"code_puppy/messaging/__init__.py" = ["E402"]
-
 [tool.pytest.ini_options]
 addopts = "--cov=code_puppy --cov-report=term-missing"
 testpaths = ["tests"]
 asyncio_mode = "auto"
 
-[tool.coverage.run]
-omit = ["code_puppy/main.py"]
+[tool.ruff.lint]
+# Every function says what it takes and returns, and a bare `Any` is not an
+# answer: `object` for a value that is only passed on, the real type otherwise.
+extend-select = ["ANN"]
 
 [tool.uv]
 python-preference = "only-managed"
 
+# TEMPORARY: the runtime from pydantic-ai `main` at fcb45d846 (2026-11-20),
+# which no release contains yet: `pydantic-ai-pax` is not on PyPI. All five
+# come from the one commit, because pax pins the others to its own build. To
+# move the pin, change every `rev`.
+[tool.uv.sources]
+pydantic-ai-pax = { git = "https://github.com/pydantic/pydantic-ai", rev = "fcb45d846e0247930edfdbe643a09d0f1bd69a3a", subdirectory = "src/pydantic_ai_pax" }
+pydantic-clai2 = { git = "https://github.com/pydantic/pydantic-ai", rev = "fcb45d846e0247930edfdbe643a09d0f1bd69a3a", subdirectory = "src/pydantic_clai2" }
+pydantic-ai-harness = { git = "https://github.com/pydantic/pydantic-ai", rev = "fcb45d846e0247930edfdbe643a09d0f1bd69a3a", subdirectory = "src/pydantic_ai_harness" }
+pydantic-ai-slim = { git = "https://github.com/pydantic/pydantic-ai", rev = "fcb45d846e0247930edfdbe643a09d0f1bd69a3a", subdirectory = "pydantic_ai_slim" }
+pydantic-graph = { git = "https://github.com/pydantic/pydantic-ai", rev = "fcb45d846e0247930edfdbe643a09d0f1bd69a3a", subdirectory = "pydantic_graph" }
+
 [dependency-groups]
 dev = [
-    "cryptography>=44.0.0",
     "pytest>=8.3.4",
     "pytest-cov>=6.1.1",
     "pytest-asyncio>=0.23.1",
     "ruff>=0.15,<0.16",
-    "pexpect>=4.9.0",
-    "pyte>=0.8.2",
 ]
