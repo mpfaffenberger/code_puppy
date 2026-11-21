@@ -46,6 +46,7 @@ from tests.error_ast_support import (
 ROOT = Path(__file__).resolve().parent.parent
 DATA = Path(__file__).parent / "data" / "error_pipeline_sites.tsv"
 PIPELINE_FILES = (
+    "code_puppy/_pydantic_tool_helpers.py",
     "code_puppy/callbacks.py",
     "code_puppy/cli_entry.py",
     "code_puppy/cli_runner.py",
