@@ -18,7 +18,7 @@ import json
 import os
 from pathlib import Path
 
-from code_puppy.agents import get_current_agent
+from code_puppy.agents import apply_agent_reloads, get_current_agent
 from code_puppy.command_line.attachments import (
     parse_prompt_attachments,
     resolve_user_prompt,
@@ -216,6 +216,7 @@ async def execute_single_prompt(
         # Headless -p mode: no run UI (no bottom bar, no line editor) —
         # output must stay plain for pipes/CI even when stdout is a TTY.
         with agent.temporary_system_prompt_addition(_HEADLESS_AUTONOMY_PROMPT):
+            apply_agent_reloads(lambda: agent)
             result, _agent_task = await run_prompt_with_attachments(
                 agent,
                 prompt,
