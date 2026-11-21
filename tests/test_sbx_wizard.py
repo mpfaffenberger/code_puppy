@@ -149,9 +149,8 @@ def test_prune_dry_run_previews_without_deleting(
     path = wizard.bindings_path()
     original = "bindings:\n" + wizard.binding_block("oldkey", "api.old.example")
     path.write_text(original, encoding="utf-8")
-    wizard.save_owned(
-        {"secrets": ["oldkey"], "bindings": {"oldkey": "api.old.example"}}
-    )
+    owned = {"secrets": ["oldkey"], "bindings": {"oldkey": "api.old.example"}}
+    wizard.save_owned(owned)
     fake = _use(wizard, monkeypatch, FakeRun())
 
     wizard.prune_owned_secrets(_plan(stale_sbx_secrets=["oldkey", "groq"]), dry=True)
@@ -161,10 +160,7 @@ def test_prune_dry_run_previews_without_deleting(
     assert "prune: will remove sbx secret(s): oldkey\n" in out
     assert "sbx secret 'groq': stale but not created by the wizard; kept" in out
     assert "[dry-run] would remove binding for oldkey" in out
-    assert wizard.load_owned() == {
-        "secrets": ["oldkey"],
-        "bindings": {"oldkey": "api.old.example"},
-    }
+    assert wizard.load_owned() == owned
     assert path.read_text(encoding="utf-8") == original
 
 
@@ -441,35 +437,21 @@ def test_main_plain_dry_run_does_not_execute_plan(
     assert all(dry for _cmd, dry in fake.calls)
 
 
-def test_main_real_prune_deletes_owned_secret(
-    wizard: ModuleType, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(("reply", "deleted"), [("y", True), ("n", False)])
+def test_main_prune_asks_before_deleting(
+    wizard: ModuleType, monkeypatch: pytest.MonkeyPatch, reply: str, deleted: bool
 ) -> None:
     wizard.save_owned({"secrets": ["oldkey"], "bindings": {}})
     fake = FakeRun(json.dumps(_plan(stale_sbx_secrets=["oldkey"])))
     _stub_main_env(wizard, monkeypatch, fake)
-
-    prompts = _answer(monkeypatch, "y")
+    prompts = _answer(monkeypatch, reply)
 
     assert wizard.main(["--stock-config", "--prune"]) == 0
     assert len(prompts) == 1
-
-    assert fake.rm_calls() == [["sbx", "secret", "rm", "oldkey", "-f"]]
-    assert wizard.load_owned()["secrets"] == []
-
-
-def test_main_prune_asks_and_honors_refusal(
-    wizard: ModuleType, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    wizard.save_owned({"secrets": ["oldkey"], "bindings": {}})
-    fake = FakeRun(json.dumps(_plan(stale_sbx_secrets=["oldkey"])))
-    _stub_main_env(wizard, monkeypatch, fake)
-    prompts = _answer(monkeypatch, "n")
-
-    assert wizard.main(["--stock-config", "--prune"]) == 0
-
-    assert len(prompts) == 1
-    assert fake.rm_calls() == []
-    assert wizard.load_owned()["secrets"] == ["oldkey"]
+    assert fake.rm_calls() == (
+        [["sbx", "secret", "rm", "oldkey", "-f"]] if deleted else []
+    )
+    assert wizard.load_owned()["secrets"] == ([] if deleted else ["oldkey"])
 
 
 def test_main_dry_run_prune_reads_plan_to_preview(
