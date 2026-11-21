@@ -170,34 +170,20 @@ def test_prune_skips_when_plugin_reports_no_stale_key(
     assert fake.calls == []
 
 
-def test_prune_declined_confirmation(
-    wizard: ModuleType, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(("reply", "accepted"), [("n", False), ("y", True)])
+def test_prune_respects_confirmation(
+    wizard: ModuleType, monkeypatch: pytest.MonkeyPatch, reply: str, accepted: bool
 ) -> None:
     wizard.save_owned({"secrets": ["oldkey"], "bindings": []})
     fake = _use(wizard, monkeypatch, FakeRun())
-    monkeypatch.setattr("builtins.input", lambda _prompt: "n")
+    monkeypatch.setattr("builtins.input", lambda _prompt: reply)
 
     wizard.prune_owned_secrets(
         _plan(stale_sbx_secrets=["oldkey"]), dry=False, assume_yes=False
     )
 
-    assert fake.rm_calls() == []
-    assert wizard.load_owned()["secrets"] == ["oldkey"]
-
-
-def test_prune_proceeds_when_confirmation_accepted(
-    wizard: ModuleType, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    wizard.save_owned({"secrets": ["oldkey"], "bindings": []})
-    fake = _use(wizard, monkeypatch, FakeRun())
-    monkeypatch.setattr("builtins.input", lambda _prompt: "y")
-
-    wizard.prune_owned_secrets(
-        _plan(stale_sbx_secrets=["oldkey"]), dry=False, assume_yes=False
-    )
-
-    assert fake.rm_calls() == [["sbx", "secret", "rm", "oldkey", "-f"]]
-    assert wizard.load_owned()["secrets"] == []
+    assert fake.rm_calls() == ([['sbx', 'secret', 'rm', 'oldkey', '-f']] if accepted else [])
+    assert wizard.load_owned()["secrets"] == ([] if accepted else ["oldkey"])
 
 
 def test_confirm_returns_false_on_eof(
