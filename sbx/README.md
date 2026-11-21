@@ -48,6 +48,23 @@ uv pip install --python .venv\Scripts\python.exe -e ..\code_puppy_core_plugins
 
 (On Linux/macOS use `.venv/bin/python` and `../code_puppy_core_plugins`.)
 
+`sbx secret` entries are host-global, so the wizard never deletes one
+implicitly. `--prune` removes stale secrets and their bindings that
+**the wizard itself created**, recorded in
+`sbx/.personal/owned-secrets.json`, once your catalog no longer needs
+them. That record is shared by every sandbox this checkout's wizard
+created, since they all derive from the same host catalog. Staleness
+is judged against your *current* catalog, so an existing sandbox
+created from an older catalog loses any key pruned this way. Keys
+added by hand or by other tools are listed and kept. sbx keys secrets
+by name only, so the wizard cannot tell a secret you re-created by
+hand from the one it stored; it therefore always lists the names and
+asks before deleting (there is no skip flag), and a binding is removed
+only if it is still exactly the block the wizard wrote. The wizard
+does not prune when the plan contains no credentials. A dry run executes nothing. Use
+`--prune --dry-run --live-plan` to preview deletions: it runs the
+side-effect-free plan read for real.
+
 Credentials are **derived from your configured models**
 (`code-puppy --setup sbx plan`): the wizard generates a personal
 credentials mixin declaring exactly the keys and egress your catalog
