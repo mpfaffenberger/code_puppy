@@ -132,6 +132,9 @@ def test_prune_dry_run_previews_without_deleting(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    path = wizard.bindings_path()
+    original = "bindings:\n" + wizard.binding_block("oldkey", "api.old.example")
+    path.write_text(original, encoding="utf-8")
     wizard.save_owned({"secrets": ["oldkey"], "bindings": ["oldkey"]})
     fake = _use(wizard, monkeypatch, FakeRun())
 
@@ -141,7 +144,40 @@ def test_prune_dry_run_previews_without_deleting(
 
     assert fake.calls == [(["sbx", "secret", "rm", "oldkey", "-f"], True)]
     assert "[dry-run] would remove binding for oldkey" in capsys.readouterr().out
-    assert wizard.load_owned()["secrets"] == ["oldkey"]
+    assert wizard.load_owned() == {"secrets": ["oldkey"], "bindings": ["oldkey"]}
+    assert path.read_text(encoding="utf-8") == original
+
+
+def test_prune_runs_on_oauth_only_plan(
+    wizard: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    wizard.save_owned({"secrets": ["oldkey"], "bindings": []})
+    fake = _use(wizard, monkeypatch, FakeRun())
+    oauth = [{"id": "copilot", "transport": "auth-in-sandbox", "domains": []}]
+
+    wizard.prune_owned_secrets(
+        _plan(credentials=[], oauth=oauth, stale_sbx_secrets=["oldkey"]),
+        dry=False,
+        assume_yes=True,
+    )
+
+    assert fake.rm_calls() == [["sbx", "secret", "rm", "oldkey", "-f"]]
+
+
+def test_extended_binding_is_not_partially_removed(
+    wizard: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = wizard.bindings_path()
+    extended = (
+        "bindings:\n"
+        + wizard.binding_block("oldkey", "api.old.example")
+        + "      extra: true\n"
+        + wizard.binding_block("groq", "api.groq.com")
+    )
+    path.write_text(extended, encoding="utf-8")
+
+    assert wizard.remove_binding("oldkey") is False
+    assert path.read_text(encoding="utf-8") == extended
 
 
 def test_prune_refuses_degenerate_plan(
@@ -337,6 +373,19 @@ def test_main_plain_dry_run_does_not_execute_plan(
     assert wizard.main(["--stock-config", "--dry-run"]) == 0
     assert (PLAN_CMD, True) in fake.calls
     assert all(dry for _cmd, dry in fake.calls)
+
+
+def test_main_real_prune_deletes_owned_secret(
+    wizard: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    wizard.save_owned({"secrets": ["oldkey"], "bindings": []})
+    fake = FakeRun(json.dumps(_plan(stale_sbx_secrets=["oldkey"])))
+    _stub_main_env(wizard, monkeypatch, fake)
+
+    assert wizard.main(["--stock-config", "--prune", "--yes"]) == 0
+
+    assert fake.rm_calls() == [["sbx", "secret", "rm", "oldkey", "-f"]]
+    assert wizard.load_owned()["secrets"] == []
 
 
 def test_main_dry_run_prune_reads_plan_to_preview(

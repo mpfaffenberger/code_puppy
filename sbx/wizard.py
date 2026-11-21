@@ -287,8 +287,12 @@ def remove_binding(service: str) -> bool:
     text = path.read_text(encoding="utf-8")
     marker = "\0DOMAIN\0"
     head, tail = re.escape(binding_block(service, marker)).split(re.escape(marker))
-    # tail ends with the escaped final newline; "?" makes it optional (EOF).
-    pattern = "(?m)^" + head + r"[^\]\n]*" + tail + "?"
+    # tail ends with the escaped final newline. The block must end at EOF
+    # or before a line indented less than its fields: a block the user
+    # extended with deeper lines is left alone (removing only its prefix
+    # would orphan them).
+    tail = tail.removesuffix(re.escape("\n"))
+    pattern = "(?m)^" + head + r"[^\]\n]*" + tail + r"(?:\n(?![ ]{3})|\Z)"
     new, count = re.subn(pattern, "", text, count=1)
     if not count:
         return False
