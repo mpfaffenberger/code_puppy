@@ -24,7 +24,8 @@ from code_puppy.migrate import sources, translate
 if TYPE_CHECKING:
     from pydantic_ai_pax.config.settings_store import SettingsStore
 
-MIGRATED_KEY = "migrated_fingerprint"
+EARLIER_RC_KEY = "migrated_fingerprint"
+MIGRATED_KEY = "migrated_fingerprint:v2"
 
 
 @dataclass(kw_only=True)
@@ -66,9 +67,7 @@ class Result:
 
     @property
     def changed(self) -> bool:
-        return bool(
-            self.settings or self.keys or self.preferences or self.names
-        )
+        return bool(self.settings or self.keys or self.preferences or self.names)
 
     def summary(self) -> str:
         counts = [
@@ -162,7 +161,13 @@ def auto() -> list[str]:
     if not fingerprint:
         return []
     legacy = LegacyStore()
-    if legacy.meta(MIGRATED_KEY) == fingerprint:
+    previous = legacy.meta(MIGRATED_KEY)
+    if previous is None and legacy.meta(EARLIER_RC_KEY):
+        # The old digest included MCP. Baseline once rather than replaying
+        # imports that could restore settings or keys the user removed.
+        legacy.set_meta(MIGRATED_KEY, fingerprint)
+        return []
+    if previous == fingerprint:
         return []
     result = apply(build_plan(files), legacy=legacy)
     if not result.changed:

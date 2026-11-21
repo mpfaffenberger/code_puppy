@@ -207,9 +207,7 @@ def test_apply_writes_every_store(legacy_home: Path) -> None:
     legacy = LegacyStore()
     assert legacy.get("temperature") == "0.2" and legacy.get("puppy_name") == "Boodler"
     assert legacy.get("openai_api_key") is None  # secrets are not copied in the clear
-    assert result.summary() == (
-        "4 settings, 2 API keys, 2 names, 7 legacy preferences"
-    )
+    assert result.summary() == ("4 settings, 2 API keys, 2 names, 7 legacy preferences")
 
 
 def test_a_preferences_only_migration_does_not_claim_it_wrote_nothing(
@@ -276,6 +274,40 @@ def test_auto_ignores_changes_to_legacy_mcp_servers(legacy_home: Path) -> None:
     (legacy_home / "mcp_servers.json").write_text(json.dumps(servers), encoding="utf-8")
     lines = migrate.auto()
     assert lines == []
+
+
+def test_only_mcp_is_not_a_migration_source(
+    legacy_home: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config = legacy_home / "puppy.cfg"
+    config.unlink()
+    (legacy_home / "extra_models.json").unlink()
+    files = sources.legacy_files()
+    assert files.existing() == []
+    assert files.fingerprint() == ""
+    assert migrate.auto() == []
+    assert migrate.main([]) == 0
+    assert "0.0.x files found" in capsys.readouterr().out
+    assert not (legacy_home / "puppy.db").exists()
+
+    (legacy_home / "mcp_servers.json").unlink()
+    config.write_text(PUPPY_CFG, encoding="utf-8")
+    assert files.existing() == [config]
+    assert files.fingerprint()
+
+
+def test_earlier_rc_marker_does_not_replay_imports(legacy_home: Path) -> None:
+    legacy = LegacyStore()
+    legacy.set_meta("migrated_fingerprint", "old digest including MCP")
+    assert migrate.auto() == []
+    assert legacy.get("temperature") is None
+    assert legacy.meta(runner.MIGRATED_KEY) == sources.legacy_files().fingerprint()
+
+    (legacy_home / "puppy.cfg").write_text(
+        "[puppy]\nnew_option = yes\n", encoding="utf-8"
+    )
+    assert migrate.auto()
+    assert legacy.get("new_option") == "yes"
 
 
 def test_auto_is_silent_without_legacy_files(
