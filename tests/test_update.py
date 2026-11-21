@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
+from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import httpx
 import pytest
-from pydantic_ai_pax.cli.self_update import Installed
+from pydantic_ai_pax.cli.self_update import Installed, WebHandoff
 
 from code_puppy import update
 
@@ -130,6 +132,64 @@ def test_launch_names_prefer_the_command_that_ran() -> None:
     ]
 
 
+WINDOWS_NAMES = ["pup.exe", "code-puppy.exe"]
+
+
+def uv_reports(
+    monkeypatch: pytest.MonkeyPatch, folder: Path | None, *, code: int = 0
+) -> list[list[str]]:
+    """Make ``uv tool dir --bin`` answer ``folder`` with ``code``; returns the commands run."""
+    commands: list[list[str]] = []
+
+    async def run_process(command: list[str], *, check: bool) -> SimpleNamespace:
+        commands.append(command)
+        stdout = b"" if folder is None else f"{folder}\n".encode()
+        return SimpleNamespace(returncode=code, stdout=stdout)
+
+    monkeypatch.setattr(update, "run_process", run_process)
+    # `launch_names` reads the platform when the module is imported, so the
+    # Windows names are given rather than asked for.
+    monkeypatch.setattr(update, "launch_names", lambda: WINDOWS_NAMES)
+    return commands
+
+
+@pytest.mark.parametrize(
+    "installed", [["pup.exe", "code-puppy.exe"], ["code-puppy.exe"]]
+)
+async def test_the_new_executable_is_the_first_launch_name_uv_installed(
+    installed: list[str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    commands = uv_reports(monkeypatch, tmp_path)
+    for name in WINDOWS_NAMES:
+        if name in installed:
+            (tmp_path / name).touch()
+        else:
+            (tmp_path / name).mkdir()  # a folder of that name is not the executable
+
+    assert await update.tool_executable("/usr/bin/uv") == str(tmp_path / installed[0])
+    assert commands == [["/usr/bin/uv", "tool", "dir", "--bin"]]
+
+
+async def test_no_new_executable_when_uv_installed_none_of_the_names(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    uv_reports(monkeypatch, tmp_path)
+    (tmp_path / "pup").touch()  # the POSIX name, where the Windows ones are looked for
+
+    assert await update.tool_executable("/usr/bin/uv") is None
+
+
+async def test_no_new_executable_when_uv_cannot_say_where_its_tools_are(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """uv's empty answer must not be read as the current folder, where a stray ``pup.exe`` could sit."""
+    uv_reports(monkeypatch, None, code=2)
+    (tmp_path / "pup.exe").touch()
+    monkeypatch.chdir(tmp_path)
+
+    assert await update.tool_executable("/usr/bin/uv") is None
+
+
 def test_windows_script_waits_installs_and_reports() -> None:
     script = update.after_exit_script(
         ["uv", "tool", "install", "code-puppy==1.0.0"], pid=42
@@ -143,14 +203,21 @@ def test_windows_script_waits_installs_and_reports() -> None:
 class Recorder:
     """Stands in for uv and for the Windows hand-off."""
 
-    def __init__(self, *, code: int = 0) -> None:
+    def __init__(self, *, code: int = 0, web: WebHandoff | None = None) -> None:
         self.code = code
+        self.web = web
         self.commands: list[list[str]] = []
         self.scripts: list[str] = []
+        self.order: list[str] = []
 
     async def run(self, command: Sequence[str], output: object) -> int:
+        self.order.append("uv ran")
         self.commands.append(list(command))
         return self.code
+
+    def serving(self) -> WebHandoff | None:
+        self.order.append("web UI read")
+        return self.web
 
     def hand_off(self, script: str) -> None:
         self.scripts.append(script)
@@ -175,6 +242,7 @@ def _updates(
         find_uv=lambda: uv,
         windows=windows,
         run=recorder.run,
+        serving=recorder.serving,
         hand_off=recorder.hand_off,
         locate=locate,
     )
@@ -206,6 +274,37 @@ async def test_command_installs_and_restarts() -> None:
     ]
     assert message == "Updated Code Puppy to 1.0.0rc2 (stable). Restarting..."
     assert updates.restart_required and updates.relaunch == "/tools/bin/pup"
+
+
+WEB = WebHandoff(port=8123, token="t0ken")
+
+
+async def test_a_served_web_ui_is_handed_to_the_build_it_restarts_into() -> None:
+    recorder = Recorder(web=WEB)
+    updates = _updates(recorder)
+
+    await updates.command(["now"])
+
+    assert updates.web is WEB
+    # Read first: once uv has replaced the install, importing the web plugin
+    # for the first time would load the new build into the old process.
+    assert recorder.order == ["web UI read", "uv ran"]
+
+
+async def test_a_served_web_ui_is_not_handed_on_without_a_restart() -> None:
+    """Nothing starts the new build, so nothing could serve the page again."""
+    updates = _updates(Recorder(web=WEB), relaunch=None)
+
+    await updates.command(["now"])
+
+    assert updates.relaunch is None and updates.web is None
+
+
+async def test_a_failed_install_hands_nothing_on() -> None:
+    updates = _updates(Recorder(code=1, web=WEB))
+
+    assert (await updates.command(["now"])).startswith("uv exited with status 1")
+    assert updates.failed and not updates.restart_required and updates.web is None
 
 
 async def test_command_exits_when_the_new_executable_is_not_found() -> None:
