@@ -70,19 +70,19 @@ def read_line(question: str) -> str | None:
     return line
 
 
-def _declaration(store: SettingsStore) -> PluginSettings | None:
+def declaration(store: SettingsStore) -> PluginSettings | None:
     """The saved ``personality`` declaration, or ``None`` when nothing was ever saved for it."""
-    return next(iter([p for p in store.plugins() if p.id == PLUGIN_ID]), None)
+    return next((p for p in store.plugins() if p.id == PLUGIN_ID), None)
 
 
 def unanswered(store: SettingsStore) -> tuple[str, ...]:
     """The names nobody has chosen yet; none when the plugin that uses them is off."""
-    declaration = _declaration(store)
-    if declaration is None:
+    saved = declaration(store)
+    if saved is None:
         return tuple(QUESTIONS)
-    if not declaration.enabled:
+    if not saved.enabled:
         return ()
-    return tuple(key for key in QUESTIONS if key not in declaration.settings)
+    return tuple(key for key in QUESTIONS if key not in saved.settings)
 
 
 def ask(keys: Sequence[str], *, read: Read, write: Write) -> dict[str, str]:
@@ -112,10 +112,10 @@ def save(store: SettingsStore, answers: dict[str, str]) -> PersonalitySettings:
     """Add the answers to the plugin's saved settings; return the names now in effect."""
     from pydantic_ai_pax.config import PluginSettings
 
-    declaration = _declaration(store) or PluginSettings(id=PLUGIN_ID, factory=FACTORY)
-    settings = {**declaration.settings, **answers}
+    saved = declaration(store) or PluginSettings(id=PLUGIN_ID, factory=FACTORY)
+    settings = {**saved.settings, **answers}
     names = PersonalitySettings.model_validate(settings)
-    store.save_plugin(declaration.model_copy(update={"settings": settings}))
+    store.save_plugin(saved.model_copy(update={"settings": settings}))
     return names
 
 

@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from pydantic_ai_pax.config import PluginSettings
 
+from code_puppy import personality
+
 CLAUDE_CODE_NO_UPDATE_CHECK = "CLAUDE_CODE_NO_UPDATE_CHECK"
 """Turns off the Claude Code plugin's own update notice.
 
@@ -18,7 +20,7 @@ dependency of Code Puppy, so it updates with Code Puppy instead.
 
 PUPPY_PLUGINS: tuple[PluginSettings, ...] = (
     # The main agent's name, tone and opinions. See `code_puppy.personality`.
-    PluginSettings(id="personality", factory="code_puppy.personality:Personality"),
+    PluginSettings(id=personality.PLUGIN_ID, factory=personality.FACTORY),
     PluginSettings(
         id="legacy_plugins", factory="code_puppy.compat.bridge:LegacyPlugins"
     ),

@@ -40,6 +40,7 @@ class Translation:
 
 
 def is_truthy(value: str) -> bool:
+    """A 0.0.x boolean. ``config`` reads them back for plugins through this too."""
     return value.strip().lower() in TRUTHY
 
 

@@ -18,6 +18,7 @@ import os
 
 from code_puppy import identity
 from code_puppy.legacy_store import LegacyStore
+from code_puppy.migrate.translate import is_truthy
 
 CONFIG_DIR = str(identity.config_dir())
 DATA_DIR = str(identity.data_dir())
@@ -34,7 +35,6 @@ AUTOSAVE_DIR = os.path.join(CACHE_DIR, "autosaves")
 COMMAND_HISTORY_FILE = os.path.join(STATE_DIR, "command_history.txt")
 
 DEFAULT_SECTION = "puppy"
-TRUTHY = frozenset({"1", "true", "yes", "on"})
 
 
 def _runtime_value(key: str) -> str | None:
@@ -80,7 +80,7 @@ def get_truthy_bool_value(key: str, default: bool = False) -> bool:
     value = get_value(key)
     if value is None or not value.strip():
         return default
-    return value.strip().lower() in TRUTHY
+    return is_truthy(value)
 
 
 def get_global_model_name() -> str:
@@ -96,23 +96,22 @@ def get_message_limit(default: int = 1000) -> int:
     return int(value) if value and value.isdigit() else default
 
 
-def _personality_name(key: str, default: str) -> str:
+def _personality_name(key: str) -> str:
     """A name from the personality plugin's settings, where 1.0 keeps them."""
     from pydantic_ai_pax.config.settings_store import SettingsStore
 
-    from code_puppy import personality
+    from code_puppy import first_run, personality
 
-    for plugin in SettingsStore().plugins():
-        if plugin.id == personality.PLUGIN_ID:
-            value = plugin.settings.get(key)
-            if isinstance(value, str) and value:
-                return value
-    return LegacyStore().get(key) or default
+    declaration = first_run.declaration(SettingsStore())
+    value = declaration.settings.get(key) if declaration is not None else None
+    if isinstance(value, str) and value:
+        return value
+    return LegacyStore().get(key) or personality.default_name(key)
 
 
 def get_puppy_name() -> str:
-    return _personality_name("puppy_name", "Puppy")
+    return _personality_name("puppy_name")
 
 
 def get_owner_name() -> str:
-    return _personality_name("owner_name", "Master")
+    return _personality_name("owner_name")

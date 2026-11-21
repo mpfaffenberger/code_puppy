@@ -30,6 +30,8 @@ from dataclasses import dataclass
 from importlib.metadata import entry_points
 from pathlib import Path
 
+from packaging.utils import canonicalize_name
+
 from code_puppy import callbacks, identity
 from code_puppy.plugins import source_only, trust
 
@@ -65,10 +67,6 @@ def get_project_plugins_directory(project_root: Path | None = None) -> Path | No
     """``<project>/.code_puppy/plugins`` when the repository has one."""
     folder = (project_root or Path.cwd()) / identity.PROJECT_DIR / "plugins"
     return folder if folder.is_dir() else None
-
-
-def _normalize(distribution: str) -> str:
-    return distribution.lower().replace("_", "-").replace(".", "-")
 
 
 def _scan(folder: Path | None) -> dict[str, Path]:
@@ -109,7 +107,7 @@ def _load_installed() -> None:
         entry_points(group=PLUGIN_ENTRY_POINT_GROUP), key=lambda e: e.name
     ):
         distribution = entry.dist.name if entry.dist is not None else ""
-        if _normalize(distribution) in RETIRED_DISTRIBUTIONS:
+        if canonicalize_name(distribution) in RETIRED_DISTRIBUTIONS:
             _record(entry.name, "installed", "retired", distribution)
             continue
         _import(entry.name, "installed", entry.value.partition(":")[0])
@@ -212,6 +210,6 @@ def get_plugin_records() -> list[PluginRecord]:
 def reset_for_tests() -> None:
     """Forget what was loaded. Imported modules stay imported."""
     global _loaded
-    source_only.uninstall(PROJECT_NAMESPACE)
     _loaded = False
     _records.clear()
+    source_only.uninstall(PROJECT_NAMESPACE)

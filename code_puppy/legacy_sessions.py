@@ -16,7 +16,6 @@ notes telling the model that the tools it sees in it are gone.
 
 from __future__ import annotations
 
-import json
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
@@ -32,6 +31,7 @@ from pydantic_ai.messages import (
 from pydantic_ai_pax.runtime.imported_history import Header, framed, title_text
 
 from code_puppy import identity
+from code_puppy.migrate.sources import read_json_object
 
 SOURCE = "puppy"
 """What ``/resume puppy`` names, and the tag an imported session carries."""
@@ -86,14 +86,6 @@ def titles(root: Path) -> dict[str, str]:
     return {}
 
 
-def _read_object(path: Path) -> dict[str, Any]:
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-    return data if isinstance(data, dict) else {}
-
-
 def _fallback_title(meta: dict[str, Any], native_id: str) -> str:
     try:
         when = datetime.fromisoformat(str(meta.get("timestamp", "")))
@@ -104,7 +96,7 @@ def _fallback_title(meta: dict[str, Any], native_id: str) -> str:
 
 def header(path: Path) -> Header | None:
     """What the browser shows, from the small sidecar rather than the transcript."""
-    meta = _read_object(path.with_name(f"{path.stem}_meta.json"))
+    meta = read_json_object(path.with_name(f"{path.stem}_meta.json"))
     title = meta.get("title")
     named = isinstance(title, str) and bool(title.strip())
     scope = meta.get("scope_key")
@@ -141,20 +133,18 @@ def clean(history: list[ModelMessage]) -> list[ModelMessage]:
         for message in history
         if (cleaned := _without_harness(message)) is not None
     ]
-    while kept:
-        last = kept[-1]
-        dangling = isinstance(last, ModelResponse) and any(
-            isinstance(part, ToolCallPart) for part in last.parts
-        )
-        if not dangling:
-            break
+    while (
+        kept
+        and isinstance(last := kept[-1], ModelResponse)
+        and any(isinstance(part, ToolCallPart) for part in last.parts)
+    ):
         kept.pop()
     return kept
 
 
 def messages(path: Path) -> list[ModelMessage]:
     """The session's history as the runtime continues it. Blocking file IO."""
-    envelope = _read_object(path)
+    envelope = read_json_object(path)
     if envelope.get("encoding") != ENCODING_MESSAGES:
         return []
     history = ModelMessagesTypeAdapter.validate_python(envelope.get("messages") or [])

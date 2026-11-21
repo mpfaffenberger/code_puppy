@@ -209,7 +209,7 @@ class PuppyUpdates(Updates):
     locate: Callable[[str], Awaitable[str | None]] = tool_executable
 
     async def command(self, args: list[str]) -> str:
-        """Install the newest Code Puppy with ``uv tool install``, then restart into it.
+        """Install the newest Code Puppy with ``uv tool install``; in a session, restart into it.
 
         ``/update now`` in a session, where bare ``/update`` opens the menu;
         ``pup --update`` passes no arguments.

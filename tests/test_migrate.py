@@ -301,6 +301,28 @@ def test_cli_applies_and_reports(
     )
 
 
+def test_cli_reports_what_could_not_be_written(
+    legacy_home: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Failures while writing are noted once; the plan's own notes are not repeated."""
+
+    def refuse(self: object, name: str, server: object) -> None:
+        raise ValueError("the store refused it")
+
+    monkeypatch.setattr("pydantic_ai_pax.mcp.store.MCPStore.put", refuse)
+
+    assert migrate.main([]) == 0
+
+    lines = capsys.readouterr().out.splitlines()
+    assert [line for line in lines if "the store refused it" in line] == [
+        "  note     Skipped MCP server 'docs': the store refused it",
+        "  note     Skipped MCP server 'remote': the store refused it",
+    ]
+    assert sum("'broken'" in line for line in lines) == 1
+
+
 # --- saved keys reach providers ---------------------------------------------
 
 

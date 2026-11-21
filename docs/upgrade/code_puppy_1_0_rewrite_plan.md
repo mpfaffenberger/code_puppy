@@ -149,7 +149,7 @@ at `fcb45d846` (2026-11-20, 52 commits after 0.71.0) through
 ## 1. Outcome
 
 Code Puppy 1.0 stops being its own agent runtime and becomes a thin, branded
-distribution of `pydantic-clai2` (soon `pydantic-pax`) on top of
+distribution of `pydantic-ai-pax` (named `pydantic-clai2` until 2026-11-19) on top of
 `pydantic-ai-harness` and `pydantic-ai`.
 
 Done means:
@@ -172,7 +172,7 @@ Measured on 2026-11-13.
 | `code_puppy_core_plugins` (non-test) | about 58k lines, 60+ plugins |
 | Current pins | `pydantic-ai-harness==0.64.0`, `pydantic-ai-slim==2.64.0` |
 | Latest releases (PyPI, 2026-11-12) | harness `0.68.0`, slim `2.68.0`, `pydantic-clai2` `0.68.0` |
-| `pydantic-pax` on PyPI | does not exist yet |
+| `pydantic-ai-pax` on PyPI | not published yet (the runtime was still `pydantic-clai2`) |
 | clai2 on `pydantic-ai` main | about 68k lines (estimated from file sizes) |
 | Hooks defined in `callbacks.py` | 77 |
 | Hooks the core plugins actually register | 54 |

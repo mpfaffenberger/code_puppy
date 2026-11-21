@@ -72,7 +72,13 @@ def read_config(path: Path) -> dict[str, str]:
     return dict(parser.items(CONFIG_SECTION))
 
 
-def _read_json_object(path: Path) -> dict[str, Any]:
+def read_json_object(path: Path) -> dict[str, Any]:
+    """The JSON object in ``path``; ``{}`` when it is missing, broken, or not an object.
+
+    0.0.x files are read, never repaired, so anything unreadable is simply not
+    carried over. ``legacy_sessions`` reads its envelopes through this too, so
+    the two cannot drift apart.
+    """
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -82,7 +88,7 @@ def _read_json_object(path: Path) -> dict[str, Any]:
 
 def read_mcp_servers(path: Path) -> dict[str, dict[str, Any]]:
     """Servers by name, from either wrapper key 0.0.x accepted."""
-    data = _read_json_object(path)
+    data = read_json_object(path)
     servers = data.get("mcp_servers")
     if servers is None:
         servers = data.get("mcpServers")
@@ -95,7 +101,7 @@ def read_models(paths: tuple[Path, ...]) -> dict[str, dict[str, Any]]:
     """The 0.0.x model catalog: later files override earlier ones by name."""
     catalog: dict[str, dict[str, Any]] = {}
     for path in paths:
-        for name, entry in _read_json_object(path).items():
+        for name, entry in read_json_object(path).items():
             if isinstance(entry, dict):
                 catalog[str(name)] = entry
     return catalog

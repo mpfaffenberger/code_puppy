@@ -489,6 +489,42 @@ def test_manage_command_lists_and_trusts(bridge: LegacyPlugins, project: Path) -
     assert bridge._manage(["revoke", "repo_cmd"]) == "repo_cmd was not trusted."
 
 
+INERT_PLUGIN = """
+    from code_puppy.callbacks import register_callback
+
+    register_callback("startup", lambda: None)
+    register_callback("stream_event", lambda *args, **kwargs: None)
+"""
+
+
+async def test_hooks_1_0_does_not_run_are_reported(
+    installed_distribution: None, user_plugins: Path
+) -> None:
+    """A plugin that loads fine but relies on a removed hook would otherwise just go quiet."""
+    from pydantic_ai_pax.plugins import NoSettings
+
+    from code_puppy import messaging
+    from code_puppy.compat.bridge import LegacyPlugins
+
+    write_plugin(user_plugins, "old_streamer", INERT_PLUGIN)
+    # Loads the plugins, as at startup.
+    bridge = LegacyPlugins(Host(), NoSettings())  # type: ignore[arg-type]
+
+    listing = bridge._manage([])
+    assert "old_streamer registered hooks 1.0 does not run: stream_event" in listing
+
+    shown = io.StringIO()
+    messaging.set_console(Console(file=shown, width=200))
+    try:
+        await bridge.on_session_start(SimpleNamespace())  # type: ignore[arg-type]
+    finally:
+        messaging.set_console(None)
+    assert (
+        "0.0.x plugin old_streamer uses hooks 1.0 does not run: stream_event"
+        in shown.getvalue()
+    )
+
+
 # --- end to end ---------------------------------------------------------------
 
 E2E_PLUGIN = """

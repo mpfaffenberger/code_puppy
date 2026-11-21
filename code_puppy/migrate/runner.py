@@ -199,12 +199,11 @@ def auto() -> list[str]:
     result = apply(build_plan(files), legacy=legacy)
     if not result.changed:
         return []
-    lines = [
+    return [
         f"Brought over your {identity.DISPLAY_NAME} 0.0.x setup: {result.summary()}. "
-        f"`{identity.COMMANDS[0]} migrate --dry-run` shows the details."
+        f"`{identity.COMMANDS[0]} migrate --dry-run` shows the details.",
+        *result.notes,
     ]
-    lines += result.notes
-    return lines
 
 
 def main(argv: list[str]) -> int:
