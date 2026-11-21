@@ -7,6 +7,7 @@ system prompt changes model behavior.
 
 from __future__ import annotations
 
+import platform
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -78,6 +79,28 @@ def mount_note(host_path: str, mount_path: str) -> str:
     )
 
 
+def shell_note() -> str:
+    """Which shell `shell` hands commands to, spelled out for the model.
+
+    The shell tool never states its interpreter, so a model defaults to POSIX
+    utilities (`tail`, `head`, `sed`, `awk`) that do not exist in `cmd.exe`.
+    Those fail with "is not recognized", which reads like empty output rather
+    than an error, so the model concludes the command succeeded.
+
+    Derived from the host OS rather than a config flag: a flag can drift out
+    of sync with reality, which is the exact class of bug this prevents.
+    """
+    if platform.system() != "Windows":
+        return ""
+    tail = '`powershell -c "... | Select-Object -Last N"`'
+    return (
+        "\n`shell` runs commands in `cmd.exe`, not bash. POSIX utilities are\n"
+        "absent: no `tail`, `head`, `grep`, `sed`, `awk`, `xargs`. Use `findstr`,\n"
+        f"`type`, `dir /b`; for a tail, {tail}. An 'is not recognized' message\n"
+        "means the command never ran -- it is not an empty result.\n"
+    )
+
+
 @dataclass
 class CodeModeGuidance(AbstractCapability[Any]):
     """Teach the model the fast-path snippet shape when the mode is on."""
@@ -90,7 +113,7 @@ class CodeModeGuidance(AbstractCapability[Any]):
         # pydantic-ai puts the Anthropic cache breakpoint after the last static part, so
         # the guidance stays cached across sessions and directories (every new worktree
         # or sub-agent would otherwise re-write it to the cache at a premium).
-        return [CODE_MODE_GUIDANCE, self._mount_note]
+        return [CODE_MODE_GUIDANCE, self._mount_note, shell_note]
 
     def _mount_note(self) -> str:
         return mount_note(self.host_path, self.mount_path)
