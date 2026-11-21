@@ -274,10 +274,8 @@ def test_shell_tool_sigint_handler_untouched():
 
 
 def test_runtime_gates_only_the_sigint_cancel_decision():
-    from code_puppy.agents import _runtime
+    from code_puppy.agents import _run_signals
 
-    src = inspect.getsource(_runtime)
-    # The gate sits in keyboard_interrupt_handler (SIGINT), and the
-    # graceful (non-ctrl+c-cancel) handler doesn't cancel at all.
+    src = inspect.getsource(_run_signals.interactive_run_cancellation)
     handler_src = src.split("def keyboard_interrupt_handler", 1)[1].split("def ", 1)[0]
     assert "sigint_should_cancel" in handler_src

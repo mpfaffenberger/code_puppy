@@ -28,6 +28,7 @@ import shlex
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
+from ._process import communicate_command
 from .matcher import _extract_file_path
 from .models import EventData, ExecutionResult, HookConfig
 
@@ -177,27 +178,15 @@ async def execute_hook(
     try:
         env = _build_environment(event_data, env_vars)
 
-        proc = await asyncio.create_subprocess_shell(
-            command,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=_project_dir(),
-            env=env,
-        )
-
         try:
-            stdout, stderr = await asyncio.wait_for(
-                proc.communicate(input=stdin_payload),
+            stdout, stderr, returncode = await communicate_command(
+                command,
+                payload=stdin_payload,
                 timeout=hook.timeout / 1000.0,
+                cwd=_project_dir(),
+                env=env,
             )
         except asyncio.TimeoutError:
-            try:
-                proc.kill()
-                await proc.wait()
-            except Exception:
-                pass
-
             duration_ms = (time.perf_counter() - start_time) * 1000
             return ExecutionResult(
                 blocked=True,
@@ -213,7 +202,7 @@ async def execute_hook(
         duration_ms = (time.perf_counter() - start_time) * 1000
         stdout_str = stdout.decode("utf-8", errors="replace") if stdout else ""
         stderr_str = stderr.decode("utf-8", errors="replace") if stderr else ""
-        exit_code = proc.returncode or 0
+        exit_code = returncode or 0
 
         blocked = exit_code == 1
         error = stderr_str if exit_code != 0 and stderr_str else None

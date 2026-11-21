@@ -1551,8 +1551,11 @@ async def on_agent_run_end(
 ) -> List[Any]:
     """Trigger callbacks when an agent run ends.
 
-    This fires at the end of run_with_mcp, in the finally block.
-    Always fires regardless of success/failure/cancellation.
+    Dispatch is attempted in ``run_with_mcp`` after lifecycle entry for
+    successful, failed, and cancelled runs. Prompt cancellation before that
+    entry dispatches neither start nor end. End callbacks remain interruptible,
+    so cancellation can stop the remaining callback chain; synchronous blocking
+    work cannot be interrupted until it yields to the event loop.
 
     Useful for:
     - Stopping background tasks (like token refresh heartbeats)

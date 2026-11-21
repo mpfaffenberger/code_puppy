@@ -497,13 +497,17 @@ async def test_pre_autostart_nested_run_preserves_outer_cancellation(
     async def nested_run(*args):
         key_owner = _key_listeners._resolve_cancel_handler(None)
         shell_owner = command_runner._AGENT_CANCEL_CB
-        await inner.run_with_mcp("Hi")
-        ownership.append(
-            (
-                _key_listeners._resolve_cancel_handler(None) is key_owner,
-                command_runner._AGENT_CANCEL_CB is shell_owner,
+        try:
+            await inner.run_with_mcp("Hi")
+        finally:
+            # Nested cancellation now propagates to stop parent work. Ownership
+            # must still remain intact while that exception unwinds.
+            ownership.append(
+                (
+                    _key_listeners._resolve_cancel_handler(None) is key_owner,
+                    command_runner._AGENT_CANCEL_CB is shell_owner,
+                )
             )
-        )
 
     callbacks.register_callback("pre_mcp_autostart", nested_run)
     handle = _key_listeners.KeyListenerHandle(Mock(), threading.Event())
