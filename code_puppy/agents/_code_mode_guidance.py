@@ -50,10 +50,14 @@ work, with every tool call that step needs:
   it carries over to your next turn and comes back on resume. `restart: true`
   clears it.
 - The workspace is mounted read-write at the path given at the end of these
-  instructions; `pathlib` needs absolute paths under it (relative paths do not
-  resolve). NOT available: `Path.glob`/`rglob`, `os.walk`, `sys.path`,
-  `subprocess`, `importlib`, `ast`, third-party packages, network. Use
-  `list_files`/`grep`, and the shell function for processes and `curl`.
+  instructions. `pathlib` resolves RELATIVE paths against the mount, so a host
+  path is mangled into `<mount>/<host path>` - on Windows `Path('F:/x')`
+  becomes `/f/<ws>/F:/x` and raises `PermissionError`. Never give `Path()`,
+  `open()` or `os.path.*` a host path; convert first. Binary files (zip, pdf,
+  xlsx, images) have no stdlib reader: use the shell.
+  NOT available: `Path.glob`/`rglob`, `os.walk`, `sys.path`, `subprocess`,
+  `importlib`, `ast`, third-party packages, network. Use `list_files`/`grep`,
+  and the shell function for processes and `curl`.
 - Snippets are type-checked. Narrow `str | None` result fields by binding them
   once: `if (f := m["file_path"])` then use `f`, or `(r["content"] or "")`.
   Filtering on `m.get("x")` but using `m["x"]` does not narrow. Check the
@@ -71,11 +75,23 @@ def mount_note(host_path: str, mount_path: str) -> str:
     """Where the workspace lives in the sandbox, spelled out for the model."""
     if mount_path == host_path:
         return f"\nWorkspace mount: `{mount_path}` (same as the host path).\n"
-    return (
+    note = (
         f"\nWorkspace mount: `{mount_path}` is the host directory `{host_path}`.\n"
         "Tool functions (`read_file`, `grep`, shell, ...) take host paths;\n"
         "`pathlib` inside the sandbox takes mount paths.\n"
     )
+    if _is_windows_path(host_path):
+        note += (
+            f"Windows: convert host paths by hand - `{host_path}\\sub\\file` is\n"
+            f"`{mount_path}/sub/file`. Passing `{host_path}\\sub` as-is mangles it\n"
+            f"into `{mount_path}/{host_path}/sub` and raises PermissionError.\n"
+        )
+    return note
+
+
+def _is_windows_path(host_path: str) -> bool:
+    """True when the host path is a Windows path (drive letter or UNC share)."""
+    return (len(host_path) > 1 and host_path[1] == ":") or host_path.startswith("\\\\")
 
 
 @dataclass
