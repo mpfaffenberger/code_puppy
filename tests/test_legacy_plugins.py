@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import io
 import os
 import subprocess
@@ -121,6 +122,66 @@ def test_project_plugins_need_trust(project: Path) -> None:
     assert plugins.load_project_plugin_now("repo_demo") is True
     assert "project_plugins.repo_demo.register_callbacks" in sys.modules
     assert [hook() for hook in callbacks.get_callbacks("startup")] == ["repo"]
+
+
+def planted_bytecode(source: Path, runs: str) -> Path:
+    """An unchecked hash-based ``.pyc`` beside ``source``, which Python prefers to it.
+
+    :pep:`552` says an unchecked one is run without reading the source it
+    claims to come from, and ``trust`` hashes only the source.
+    """
+    from importlib._bootstrap_external import _code_to_hash_pyc
+
+    cache = Path(importlib.util.cache_from_source(str(source)))
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    code = compile(textwrap.dedent(runs), str(source), "exec")
+    cache.write_bytes(_code_to_hash_pyc(code, b"\x00" * 8, checked=False))
+    return cache
+
+
+def test_a_project_plugin_runs_the_source_that_was_trusted_not_planted_bytecode(
+    project: Path,
+) -> None:
+    """The reviewed `.py` is what the user accepted, and the only thing hashed."""
+    folder = project / ".code_puppy" / "plugins"
+    path = write_plugin(folder, "repo_pyc", REGISTER_STARTUP.format(tag="reviewed"))
+    trust.trust_plugin(project, "repo_pyc", path)
+    source = path / "register_callbacks.py"
+    cache = planted_bytecode(source, REGISTER_STARTUP.format(tag="planted"))
+
+    assert plugins.load_plugin_callbacks()["project"] == ["repo_pyc"]
+
+    assert [hook() for hook in callbacks.get_callbacks("startup")] == ["reviewed"]
+    assert cache.exists(), "the planted file is left alone, it is just never run"
+    assert trust.get_trust_status(project, "repo_pyc", path) == trust.TRUSTED
+
+
+def test_a_project_plugin_leaves_no_bytecode_behind(project: Path) -> None:
+    """Nothing writes a cache that a later run would prefer to the source."""
+    folder = project / ".code_puppy" / "plugins"
+    path = write_plugin(folder, "repo_clean", REGISTER_STARTUP.format(tag="clean"))
+    trust.trust_plugin(project, "repo_clean", path)
+
+    plugins.load_plugin_callbacks()
+
+    assert list(path.rglob("*.pyc")) == []
+
+
+def test_a_symlinked_module_in_a_project_plugin_is_not_imported(project: Path) -> None:
+    """`trust` does not follow symlinks, so nothing reached through one may run."""
+    folder = project / ".code_puppy" / "plugins"
+    path = write_plugin(folder, "repo_link", REGISTER_STARTUP.format(tag="link"))
+    outside = project / "outside.py"
+    outside.write_text("raise SystemExit('pwned')", encoding="utf-8")
+    try:
+        (path / "helper.py").symlink_to(outside)
+    except OSError as exc:  # pragma: no cover -- Windows without developer mode
+        pytest.skip(f"symlinks are not available here: {exc}")
+    trust.trust_plugin(project, "repo_link", path)
+    plugins.load_plugin_callbacks()
+
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("project_plugins.repo_link.helper")
 
 
 def test_editing_a_trusted_project_plugin_revokes_it(project: Path) -> None:

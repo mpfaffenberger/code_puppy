@@ -31,7 +31,7 @@ from importlib.metadata import entry_points
 from pathlib import Path
 
 from code_puppy import callbacks, identity
-from code_puppy.plugins import trust
+from code_puppy.plugins import source_only, trust
 
 PLUGIN_ENTRY_POINT_GROUP = "code_puppy.plugins"
 RETIRED_DISTRIBUTIONS = frozenset({"code-puppy-core-plugins"})
@@ -128,14 +128,18 @@ def _load_user(folder: Path, skip: set[str]) -> None:
 
 
 def _project_namespace(folder: Path) -> None:
-    """Import project plugins as ``project_plugins.<name>`` so names never collide."""
+    """Import project plugins as ``project_plugins.<name>`` so names never collide.
+
+    Through ``source_only``, so a repository's reviewed source is what runs:
+    the namespace keeps no ``__path__`` of its own for the ordinary import
+    machinery to search.
+    """
     namespace = sys.modules.get(PROJECT_NAMESPACE)
     if namespace is None:
         namespace = types.ModuleType(PROJECT_NAMESPACE)
         namespace.__path__ = []
         sys.modules[PROJECT_NAMESPACE] = namespace
-    if str(folder) not in namespace.__path__:
-        namespace.__path__.append(str(folder))
+    source_only.install(PROJECT_NAMESPACE, folder)
 
 
 def _trusted_project_plugins(project_root: Path) -> dict[str, Path]:
@@ -208,5 +212,6 @@ def get_plugin_records() -> list[PluginRecord]:
 def reset_for_tests() -> None:
     """Forget what was loaded. Imported modules stay imported."""
     global _loaded
+    source_only.uninstall(PROJECT_NAMESPACE)
     _loaded = False
     _records.clear()

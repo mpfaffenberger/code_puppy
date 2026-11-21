@@ -16,7 +16,15 @@ import os
 from collections.abc import MutableMapping
 
 KEY_ACCOUNT = "api-keys"
-EXPORTED_SUFFIXES = ("_API_KEY", "_TOKEN")
+CREDENTIAL_SUFFIXES = ("_API_KEY", "_TOKEN")
+"""What a credential variable is called. A name that redirects requests or
+moves Code Puppy's own folders is not one, which is what keeps an untrusted
+``.env`` from setting it; see ``main._load_dotenv``."""
+
+
+def is_credential_name(name: str) -> bool:
+    """Whether ``name`` is a provider credential rather than a setting."""
+    return name.endswith(CREDENTIAL_SUFFIXES)
 
 
 def export_saved_keys(environ: MutableMapping[str, str] = os.environ) -> list[str]:
@@ -31,7 +39,7 @@ def export_saved_keys(environ: MutableMapping[str, str] = os.environ) -> list[st
         return []
     exported: list[str] = []
     for name, secret in load_keys().items():
-        if name.endswith(EXPORTED_SUFFIXES) and not environ.get(name):
+        if is_credential_name(name) and not environ.get(name):
             environ[name] = secret.get_secret_value()
             exported.append(name)
     return exported

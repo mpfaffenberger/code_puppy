@@ -19,17 +19,35 @@ NO_SPLASH_VARIABLES = ("CODE_PUPPY_NO_SPLASH", "CLAI_NO_SPLASH")
 
 
 def _load_dotenv() -> None:
-    """Load the project's ``.env`` so settings and keys see it; never fatal."""
-    from dotenv import find_dotenv, load_dotenv
+    """Take the credentials in the project's ``.env``, and nothing else; never fatal.
+
+    A ``.env`` is read from whatever directory ``pup`` was started in, so in a
+    cloned repository it is the repository's file. 0.0.x read only names
+    shaped like a credential from it, and so does this: a name that redirects
+    where Code Puppy sends its requests (``*_BASE_URL``, ``*_ENDPOINT``,
+    ``HTTPS_PROXY``) or where it reads its own settings and plugins
+    (``XDG_CONFIG_HOME``, ``CODE_PUPPY_*``) is left in the file. Set those in
+    the environment yourself, where the repository cannot write them.
+
+    A variable the user already set always wins, as ``load_dotenv`` has it.
+    """
+    from dotenv import dotenv_values, find_dotenv
+
+    from code_puppy.api_keys import is_credential_name
 
     dotenv_path = ".env"
     try:
         dotenv_path = find_dotenv(usecwd=True)
         # Named pipes must not block startup.
-        if Path(dotenv_path).is_file():
-            load_dotenv(dotenv_path)
+        if not Path(dotenv_path).is_file():
+            return
+        found = dotenv_values(dotenv_path)
     except (OSError, UnicodeDecodeError) as exc:
         print(f"Ignoring `.env` at {dotenv_path!r}: {exc}", file=sys.stderr)
+        return
+    for name, value in found.items():
+        if value and is_credential_name(name) and not os.environ.get(name):
+            os.environ[name] = value
 
 
 def splash_wanted(argv: list[str], database: Path) -> bool:
