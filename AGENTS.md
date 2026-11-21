@@ -47,7 +47,7 @@ Plan and status: `docs/upgrade/code_puppy_1_0_rewrite_plan.md`.
    docstring, and add it to `REPLACED` in
    `tests/test_distribution_contract.py`. Each one is debt: prefer an upstream
    seam.
-3. **The 0.0.x surface is frozen.** `callbacks.py`, `config.py`,
+3. **The 0.0.x plugin API is frozen.** `callbacks.py`, `config.py`,
    `messaging/`, `i18n/` and `plugins/` exist so old plugins import. Do not add
    hooks or helpers to them, and do not import them from new code.
 4. **Optional tools load on demand.** Anything a plugin adds for the model
