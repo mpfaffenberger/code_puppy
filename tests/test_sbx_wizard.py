@@ -388,6 +388,27 @@ def test_main_real_prune_deletes_owned_secret(
     assert wizard.load_owned()["secrets"] == []
 
 
+def test_main_prune_without_yes_asks_and_honors_refusal(
+    wizard: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    wizard.save_owned({"secrets": ["oldkey"], "bindings": []})
+    fake = FakeRun(json.dumps(_plan(stale_sbx_secrets=["oldkey"])))
+    _stub_main_env(wizard, monkeypatch, fake)
+    prompts: list[str] = []
+
+    def _refuse(prompt: str) -> str:
+        prompts.append(prompt)
+        return "n"
+
+    monkeypatch.setattr("builtins.input", _refuse)
+
+    assert wizard.main(["--stock-config", "--prune"]) == 0
+
+    assert len(prompts) == 1
+    assert fake.rm_calls() == []
+    assert wizard.load_owned()["secrets"] == ["oldkey"]
+
+
 def test_main_dry_run_prune_reads_plan_to_preview(
     wizard: ModuleType, monkeypatch: pytest.MonkeyPatch
 ) -> None:
