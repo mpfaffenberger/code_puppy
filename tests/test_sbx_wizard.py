@@ -227,25 +227,21 @@ def test_already_approved_binding_is_not_claimed(
     assert path.read_text(encoding="utf-8") == hand_written
 
 
-def test_prune_refuses_degenerate_plan(
-    wizard: ModuleType, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    "plan",
+    [
+        _plan(credentials=[], egress=[], stale_sbx_secrets=["oldkey"]),
+        _plan(),
+    ],
+    ids=["degenerate-plan", "no-stale-key"],
+)
+def test_prune_refuses_degenerate_or_unreported_plan(
+    wizard: ModuleType, monkeypatch: pytest.MonkeyPatch, plan: dict
 ) -> None:
     wizard.save_owned({"secrets": ["oldkey"], "bindings": {}})
     fake = _use(wizard, monkeypatch, FakeRun())
 
-    empty = {"credentials": [], "oauth": [], "egress": [], "unsupported": []}
-    wizard.prune_owned_secrets({**empty, "stale_sbx_secrets": ["oldkey"]}, dry=False)
-
-    assert fake.calls == []
-
-
-def test_prune_skips_when_plugin_reports_no_stale_key(
-    wizard: ModuleType, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    wizard.save_owned({"secrets": ["oldkey"], "bindings": {}})
-    fake = _use(wizard, monkeypatch, FakeRun())
-
-    wizard.prune_owned_secrets(_plan(), dry=False)
+    wizard.prune_owned_secrets(plan, dry=False)
 
     assert fake.calls == []
 
@@ -399,6 +395,18 @@ def test_ensure_secret_records_ownership_only_when_stored(
     assert "bar" not in wizard.load_owned()["secrets"]
 
 
+def test_ensure_secret_failed_set_records_no_ownership(
+    wizard: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _use(wizard, monkeypatch, FakeRun(fail=("foo",)))
+    monkeypatch.setattr(wizard, "secret_stored", lambda _s: False)
+    monkeypatch.setenv("FOO_API_KEY", "value")
+
+    with pytest.raises(wizard.WizardError):
+        wizard.ensure_secret("foo", "FOO_API_KEY", dry=False)
+    assert wizard.load_owned()["secrets"] == []
+
+
 def _stub_main_env(
     wizard: ModuleType, monkeypatch: pytest.MonkeyPatch, fake: FakeRun
 ) -> None:
@@ -483,28 +491,35 @@ def test_main_dry_run_prune_executes_nothing_without_live_plan(
 
 
 @pytest.mark.parametrize(
-    ("argv", "expected"),
+    ("argv", "live"),
     [
-        ([], ["anthropic"]),
-        (["--dry-run"], []),
-        (["--dry-run", "--live-plan"], []),
+        ([], True),
+        (["--prune"], True),
+        (["--dry-run"], False),
+        (["--dry-run", "--live-plan"], False),
     ],
 )
 def test_main_hands_fetched_plan_downstream_only_on_live_runs(
-    wizard: ModuleType,
-    monkeypatch: pytest.MonkeyPatch,
-    argv: list[str],
-    expected: list[str],
+    wizard: ModuleType, monkeypatch: pytest.MonkeyPatch, argv: list[str], live: bool
 ) -> None:
-    """A dry run never prompts for keys, even when --live-plan reads the plan."""
-    _stub_main_env(wizard, monkeypatch, FakeRun(json.dumps(_plan())))
-    services: list[str] = []
+    """Live runs (pruning included) wire each credential through; a dry run
+    never prompts for keys, even when --live-plan reads the plan."""
+    wizard.save_owned({"secrets": ["oldkey"], "bindings": {}})
+    plan = json.dumps(_plan(stale_sbx_secrets=["oldkey"]))
+    _stub_main_env(wizard, monkeypatch, FakeRun(plan))
+    _answer(monkeypatch, "y")
+    secrets: list[tuple[str, str]] = []
+    bindings: list[tuple[str, str]] = []
     monkeypatch.setattr(
-        wizard, "ensure_secret", lambda service, *_a: services.append(service)
+        wizard, "ensure_secret", lambda svc, env, _dry: secrets.append((svc, env))
+    )
+    monkeypatch.setattr(
+        wizard, "ensure_binding", lambda svc, dom, _dry: bindings.append((svc, dom))
     )
 
     assert wizard.main(["--stock-config", *argv]) == 0
-    assert services == expected
+    assert secrets == ([("anthropic", "ANTHROPIC_API_KEY")] if live else [])
+    assert bindings == ([("anthropic", "api.anthropic.com")] if live else [])
 
 
 def test_main_rejects_prune_with_no_creds(wizard: ModuleType) -> None:
