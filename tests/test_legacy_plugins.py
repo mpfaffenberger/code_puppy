@@ -184,6 +184,70 @@ def test_a_symlinked_module_in_a_project_plugin_is_not_imported(project: Path) -
         importlib.import_module("project_plugins.repo_link.helper")
 
 
+def test_a_sourceless_pyc_in_a_project_plugin_is_not_imported(project: Path) -> None:
+    """No `.py` to review means no import, even if a `.pyc` claims the name."""
+    folder = project / ".code_puppy" / "plugins"
+    path = write_plugin(folder, "repo_sole", REGISTER_STARTUP.format(tag="sole"))
+    from importlib._bootstrap_external import _code_to_hash_pyc
+
+    code = compile("raise SystemExit('pwned')", str(path / "helper.py"), "exec")
+    (path / "helper.pyc").write_bytes(
+        _code_to_hash_pyc(code, b"\x00" * 8, checked=False)
+    )
+    trust.trust_plugin(project, "repo_sole", path)
+    plugins.load_plugin_callbacks()
+
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("project_plugins.repo_sole.helper")
+
+
+def test_bytecode_planted_after_trust_for_a_submodule_is_not_imported(
+    project: Path,
+) -> None:
+    """The hash skips `__pycache__`, so an unchecked `.pyc` there must not run."""
+    folder = project / ".code_puppy" / "plugins"
+    path = write_plugin(
+        folder,
+        "repo_sub",
+        REGISTER_STARTUP.format(tag="sub"),
+        helper="MARK = 'reviewed helper'",
+    )
+    trust.trust_plugin(project, "repo_sub", path)
+    planted_bytecode(path / "helper.py", "MARK = 'planted helper'")
+    plugins.load_plugin_callbacks()
+
+    helper = importlib.import_module("project_plugins.repo_sub.helper")
+
+    assert helper.MARK == "reviewed helper"
+
+
+def test_an_extension_artifact_in_a_project_plugin_is_not_imported(
+    project: Path,
+) -> None:
+    """A compiled `.so`/`.pyd` was never reviewed, so it cannot become a module."""
+    folder = project / ".code_puppy" / "plugins"
+    path = write_plugin(folder, "repo_ext", REGISTER_STARTUP.format(tag="ext"))
+    (path / "helper.pyd").write_bytes(b"not source")
+    trust.trust_plugin(project, "repo_ext", path)
+    plugins.load_plugin_callbacks()
+
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("project_plugins.repo_ext.helper")
+
+
+def test_a_project_plugin_package_exposes_no_search_path_to_pathfinder(
+    project: Path,
+) -> None:
+    """Defense in depth: nothing can hand the plugin directory to PathFinder."""
+    folder = project / ".code_puppy" / "plugins"
+    path = write_plugin(folder, "repo_path", REGISTER_STARTUP.format(tag="path"))
+    trust.trust_plugin(project, "repo_path", path)
+    plugins.load_plugin_callbacks()
+
+    package = importlib.import_module("project_plugins.repo_path")
+    assert package.__path__ == []
+
+
 def test_editing_a_trusted_project_plugin_revokes_it(project: Path) -> None:
     folder = project / ".code_puppy" / "plugins"
     path = write_plugin(folder, "repo_edit", REGISTER_STARTUP.format(tag="v1"))

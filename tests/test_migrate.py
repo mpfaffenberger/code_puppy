@@ -125,6 +125,22 @@ def test_settings_translation_reports_what_it_cannot_carry() -> None:
     assert len(result.notes) == 2 and "/model" in result.notes[0]
 
 
+@pytest.mark.parametrize("limit", ["²", "not-a-number", "0", "-3"])
+def test_an_unusable_message_limit_is_noted_and_the_rest_still_migrates(
+    limit: str,
+) -> None:
+    """`isdigit()` accepts characters `int()` rejects; a bad value must not abort the plan."""
+    result = translate.settings(
+        {"message_limit": limit, "model": "sonnet", "yolo_mode": "yes"}, CATALOG
+    )
+
+    assert result.values == {
+        "model": "anthropic:claude-sonnet-5",
+        "run.permissions": "full",
+    }
+    assert result.notes == [f"Ignored message_limit {limit!r}: not a positive number."]
+
+
 def test_secrets_are_split_from_preferences() -> None:
     config = {
         "openai_api_key": "sk",

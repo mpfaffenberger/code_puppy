@@ -87,8 +87,13 @@ def settings(
             result.values["model"] = reference
     limit = config.get("message_limit", "").strip()
     if limit:
-        if limit.isdigit() and int(limit) > 0:
-            result.values["run.request_limit"] = int(limit)
+        try:
+            request_limit = int(limit)
+        except ValueError:
+            # `str.isdigit()` accepts characters `int()` does not, such as "²".
+            request_limit = 0
+        if request_limit > 0:
+            result.values["run.request_limit"] = request_limit
         else:
             result.notes.append(
                 f"Ignored message_limit {limit!r}: not a positive number."

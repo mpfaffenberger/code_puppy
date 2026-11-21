@@ -8,13 +8,23 @@ covers.
 Python's own import machinery would not hold to that. Beside a module it
 prefers ``__pycache__/<module>.pyc``, and an *unchecked hash-based* one
 (:pep:`552`) is run without ever looking at the source it claims to come
-from. A repository could therefore ship reviewed-looking source and have
-something else run, leaving the trust hash, and so the plugin's status,
-unchanged.
+from. It also loads a sourceless ``.pyc`` or an extension ``.so``/``.pyd``
+outright, and follows symlinks. A repository could therefore ship
+reviewed-looking source and have something else run, leaving the trust hash,
+and so the plugin's status, unchanged.
 
 So project plugins are imported through the finder below instead: only
 ``.py`` files, compiled in memory, with no bytecode cache read or written,
-and nothing reached through a symlink, which the hash does not follow either.
+and nothing reached through a symlink.
+
+Two parts of that are load-bearing:
+
+* **Every name in the namespace is resolved here, or the import raises.**
+  Returning ``None`` would pass the name on to ``PathFinder``, which reads
+  exactly the files above from the plugin's directory.
+* **A package's ``submodule_search_locations`` is empty.** ``PathFinder``
+  consults it only for finders that returned ``None``; empty makes that
+  unreachability explicit instead of assumed.
 """
 
 from __future__ import annotations
@@ -73,14 +83,21 @@ class ProjectPluginFinder:
         target: ModuleType | None = None,
     ) -> ModuleSpec | None:
         prefix = f"{self.namespace}."
-        if not fullname.startswith(prefix):
+        if fullname != self.namespace and not fullname.startswith(prefix):
             return None
+        if fullname == self.namespace:
+            return self._package_spec(fullname)
         parts = fullname[len(prefix) :].split(".")
         for folder in self.folders:
             spec = self._spec(folder, fullname, parts)
             if spec is not None:
                 return spec
-        return None
+        # Not "not here": a hard stop. Returning None would let PathFinder
+        # load a `.pyc`, `.so` or symlink from the very directory just refused.
+        raise ModuleNotFoundError(
+            f"{fullname} is not importable from {self.namespace}: only real "
+            "`.py` files inside a trusted project plugin are loaded."
+        )
 
     def _spec(self, folder: Path, fullname: str, parts: list[str]) -> ModuleSpec | None:
         directory = folder.joinpath(*parts)
@@ -94,17 +111,24 @@ class ProjectPluginFinder:
         return None
 
     def _package(self, directory: Path, fullname: str) -> ModuleSpec:
-        """The plugin's folder, with or without an ``__init__.py``."""
+        """The plugin's folder, with or without an ``__init__.py``.
+
+        Submodules resolve through ``find_spec``, never through a search path.
+        """
         init = directory / "__init__.py"
-        if init.is_file() and reached_without_symlink(directory, init):
-            return spec_from_file_location(
-                fullname,
-                init,
-                loader=SourceOnlyLoader(fullname, str(init)),
-                submodule_search_locations=[str(directory)],
-            )
+        if not (init.is_file() and reached_without_symlink(directory, init)):
+            return self._package_spec(fullname)
+        return spec_from_file_location(
+            fullname,
+            init,
+            loader=SourceOnlyLoader(fullname, str(init)),
+            submodule_search_locations=[],
+        )
+
+    @staticmethod
+    def _package_spec(fullname: str) -> ModuleSpec:
         spec = ModuleSpec(fullname, None, is_package=True)
-        spec.submodule_search_locations = [str(directory)]
+        spec.submodule_search_locations = []
         return spec
 
 
