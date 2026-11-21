@@ -35,6 +35,9 @@ from pathlib import Path
 SBX_DIR = Path(__file__).resolve().parent
 PERSONAL_CONFIG_DIR = SBX_DIR / ".personal" / "code-puppy-config"
 PERSONAL_CREDS_DIR = SBX_DIR / ".personal" / "code-puppy-creds"
+# Secrets/bindings this wizard created itself: the only ones --prune may
+# delete (sbx secrets are host-global and may belong to other setups).
+OWNED_FILE = SBX_DIR / ".personal" / "owned-secrets.json"
 
 # OAuth providers whose token file can be synced into the guest.
 TOKEN_FILES = {
@@ -140,13 +143,11 @@ def ensure_setup_cli(exe: str) -> None:
 def fetch_plan(exe: str, dry: bool) -> dict:
     """Derive the credential/egress plan from the host model catalog.
 
-    Runs with --prune: sbx secrets stored by earlier runs for providers
-    the catalog no longer uses are deleted, so the sbx store always
-    matches the current plan. In dry-run nothing executes at all.
+    Read-only: the plan also reports ``stale_sbx_secrets`` (stored
+    secrets the catalog no longer needs) but never deletes anything;
+    see :func:`prune_owned_secrets`.
     """
-    result = run(
-        code_puppy_cmd(exe) + ["--setup", "sbx", "plan", "--prune", "--json"], dry=dry
-    )
+    result = run(code_puppy_cmd(exe) + ["--setup", "sbx", "plan", "--json"], dry=dry)
     if dry:
         return {"credentials": [], "oauth": [], "egress": [], "unsupported": []}
     if result.returncode != 0:
@@ -155,12 +156,9 @@ def fetch_plan(exe: str, dry: bool) -> dict:
         )
     text = result.stdout
     try:
-        plan = json.loads(text[text.index("{") : text.rindex("}") + 1])
+        return json.loads(text[text.index("{") : text.rindex("}") + 1])
     except (ValueError, json.JSONDecodeError) as exc:
         raise WizardError(f"could not parse sbx plan output: {exc}") from exc
-    for name in plan.get("pruned_sbx_secrets", []):
-        print(f"sbx secret '{name}': pruned (no longer needed by your catalog)")
-    return plan
 
 
 def filter_plan(plan: dict, provider: str | None) -> dict:
@@ -219,6 +217,8 @@ def ensure_secret(service: str, env_var: str, dry: bool) -> None:
         raise WizardError(
             f"sbx secret set {service} failed: {result.stderr.strip()[:300]}"
         )
+    if not dry:
+        record_owned("secrets", service)
     print(f"sbx secret '{service}': stored (value never printed)")
 
 
@@ -245,7 +245,106 @@ def ensure_binding(service: str, domain: str, dry: bool) -> None:
         return
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
+    record_owned("bindings", service)
     print(f"binding for '{service}' -> {domain}: written to {path}")
+
+
+def load_owned() -> dict[str, list[str]]:
+    try:
+        data = json.loads(OWNED_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    return {
+        key: sorted({n for n in data.get(key, []) if isinstance(n, str)})
+        for key in ("secrets", "bindings")
+    }
+
+
+def save_owned(owned: dict[str, list[str]]) -> None:
+    OWNED_FILE.parent.mkdir(parents=True, exist_ok=True)
+    OWNED_FILE.write_text(json.dumps(owned, indent=2) + "\n", encoding="utf-8")
+
+
+def record_owned(kind: str, service: str) -> None:
+    owned = load_owned()
+    if service not in owned[kind]:
+        owned[kind] = sorted(owned[kind] + [service])
+        save_owned(owned)
+
+
+def remove_binding(service: str) -> bool:
+    """Drop the exact binding block :func:`ensure_binding` wrote."""
+    path = bindings_path()
+    if not path.is_file():
+        return False
+    text = path.read_text(encoding="utf-8")
+    pattern = (
+        rf"(?m)^  {re.escape(service)}:\n    apiKey:\n"
+        r"      domains: \[[^\]\n]*\]\n?"
+    )
+    new, count = re.subn(pattern, "", text, count=1)
+    if not count:
+        return False
+    path.write_text(new, encoding="utf-8")
+    return True
+
+
+def confirm(prompt: str) -> bool:
+    try:
+        return input(prompt).strip().lower() in ("y", "yes")
+    except EOFError:
+        return False
+
+
+def prune_owned_secrets(plan: dict, dry: bool, assume_yes: bool) -> None:
+    """Delete stale sbx secrets, but only those this wizard created.
+
+    ``plan`` must be the unfiltered plan. Secrets stored by hand or by
+    other sandboxes are reported and kept; a plan deriving no
+    credentials at all (plugin/catalog problem) prunes nothing.
+    """
+    stale = plan.get("stale_sbx_secrets")
+    if stale is None:
+        print("warning: setup_cli plugin does not report stale secrets; prune skipped")
+        return
+    if not plan.get("credentials") and not plan.get("oauth"):
+        print("warning: the derived plan needs no credentials; refusing to prune")
+        return
+    owned = load_owned()
+    targets = [n for n in stale if n in owned["secrets"]]
+    for name in stale:
+        if name not in owned["secrets"]:
+            print(f"sbx secret '{name}': stale but not created by the wizard; kept")
+    if not targets:
+        print("prune: no wizard-created secret to remove")
+        return
+    print("prune: will remove sbx secret(s): " + ", ".join(targets))
+    if dry:
+        for name in targets:
+            print(f"[dry-run] sbx secret rm {name} -f")
+            if name in owned["bindings"]:
+                print(f"[dry-run] would remove binding for {name} in {bindings_path()}")
+        return
+    if not assume_yes and not confirm(f"Remove {len(targets)} secret(s)? [y/N] "):
+        print("prune: aborted, nothing removed")
+        return
+    for name in targets:
+        result = run(["sbx", "secret", "rm", name, "-f"], dry=False)
+        if result.returncode != 0:
+            print(
+                f"warning: sbx secret rm {name} failed: "
+                f"{(result.stderr or '').strip()[:200]}"
+            )
+            continue
+        owned["secrets"].remove(name)
+        print(f"sbx secret '{name}': pruned (no longer needed by your catalog)")
+        if name in owned["bindings"]:
+            if remove_binding(name):
+                print(f"binding for '{name}': removed from {bindings_path()}")
+            owned["bindings"].remove(name)
+    save_owned(owned)
 
 
 def build_creds_mixin(
@@ -365,6 +464,15 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="run a headless smoke prompt after creation",
     )
+    parser.add_argument(
+        "--prune",
+        action="store_true",
+        help="delete sbx secrets (and bindings) this wizard created that your "
+        "catalog no longer needs; asks for confirmation, honors --dry-run",
+    )
+    parser.add_argument(
+        "--yes", action="store_true", help="skip the --prune confirmation"
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument(
         "--code-puppy",
@@ -372,6 +480,8 @@ def main(argv: list[str] | None = None) -> int:
         help="code-puppy executable to drive (default: project .venv, else PATH/uvx)",
     )
     args = parser.parse_args(argv)
+    if args.prune and args.no_creds:
+        parser.error("--prune needs the credential plan; drop --no-creds")
 
     try:
         exe = check_prereqs(args.code_puppy)
@@ -382,7 +492,15 @@ def main(argv: list[str] | None = None) -> int:
         plan: dict = {"credentials": [], "oauth": [], "egress": [], "unsupported": []}
         creds_mixin: Path | None = None
         if not args.no_creds:
-            plan = filter_plan(fetch_plan(exe, args.dry_run), args.provider)
+            # The plan read is side-effect free, so --dry-run --prune still
+            # runs it to preview the deletions; the rest of a dry run keeps
+            # the empty plan (no secret prompts).
+            full = fetch_plan(exe, args.dry_run and not args.prune)
+            if args.prune:
+                prune_owned_secrets(full, args.dry_run, args.yes)
+            if args.dry_run:
+                full = plan
+            plan = filter_plan(full, args.provider)
             for entry in plan["unsupported"]:
                 print(
                     f"warning: no sandbox credential for {entry['model']} "
