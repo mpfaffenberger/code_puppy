@@ -229,7 +229,6 @@ def bindings_path() -> Path:
 
 
 def binding_block(service: str, domain: str) -> str:
-    """The credentials.yaml block :func:`ensure_binding` writes."""
     return f"  {service}:\n    apiKey:\n      domains: [{domain}]\n"
 
 
@@ -292,10 +291,9 @@ def remove_binding(service: str) -> bool:
     # their parent key.
     pattern = "(?m)^" + re.escape(prefix) + r"\[[^\]\n]*\](?:\n(?![ ]{3})|\Z)"
     new, count = re.subn(pattern, "", text, count=1)
-    if not count:
-        return False
-    path.write_text(new, encoding="utf-8")
-    return True
+    if count:
+        path.write_text(new, encoding="utf-8")
+    return bool(count)
 
 
 def confirm(prompt: str) -> bool:
@@ -332,21 +330,19 @@ def prune_owned_secrets(plan: dict, dry: bool, assume_yes: bool) -> None:
         print("prune: no wizard-created secret to remove")
         return
     print("prune: will remove sbx secret(s): " + ", ".join(targets))
-    if dry:
-        for name in targets:
-            run(["sbx", "secret", "rm", name, "-f"], dry=True)
-            if name in owned["bindings"]:
-                print(f"[dry-run] would remove binding for {name} in {bindings_path()}")
-        return
     question = (
         f"Remove {len(targets)} secret(s)? Existing sandboxes that still "
         "use them lose access. [y/N] "
     )
-    if not assume_yes and not confirm(question):
+    if not dry and not assume_yes and not confirm(question):
         print("prune: aborted, nothing removed")
         return
     for name in targets:
-        result = run(["sbx", "secret", "rm", name, "-f"], dry=False)
+        result = run(["sbx", "secret", "rm", name, "-f"], dry=dry)
+        if dry:
+            if name in owned["bindings"]:
+                print(f"[dry-run] would remove binding for {name} in {bindings_path()}")
+            continue
         if result.returncode != 0:
             print(
                 f"warning: sbx secret rm {name} failed: {result.stderr.strip()[:200]}"
@@ -363,7 +359,8 @@ def prune_owned_secrets(plan: dict, dry: bool, assume_yes: bool) -> None:
                     f"warning: binding for '{name}' not found in its original "
                     f"form; clean up {bindings_path()} manually"
                 )
-    save_owned(owned)
+    if not dry:
+        save_owned(owned)
 
 
 def build_creds_mixin(
