@@ -139,11 +139,14 @@ def test_prune_dry_run_previews_without_deleting(
     fake = _use(wizard, monkeypatch, FakeRun())
 
     wizard.prune_owned_secrets(
-        _plan(stale_sbx_secrets=["oldkey"]), dry=True, assume_yes=True
+        _plan(stale_sbx_secrets=["oldkey", "groq"]), dry=True, assume_yes=True
     )
 
     assert fake.calls == [(["sbx", "secret", "rm", "oldkey", "-f"], True)]
-    assert "[dry-run] would remove binding for oldkey" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "prune: will remove sbx secret(s): oldkey\n" in out
+    assert "sbx secret 'groq': stale but not created by the wizard; kept" in out
+    assert "[dry-run] would remove binding for oldkey" in out
     assert wizard.load_owned() == {"secrets": ["oldkey"], "bindings": ["oldkey"]}
     assert path.read_text(encoding="utf-8") == original
 
@@ -178,6 +181,40 @@ def test_extended_binding_is_not_partially_removed(
 
     assert wizard.remove_binding("oldkey") is False
     assert path.read_text(encoding="utf-8") == extended
+
+
+def test_binding_followed_by_sibling_is_removed_exactly(wizard: ModuleType) -> None:
+    path = wizard.bindings_path()
+    path.write_text(
+        "bindings:\n"
+        + wizard.binding_block("oldkey", "api.old.example")
+        + wizard.binding_block("groq", "api.groq.com"),
+        encoding="utf-8",
+    )
+
+    assert wizard.remove_binding("oldkey") is True
+    assert path.read_text(encoding="utf-8") == (
+        "bindings:\n  groq:\n    apiKey:\n      domains: [api.groq.com]\n"
+    )
+
+
+def test_already_approved_binding_is_not_claimed(
+    wizard: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = wizard.bindings_path()
+    hand_written = "bindings:\n" + wizard.binding_block("oldkey", "api.old.example")
+    path.write_text(hand_written, encoding="utf-8")
+
+    wizard.ensure_binding("oldkey", "api.old.example", dry=False)
+    assert wizard.load_owned()["bindings"] == []
+
+    # The wizard may own the secret, but never the hand-written binding.
+    wizard.save_owned({"secrets": ["oldkey"], "bindings": []})
+    _use(wizard, monkeypatch, FakeRun())
+    wizard.prune_owned_secrets(
+        _plan(stale_sbx_secrets=["oldkey"]), dry=False, assume_yes=True
+    )
+    assert path.read_text(encoding="utf-8") == hand_written
 
 
 def test_prune_refuses_degenerate_plan(
@@ -439,6 +476,31 @@ def test_main_dry_run_prune_executes_nothing_without_live_plan(
     assert all(dry for _cmd, dry in fake.calls)
     assert "add --live-plan" in capsys.readouterr().out
     assert wizard.load_owned()["secrets"] == ["oldkey"]
+
+
+@pytest.mark.parametrize(
+    ("argv", "expected"),
+    [
+        ([], ["anthropic"]),
+        (["--dry-run"], []),
+        (["--dry-run", "--live-plan"], []),
+    ],
+)
+def test_main_hands_fetched_plan_downstream_only_on_live_runs(
+    wizard: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    argv: list[str],
+    expected: list[str],
+) -> None:
+    """A dry run never prompts for keys, even when --live-plan reads the plan."""
+    _stub_main_env(wizard, monkeypatch, FakeRun(json.dumps(_plan())))
+    services: list[str] = []
+    monkeypatch.setattr(
+        wizard, "ensure_secret", lambda service, *_a: services.append(service)
+    )
+
+    assert wizard.main(["--stock-config", *argv]) == 0
+    assert services == expected
 
 
 def test_main_rejects_prune_with_no_creds(wizard: ModuleType) -> None:

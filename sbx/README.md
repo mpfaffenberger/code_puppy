@@ -53,8 +53,10 @@ implicitly. `--prune` removes stale secrets and their bindings that
 **the wizard itself created**, recorded in
 `sbx/.personal/owned-secrets.json`, once your catalog no longer needs
 them. That record is shared by every sandbox this checkout's wizard
-created, since they all derive from the same host catalog. Keys added
-by hand or by other tools are listed and kept.
+created, since they all derive from the same host catalog. Staleness
+is judged against your *current* catalog, so an existing sandbox
+created from an older catalog loses any key pruned this way. Keys
+added by hand or by other tools are listed and kept.
 The wizard asks for confirmation before it deletes secrets. Pass
 `--yes` to skip confirmation. The wizard does not prune when the plan
 contains no credentials. A dry run executes nothing. Use

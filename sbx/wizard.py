@@ -285,14 +285,12 @@ def remove_binding(service: str) -> bool:
     if not path.is_file():
         return False
     text = path.read_text(encoding="utf-8")
-    marker = "\0DOMAIN\0"
-    head, tail = re.escape(binding_block(service, marker)).split(re.escape(marker))
-    # tail ends with the escaped final newline. The block must end at EOF
-    # or before a line indented less than its fields. A block the user
-    # extended with deeper lines is left alone, because removing only its
-    # prefix would leave those lines without their parent key.
-    tail = tail.removesuffix(re.escape("\n"))
-    pattern = "(?m)^" + head + r"[^\]\n]*" + tail + r"(?:\n(?![ ]{3})|\Z)"
+    prefix = binding_block(service, "").removesuffix("[]\n")
+    # The block must end at EOF or before a line indented less than its
+    # fields. A block the user extended with deeper lines is left alone,
+    # because removing only its prefix would leave those lines without
+    # their parent key.
+    pattern = "(?m)^" + re.escape(prefix) + r"\[[^\]\n]*\](?:\n(?![ ]{3})|\Z)"
     new, count = re.subn(pattern, "", text, count=1)
     if not count:
         return False
@@ -312,7 +310,9 @@ def prune_owned_secrets(plan: dict, dry: bool, assume_yes: bool) -> None:
 
     ``plan`` must be the unfiltered plan. The manifest is shared by every
     sandbox this checkout's wizard created, which all derive from the
-    same host catalog. Secrets stored by hand or by other tools are
+    same host catalog, so staleness is judged against the *current*
+    catalog: a sandbox created from an older catalog loses a key pruned
+    here. Secrets stored by hand or by other tools are
     reported and kept; a plan deriving no credentials at all
     (plugin/catalog problem) prunes nothing.
     """
@@ -338,7 +338,11 @@ def prune_owned_secrets(plan: dict, dry: bool, assume_yes: bool) -> None:
             if name in owned["bindings"]:
                 print(f"[dry-run] would remove binding for {name} in {bindings_path()}")
         return
-    if not assume_yes and not confirm(f"Remove {len(targets)} secret(s)? [y/N] "):
+    question = (
+        f"Remove {len(targets)} secret(s)? Existing sandboxes that still "
+        "use them lose access. [y/N] "
+    )
+    if not assume_yes and not confirm(question):
         print("prune: aborted, nothing removed")
         return
     for name in targets:
