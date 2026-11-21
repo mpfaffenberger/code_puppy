@@ -299,6 +299,7 @@
   "cli.attachments.empty_prompt": "Les instructions sont vides après le retrait des pièces jointes; ajoutez des instructions et réessayez.",
   "cli.attachments.files": "fichiers : {count}",
   "cli.attachments.urls": "URL : {count}",
+  "cli.autosave.compact_suggestion": "Cette session reprise contient environ {tokens} jetons, au-dessus du seuil de suggestion à la reprise de {threshold} (50% de la fenêtre de contexte du modèle). Pensez à exécuter /compact avant de continuer.",
   "cli.autosave.headless_unsupported": "/autosave_load nécessite le fonctionnement interactif ; utilisez -r SESSION sans interface.",
   "cli.autosave.load_cancelled": "Chargement de la sauvegarde automatique annulé",
   "cli.autosave.load_failed": "Impossible de charger la sauvegarde automatique : {error}",
