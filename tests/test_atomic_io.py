@@ -97,21 +97,28 @@ class TestQuarantineFile:
         assert open(first_backup, "rb").read() == b"first"
         assert open(second_backup, "rb").read() == b"second"
 
-    def test_forced_name_collision_retries_instead_of_overwriting(self, target_path):
+    def test_forced_name_collision_retries_instead_of_overwriting(
+        self, target_path, monkeypatch
+    ):
+        """Backend-agnostic: a colliding quarantine name must trigger a retry
+        onto a fresh name, never clobbering an existing backup -- whether the
+        backend is ``os.link`` (POSIX) or the exclusive-create copy fallback
+        (e.g. Android/Termux).
+        """
         target_path.write_bytes(b"my payload")
-        real_link = os.link
-        call_count = {"n": 0}
 
-        def _flaky_link(src, dst):
-            call_count["n"] += 1
-            if call_count["n"] == 1:
-                with open(dst, "wb") as f:
-                    f.write(b"someone else's backup")
-                raise FileExistsError(dst)
-            return real_link(src, dst)
+        class _Hex:
+            def __init__(self, value):
+                self.hex = value
 
-        with patch("os.link", side_effect=_flaky_link):
-            atomic_io.quarantine_file(str(target_path))
+        hexes = iter(["aaaa", "bbbb"])
+        monkeypatch.setattr(atomic_io.time, "time_ns", lambda: 111)
+        monkeypatch.setattr(atomic_io.uuid, "uuid4", lambda: _Hex(next(hexes)))
+        collided = f"{target_path}.corrupted-111-aaaa"
+        with open(collided, "wb") as f:
+            f.write(b"someone else's backup")
+
+        atomic_io.quarantine_file(str(target_path))
 
         backups = glob.glob(f"{target_path}.corrupted-*")
         assert len(backups) == 2
