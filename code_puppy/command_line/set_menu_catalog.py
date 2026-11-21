@@ -50,6 +50,8 @@ from code_puppy.config import (
     get_puppy_name,
     get_puppy_token,
     get_resume_message_count,
+    get_safety_permission_level,
+    get_selection_friendly_transcript,
     get_retry_main_max_attempts,
     get_retry_main_strategy,
     get_retry_subagent_max_attempts,
@@ -328,6 +330,60 @@ _FEATURES = SettingsCategory(
             description="Allow agents to dynamically create custom tools at runtime.",
             type_hint="bool",
             effective_getter=get_universal_constructor_enabled,
+        ),
+        Setting(
+            key="selection_friendly_transcript",
+            display_name="Selection-Friendly Transcript",
+            description=(
+                "Skip forcing the theme foreground on rendered markdown so "
+                "terminal text-selection keeps contrast. Disable to restore "
+                "the legacy theme-fg override for terminals that ignore OSC 10."
+            ),
+            type_hint="bool",
+            effective_getter=get_selection_friendly_transcript,
+        ),
+        Setting(
+            key="enable_dbos",
+            display_name="DBOS Durable Execution",
+            description="Enable DBOS durable execution plugin.",
+            type_hint="bool",
+            effective_getter=get_dbos_enabled,
+            requires_restart=True,
+        ),
+        Setting(
+            key="frontend_emitter_enabled",
+            display_name="Frontend Emitter",
+            description="Enable the frontend event emitter for external integrations.",
+            type_hint="bool",
+            effective_getter=get_frontend_emitter_enabled,
+        ),
+        Setting(
+            key="frontend_emitter_max_recent_events",
+            display_name="Emitter Max Events",
+            description="Maximum number of recent events kept in the emitter buffer.",
+            type_hint="int",
+            effective_getter=get_frontend_emitter_max_recent_events,
+        ),
+        Setting(
+            key="frontend_emitter_queue_size",
+            display_name="Emitter Queue Size",
+            description="Size of the frontend emitter event queue.",
+            type_hint="int",
+            effective_getter=get_frontend_emitter_queue_size,
+        ),
+    ),
+)
+
+
+_GOAL = SettingsCategory(
+    name="Goal",
+    settings=(
+        Setting(
+            key="goal_max_iterations",
+            display_name="Goal Max Iterations",
+            description="Maximum number of iterations for goal-driven tasks (1-1000).",
+            type_hint="int",
+            effective_getter=get_goal_max_iterations_effective,
         ),
         # Plugin-owned features (DBOS, frontend emitter, ...) merge in here
         # via the register_settings hook.
