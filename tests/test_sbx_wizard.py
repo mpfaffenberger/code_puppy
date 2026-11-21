@@ -416,11 +416,29 @@ def test_main_dry_run_prune_reads_plan_to_preview(
     fake = FakeRun(json.dumps(_plan(stale_sbx_secrets=["oldkey"])))
     _stub_main_env(wizard, monkeypatch, fake)
 
-    assert wizard.main(["--stock-config", "--prune", "--dry-run"]) == 0
+    argv = ["--stock-config", "--prune", "--dry-run", "--live-plan"]
+    assert wizard.main(argv) == 0
 
     assert [c for c in fake.calls if c[0] == PLAN_CMD] == [(PLAN_CMD, False)]
     assert fake.rm_calls() == []
     assert fake.rm_calls(dry=True) == [["sbx", "secret", "rm", "oldkey", "-f"]]
+
+
+def test_main_dry_run_prune_executes_nothing_without_live_plan(
+    wizard: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    wizard.save_owned({"secrets": ["oldkey"], "bindings": []})
+    fake = FakeRun(json.dumps(_plan(stale_sbx_secrets=["oldkey"])))
+    _stub_main_env(wizard, monkeypatch, fake)
+
+    assert wizard.main(["--stock-config", "--prune", "--dry-run"]) == 0
+
+    assert (PLAN_CMD, True) in fake.calls
+    assert all(dry for _cmd, dry in fake.calls)
+    assert "add --live-plan" in capsys.readouterr().out
+    assert wizard.load_owned()["secrets"] == ["oldkey"]
 
 
 def test_main_rejects_prune_with_no_creds(wizard: ModuleType) -> None:

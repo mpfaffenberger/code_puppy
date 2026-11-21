@@ -143,9 +143,9 @@ def ensure_setup_cli(exe: str) -> None:
 def fetch_plan(exe: str, dry: bool) -> dict:
     """Derive the credential/egress plan from the host model catalog.
 
-    Read-only: the plan also reports ``stale_sbx_secrets`` (stored
-    secrets the catalog no longer needs) but never deletes anything;
-    see :func:`prune_owned_secrets`.
+    Fetching the plan does not delete secrets. The plan lists stored
+    secrets the catalog no longer needs in ``stale_sbx_secrets``. See
+    :func:`prune_owned_secrets` for deletion.
     """
     result = run(code_puppy_cmd(exe) + ["--setup", "sbx", "plan", "--json"], dry=dry)
     if dry:
@@ -491,6 +491,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument(
+        "--live-plan",
+        action="store_true",
+        help="with --dry-run, run the side-effect-free plan read for real so "
+        "--prune can preview its deletions",
+    )
+    parser.add_argument(
         "--code-puppy",
         metavar="EXE",
         help="code-puppy executable to drive (default: project .venv, else PATH/uvx)",
@@ -508,12 +514,15 @@ def main(argv: list[str] | None = None) -> int:
         plan: dict = {"credentials": [], "oauth": [], "egress": [], "unsupported": []}
         creds_mixin: Path | None = None
         if not args.no_creds:
-            # The plan read is side-effect free, so --dry-run --prune still
-            # runs it to preview the deletions; the rest of a dry run keeps
-            # the empty plan (no secret prompts).
-            full = fetch_plan(exe, args.dry_run and not args.prune)
-            if args.prune:
+            # A dry run executes nothing, the plan read included, unless
+            # --live-plan opts in. The rest of a dry run keeps the empty plan
+            # (no secret prompts).
+            live = not args.dry_run or args.live_plan
+            full = fetch_plan(exe, not live)
+            if args.prune and live:
                 prune_owned_secrets(full, args.dry_run, args.yes)
+            elif args.prune:
+                print("[dry-run] prune preview skipped; add --live-plan to list it")
             plan = filter_plan(plan if args.dry_run else full, args.provider)
             for entry in plan["unsupported"]:
                 print(

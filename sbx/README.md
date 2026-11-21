@@ -55,8 +55,11 @@ implicitly. `--prune` removes stale secrets and their bindings that
 them. That record is shared by every sandbox this checkout's wizard
 created, since they all derive from the same host catalog. Keys added
 by hand or by other tools are listed and kept.
-It asks for confirmation (`--yes` skips it), refuses a plan that
-derives no credentials, and `--prune --dry-run` previews the deletions.
+The wizard asks for confirmation before it deletes secrets. Pass
+`--yes` to skip confirmation. The wizard does not prune when the plan
+contains no credentials. A dry run executes nothing. Use
+`--prune --dry-run --live-plan` to preview deletions: it runs the
+side-effect-free plan read for real.
 
 Credentials are **derived from your configured models**
 (`code-puppy --setup sbx plan`): the wizard generates a personal
