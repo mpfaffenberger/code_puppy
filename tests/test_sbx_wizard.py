@@ -310,9 +310,7 @@ def test_binding_written_by_wizard_is_recorded_and_removed(
     wizard.ensure_binding("oldkey", "api.old.example", dry=False)
     assert wizard.load_owned()["bindings"] == {"oldkey": "api.old.example"}
 
-    wizard.save_owned(
-        {"secrets": ["oldkey"], "bindings": {"oldkey": "api.old.example"}}
-    )
+    wizard.record_owned_secret("oldkey")
     _answer(monkeypatch, "y")
     _use(wizard, monkeypatch, FakeRun())
     wizard.prune_owned_secrets(_plan(stale_sbx_secrets=["oldkey"]), dry=False)
