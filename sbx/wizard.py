@@ -510,9 +510,7 @@ def main(argv: list[str] | None = None) -> int:
             full = fetch_plan(exe, args.dry_run and not args.prune)
             if args.prune:
                 prune_owned_secrets(full, args.dry_run, args.yes)
-            if args.dry_run:
-                full = plan
-            plan = filter_plan(full, args.provider)
+            plan = filter_plan(plan if args.dry_run else full, args.provider)
             for entry in plan["unsupported"]:
                 print(
                     f"warning: no sandbox credential for {entry['model']} "
