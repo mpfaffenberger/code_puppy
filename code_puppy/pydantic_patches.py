@@ -588,6 +588,9 @@ def patch_tool_call_callbacks() -> bool:
 
             # Collected outside the try so it survives any callback exception.
             hook_context_messages: list[str] = []
+            tool_identity_context = {
+                "tool_call_id": getattr(call, "tool_call_id", None)
+            }
 
             # --- pre_tool_call (with blocking support) ---
             # Block returns a string result so pydantic-ai sees a clean "BLOCKED: ..."
@@ -599,7 +602,7 @@ def patch_tool_call_callbacks() -> bool:
                 from code_puppy import callbacks
 
                 callback_results = await callbacks.on_pre_tool_call(
-                    tool_name, tool_args
+                    tool_name, tool_args, dict(tool_identity_context)
                 )
             except Exception:
                 pass  # import/dispatch failure leaves nothing to act on
@@ -677,7 +680,11 @@ def patch_tool_call_callbacks() -> bool:
                     from code_puppy import callbacks
 
                     await callbacks.on_post_tool_call(
-                        tool_name, tool_args, final_result, duration_ms
+                        tool_name,
+                        tool_args,
+                        final_result,
+                        duration_ms,
+                        tool_identity_context,
                     )
                 except Exception:
                     pass  # never block tool execution
