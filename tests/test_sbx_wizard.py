@@ -74,6 +74,21 @@ def _use(wizard: ModuleType, monkeypatch: pytest.MonkeyPatch, fake: FakeRun) -> 
     return fake
 
 
+def _answer(monkeypatch: pytest.MonkeyPatch, reply: str) -> list[str]:
+    """Answer every confirmation with ``reply``; returns the prompts shown.
+
+    Unpatched, pytest's captured stdin makes any unexpected prompt fail.
+    """
+    prompts: list[str] = []
+
+    def _input(prompt: str) -> str:
+        prompts.append(prompt)
+        return reply
+
+    monkeypatch.setattr("builtins.input", _input)
+    return prompts
+
+
 def test_fetch_plan_is_read_only(
     wizard: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
@@ -113,12 +128,11 @@ def test_prune_removes_only_owned_secrets(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    wizard.save_owned({"secrets": ["oldkey"], "bindings": []})
+    wizard.save_owned({"secrets": ["oldkey"], "bindings": {}})
     fake = _use(wizard, monkeypatch, FakeRun())
 
-    wizard.prune_owned_secrets(
-        _plan(stale_sbx_secrets=["oldkey", "groq"]), dry=False, assume_yes=True
-    )
+    _answer(monkeypatch, "y")
+    wizard.prune_owned_secrets(_plan(stale_sbx_secrets=["oldkey", "groq"]), dry=False)
 
     assert fake.rm_calls() == [["sbx", "secret", "rm", "oldkey", "-f"]]
     out = capsys.readouterr().out
@@ -135,33 +149,36 @@ def test_prune_dry_run_previews_without_deleting(
     path = wizard.bindings_path()
     original = "bindings:\n" + wizard.binding_block("oldkey", "api.old.example")
     path.write_text(original, encoding="utf-8")
-    wizard.save_owned({"secrets": ["oldkey"], "bindings": ["oldkey"]})
+    wizard.save_owned(
+        {"secrets": ["oldkey"], "bindings": {"oldkey": "api.old.example"}}
+    )
     fake = _use(wizard, monkeypatch, FakeRun())
 
-    wizard.prune_owned_secrets(
-        _plan(stale_sbx_secrets=["oldkey", "groq"]), dry=True, assume_yes=True
-    )
+    wizard.prune_owned_secrets(_plan(stale_sbx_secrets=["oldkey", "groq"]), dry=True)
 
     assert fake.calls == [(["sbx", "secret", "rm", "oldkey", "-f"], True)]
     out = capsys.readouterr().out
     assert "prune: will remove sbx secret(s): oldkey\n" in out
     assert "sbx secret 'groq': stale but not created by the wizard; kept" in out
     assert "[dry-run] would remove binding for oldkey" in out
-    assert wizard.load_owned() == {"secrets": ["oldkey"], "bindings": ["oldkey"]}
+    assert wizard.load_owned() == {
+        "secrets": ["oldkey"],
+        "bindings": {"oldkey": "api.old.example"},
+    }
     assert path.read_text(encoding="utf-8") == original
 
 
 def test_prune_runs_on_oauth_only_plan(
     wizard: ModuleType, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    wizard.save_owned({"secrets": ["oldkey"], "bindings": []})
+    wizard.save_owned({"secrets": ["oldkey"], "bindings": {}})
     fake = _use(wizard, monkeypatch, FakeRun())
     oauth = [{"id": "copilot", "transport": "auth-in-sandbox", "domains": []}]
 
+    _answer(monkeypatch, "y")
     wizard.prune_owned_secrets(
         _plan(credentials=[], oauth=oauth, stale_sbx_secrets=["oldkey"]),
         dry=False,
-        assume_yes=True,
     )
 
     assert fake.rm_calls() == [["sbx", "secret", "rm", "oldkey", "-f"]]
@@ -179,7 +196,7 @@ def test_extended_binding_is_not_partially_removed(
     )
     path.write_text(extended, encoding="utf-8")
 
-    assert wizard.remove_binding("oldkey") is False
+    assert wizard.remove_binding("oldkey", "api.old.example") is False
     assert path.read_text(encoding="utf-8") == extended
 
 
@@ -192,7 +209,7 @@ def test_binding_followed_by_sibling_is_removed_exactly(wizard: ModuleType) -> N
         encoding="utf-8",
     )
 
-    assert wizard.remove_binding("oldkey") is True
+    assert wizard.remove_binding("oldkey", "api.old.example") is True
     assert path.read_text(encoding="utf-8") == (
         "bindings:\n  groq:\n    apiKey:\n      domains: [api.groq.com]\n"
     )
@@ -206,27 +223,24 @@ def test_already_approved_binding_is_not_claimed(
     path.write_text(hand_written, encoding="utf-8")
 
     wizard.ensure_binding("oldkey", "api.old.example", dry=False)
-    assert wizard.load_owned()["bindings"] == []
+    assert wizard.load_owned()["bindings"] == {}
 
     # The wizard may own the secret, but never the hand-written binding.
-    wizard.save_owned({"secrets": ["oldkey"], "bindings": []})
+    wizard.save_owned({"secrets": ["oldkey"], "bindings": {}})
+    _answer(monkeypatch, "y")
     _use(wizard, monkeypatch, FakeRun())
-    wizard.prune_owned_secrets(
-        _plan(stale_sbx_secrets=["oldkey"]), dry=False, assume_yes=True
-    )
+    wizard.prune_owned_secrets(_plan(stale_sbx_secrets=["oldkey"]), dry=False)
     assert path.read_text(encoding="utf-8") == hand_written
 
 
 def test_prune_refuses_degenerate_plan(
     wizard: ModuleType, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    wizard.save_owned({"secrets": ["oldkey"], "bindings": []})
+    wizard.save_owned({"secrets": ["oldkey"], "bindings": {}})
     fake = _use(wizard, monkeypatch, FakeRun())
 
     empty = {"credentials": [], "oauth": [], "egress": [], "unsupported": []}
-    wizard.prune_owned_secrets(
-        {**empty, "stale_sbx_secrets": ["oldkey"]}, dry=False, assume_yes=True
-    )
+    wizard.prune_owned_secrets({**empty, "stale_sbx_secrets": ["oldkey"]}, dry=False)
 
     assert fake.calls == []
 
@@ -234,10 +248,10 @@ def test_prune_refuses_degenerate_plan(
 def test_prune_skips_when_plugin_reports_no_stale_key(
     wizard: ModuleType, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    wizard.save_owned({"secrets": ["oldkey"], "bindings": []})
+    wizard.save_owned({"secrets": ["oldkey"], "bindings": {}})
     fake = _use(wizard, monkeypatch, FakeRun())
 
-    wizard.prune_owned_secrets(_plan(), dry=False, assume_yes=True)
+    wizard.prune_owned_secrets(_plan(), dry=False)
 
     assert fake.calls == []
 
@@ -246,13 +260,11 @@ def test_prune_skips_when_plugin_reports_no_stale_key(
 def test_prune_respects_confirmation(
     wizard: ModuleType, monkeypatch: pytest.MonkeyPatch, reply: str, accepted: bool
 ) -> None:
-    wizard.save_owned({"secrets": ["oldkey"], "bindings": []})
+    wizard.save_owned({"secrets": ["oldkey"], "bindings": {}})
     fake = _use(wizard, monkeypatch, FakeRun())
     monkeypatch.setattr("builtins.input", lambda _prompt: reply)
 
-    wizard.prune_owned_secrets(
-        _plan(stale_sbx_secrets=["oldkey"]), dry=False, assume_yes=False
-    )
+    wizard.prune_owned_secrets(_plan(stale_sbx_secrets=["oldkey"]), dry=False)
 
     assert fake.rm_calls() == (
         [["sbx", "secret", "rm", "oldkey", "-f"]] if accepted else []
@@ -269,11 +281,9 @@ def test_confirm_returns_false_on_eof(
     monkeypatch.setattr("builtins.input", _eof)
     assert wizard.confirm("x") is False
 
-    wizard.save_owned({"secrets": ["oldkey"], "bindings": []})
+    wizard.save_owned({"secrets": ["oldkey"], "bindings": {}})
     fake = _use(wizard, monkeypatch, FakeRun())
-    wizard.prune_owned_secrets(
-        _plan(stale_sbx_secrets=["oldkey"]), dry=False, assume_yes=False
-    )
+    wizard.prune_owned_secrets(_plan(stale_sbx_secrets=["oldkey"]), dry=False)
     assert fake.rm_calls() == []
 
 
@@ -282,16 +292,15 @@ def test_prune_keeps_ownership_when_rm_fails(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    wizard.save_owned({"secrets": ["a", "b"], "bindings": ["a"]})
+    wizard.save_owned({"secrets": ["a", "b"], "bindings": {"a": "api.a.example"}})
     fake = _use(wizard, monkeypatch, FakeRun(fail=("a",)))
 
-    wizard.prune_owned_secrets(
-        _plan(stale_sbx_secrets=["a", "b"]), dry=False, assume_yes=True
-    )
+    _answer(monkeypatch, "y")
+    wizard.prune_owned_secrets(_plan(stale_sbx_secrets=["a", "b"]), dry=False)
 
     assert len(fake.rm_calls()) == 2
     assert "warning: sbx secret rm a failed" in capsys.readouterr().out
-    assert wizard.load_owned() == {"secrets": ["a"], "bindings": ["a"]}
+    assert wizard.load_owned() == {"secrets": ["a"], "bindings": {"a": "api.a.example"}}
 
 
 def test_binding_written_by_wizard_is_recorded_and_removed(
@@ -303,61 +312,81 @@ def test_binding_written_by_wizard_is_recorded_and_removed(
         encoding="utf-8",
     )
     wizard.ensure_binding("oldkey", "api.old.example", dry=False)
-    assert wizard.load_owned()["bindings"] == ["oldkey"]
+    assert wizard.load_owned()["bindings"] == {"oldkey": "api.old.example"}
 
-    wizard.save_owned({"secrets": ["oldkey"], "bindings": ["oldkey"]})
-    _use(wizard, monkeypatch, FakeRun())
-    wizard.prune_owned_secrets(
-        _plan(stale_sbx_secrets=["oldkey"]), dry=False, assume_yes=True
+    wizard.save_owned(
+        {"secrets": ["oldkey"], "bindings": {"oldkey": "api.old.example"}}
     )
+    _answer(monkeypatch, "y")
+    _use(wizard, monkeypatch, FakeRun())
+    wizard.prune_owned_secrets(_plan(stale_sbx_secrets=["oldkey"]), dry=False)
 
     text = path.read_text(encoding="utf-8")
     assert "oldkey" not in text
     assert "  groq:\n    apiKey:\n      domains: [api.groq.com]\n" in text
-    assert wizard.load_owned() == {"secrets": [], "bindings": []}
+    assert wizard.load_owned() == {"secrets": [], "bindings": {}}
 
 
-def test_unmatched_binding_is_kept_and_reported(
+@pytest.mark.parametrize(
+    "domains",
+    [
+        "\n        - api.old.example",
+        " [api.new.example]",
+        " [api.old.example, api.extra.example]",
+    ],
+)
+def test_edited_binding_is_kept_and_reported(
     wizard: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
+    domains: str,
 ) -> None:
     path = wizard.bindings_path()
-    edited = (
-        "bindings:\n  oldkey:\n    apiKey:\n      domains:\n        - api.old.example\n"
-    )
+    edited = f"bindings:\n  oldkey:\n    apiKey:\n      domains:{domains}\n"
     path.write_text(edited, encoding="utf-8")
-    wizard.save_owned({"secrets": ["oldkey"], "bindings": ["oldkey"]})
+    wizard.save_owned(
+        {"secrets": ["oldkey"], "bindings": {"oldkey": "api.old.example"}}
+    )
     _use(wizard, monkeypatch, FakeRun())
 
-    wizard.prune_owned_secrets(
-        _plan(stale_sbx_secrets=["oldkey"]), dry=False, assume_yes=True
-    )
+    _answer(monkeypatch, "y")
+    wizard.prune_owned_secrets(_plan(stale_sbx_secrets=["oldkey"]), dry=False)
 
     assert path.read_text(encoding="utf-8") == edited
     assert "clean up" in capsys.readouterr().out
-    assert wizard.load_owned() == {"secrets": [], "bindings": ["oldkey"]}
+    assert wizard.load_owned() == {
+        "secrets": [],
+        "bindings": {"oldkey": "api.old.example"},
+    }
 
 
 def test_remove_binding_missing_file_returns_false(wizard: ModuleType) -> None:
-    assert wizard.remove_binding("oldkey") is False
+    assert wizard.remove_binding("oldkey", "api.old.example") is False
 
 
 @pytest.mark.parametrize(
     ("content", "expected"),
     [
-        (None, []),
-        ("not json", []),
-        ("[]", []),
-        ('{"secrets": [1, null, "b", "a", "a"]}', ["a", "b"]),
+        (None, {"secrets": [], "bindings": {}}),
+        ("not json", {"secrets": [], "bindings": {}}),
+        ("[]", {"secrets": [], "bindings": {}}),
+        (
+            '{"secrets": [1, null, "b", "a", "a"]}',
+            {"secrets": ["a", "b"], "bindings": {}},
+        ),
+        ('{"secrets": "ab", "bindings": ["a"]}', {"secrets": [], "bindings": {}}),
+        (
+            '{"bindings": {"a": 1, "b": "api.b.example"}}',
+            {"secrets": [], "bindings": {"b": "api.b.example"}},
+        ),
     ],
 )
 def test_load_owned_tolerates_corrupt_manifest(
-    wizard: ModuleType, content: str | None, expected: list[str]
+    wizard: ModuleType, content: str | None, expected: dict
 ) -> None:
     if content is not None:
         wizard.OWNED_FILE.write_text(content, encoding="utf-8")
-    assert wizard.load_owned() == {"secrets": expected, "bindings": []}
+    assert wizard.load_owned() == expected
 
 
 def test_ensure_secret_records_ownership_only_when_stored(
@@ -392,7 +421,7 @@ def _stub_main_env(
 def test_main_without_prune_never_deletes(
     wizard: ModuleType, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    wizard.save_owned({"secrets": ["oldkey"], "bindings": []})
+    wizard.save_owned({"secrets": ["oldkey"], "bindings": {}})
     fake = FakeRun(json.dumps(_plan(stale_sbx_secrets=["oldkey"])))
     _stub_main_env(wizard, monkeypatch, fake)
 
@@ -415,29 +444,26 @@ def test_main_plain_dry_run_does_not_execute_plan(
 def test_main_real_prune_deletes_owned_secret(
     wizard: ModuleType, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    wizard.save_owned({"secrets": ["oldkey"], "bindings": []})
+    wizard.save_owned({"secrets": ["oldkey"], "bindings": {}})
     fake = FakeRun(json.dumps(_plan(stale_sbx_secrets=["oldkey"])))
     _stub_main_env(wizard, monkeypatch, fake)
 
-    assert wizard.main(["--stock-config", "--prune", "--yes"]) == 0
+    prompts = _answer(monkeypatch, "y")
+
+    assert wizard.main(["--stock-config", "--prune"]) == 0
+    assert len(prompts) == 1
 
     assert fake.rm_calls() == [["sbx", "secret", "rm", "oldkey", "-f"]]
     assert wizard.load_owned()["secrets"] == []
 
 
-def test_main_prune_without_yes_asks_and_honors_refusal(
+def test_main_prune_asks_and_honors_refusal(
     wizard: ModuleType, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    wizard.save_owned({"secrets": ["oldkey"], "bindings": []})
+    wizard.save_owned({"secrets": ["oldkey"], "bindings": {}})
     fake = FakeRun(json.dumps(_plan(stale_sbx_secrets=["oldkey"])))
     _stub_main_env(wizard, monkeypatch, fake)
-    prompts: list[str] = []
-
-    def _refuse(prompt: str) -> str:
-        prompts.append(prompt)
-        return "n"
-
-    monkeypatch.setattr("builtins.input", _refuse)
+    prompts = _answer(monkeypatch, "n")
 
     assert wizard.main(["--stock-config", "--prune"]) == 0
 
@@ -449,7 +475,7 @@ def test_main_prune_without_yes_asks_and_honors_refusal(
 def test_main_dry_run_prune_reads_plan_to_preview(
     wizard: ModuleType, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    wizard.save_owned({"secrets": ["oldkey"], "bindings": []})
+    wizard.save_owned({"secrets": ["oldkey"], "bindings": {}})
     fake = FakeRun(json.dumps(_plan(stale_sbx_secrets=["oldkey"])))
     _stub_main_env(wizard, monkeypatch, fake)
 
@@ -466,7 +492,7 @@ def test_main_dry_run_prune_executes_nothing_without_live_plan(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    wizard.save_owned({"secrets": ["oldkey"], "bindings": []})
+    wizard.save_owned({"secrets": ["oldkey"], "bindings": {}})
     fake = FakeRun(json.dumps(_plan(stale_sbx_secrets=["oldkey"])))
     _stub_main_env(wizard, monkeypatch, fake)
 

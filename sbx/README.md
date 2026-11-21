@@ -56,10 +56,12 @@ them. That record is shared by every sandbox this checkout's wizard
 created, since they all derive from the same host catalog. Staleness
 is judged against your *current* catalog, so an existing sandbox
 created from an older catalog loses any key pruned this way. Keys
-added by hand or by other tools are listed and kept.
-The wizard asks for confirmation before it deletes secrets. Pass
-`--yes` to skip confirmation. The wizard does not prune when the plan
-contains no credentials. A dry run executes nothing. Use
+added by hand or by other tools are listed and kept. sbx keys secrets
+by name only, so the wizard cannot tell a secret you re-created by
+hand from the one it stored; it therefore always lists the names and
+asks before deleting (there is no skip flag), and a binding is removed
+only if it is still exactly the block the wizard wrote. The wizard
+does not prune when the plan contains no credentials. A dry run executes nothing. Use
 `--prune --dry-run --live-plan` to preview deletions: it runs the
 side-effect-free plan read for real.
 

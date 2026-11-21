@@ -218,7 +218,7 @@ def ensure_secret(service: str, env_var: str, dry: bool) -> None:
             f"sbx secret set {service} failed: {result.stderr.strip()[:300]}"
         )
     if not dry:
-        record_owned("secrets", service)
+        record_owned_secret(service)
     print(f"sbx secret '{service}': stored (value never printed)")
 
 
@@ -249,47 +249,54 @@ def ensure_binding(service: str, domain: str, dry: bool) -> None:
         return
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
-    record_owned("bindings", service)
+    record_owned_binding(service, domain)
     print(f"binding for '{service}' -> {domain}: written to {path}")
 
 
-def load_owned() -> dict[str, list[str]]:
+def load_owned() -> dict:
+    """``{"secrets": [name, ...], "bindings": {service: domain}}``, tolerantly."""
     try:
         data = json.loads(OWNED_FILE.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         data = {}
-    if not isinstance(data, dict):
-        data = {}
+    data = data if isinstance(data, dict) else {}
+    secrets = data.get("secrets") if isinstance(data.get("secrets"), list) else []
+    bindings = data.get("bindings") if isinstance(data.get("bindings"), dict) else {}
     return {
-        key: sorted({n for n in data.get(key, []) if isinstance(n, str)})
-        for key in ("secrets", "bindings")
+        "secrets": sorted({n for n in secrets if isinstance(n, str)}),
+        "bindings": {s: d for s, d in bindings.items() if isinstance(d, str)},
     }
 
 
-def save_owned(owned: dict[str, list[str]]) -> None:
+def save_owned(owned: dict) -> None:
     OWNED_FILE.parent.mkdir(parents=True, exist_ok=True)
     OWNED_FILE.write_text(json.dumps(owned, indent=2) + "\n", encoding="utf-8")
 
 
-def record_owned(kind: str, service: str) -> None:
+def record_owned_secret(service: str) -> None:
     owned = load_owned()
-    if service not in owned[kind]:
-        owned[kind] = sorted(owned[kind] + [service])
-        save_owned(owned)
+    owned["secrets"] = sorted({*owned["secrets"], service})
+    save_owned(owned)
 
 
-def remove_binding(service: str) -> bool:
-    """Drop the exact binding block :func:`ensure_binding` wrote."""
+def record_owned_binding(service: str, domain: str) -> None:
+    owned = load_owned()
+    owned["bindings"][service] = domain
+    save_owned(owned)
+
+
+def remove_binding(service: str, domain: str) -> bool:
+    """Drop the binding block exactly as :func:`ensure_binding` wrote it."""
     path = bindings_path()
     if not path.is_file():
         return False
     text = path.read_text(encoding="utf-8")
-    prefix = binding_block(service, "").removesuffix("[]\n")
+    block = re.escape(binding_block(service, domain).removesuffix("\n"))
     # The block must end at EOF or before a line indented less than its
     # fields. A block the user extended with deeper lines is left alone,
     # because removing only its prefix would leave those lines without
     # their parent key.
-    pattern = "(?m)^" + re.escape(prefix) + r"\[[^\]\n]*\](?:\n(?![ ]{3})|\Z)"
+    pattern = "(?m)^" + block + r"(?:\n(?![ ]{3})|\Z)"
     new, count = re.subn(pattern, "", text, count=1)
     if count:
         path.write_text(new, encoding="utf-8")
@@ -303,16 +310,14 @@ def confirm(prompt: str) -> bool:
         return False
 
 
-def prune_owned_secrets(plan: dict, dry: bool, assume_yes: bool) -> None:
+def prune_owned_secrets(plan: dict, dry: bool) -> None:
     """Delete stale sbx secrets, but only those this wizard created.
 
-    ``plan`` must be the unfiltered plan. The manifest is shared by every
-    sandbox this checkout's wizard created, which all derive from the
-    same host catalog, so staleness is judged against the *current*
-    catalog: a sandbox created from an older catalog loses a key pruned
-    here. Secrets stored by hand or by other tools are
-    reported and kept; a plan deriving no credentials at all
-    (plugin/catalog problem) prunes nothing.
+    ``plan`` must be the unfiltered plan; staleness is judged against the
+    *current* catalog, shared by every sandbox this checkout created.
+    Secrets stored by hand or by other tools are reported and kept, and a
+    plan deriving no credentials prunes nothing. sbx keys secrets by name
+    only, so deletion is always confirmed interactively.
     """
     stale = plan.get("stale_sbx_secrets")
     if stale is None:
@@ -331,10 +336,10 @@ def prune_owned_secrets(plan: dict, dry: bool, assume_yes: bool) -> None:
         return
     print("prune: will remove sbx secret(s): " + ", ".join(targets))
     question = (
-        f"Remove {len(targets)} secret(s)? Existing sandboxes that still "
-        "use them lose access. [y/N] "
+        f"Remove {len(targets)} secret(s)? Answer no if you re-created any "
+        "by hand; existing sandboxes that use them lose access. [y/N] "
     )
-    if not dry and not assume_yes and not confirm(question):
+    if not dry and not confirm(question):
         print("prune: aborted, nothing removed")
         return
     for name in targets:
@@ -351,9 +356,9 @@ def prune_owned_secrets(plan: dict, dry: bool, assume_yes: bool) -> None:
         owned["secrets"].remove(name)
         print(f"sbx secret '{name}': pruned (no longer needed by your catalog)")
         if name in owned["bindings"]:
-            if remove_binding(name):
+            if remove_binding(name, owned["bindings"][name]):
                 print(f"binding for '{name}': removed from {bindings_path()}")
-                owned["bindings"].remove(name)
+                del owned["bindings"][name]
             else:
                 print(
                     f"warning: binding for '{name}' not found in its original "
@@ -484,10 +489,7 @@ def main(argv: list[str] | None = None) -> int:
         "--prune",
         action="store_true",
         help="delete sbx secrets (and bindings) this wizard created that your "
-        "catalog no longer needs; asks for confirmation, honors --dry-run",
-    )
-    parser.add_argument(
-        "--yes", action="store_true", help="skip the --prune confirmation"
+        "catalog no longer needs; always asks for confirmation, honors --dry-run",
     )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument(
@@ -520,7 +522,7 @@ def main(argv: list[str] | None = None) -> int:
             live = not args.dry_run or args.live_plan
             full = fetch_plan(exe, not live)
             if args.prune and live:
-                prune_owned_secrets(full, args.dry_run, args.yes)
+                prune_owned_secrets(full, args.dry_run)
             elif args.prune:
                 print("[dry-run] prune preview skipped; add --live-plan to list it")
             plan = filter_plan(plan if args.dry_run else full, args.provider)
