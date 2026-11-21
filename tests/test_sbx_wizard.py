@@ -180,9 +180,7 @@ def test_prune_runs_on_oauth_only_plan(
     assert fake.rm_calls() == [["sbx", "secret", "rm", "oldkey", "-f"]]
 
 
-def test_extended_binding_is_not_partially_removed(
-    wizard: ModuleType, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_extended_binding_is_not_partially_removed(wizard: ModuleType) -> None:
     path = wizard.bindings_path()
     extended = (
         "bindings:\n"
@@ -258,7 +256,7 @@ def test_prune_respects_confirmation(
 ) -> None:
     wizard.save_owned({"secrets": ["oldkey"], "bindings": {}})
     fake = _use(wizard, monkeypatch, FakeRun())
-    monkeypatch.setattr("builtins.input", lambda _prompt: reply)
+    _answer(monkeypatch, reply)
 
     wizard.prune_owned_secrets(_plan(stale_sbx_secrets=["oldkey"]), dry=False)
 
