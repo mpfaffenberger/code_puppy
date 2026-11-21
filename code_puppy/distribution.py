@@ -42,12 +42,19 @@ import os
 import sys
 from pathlib import Path
 from types import ModuleType
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, ParamSpec, TypeVar
 
 from code_puppy import identity
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from pydantic_ai.models import Model
+    from pydantic_ai_pax.runtime.session import StockAgent
     from rich.console import Console
+
+P = ParamSpec("P")
+T = TypeVar("T")
 
 LEGACY_PLUGIN_MARKER = "register_callbacks.py"
 """A plugins folder containing this file is a 0.0.x plugin, loaded by the compat bridge."""
@@ -119,27 +126,28 @@ def _install_theme() -> None:
         setattr(splash, name, shade.colour)
 
 
-def _install_first_run() -> None:
-    from pydantic_ai_pax import app
+def _naming_first(start_chat: Callable[P, T]) -> Callable[P, T]:
+    """pax's terminal session, after the puppy has a name.
 
-    start_chat = app.chat
+    The result takes exactly what ``start_chat`` takes and hands it all on.
 
-    def chat(agent: Any, **options: Any) -> Any:
-        """pax's terminal session, after the puppy has a name.
+    Deliberately not ``async``: the questions are asked when the session's
+    coroutine is created, before the event loop that runs it exists, so
+    Ctrl-C at a question behaves as it does at any plain prompt.
 
-        Deliberately not ``async``: the questions are asked when the session's
-        coroutine is created, before the event loop that runs it exists, so
-        Ctrl-C at a question behaves as it does at any plain prompt.
+    ``chat`` is the one launch path with a person at the keyboard; ``-p``,
+    ``--web`` and subcommands never call it. ``load_plugins=False`` is a
+    caller-supplied agent, which gets no persona to name.
+    """
 
-        ``chat`` is the one launch path with a person at the keyboard; ``-p``,
-        ``--web`` and subcommands never call it. ``load_plugins=False`` is a
-        caller-supplied agent, which gets no persona to name.
-        """
+    def chat(*args: P.args, **options: P.kwargs) -> T:
+        from pydantic_ai_pax.config.settings_store import SettingsStore
+
         from code_puppy import first_run
 
         store = options.get("store")
         if (
-            store is not None
+            isinstance(store, SettingsStore)
             and options.get("load_plugins", True)
             and first_run.at_a_terminal()
         ):
@@ -151,9 +159,15 @@ def _install_first_run() -> None:
                     f"Use {first_run.CONFIGURE} instead.",
                     file=sys.stderr,
                 )
-        return start_chat(agent, **options)
+        return start_chat(*args, **options)
 
-    _replace(app, "chat", chat)
+    return chat
+
+
+def _install_first_run() -> None:
+    from pydantic_ai_pax import app
+
+    _replace(app, "chat", _naming_first(app.chat))
 
 
 def install() -> None:
@@ -232,7 +246,7 @@ def _install_agent() -> None:
     from pydantic_ai_pax import app
     from pydantic_ai_pax.runtime.session import StockAgent
 
-    def create_stock_agent(model: Any = None) -> Any:
+    def create_stock_agent(model: Model | str | None = None) -> StockAgent[None, str]:
         """pax's stock agent under Code Puppy's name, without pax's docs capability.
 
         That capability lets the model read pax's own docs to answer questions

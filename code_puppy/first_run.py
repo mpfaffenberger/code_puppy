@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import sys
 from collections.abc import Callable, Sequence
-from typing import Any
+from typing import TYPE_CHECKING
 
 from code_puppy import identity
 from code_puppy.personality import (
@@ -29,6 +29,10 @@ from code_puppy.personality import (
     default_name,
     name_problem,
 )
+
+if TYPE_CHECKING:
+    from pydantic_ai_pax.config import PluginSettings
+    from pydantic_ai_pax.config.settings_store import SettingsStore
 
 QUESTIONS = {
     "puppy_name": "What should we name the puppy?",
@@ -66,12 +70,12 @@ def read_line(question: str) -> str | None:
     return line
 
 
-def _declaration(store: Any) -> Any:
+def _declaration(store: SettingsStore) -> PluginSettings | None:
     """The saved ``personality`` declaration, or ``None`` when nothing was ever saved for it."""
     return next(iter([p for p in store.plugins() if p.id == PLUGIN_ID]), None)
 
 
-def unanswered(store: Any) -> tuple[str, ...]:
+def unanswered(store: SettingsStore) -> tuple[str, ...]:
     """The names nobody has chosen yet; none when the plugin that uses them is off."""
     declaration = _declaration(store)
     if declaration is None:
@@ -104,7 +108,7 @@ def ask(keys: Sequence[str], *, read: Read, write: Write) -> dict[str, str]:
     return answers
 
 
-def save(store: Any, answers: dict[str, str]) -> PersonalitySettings:
+def save(store: SettingsStore, answers: dict[str, str]) -> PersonalitySettings:
     """Add the answers to the plugin's saved settings; return the names now in effect."""
     from pydantic_ai_pax.config import PluginSettings
 
@@ -116,7 +120,7 @@ def save(store: Any, answers: dict[str, str]) -> PersonalitySettings:
 
 
 def welcome(
-    store: Any, *, read: Read = read_line, write: Write = print
+    store: SettingsStore, *, read: Read = read_line, write: Write = print
 ) -> PersonalitySettings | None:
     """Ask for the names still unanswered and save them; ``None`` when there were none."""
     keys = unanswered(store)

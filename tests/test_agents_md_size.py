@@ -11,7 +11,7 @@ AGENTS_MD_BUDGET = 10_000
 REPO_AGENTS_MD = Path(__file__).resolve().parents[1] / "AGENTS.md"
 
 
-def test_repo_agents_md_fits_budget():
+def test_repo_agents_md_fits_budget() -> None:
     length = len(REPO_AGENTS_MD.read_text(encoding="utf-8"))
     assert length <= AGENTS_MD_BUDGET, (
         f"AGENTS.md is {length:,} chars; the budget is {AGENTS_MD_BUDGET:,}. "

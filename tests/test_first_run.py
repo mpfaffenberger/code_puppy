@@ -5,16 +5,19 @@ from __future__ import annotations
 import io
 from collections.abc import Callable, Iterator
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
 from code_puppy import first_run
 from code_puppy.personality import FACTORY, PLUGIN_ID, PersonalitySettings
 
+if TYPE_CHECKING:
+    from pydantic_ai_pax.config.settings_store import SettingsStore
+
 
 @pytest.fixture
-def store(home: Path, installed_distribution: None) -> Any:
+def store(home: Path, installed_distribution: None) -> SettingsStore:
     from pydantic_ai_pax.config.settings_store import SettingsStore
 
     return SettingsStore()
@@ -32,18 +35,18 @@ def scripted(*lines: str | None) -> tuple[Callable[[str], str | None], list[str]
     return read, asked
 
 
-def saved_names(store: Any) -> dict[str, Any]:
+def saved_names(store: SettingsStore) -> dict[str, Any]:
     (declaration,) = [p for p in store.plugins() if p.id == PLUGIN_ID]
     return dict(declaration.settings)
 
 
-def declare(store: Any, **fields: Any) -> None:
+def declare(store: SettingsStore, **fields: object) -> None:
     from pydantic_ai_pax.config import PluginSettings
 
     store.save_plugin(PluginSettings(id=PLUGIN_ID, factory=FACTORY, **fields))
 
 
-def test_a_fresh_install_is_asked_both_0_0_x_questions(store: Any) -> None:
+def test_a_fresh_install_is_asked_both_0_0_x_questions(store: SettingsStore) -> None:
     read, asked = scripted("Boodler\n", "  Mike  \n")
     said: list[str] = []
 
@@ -62,7 +65,7 @@ def test_a_fresh_install_is_asked_both_0_0_x_questions(store: Any) -> None:
     )
 
 
-def test_it_only_asks_once(store: Any) -> None:
+def test_it_only_asks_once(store: SettingsStore) -> None:
     read, _ = scripted("Boodler\n", "Mike\n")
     first_run.welcome(store, read=read, write=lambda _: None)
 
@@ -71,7 +74,9 @@ def test_it_only_asks_once(store: Any) -> None:
     assert asked == []
 
 
-def test_enter_keeps_a_default_and_still_counts_as_answered(store: Any) -> None:
+def test_enter_keeps_a_default_and_still_counts_as_answered(
+    store: SettingsStore,
+) -> None:
     read, _ = scripted("\n", "Mike\n")
     first_run.welcome(store, read=read, write=lambda _: None)
 
@@ -79,7 +84,9 @@ def test_enter_keeps_a_default_and_still_counts_as_answered(store: Any) -> None:
     assert first_run.unanswered(store) == ()
 
 
-def test_backing_out_keeps_the_defaults_and_is_not_asked_again(store: Any) -> None:
+def test_backing_out_keeps_the_defaults_and_is_not_asked_again(
+    store: SettingsStore,
+) -> None:
     read, asked = scripted(None)
     first_run.welcome(store, read=read, write=lambda _: None)
 
@@ -88,7 +95,7 @@ def test_backing_out_keeps_the_defaults_and_is_not_asked_again(store: Any) -> No
     assert first_run.unanswered(store) == ()
 
 
-def test_a_name_the_settings_reject_is_asked_again(store: Any) -> None:
+def test_a_name_the_settings_reject_is_asked_again(store: SettingsStore) -> None:
     read, asked = scripted("x" * 81 + "\n", "Boodler\n", "Mike\n")
     said: list[str] = []
 
@@ -99,13 +106,13 @@ def test_a_name_the_settings_reject_is_asked_again(store: Any) -> None:
     assert saved_names(store)["puppy_name"] == "Boodler"
 
 
-def test_names_carried_over_from_0_0_x_are_not_asked_for(store: Any) -> None:
+def test_names_carried_over_from_0_0_x_are_not_asked_for(store: SettingsStore) -> None:
     declare(store, settings={"puppy_name": "Boodler", "owner_name": "Mike"})
 
     assert first_run.unanswered(store) == ()
 
 
-def test_only_the_missing_name_is_asked_for(store: Any) -> None:
+def test_only_the_missing_name_is_asked_for(store: SettingsStore) -> None:
     declare(store, settings={"puppy_name": "Boodler"})
     read, asked = scripted("Mike\n")
 
@@ -115,7 +122,7 @@ def test_only_the_missing_name_is_asked_for(store: Any) -> None:
     assert saved_names(store) == {"puppy_name": "Boodler", "owner_name": "Mike"}
 
 
-def test_a_disabled_personality_is_left_alone(store: Any) -> None:
+def test_a_disabled_personality_is_left_alone(store: SettingsStore) -> None:
     declare(store, enabled=False)
     never, asked = scripted()
 
@@ -146,7 +153,7 @@ def test_ctrl_c_at_a_question_backs_out(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     class Interrupted(io.StringIO):
-        def readline(self, *args: Any) -> str:
+        def readline(self, size: int = -1, /) -> str:
             raise KeyboardInterrupt
 
     monkeypatch.setattr("sys.stdin", Interrupted())
@@ -160,7 +167,7 @@ def test_ctrl_c_at_a_question_backs_out(
 
 @pytest.fixture
 def launch(
-    store: Any, monkeypatch: pytest.MonkeyPatch
+    store: SettingsStore, monkeypatch: pytest.MonkeyPatch
 ) -> Callable[..., dict[str, Any]]:
     """Start a session through the installed ``chat``, with pax's own stubbed out.
 
@@ -177,7 +184,7 @@ def launch(
     distribution._install_first_run()  # wraps the stub; monkeypatch restores `app.chat`
     monkeypatch.setattr("sys.stdin", io.StringIO("Rex\nSam\n"))
 
-    def start(*, terminal: bool, **options: Any) -> dict[str, Any]:
+    def start(*, terminal: bool, **options: object) -> dict[str, Any]:
         monkeypatch.setattr(first_run, "at_a_terminal", lambda: terminal)
         app.chat("the agent", store=store, **options)
         return given
@@ -187,7 +194,7 @@ def launch(
 
 def test_an_interactive_launch_names_the_puppy_then_starts_the_session(
     launch: Callable[..., dict[str, Any]],
-    store: Any,
+    store: SettingsStore,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     given = launch(terminal=True, resume="abc")
@@ -199,7 +206,7 @@ def test_an_interactive_launch_names_the_puppy_then_starts_the_session(
 
 def test_piped_input_is_not_asked_and_is_asked_next_time(
     launch: Callable[..., dict[str, Any]],
-    store: Any,
+    store: SettingsStore,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     given = launch(terminal=False)
@@ -211,7 +218,7 @@ def test_piped_input_is_not_asked_and_is_asked_next_time(
 
 def test_a_caller_supplied_agent_is_not_asked(
     launch: Callable[..., dict[str, Any]],
-    store: Any,
+    store: SettingsStore,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     given = launch(terminal=True, load_plugins=False)
@@ -225,7 +232,7 @@ def test_a_failure_while_naming_does_not_stop_the_launch(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    def broken(store: Any) -> None:
+    def broken(store: SettingsStore) -> None:
         raise OSError("database is locked")
 
     monkeypatch.setattr(first_run, "welcome", broken)

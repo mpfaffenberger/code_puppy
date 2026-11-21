@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
 
 import pytest
 from pydantic_ai.messages import (
@@ -52,7 +51,7 @@ def write_session(
     history: list[ModelMessage] | None = None,
     *,
     encoding: str = "pydantic-ai-messages",
-    **meta: Any,
+    **meta: object,
 ) -> Path:
     root.mkdir(parents=True, exist_ok=True)
     messages = ModelMessagesTypeAdapter.dump_python(

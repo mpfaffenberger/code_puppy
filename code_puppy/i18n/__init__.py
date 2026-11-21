@@ -12,14 +12,13 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
 
 LOCALE = "en-US"
 
 _catalog: dict[str, str] = {}
 
 
-def add_catalog_dir(directory: str | Path, *args: Any, **kwargs: Any) -> bool:
+def add_catalog_dir(directory: str | Path, *args: object, **kwargs: object) -> bool:
     """Load ``<directory>/en-US.json``; ``False`` when it is missing or malformed."""
     path = Path(directory) / f"{LOCALE}.json"
     try:
@@ -35,13 +34,13 @@ def add_catalog_dir(directory: str | Path, *args: Any, **kwargs: Any) -> bool:
 
 
 def register_plugin_catalog(
-    plugin: str, directory: str | Path, *args: Any, **kwargs: Any
+    plugin: str, directory: str | Path, *args: object, **kwargs: object
 ) -> bool:
     """0.0.x plugins register their catalog folder under their own name."""
     return add_catalog_dir(directory)
 
 
-def t(key: str, **params: Any) -> str:
+def t(key: str, **params: object) -> str:
     """The English text for ``key`` with ``{name}`` placeholders filled in."""
     text = _catalog.get(key, key)
     for name, value in params.items():
@@ -49,7 +48,7 @@ def t(key: str, **params: Any) -> str:
     return text
 
 
-def ngettext(key: str, count: int, **params: Any) -> str:
+def ngettext(key: str, count: int, **params: object) -> str:
     """Plural lookup: ``key.one`` or ``key.other``, then ``key`` itself."""
     variant = f"{key}.one" if count == 1 else f"{key}.other"
     return t(variant if variant in _catalog else key, count=count, **params)

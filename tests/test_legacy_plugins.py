@@ -9,7 +9,7 @@ import sys
 import textwrap
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from pydantic_ai.exceptions import SkipToolExecution
@@ -19,6 +19,11 @@ from rich.console import Console
 from code_puppy import callbacks, plugins
 from code_puppy.compat import tools
 from code_puppy.plugins import trust
+
+if TYPE_CHECKING:
+    from pydantic_ai import Agent
+
+    from code_puppy.compat.bridge import LegacyPlugins
 
 
 def write_plugin(folder: Path, name: str, body: str, **extra_files: str) -> Path:
@@ -223,7 +228,7 @@ class Host:
 
 
 @pytest.fixture
-def bridge(installed_distribution: None) -> Any:
+def bridge(installed_distribution: None) -> LegacyPlugins:
     from pydantic_ai_pax.plugins import NoSettings
 
     from code_puppy.compat.bridge import LegacyPlugins
@@ -231,7 +236,7 @@ def bridge(installed_distribution: None) -> Any:
     return LegacyPlugins(Host(), NoSettings())  # type: ignore[arg-type]
 
 
-def call(tool: str, **args: Any) -> dict[str, Any]:
+def call(tool: str, **args: object) -> dict[str, Any]:
     return {
         "call": ToolCallPart(tool_name=tool, args=args, tool_call_id="call-1"),
         "tool_def": None,
@@ -239,7 +244,9 @@ def call(tool: str, **args: Any) -> dict[str, Any]:
     }
 
 
-async def test_commands_come_from_help_entries_and_dispatch(bridge: Any) -> None:
+async def test_commands_come_from_help_entries_and_dispatch(
+    bridge: LegacyPlugins,
+) -> None:
     seen: list[tuple[str, str]] = []
 
     def handle(command: str, name: str) -> bool | str | None:
@@ -260,11 +267,13 @@ async def test_commands_come_from_help_entries_and_dispatch(bridge: Any) -> None
     assert "no 0.0.x plugin handled" in await bridge._run_command("ghost", [])
 
 
-async def test_pre_tool_call_guards_see_legacy_names_and_can_block(bridge: Any) -> None:
+async def test_pre_tool_call_guards_see_legacy_names_and_can_block(
+    bridge: LegacyPlugins,
+) -> None:
     seen: list[tuple[str, dict[str, Any]]] = []
 
     def guard(
-        tool_name: str, tool_args: dict[str, Any], context: Any = None
+        tool_name: str, tool_args: dict[str, Any], context: object = None
     ) -> dict[str, Any] | None:
         seen.append((tool_name, tool_args))
         if tool_name == "agent_run_shell_command" and "rm -rf" in tool_args["command"]:
@@ -285,8 +294,10 @@ async def test_pre_tool_call_guards_see_legacy_names_and_can_block(bridge: Any) 
     assert blocked.value.result == "no deleting"
 
 
-async def test_a_crashing_guard_blocks_only_when_fail_closed(bridge: Any) -> None:
-    def crash(*args: Any, **kwargs: Any) -> None:
+async def test_a_crashing_guard_blocks_only_when_fail_closed(
+    bridge: LegacyPlugins,
+) -> None:
+    def crash(*args: object, **kwargs: object) -> None:
         raise RuntimeError("guard bug")
 
     callbacks.register_callback("pre_tool_call", crash)
@@ -301,9 +312,11 @@ async def test_a_crashing_guard_blocks_only_when_fail_closed(bridge: Any) -> Non
         await bridge._before_tool(None, **call("read_file", path="a"))
 
 
-async def test_run_shell_command_hooks_can_block_and_rewrite(bridge: Any) -> None:
+async def test_run_shell_command_hooks_can_block_and_rewrite(
+    bridge: LegacyPlugins,
+) -> None:
     def rewrite(
-        context: Any, command: str, cwd: str | None = None, timeout: int = 60
+        context: object, command: str, cwd: str | None = None, timeout: int = 60
     ) -> dict[str, Any]:
         return (
             {"blocked": True}
@@ -322,7 +335,9 @@ async def test_run_shell_command_hooks_can_block_and_rewrite(bridge: Any) -> Non
     }
 
 
-async def test_post_tool_call_gets_the_result_and_a_duration(bridge: Any) -> None:
+async def test_post_tool_call_gets_the_result_and_a_duration(
+    bridge: LegacyPlugins,
+) -> None:
     seen: list[tuple[Any, ...]] = []
     callbacks.register_callback("post_tool_call", lambda *args: seen.append(args))
     arguments = call("run_command", command="ls")
@@ -338,10 +353,10 @@ async def test_post_tool_call_gets_the_result_and_a_duration(bridge: Any) -> Non
     assert duration_ms >= 0
 
 
-def test_capabilities_follow_what_plugins_registered(bridge: Any) -> None:
+def test_capabilities_follow_what_plugins_registered(bridge: LegacyPlugins) -> None:
     assert list(bridge.get_capabilities()) == []
 
-    def register(agent: Any) -> None:
+    def register(agent: Agent[Any, Any]) -> None:
         @agent.tool_plain
         def fetch_bone(size: str) -> str:
             """Fetch a bone."""
@@ -363,7 +378,7 @@ def test_capabilities_follow_what_plugins_registered(bridge: Any) -> None:
 
 
 async def test_turn_moments_fire_legacy_hooks_and_can_replace_the_prompt(
-    bridge: Any,
+    bridge: LegacyPlugins,
 ) -> None:
     from pydantic_ai_pax.plugins import TurnEnd, TurnStart
 
@@ -399,7 +414,7 @@ async def test_turn_moments_fire_legacy_hooks_and_can_replace_the_prompt(
     ]
 
 
-def test_manage_command_lists_and_trusts(bridge: Any, project: Path) -> None:
+def test_manage_command_lists_and_trusts(bridge: LegacyPlugins, project: Path) -> None:
     write_plugin(
         project / ".code_puppy" / "plugins",
         "repo_cmd",

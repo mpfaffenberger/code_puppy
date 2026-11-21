@@ -13,13 +13,16 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import JsonValue, TypeAdapter, ValidationError
 
 from code_puppy import identity
 from code_puppy.legacy_store import LegacyStore
 from code_puppy.migrate import sources, translate
+
+if TYPE_CHECKING:
+    from pydantic_ai_pax.config.settings_store import SettingsStore
 
 MIGRATED_KEY = "migrated_fingerprint"
 
@@ -159,7 +162,9 @@ def apply(plan: Plan, *, legacy: LegacyStore | None = None) -> Result:
     return result
 
 
-def _save_names(store: Any, names: dict[str, str], notes: list[str]) -> list[str]:
+def _save_names(
+    store: SettingsStore, names: dict[str, str], notes: list[str]
+) -> list[str]:
     """Seed the personality plugin's settings, unless the user already has some."""
     from pydantic_ai_pax.config import PluginSettings
 

@@ -7,8 +7,6 @@ Before a session exists they print to stderr, which the splash defers.
 
 from __future__ import annotations
 
-from typing import Any
-
 from rich.console import Console
 from rich.errors import MarkupError
 
@@ -39,7 +37,7 @@ def get_console() -> Console:
     return _fallback
 
 
-def _emit(kind: str, content: Any) -> None:
+def _emit(kind: str, content: object) -> None:
     console, style = get_console(), STYLES[kind]
     if not isinstance(content, str):
         console.print(content, style=style)
@@ -52,27 +50,29 @@ def _emit(kind: str, content: Any) -> None:
         console.print(content, style=style, markup=False, highlight=False)
 
 
-def emit_info(content: Any = "", *args: Any, **metadata: Any) -> None:
+def emit_info(content: object = "", *args: object, **metadata: object) -> None:
     _emit("info", content)
 
 
-def emit_success(content: Any = "", *args: Any, **metadata: Any) -> None:
+def emit_success(content: object = "", *args: object, **metadata: object) -> None:
     _emit("success", content)
 
 
-def emit_warning(content: Any = "", *args: Any, **metadata: Any) -> None:
+def emit_warning(content: object = "", *args: object, **metadata: object) -> None:
     _emit("warning", content)
 
 
-def emit_error(content: Any = "", *args: Any, **metadata: Any) -> None:
+def emit_error(content: object = "", *args: object, **metadata: object) -> None:
     _emit("error", content)
 
 
-def emit_system_message(content: Any = "", *args: Any, **metadata: Any) -> None:
+def emit_system_message(
+    content: object = "", *args: object, **metadata: object
+) -> None:
     _emit("system", content)
 
 
-def emit_debug(content: Any = "", *args: Any, **metadata: Any) -> None:
+def emit_debug(content: object = "", *args: object, **metadata: object) -> None:
     """Debug chatter from 0.0.x plugins is dropped."""
 
 

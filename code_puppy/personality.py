@@ -15,7 +15,7 @@ rules that used to follow it are the runtime's job now.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any
@@ -103,7 +103,7 @@ class Persona(AbstractCapability[Any]):
 
     text: str
 
-    def get_instructions(self) -> Any:
+    def get_instructions(self) -> Callable[[RunContext[Any]], str | None]:
         def instructions(ctx: RunContext[Any]) -> str | None:
             return None if is_delegated_run() else self.text
 

@@ -245,7 +245,7 @@ def inert_registrations() -> dict[str, list[str]]:
     return {owner: sorted(phases) for owner, phases in sorted(found.items())}
 
 
-def fire_sync(phase: PhaseType, *args: Any, **kwargs: Any) -> list[Any]:
+def fire_sync(phase: PhaseType, *args: object, **kwargs: object) -> list[Any]:
     """Call every callback of ``phase`` now. A failing callback yields a ``CallbackError``.
 
     A callback that returns an awaitable cannot be awaited here: it is closed
@@ -265,7 +265,7 @@ def fire_sync(phase: PhaseType, *args: Any, **kwargs: Any) -> list[Any]:
     return results
 
 
-async def fire(phase: PhaseType, *args: Any, **kwargs: Any) -> list[Any]:
+async def fire(phase: PhaseType, *args: object, **kwargs: object) -> list[Any]:
     """Call every callback of ``phase``, awaiting the asynchronous ones."""
     results: list[Any] = []
     for entry in registrations(phase):

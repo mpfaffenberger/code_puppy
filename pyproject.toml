@@ -78,6 +78,11 @@ addopts = "--cov=code_puppy --cov-report=term-missing"
 testpaths = ["tests"]
 asyncio_mode = "auto"
 
+[tool.ruff.lint]
+# Every function says what it takes and returns, and a bare `Any` is not an
+# answer: `object` for a value that is only passed on, the real type otherwise.
+extend-select = ["ANN"]
+
 [tool.uv]
 python-preference = "only-managed"
 
