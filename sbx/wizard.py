@@ -35,8 +35,8 @@ from pathlib import Path
 SBX_DIR = Path(__file__).resolve().parent
 PERSONAL_CONFIG_DIR = SBX_DIR / ".personal" / "code-puppy-config"
 PERSONAL_CREDS_DIR = SBX_DIR / ".personal" / "code-puppy-creds"
-# Secrets/bindings this wizard created itself: the only ones --prune may
-# delete (sbx secrets are host-global and may belong to other setups).
+# Secrets and bindings this wizard created itself. --prune deletes only
+# these, because sbx secrets are host-global and may belong to other setups.
 OWNED_FILE = SBX_DIR / ".personal" / "owned-secrets.json"
 
 # OAuth providers whose token file can be synced into the guest.
@@ -228,13 +228,18 @@ def bindings_path() -> Path:
     return Path.home() / ".config" / "sbx" / "credentials.yaml"
 
 
+def binding_block(service: str, domain: str) -> str:
+    """The credentials.yaml block :func:`ensure_binding` writes."""
+    return f"  {service}:\n    apiKey:\n      domains: [{domain}]\n"
+
+
 def ensure_binding(service: str, domain: str, dry: bool) -> None:
     path = bindings_path()
     text = path.read_text(encoding="utf-8") if path.is_file() else ""
     if re.search(rf"(?m)^\s{{2}}{re.escape(service)}:", text):
         print(f"binding for '{service}': already approved")
         return
-    block = f"  {service}:\n    apiKey:\n      domains: [{domain}]\n"
+    block = binding_block(service, domain)
     text = (
         ("bindings:\n" + block)
         if "bindings:" not in text
@@ -280,10 +285,10 @@ def remove_binding(service: str) -> bool:
     if not path.is_file():
         return False
     text = path.read_text(encoding="utf-8")
-    pattern = (
-        rf"(?m)^  {re.escape(service)}:\n    apiKey:\n"
-        r"      domains: \[[^\]\n]*\]\n?"
-    )
+    marker = "\0DOMAIN\0"
+    head, tail = re.escape(binding_block(service, marker)).split(re.escape(marker))
+    # tail ends with the escaped final newline; "?" makes it optional (EOF).
+    pattern = "(?m)^" + head + r"[^\]\n]*" + tail + "?"
     new, count = re.subn(pattern, "", text, count=1)
     if not count:
         return False
@@ -301,9 +306,11 @@ def confirm(prompt: str) -> bool:
 def prune_owned_secrets(plan: dict, dry: bool, assume_yes: bool) -> None:
     """Delete stale sbx secrets, but only those this wizard created.
 
-    ``plan`` must be the unfiltered plan. Secrets stored by hand or by
-    other sandboxes are reported and kept; a plan deriving no
-    credentials at all (plugin/catalog problem) prunes nothing.
+    ``plan`` must be the unfiltered plan. The manifest is shared by every
+    sandbox this checkout's wizard created, which all derive from the
+    same host catalog. Secrets stored by hand or by other tools are
+    reported and kept; a plan deriving no credentials at all
+    (plugin/catalog problem) prunes nothing.
     """
     stale = plan.get("stale_sbx_secrets")
     if stale is None:
@@ -323,7 +330,7 @@ def prune_owned_secrets(plan: dict, dry: bool, assume_yes: bool) -> None:
     print("prune: will remove sbx secret(s): " + ", ".join(targets))
     if dry:
         for name in targets:
-            print(f"[dry-run] sbx secret rm {name} -f")
+            run(["sbx", "secret", "rm", name, "-f"], dry=True)
             if name in owned["bindings"]:
                 print(f"[dry-run] would remove binding for {name} in {bindings_path()}")
         return
@@ -343,7 +350,12 @@ def prune_owned_secrets(plan: dict, dry: bool, assume_yes: bool) -> None:
         if name in owned["bindings"]:
             if remove_binding(name):
                 print(f"binding for '{name}': removed from {bindings_path()}")
-            owned["bindings"].remove(name)
+                owned["bindings"].remove(name)
+            else:
+                print(
+                    f"warning: binding for '{name}' not found in its original "
+                    f"form; clean up {bindings_path()} manually"
+                )
     save_owned(owned)
 
 
