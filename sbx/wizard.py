@@ -345,8 +345,7 @@ def prune_owned_secrets(plan: dict, dry: bool, assume_yes: bool) -> None:
         result = run(["sbx", "secret", "rm", name, "-f"], dry=False)
         if result.returncode != 0:
             print(
-                f"warning: sbx secret rm {name} failed: "
-                f"{(result.stderr or '').strip()[:200]}"
+                f"warning: sbx secret rm {name} failed: {result.stderr.strip()[:200]}"
             )
             continue
         owned["secrets"].remove(name)
