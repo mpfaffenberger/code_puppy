@@ -1,87 +1,57 @@
-"""Code Puppy internationalization (i18n) foundation.
+"""English-only stand-in for the 0.0.x translation API.
 
-Day-one localization framework: message catalogs with a fallback chain,
-locale detection/override, plural-aware translation, locale-aware formatting,
-and pseudolocalization for coverage testing. Stdlib-only by design.
+Translations were dropped in 1.0. 0.0.x plugins still call ``t("key")`` and
+register their own catalogs, so this resolves keys against the ``en-US``
+catalogs plugins register and falls back to the key itself.
 
-Typical call-site usage::
-
-    from code_puppy.i18n import t, ngettext
-
-    emit_info(t("startup.welcome", name=owner))
-    emit_info(ngettext("files.deleted", count=n))
-
-To resolve the active locale from the environment/config at boot::
-
-    from code_puppy.i18n import use_detected_locale
-    from code_puppy.config import get_value
-
-    use_detected_locale(get_value("locale"))
-
-See ``PUP-473`` (epic) and ``PUP-475`` (this foundation story) for scope.
+Placeholders are ``{name}`` only, substituted literally: a catalog is data,
+and never gets ``str.format``'s attribute or index access.
 """
 
-from .catalog import (
-    add_catalog_dir,
-    available_locales,
-    load_catalog,
-    lookup,
-    register_plugin_catalog,
-    reset,
-)
-from .formats import format_datetime, format_number
-from .locale import (
-    DEFAULT_LOCALE,
-    detect_locale,
-    fallback_chain,
-    language_of,
-    normalize_locale,
-)
-from .plurals import plural_category
-from .pseudo import PSEUDO_LOCALE, is_pseudo_locale, pseudolocalize
-from .translate import (
-    LazyTranslation,
-    Translator,
-    ensure_detected,
-    get_locale,
-    get_translator,
-    lazy,
-    ngettext,
-    set_locale,
-    t,
-    use_detected_locale,
-)
+from __future__ import annotations
 
-# Common gettext-style alias so call sites can `from code_puppy.i18n import _`.
-_ = t
+import json
+from pathlib import Path
 
-__all__ = [
-    "_",
-    "t",
-    "ngettext",
-    "lazy",
-    "LazyTranslation",
-    "Translator",
-    "get_translator",
-    "get_locale",
-    "set_locale",
-    "use_detected_locale",
-    "ensure_detected",
-    "detect_locale",
-    "normalize_locale",
-    "fallback_chain",
-    "language_of",
-    "DEFAULT_LOCALE",
-    "plural_category",
-    "format_number",
-    "format_datetime",
-    "add_catalog_dir",
-    "register_plugin_catalog",
-    "available_locales",
-    "load_catalog",
-    "lookup",
-    "reset",
-    "pseudolocalize",
-    "is_pseudo_locale",
-    "PSEUDO_LOCALE",
-]
+LOCALE = "en-US"
+
+_catalog: dict[str, str] = {}
+
+
+def add_catalog_dir(directory: str | Path, *args: object, **kwargs: object) -> bool:
+    """Load ``<directory>/en-US.json``; ``False`` when it is missing or malformed."""
+    path = Path(directory) / f"{LOCALE}.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    if not isinstance(data, dict):
+        return False
+    _catalog.update(
+        {str(key): value for key, value in data.items() if isinstance(value, str)}
+    )
+    return True
+
+
+def register_plugin_catalog(
+    plugin: str, directory: str | Path, *args: object, **kwargs: object
+) -> bool:
+    """0.0.x plugins register their catalog folder under their own name."""
+    return add_catalog_dir(directory)
+
+
+def t(key: str, **params: object) -> str:
+    """The English text for ``key`` with ``{name}`` placeholders filled in."""
+    text = _catalog.get(key, key)
+    for name, value in params.items():
+        text = text.replace("{" + name + "}", str(value))
+    return text
+
+
+def ngettext(key: str, count: int, **params: object) -> str:
+    """Plural lookup: ``key.one`` or ``key.other``, then ``key`` itself."""
+    variant = f"{key}.one" if count == 1 else f"{key}.other"
+    return t(variant if variant in _catalog else key, count=count, **params)
+
+
+__all__ = ["add_catalog_dir", "ngettext", "register_plugin_catalog", "t"]

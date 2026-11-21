@@ -2,7 +2,7 @@
 
 Project plugins (``<CWD>/.code_puppy/plugins/``) execute arbitrary code at
 import time, so they are **disabled by default**.  A plugin only loads after
-the user explicitly accepts the risk in the ``/plugins`` TUI ceremony, which
+the user explicitly accepts the risk with ``/puppy-plugins trust <name>``, which
 records a SHA-256 hash of the plugin's contents here.
 
 Key properties:
@@ -28,7 +28,11 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-TRUST_STORE_FILE = Path.home() / ".code_puppy" / "trusted_plugins.json"
+
+def trust_store_file() -> Path:
+    """The store's path, resolved on each call so it follows the current home."""
+    return Path.home() / ".code_puppy" / "trusted_plugins.json"
+
 
 _STORE_VERSION = 1
 
@@ -45,29 +49,27 @@ def _project_key(project_root: Path) -> str:
 
 def _load_store() -> dict:
     """Read the trust store, returning an empty store on any problem."""
+    path = trust_store_file()
     try:
-        if TRUST_STORE_FILE.is_file():
-            data = json.loads(TRUST_STORE_FILE.read_text(encoding="utf-8"))
+        if path.is_file():
+            data = json.loads(path.read_text(encoding="utf-8"))
             if isinstance(data, dict) and isinstance(data.get("projects"), dict):
                 return data
-            logger.warning(
-                "Malformed trust store at %s — treating as empty", TRUST_STORE_FILE
-            )
+            logger.warning("Malformed trust store at %s — treating as empty", path)
     except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
-        logger.warning("Could not read trust store %s: %s", TRUST_STORE_FILE, exc)
+        logger.warning("Could not read trust store %s: %s", path, exc)
     return {"version": _STORE_VERSION, "projects": {}}
 
 
 def _save_store(store: dict) -> bool:
     """Persist the trust store. Returns False (and logs) on failure."""
+    path = trust_store_file()
     try:
-        TRUST_STORE_FILE.parent.mkdir(parents=True, exist_ok=True)
-        TRUST_STORE_FILE.write_text(
-            json.dumps(store, indent=2, sort_keys=True), encoding="utf-8"
-        )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(store, indent=2, sort_keys=True), encoding="utf-8")
         return True
     except OSError as exc:
-        logger.error("Could not write trust store %s: %s", TRUST_STORE_FILE, exc)
+        logger.error("Could not write trust store %s: %s", path, exc)
         return False
 
 

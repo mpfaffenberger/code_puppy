@@ -1,305 +1,88 @@
-"""Code Puppy Messaging System.
+"""The 0.0.x ``emit_*`` functions, printing through the runtime's console.
 
-This package provides both the legacy messaging API and the new structured
-messaging system.
-
-Legacy API (backward compatible):
-    - emit_info(), emit_warning(), emit_error(), etc.
-    - MessageQueue, UIMessage, MessageType
-    - Used by existing code throughout the codebase
-
-New Structured Messaging API:
-    - MessageBus for bidirectional Agent <-> UI communication
-    - Pydantic message models (TextMessage, DiffMessage, etc.)
-    - Command models for UI -> Agent communication
-    - RichConsoleRenderer for presentation
-
-Example (legacy):
-    >>> from code_puppy.messaging import emit_info, emit_error
-    >>> emit_info("Operation complete")
-    >>> emit_error("Something went wrong")
-
-Example (new):
-    >>> from code_puppy.messaging import (
-    ...     MessageBus, get_message_bus,
-    ...     TextMessage, MessageLevel,
-    ...     RichConsoleRenderer,
-    ... )
-    >>> bus = get_message_bus()
-    >>> bus.emit(TextMessage(level=MessageLevel.INFO, text="Hello"))
+0.0.x plugins report with ``emit_info`` and friends. 1.0 has no message bus:
+the compat bridge hands over the session's console, and these print to it.
+Before a session exists they print to stderr, which the splash defers.
 """
 
-# =============================================================================
-# Apply Rich Markdown patches (left-justified headers, unpadded code blocks)
-# =============================================================================
-from .markdown_patches import patch_markdown
+from __future__ import annotations
 
-patch_markdown()
+from rich.console import Console
+from rich.errors import MarkupError
 
-# =============================================================================
-# Legacy API (backward compatible)
-# =============================================================================
+STYLES = {
+    "info": None,
+    "success": "green",
+    "warning": "yellow",
+    "error": "red",
+    "system": "dim",
+}
 
-# Message bus
-from .bus import (
-    MessageBus,
-    emit_shell_line,
-    get_message_bus,
-    get_session_context,
-    reset_message_bus,
-    set_session_context,
-)
-from .bus import emit as bus_emit  # Convenience functions (new API versions)
-from .bus import emit_debug as bus_emit_debug
-from .bus import emit_error as bus_emit_error
-from .bus import emit_info as bus_emit_info
-from .bus import emit_success as bus_emit_success
-from .bus import emit_warning as bus_emit_warning
-
-# Command types (UI -> Agent)
-from .commands import (  # Base; Agent control; User interaction responses; Union type
-    AnyCommand,
-    BaseCommand,
-    CancelAgentCommand,
-    ConfirmationResponse,
-    InterruptShellCommand,
-    PauseAgentCommand,
-    ResumeAgentCommand,
-    SelectionResponse,
-    SteerAgentCommand,
-    UserInputResponse,
-)
-from .bottom_bar import (
-    BottomBar,
-    get_bottom_bar,
-    reset_bottom_bar,
-)
-from .line_editor import RunningLineEditor
-from .pause_controller import (
-    PauseController,
-    drop_session_pause_controller,
-    get_pause_controller,
-    get_session_pause_controller,
-    reset_pause_controller,
-)
-from .message_queue import (
-    MessageQueue,
-    MessageType,
-    UIMessage,
-    emit_agent_reasoning,
-    emit_agent_response,
-    emit_command_output,
-    emit_divider,
-    emit_error,
-    emit_info,
-    emit_message,
-    emit_planned_next_steps,
-    emit_prompt,
-    emit_queued,
-    emit_steer,
-    emit_success,
-    emit_system_message,
-    emit_tool_output,
-    emit_warning,
-    get_buffered_startup_messages,
-    get_global_queue,
-    provide_prompt_response,
-)
-
-# Message types and enums
-from .messages import (  # Enums, Base, Text, File ops, Diff, Shell, Agent, etc.
-    AgentReasoningMessage,
-    AgentResponseMessage,
-    AnyMessage,
-    BaseMessage,
-    ConfirmationRequest,
-    DiffLine,
-    DiffMessage,
-    DividerMessage,
-    FileContentMessage,
-    FileEntry,
-    FileListingMessage,
-    GrepMatch,
-    GrepResultMessage,
-    MessageCategory,
-    MessageLevel,
-    SelectionRequest,
-    ShellLineMessage,
-    ShellOutputMessage,
-    ShellStartMessage,
-    SkillActivateMessage,
-    SkillEntry,
-    SkillListMessage,
-    SpinnerControl,
-    StatusPanelMessage,
-    SubAgentInvocationMessage,
-    SubAgentResponseMessage,
-    SubAgentStatusMessage,
-    TextMessage,
-    UserInputRequest,
-    VersionCheckMessage,
-)
-from .queue_console import QueueConsole, get_queue_console
-from .renderers import InteractiveRenderer, SynchronousInteractiveRenderer
-
-# NOTE: the ``run_ui()`` context manager itself is intentionally NOT
-# re-exported here — it would shadow the ``messaging.run_ui`` submodule
-# attribute. Import it via ``from code_puppy.messaging.run_ui import run_ui``.
-from .run_ui import (
-    get_run_editor,
-    start_run_ui,
-    stop_run_ui,
-    suspended_run_ui,
-)
-
-# Renderer
-from .rich_renderer import (
-    DEFAULT_STYLES,
-    DIFF_STYLES,
-    RendererProtocol,
-    RichConsoleRenderer,
-)
-from .subagent_console import (
-    STATUS_STYLES as SUBAGENT_STATUS_STYLES,
-)
-
-# Sub-agent console manager
-from .subagent_console import (
-    AgentState,
-    SubAgentConsoleManager,
-    get_subagent_console_manager,
-)
-
-# =============================================================================
-# New Structured Messaging API
-# =============================================================================
+_console: Console | None = None
+_fallback: Console | None = None
 
 
-# =============================================================================
-# Export all public symbols
-# =============================================================================
+def set_console(console: Console | None) -> None:
+    """Route ``emit_*`` output to ``console``; ``None`` restores the stderr fallback."""
+    global _console
+    _console = console
+
+
+def get_console() -> Console:
+    global _fallback
+    if _console is not None:
+        return _console
+    if _fallback is None:
+        _fallback = Console(stderr=True)
+    return _fallback
+
+
+def _emit(kind: str, content: object) -> None:
+    console, style = get_console(), STYLES[kind]
+    if not isinstance(content, str):
+        console.print(content, style=style)
+        return
+    # `highlight=False`: a message is prose, not a Python repr for Rich to recolour.
+    try:
+        console.print(content, style=style, highlight=False)
+    except MarkupError:
+        # Plain text that only looks like markup, such as "[/path]".
+        console.print(content, style=style, markup=False, highlight=False)
+
+
+def emit_info(content: object = "", *args: object, **metadata: object) -> None:
+    _emit("info", content)
+
+
+def emit_success(content: object = "", *args: object, **metadata: object) -> None:
+    _emit("success", content)
+
+
+def emit_warning(content: object = "", *args: object, **metadata: object) -> None:
+    _emit("warning", content)
+
+
+def emit_error(content: object = "", *args: object, **metadata: object) -> None:
+    _emit("error", content)
+
+
+def emit_system_message(
+    content: object = "", *args: object, **metadata: object
+) -> None:
+    _emit("system", content)
+
+
+def emit_debug(content: object = "", *args: object, **metadata: object) -> None:
+    """Debug chatter from 0.0.x plugins is dropped."""
+
 
 __all__ = [
-    # -------------------------------------------------------------------------
-    # Legacy API (backward compatible)
-    # -------------------------------------------------------------------------
-    # Message queue
-    "MessageQueue",
-    "MessageType",
-    "UIMessage",
-    "get_global_queue",
-    # Legacy emit functions
-    "emit_message",
-    "emit_info",
-    "emit_queued",
-    "emit_steer",
-    "emit_success",
-    "emit_warning",
-    "emit_divider",
+    "emit_debug",
     "emit_error",
-    "emit_tool_output",
-    "emit_command_output",
-    "emit_agent_reasoning",
-    "emit_planned_next_steps",
-    "emit_agent_response",
+    "emit_info",
+    "emit_success",
     "emit_system_message",
-    "emit_prompt",
-    "provide_prompt_response",
-    "get_buffered_startup_messages",
-    # Legacy renderers
-    "InteractiveRenderer",
-    "SynchronousInteractiveRenderer",
-    "QueueConsole",
-    "get_queue_console",
-    # -------------------------------------------------------------------------
-    # New Structured Messaging API
-    # -------------------------------------------------------------------------
-    # Enums
-    "MessageLevel",
-    "MessageCategory",
-    # Base classes
-    "BaseMessage",
-    "BaseCommand",
-    # Message types
-    "TextMessage",
-    "FileEntry",
-    "FileListingMessage",
-    "FileContentMessage",
-    "GrepMatch",
-    "GrepResultMessage",
-    "DiffLine",
-    "DiffMessage",
-    "ShellStartMessage",
-    "ShellLineMessage",
-    "ShellOutputMessage",
-    "emit_shell_line",
-    "AgentReasoningMessage",
-    "AgentResponseMessage",
-    "SubAgentInvocationMessage",
-    "SubAgentResponseMessage",
-    "SubAgentStatusMessage",
-    "UserInputRequest",
-    "ConfirmationRequest",
-    "SelectionRequest",
-    "SpinnerControl",
-    "DividerMessage",
-    "StatusPanelMessage",
-    "VersionCheckMessage",
-    "SkillEntry",
-    "SkillListMessage",
-    "SkillActivateMessage",
-    "AnyMessage",
-    # Command types
-    "CancelAgentCommand",
-    "InterruptShellCommand",
-    "PauseAgentCommand",
-    "ResumeAgentCommand",
-    "SteerAgentCommand",
-    "UserInputResponse",
-    "ConfirmationResponse",
-    "SelectionResponse",
-    "AnyCommand",
-    # Pause controller
-    "PauseController",
-    "drop_session_pause_controller",
-    "get_pause_controller",
-    "get_session_pause_controller",
-    "reset_pause_controller",
-    # Bottom bar (scroll-region prompt)
-    "BottomBar",
-    "get_bottom_bar",
-    "reset_bottom_bar",
-    # Running line editor
-    "RunningLineEditor",
-    # Composed run UI (bar + editor + key routing)
-    "start_run_ui",
-    "stop_run_ui",
-    "get_run_editor",
-    "suspended_run_ui",
-    # Message bus
-    "MessageBus",
-    "get_message_bus",
-    "reset_message_bus",
-    # Session context
-    "set_session_context",
-    "get_session_context",
-    # New API convenience functions (prefixed to avoid collision)
-    "bus_emit",
-    "bus_emit_info",
-    "bus_emit_warning",
-    "bus_emit_error",
-    "bus_emit_success",
-    "bus_emit_debug",
-    # Renderer
-    "RendererProtocol",
-    "RichConsoleRenderer",
-    "DEFAULT_STYLES",
-    "DIFF_STYLES",
-    # Markdown patches
-    "patch_markdown",
-    # Sub-agent console manager
-    "AgentState",
-    "SubAgentConsoleManager",
-    "get_subagent_console_manager",
-    "SUBAGENT_STATUS_STYLES",
+    "emit_warning",
+    "get_console",
+    "set_console",
 ]
