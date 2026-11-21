@@ -54,7 +54,7 @@ class FakeRun:
 
 
 def _plan(**extra: object) -> dict:
-    plan = {
+    return {
         "credentials": [
             {
                 "service": "anthropic",
@@ -65,9 +65,8 @@ def _plan(**extra: object) -> dict:
         "oauth": [],
         "egress": ["api.anthropic.com"],
         "unsupported": [],
+        **extra,
     }
-    plan.update(extra)
-    return plan
 
 
 def _use(wizard: ModuleType, monkeypatch: pytest.MonkeyPatch, fake: FakeRun) -> FakeRun:
