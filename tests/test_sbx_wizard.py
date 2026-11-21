@@ -181,7 +181,9 @@ def test_prune_respects_confirmation(
         _plan(stale_sbx_secrets=["oldkey"]), dry=False, assume_yes=False
     )
 
-    assert fake.rm_calls() == ([['sbx', 'secret', 'rm', 'oldkey', '-f']] if accepted else [])
+    assert fake.rm_calls() == (
+        [["sbx", "secret", "rm", "oldkey", "-f"]] if accepted else []
+    )
     assert wizard.load_owned()["secrets"] == ([] if accepted else ["oldkey"])
 
 
