@@ -346,8 +346,7 @@ def test_main_dry_run_prune_reads_plan_to_preview(
 
     assert wizard.main(["--stock-config", "--prune", "--dry-run"]) == 0
 
-    plan_calls = [c for c in fake.calls if c[0] == PLAN_CMD]
-    assert plan_calls == [(PLAN_CMD, False)]
+    assert [c for c in fake.calls if c[0] == PLAN_CMD] == [(PLAN_CMD, False)]
     assert fake.rm_calls() == []
     assert fake.rm_calls(dry=True) == [["sbx", "secret", "rm", "oldkey", "-f"]]
 
