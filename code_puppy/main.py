@@ -124,7 +124,10 @@ def _finish_reset_proactor_transport(transport: object) -> None:
     server: object = getattr(transport, "_server", None)
     detach = getattr(server, "_detach", None)
     if callable(detach):
-        detach(transport)
+        try:
+            detach(transport)
+        except TypeError:
+            detach()
         setattr(transport, "_server", None)
     setattr(transport, "_called_connection_lost", True)
 

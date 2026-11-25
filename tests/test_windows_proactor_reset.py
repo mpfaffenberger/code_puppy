@@ -192,3 +192,38 @@ def test_noop_on_non_windows(
 
     with quiet_windows_proactor_reset():
         assert cast(object, _FakeTransportClass._call_connection_lost) is original
+
+
+def test_handles_python_311_zero_arg_server_detach(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _ZeroArgServer:
+        def __init__(self) -> None:
+            self.detached_calls = 0
+
+        def _detach(self) -> None:
+            self.detached_calls += 1
+
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(
+        proactor_events,
+        "_ProactorBasePipeTransport",
+        _FakeTransportClass,
+        raising=False,
+    )
+    sock = _DummySock(shutdown_error=_win_reset_error(10054))
+    server = _ZeroArgServer()
+    transport = _DummyTransport(
+        sock=sock,
+        protocol=_DummyProtocol(),
+        server=cast(_DummyServer, server),
+    )
+
+    with quiet_windows_proactor_reset():
+        _FakeTransportClass._call_connection_lost(transport, None)
+
+    assert sock.closed is True
+    assert transport._sock is None
+    assert server.detached_calls == 1
+    assert transport._server is None
+    assert transport._called_connection_lost is True
