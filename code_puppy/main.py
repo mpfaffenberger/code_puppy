@@ -11,7 +11,10 @@ import os
 import sqlite3
 import sys
 import warnings
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
+from typing import cast
 
 from code_puppy import identity
 
@@ -105,6 +108,68 @@ def _own_command(argv: list[str]) -> int | None:
     return migrate.main(argv[2:])
 
 
+_PROACTOR_RESET_WINERROR = 10054
+
+
+def _finish_reset_proactor_transport(transport: object) -> None:
+    """Finish socket close and server detach skipped if ``shutdown()`` raises WinError 10054."""
+    sock: object = getattr(transport, "_sock", None)
+    close = getattr(sock, "close", None)
+    if callable(close):
+        try:
+            close()
+        except OSError:
+            pass
+    setattr(transport, "_sock", None)
+    server: object = getattr(transport, "_server", None)
+    detach = getattr(server, "_detach", None)
+    if callable(detach):
+        detach(transport)
+        setattr(transport, "_server", None)
+    setattr(transport, "_called_connection_lost", True)
+
+
+@contextmanager
+def quiet_windows_proactor_reset() -> Iterator[None]:
+    """Silence CPython's Windows Proactor ``WinError 10054`` socket-teardown race.
+
+    Removable once ``pydantic-ai-pax`` includes this guard upstream.
+    """
+    if sys.platform != "win32":
+        yield
+        return
+
+    from asyncio import proactor_events
+
+    transport_cls = getattr(proactor_events, "_ProactorBasePipeTransport", None)
+    original = cast(
+        Callable[[object, BaseException | None], None] | None,
+        getattr(transport_cls, "_call_connection_lost", None),
+    )
+    if transport_cls is None or original is None:
+        yield
+        return
+
+    def wrapped(self: object, exc: BaseException | None) -> None:
+        try:
+            original(self, exc)
+        except ConnectionResetError as err:
+            if (
+                getattr(err, "winerror", None) == _PROACTOR_RESET_WINERROR
+                and not getattr(self, "_called_connection_lost", True)
+                and getattr(self, "_sock", None) is not None
+            ):
+                _finish_reset_proactor_transport(self)
+                return
+            raise
+
+    setattr(transport_cls, "_call_connection_lost", wrapped)
+    try:
+        yield
+    finally:
+        setattr(transport_cls, "_call_connection_lost", original)
+
+
 def main_entry() -> None:
     """Start Code Puppy: pydantic-ai-pax with Code Puppy's identity installed."""
     _load_dotenv()
@@ -128,7 +193,11 @@ def main_entry() -> None:
         from pydantic_ai_pax.__main__ import quiet_telemetry_logs
         from pydantic_ai_pax.cli.cli import run
 
-        with warnings.catch_warnings(), quiet_telemetry_logs():
+        with (
+            warnings.catch_warnings(),
+            quiet_telemetry_logs(),
+            quiet_windows_proactor_reset(),
+        ):
             if not sys.warnoptions:
                 # Library warnings are advice for whoever wired the agent, not
                 # the person at the prompt, and stderr output tears through the
