@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import sys
 import types
-from asyncio import proactor_events
 from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import cast
@@ -107,13 +107,11 @@ def _patch_proactor(
     platform: str = "win32",
     transport_cls: type[object] = _FakeTransportClass,
 ) -> None:
+    fake_proactor = types.ModuleType("asyncio.proactor_events")
+    setattr(fake_proactor, "_ProactorBasePipeTransport", transport_cls)
     monkeypatch.setattr(sys, "platform", platform)
-    monkeypatch.setattr(
-        proactor_events,
-        "_ProactorBasePipeTransport",
-        transport_cls,
-        raising=False,
-    )
+    monkeypatch.setitem(sys.modules, "asyncio.proactor_events", fake_proactor)
+    monkeypatch.setattr(asyncio, "proactor_events", fake_proactor, raising=False)
 
 
 def test_suppresses_winerror_10054_on_shutdown_and_finishes_cleanup(
@@ -333,6 +331,54 @@ def test_handles_python_311_zero_arg_server_detach(
     assert transport._sock is None
     assert server.detached_calls == 1
     assert transport._server is None
+    assert transport._called_connection_lost is True
+
+
+def test_cleanup_completes_when_server_detach_raises_internal_type_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _BrokenServer:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def _detach(self, _transport: object) -> None:
+            self.calls += 1
+            raise TypeError("internal detach bug")
+
+    _patch_proactor(monkeypatch)
+    sock = _DummySock(shutdown_error=_win_reset_error())
+    server = _BrokenServer()
+    transport = _DummyTransport(
+        sock=sock,
+        protocol=_DummyProtocol(),
+        server=cast(_DummyServer, server),
+    )
+
+    with quiet_windows_proactor_reset():
+        _FakeTransportClass._call_connection_lost(transport, None)
+
+    assert server.calls == 1
+    assert sock.closed is True
+    assert transport._sock is None
+    assert transport._server is None
+    assert transport._called_connection_lost is True
+
+
+def test_does_not_reraise_outer_exception_context_when_protocol_succeeds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_proactor(monkeypatch)
+    sock = _DummySock(shutdown_error=_win_reset_error())
+    transport = _DummyTransport(sock=sock, protocol=_DummyProtocol())
+
+    with quiet_windows_proactor_reset():
+        try:
+            raise ValueError("outer active exception")
+        except ValueError:
+            _FakeTransportClass._call_connection_lost(transport, None)
+
+    assert sock.closed is True
+    assert transport._sock is None
     assert transport._called_connection_lost is True
 
 

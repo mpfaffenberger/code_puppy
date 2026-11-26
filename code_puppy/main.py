@@ -120,12 +120,16 @@ def _finish_reset_proactor_transport(transport: object) -> None:
             close()
     setattr(transport, "_sock", None)
     server: object = getattr(transport, "_server", None)
-    detach = getattr(server, "_detach", None)
-    if callable(detach):
-        try:
-            detach(transport)
-        except TypeError:
-            detach()
+    if server is not None:
+        detach = getattr(server, "_detach", None)
+        if callable(detach):
+            import inspect
+
+            with suppress(Exception):  # noqa: BLE001 - detach failure must not skip cleanup
+                if len(inspect.signature(detach).parameters) >= 1:
+                    detach(transport)
+                else:
+                    detach()
         setattr(transport, "_server", None)
     setattr(transport, "_called_connection_lost", True)
 
@@ -152,6 +156,8 @@ def quiet_windows_proactor_reset() -> Iterator[None]:
         return
 
     def wrapped(self: object, exc: BaseException | None) -> None:
+        prior_exc = sys.exc_info()[1]
+        protocol_exc: BaseException | None = None
         try:
             original(self, exc)
         except ConnectionResetError as err:
@@ -161,10 +167,12 @@ def quiet_windows_proactor_reset() -> Iterator[None]:
                 and getattr(self, "_sock", None) is not None
             ):
                 _finish_reset_proactor_transport(self)
-                if err.__context__ is not None:
-                    raise err.__context__ from None
-                return
-            raise
+                if err.__context__ is not None and err.__context__ is not prior_exc:
+                    protocol_exc = err.__context__
+            else:
+                raise
+        if protocol_exc is not None:
+            raise protocol_exc
 
     setattr(transport_cls, "_call_connection_lost", wrapped)
     try:
