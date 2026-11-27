@@ -125,16 +125,19 @@ After a `git pull`, Python source changes are available immediately. Run
 `pipx reinstall code-puppy` only when project dependencies change.
 Playwright-backed browser tools are not installed on Android.
 
-#### Optional: DBOS durable execution
+#### Optional: DBOS durable execution (0.0.x only)
 
-Code Puppy ships with an optional [DBOS](https://github.com/dbos-inc/dbos-transact-py)-backed
+> 1.0 has no `durable` extra and no `/dbos` command yet. These steps install
+> the 0.0.x line, which still has both.
+
+Code Puppy 0.0.x ships with an optional [DBOS](https://github.com/dbos-inc/dbos-transact-py)-backed
 durable-execution plugin that survives crashes and lets you resume long agent runs.
 It's **off by default in the dependency tree** — install the `durable` extra to opt in:
 
 ```bash
-pip install "code-puppy[durable]"
+pip install "code-puppy[durable]<1"
 # or
-uv pip install "code-puppy[durable]"
+uv pip install "code-puppy[durable]<1"
 ```
 
 Then toggle it from inside the app via `/dbos on` (and restart). Use `/dbos status`
@@ -238,9 +241,10 @@ These providers are automatically configured with correct OpenAI-compatible endp
 - **⚠️ Unsupported Providers** - Providers like Amazon Bedrock and Google Vertex that require special authentication are clearly marked
 - **⚠️ No Tool Calling** - Models without tool calling support show a big warning since they can't use Code Puppy's file/shell tools
 
-### Durable Execution
+### Durable Execution (0.0.x only)
 
-Code Puppy now supports **[DBOS](https://github.com/dbos-inc/dbos-transact-py)** durable execution.
+Code Puppy 0.0.x supports **[DBOS](https://github.com/dbos-inc/dbos-transact-py)** durable execution;
+see [the install steps above](#optional-dbos-durable-execution-00x-only).
 
 When enabled, every agent is automatically wrapped as a `DBOSAgent`, checkpointing key interactions (including agent inputs, LLM responses, MCP calls, and tool calls) in a database for durability and recovery.
 

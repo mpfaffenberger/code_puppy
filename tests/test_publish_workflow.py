@@ -11,12 +11,16 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import textwrap
+import tomllib
 from pathlib import Path
 
 import pytest
 
-WORKFLOW = Path(__file__).resolve().parent.parent / ".github/workflows/publish.yml"
+ROOT = Path(__file__).resolve().parent.parent
+WORKFLOW = ROOT / ".github/workflows/publish.yml"
+GUARD = ROOT / "scripts" / "check_release_version.py"
 
 
 def workflow_lines() -> list[str]:
@@ -55,10 +59,7 @@ def step_script(name: str, version: str = "1.0.1") -> str:
 def run_step(
     tmp_path: Path, script: str, stub: str, output: str = ""
 ) -> tuple[subprocess.CompletedProcess[str], list[str]]:
-    """Run ``script`` under bash with ``stub`` replaced by a command that logs its arguments.
-
-    The stub prints ``output`` and succeeds.
-    """
+    """Run under bash with a stub that logs its arguments and prints ``output``."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     log = tmp_path / f"{stub}.log"
@@ -99,25 +100,89 @@ bash_only = pytest.mark.skipif(
 )
 
 
+def release(tmp_path: Path, pyproject: str, lock: str | None = None) -> str:
+    """Run the bump and capture steps with real uv on a copy of a project.
+
+    Returns the version the workflow would publish. With ``lock``, uv uses it
+    as is (``UV_FROZEN``) rather than resolving the project's dependencies;
+    without, the project must have none, so uv locks it offline.
+    """
+    project = tmp_path / "project"
+    (project / "scripts").mkdir(parents=True)
+    (project / "pyproject.toml").write_text(pyproject, encoding="utf-8")
+    if lock is not None:
+        (project / "uv.lock").write_text(lock, encoding="utf-8")
+    shutil.copy(GUARD, project / "scripts")
+    outputs = tmp_path / "github_output"
+    script = tmp_path / "steps.sh"
+    script.write_text(
+        step_script("Bump version") + step_script("Capture new version"),
+        encoding="utf-8",
+    )
+    env = {
+        **{k: v for k, v in os.environ.items() if k != "VIRTUAL_ENV"},
+        "PATH": f"{Path(sys.executable).parent}{os.pathsep}{os.environ['PATH']}",
+        "GITHUB_OUTPUT": str(outputs),
+        "UV_FROZEN" if lock is not None else "UV_NO_SYNC": "1",
+    }
+    run = subprocess.run(
+        ["bash", "-e", str(script)],
+        cwd=project,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert run.returncode == 0, run.stderr
+    captured = dict(
+        line.split("=", 1) for line in outputs.read_text(encoding="utf-8").splitlines()
+    )["version"]
+    written = tomllib.loads((project / "pyproject.toml").read_text(encoding="utf-8"))
+    assert written["project"]["version"] == captured
+    return captured
+
+
+with_uv = pytest.mark.skipif(shutil.which("uv") is None, reason="the job runs uv")
+
+
 @bash_only
+@with_uv
 @pytest.mark.parametrize(
-    ("current", "bump"),
+    ("current", "published"),
     [
         # The cutover: exactly 1.0.0, never a stray 1.0.1.
-        ("1.0.0rc1", "stable"),
-        ("1.1.0b2", "stable"),
-        ("1.0.1.dev3", "stable"),
-        ("1.0.0", "patch"),
-        ("1.2.9", "patch"),
+        ("1.0.0rc1", "1.0.0"),
+        ("1.1.0b2", "1.1.0"),
+        ("1.0.1.dev3", "1.0.1"),
+        ("1.0.0", "1.0.1"),
+        ("1.2.9", "1.2.10"),
     ],
 )
-def test_bump_finalises_a_pre_release_and_patches_a_stable_one(
-    tmp_path: Path, current: str, bump: str
+def test_a_pre_release_is_finalised_and_a_stable_one_patched(
+    tmp_path: Path, current: str, published: str
 ) -> None:
-    run, calls = run_step(tmp_path, step_script("Bump version"), "uv", current)
+    pyproject = f'[project]\nname = "x"\nversion = "{current}"\n'
+    assert release(tmp_path, pyproject) == published
 
-    assert run.returncode == 0, run.stderr
-    assert calls == ["version --short", f"version --bump {bump}"]
+
+@bash_only
+@with_uv
+def test_the_checked_in_project_publishes_a_version_the_guard_accepts(
+    tmp_path: Path,
+) -> None:
+    """At the cutover this is 1.0.0; after it, the next patch."""
+    version = release(
+        tmp_path,
+        (ROOT / "pyproject.toml").read_text(encoding="utf-8"),
+        (ROOT / "uv.lock").read_text(encoding="utf-8"),
+    )
+    guard = subprocess.run(
+        [sys.executable, str(GUARD), "main", version],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert guard.returncode == 0, guard.stdout
 
 
 @bash_only

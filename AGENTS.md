@@ -39,9 +39,9 @@ Plan and status: `docs/upgrade/code_puppy_1_0_rewrite_plan.md`.
    `pydantic-clai2` is now only an alias package, and we no longer depend on
    it: through it every import was a *second* copy of pax's files, so
    `pydantic-claude-code` 0.7.x (which still imports the old name) registered a
-   `Plugin` pax had never seen. `code_puppy/former_name.py` answers
-   `pydantic_clai2.commands` and `.plugins` with pax's own modules instead. Keep
-   it until that plugin imports `pydantic_ai_pax`.
+   `Plugin` pax had never seen. `code_puppy/former_name.py` answers the
+   `pydantic_clai2` names that plugin imports with pax's own modules, and
+   refuses the rest. Keep it until that plugin imports `pydantic_ai_pax`.
    Claude Code models come from **`pydantic-claude-code`**. Do not "fix" that
    to `pydantic-ai-claude-code`: that PyPI name is someone else's project.
 2. **Replacements live in `distribution.py`.** If you must replace another
@@ -71,7 +71,8 @@ Plan and status: `docs/upgrade/code_puppy_1_0_rewrite_plan.md`.
 
 ## Releasing
 
-- Only `main` publishes, and only stable 1.x: what `uvx code-puppy` gets.
+- Only `main` publishes, and only stable versions at or above `1.0.0`: what
+  `uvx code-puppy` gets.
   CI bumps the version: `--bump patch`, or `--bump stable` when git holds a
   pre-release (`1.0.0rc1` becomes `1.0.0`, not `1.0.1`). The `v1` RC branch
   is retired. `scripts/check_release_version.py` refuses anything else.

@@ -1,16 +1,22 @@
 """Refuse to publish a version that does not belong on the branch being released,
 or one whose dependencies PyPI cannot supply.
 
-Only ``main`` publishes, and only stable ``1.x`` releases: the 1.0 release
-candidates are over, and ``uvx code-puppy`` resolves to whatever ``main``
-ships. A pre-release, or a version older than ``1.0.0``, is refused.
+Only ``main`` publishes, and only stable versions at or above ``1.0.0``: the
+1.0 release candidates are over, and ``uvx code-puppy`` resolves to whatever
+``main`` ships. A pre-release, or a version older than ``1.0.0``, is refused.
 
 Between runtime releases ``main`` may be built against a commit of pydantic-ai
 ``main`` through ``[tool.uv.sources]``. Those sources are not part of the
 published metadata, so such a build would reach PyPI depending on whatever
 release happens to be newest. The guard refuses that too.
 
-Usage: ``python scripts/check_release_version.py <branch> <version>``
+It also picks the bump that releases the version in git, by the same rules:
+a pre-release is finalised (``1.0.0rc1`` → ``1.0.0``), a stable one patched.
+
+Usage:
+
+* ``python scripts/check_release_version.py <branch> <version>``
+* ``python scripts/check_release_version.py --bump-for <version>``
 """
 
 from __future__ import annotations
@@ -44,11 +50,20 @@ def release_problem(branch: str, version: str) -> str | None:
         return f"{version!r} is not a valid PEP 440 version"
     if branch != RELEASE_BRANCH:
         return f"branch {branch!r} does not publish releases"
-    if parsed.is_prerelease or parsed.is_devrelease:
+    if parsed.is_prerelease:
         return f"{version} is a pre-release; {RELEASE_BRANCH} publishes stable only"
     if parsed < FIRST_RELEASE:
         return f"{version} is older than {FIRST_RELEASE}, the 1.0 rewrite"
     return None
+
+
+def bump_for(version: str) -> str:
+    """The ``uv version --bump`` that releases ``version``.
+
+    ``--bump patch`` would turn ``1.0.0rc1`` into ``1.0.1``, skipping ``1.0.0``;
+    ``--bump stable`` refuses a version that is already stable.
+    """
+    return "stable" if Version(version).is_prerelease else "patch"
 
 
 def _pinned_exactly(requirement: Requirement) -> bool:
@@ -78,6 +93,9 @@ def dependency_problem(pyproject: Mapping[str, Any]) -> str | None:
 
 
 def main(argv: list[str], *, pyproject: Path = PYPROJECT) -> int:
+    if len(argv) == 3 and argv[1] == "--bump-for":
+        print(bump_for(argv[2]))
+        return 0
     if len(argv) != 3:
         print(__doc__)
         return 2

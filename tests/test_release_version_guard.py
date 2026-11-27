@@ -1,11 +1,13 @@
-"""The publish guard: only `main` publishes, and only stable 1.x releases."""
+"""The publish guard: only `main` publishes, and only stable versions from 1.0.0."""
 
 from __future__ import annotations
 
 import importlib.util
+import tomllib
 from pathlib import Path
 
 import pytest
+from packaging.requirements import Requirement
 
 _SCRIPT = (
     Path(__file__).resolve().parent.parent / "scripts" / "check_release_version.py"
@@ -51,6 +53,37 @@ RELEASABLE = """
 [project]
 dependencies = ["pydantic-ai-pax==0.70.0", "packaging>=24.0"]
 """
+
+
+@pytest.mark.parametrize(
+    ("version", "bump"),
+    [
+        ("1.0.0rc1", "stable"),
+        ("1.1.0b2", "stable"),
+        ("1.0.1.dev3", "stable"),
+        # A pre-release with a local or post segment is still one.
+        ("1.0.0rc1+build.1", "stable"),
+        ("1.0.0rc1.post1", "stable"),
+        ("1.0.0", "patch"),
+        ("1.0.0.post1", "patch"),
+    ],
+)
+def test_the_bump_finalises_a_pre_release(
+    version: str, bump: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert guard.bump_for(version) == bump
+    assert guard.main(["prog", "--bump-for", version]) == 0
+    assert capsys.readouterr().out == f"{bump}\n"
+
+
+def test_the_project_being_released_passes_the_dependency_guard() -> None:
+    """The real manifest, checked on every PR rather than first in the publish job."""
+    pyproject = tomllib.loads(guard.PYPROJECT.read_text(encoding="utf-8"))
+    assert guard.dependency_problem(pyproject) is None
+    names = {Requirement(text).name for text in pyproject["project"]["dependencies"]}
+    assert "pydantic-ai-pax" in names
+    # Importing through the alias package runs pax twice; see former_name.py.
+    assert "pydantic-clai2" not in names
 
 
 def test_main_exit_codes(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
