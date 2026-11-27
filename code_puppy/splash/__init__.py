@@ -8,6 +8,8 @@ Each launch plays one of :data:`SCENES`, picked at random.
 
 from __future__ import annotations
 
+import codecs
+import contextlib
 import io
 import os
 import random
@@ -22,7 +24,24 @@ MIN_COLUMNS = 46
 MIN_LINES = 22
 FRAME_SECONDS = 1 / 30
 
+LEAVE = "\x1b[?1049l\x1b[?25h"
+"""Leave the alternate screen and show the cursor again."""
+
 __all__ = ["SCENES", "Splash"]
+
+
+def _speaks_unicode(stream: object) -> bool:
+    """Whether ``stream`` can write the scenes' block and circle glyphs.
+
+    A stream without an encoding (a ``StringIO``) takes any text.
+    """
+    encoding = getattr(stream, "encoding", None)
+    if not encoding:
+        return True
+    try:
+        return codecs.lookup(encoding).name.startswith("utf")
+    except LookupError:
+        return False
 
 
 class Splash:
@@ -45,6 +64,7 @@ class Splash:
             and size.columns >= MIN_COLUMNS
             and size.lines >= MIN_LINES
             and sys.platform != "win32"
+            and _speaks_unicode(self._stream)
         )
 
     def frame(self, tick: int, columns: int, lines: int) -> str:
@@ -68,6 +88,10 @@ class Splash:
         self._thread.start()
 
     def _run(self) -> None:
+        """Paint until stopped. Any failure hands the screen back and stops painting.
+
+        Held-back output still waits for :meth:`stop`, which replays it.
+        """
         try:
             self._stream.write("\x1b[?1049h\x1b[?25l")
             tick, size = 0, None
@@ -80,8 +104,10 @@ class Splash:
                 self._stream.flush()
                 tick += 1
                 self._stop.wait(FRAME_SECONDS)
-        except OSError:
-            pass
+        except Exception:  # noqa: BLE001 - a broken frame must not blank the screen
+            with contextlib.suppress(Exception):
+                self._stream.write(LEAVE)
+                self._stream.flush()
 
     def stop(self) -> None:
         """Join the painter, restore the screen, and replay held-back output."""
@@ -91,7 +117,7 @@ class Splash:
         self._thread.join()
         self._thread = None
         try:
-            self._stream.write("\x1b[?1049l\x1b[?25h")
+            self._stream.write(LEAVE)
             self._stream.flush()
         finally:
             if sys.stdout is self._buffers[0]:

@@ -13,7 +13,7 @@ import time
 import pytest
 
 from code_puppy import colors
-from code_puppy.splash import SCENES, Splash
+from code_puppy.splash import LEAVE, SCENES, Splash
 from code_puppy.splash import __main__ as preview
 from code_puppy.splash.canvas import Canvas
 from code_puppy.splash.scenes import CAPTION, caption
@@ -80,23 +80,28 @@ def test_each_launch_picks_a_scene_at_random() -> None:
 class FakeTerminal(io.StringIO):
     """A stream that says it is a terminal and keeps everything written to it."""
 
-    def __init__(self, *, tty: bool = True) -> None:
+    def __init__(self, *, tty: bool = True, encoding: str = "utf-8") -> None:
         super().__init__()
         self._tty = tty
+        self._encoding = encoding
+
+    @property
+    def encoding(self) -> str:  # type: ignore[override]
+        return self._encoding
 
     def isatty(self) -> bool:
         return self._tty
 
 
 def attach(
-    monkeypatch: pytest.MonkeyPatch, *, tty: bool = True
+    monkeypatch: pytest.MonkeyPatch, *, tty: bool = True, encoding: str = "utf-8"
 ) -> tuple[FakeTerminal, FakeTerminal]:
     """Put fake terminals on stdout and stderr.
 
     Called from the test body: pytest's own capture replaces ``sys.stdout``
     again between fixture setup and the test call.
     """
-    out, err = FakeTerminal(tty=tty), FakeTerminal()
+    out, err = FakeTerminal(tty=tty, encoding=encoding), FakeTerminal()
     monkeypatch.setattr(sys, "stdout", out)
     monkeypatch.setattr(sys, "stderr", err)
     return out, err
@@ -135,6 +140,29 @@ def test_start_holds_output_back_and_stop_replays_it(
     splash.stop()  # A second stop is harmless.
 
 
+def broken_scene(canvas: Canvas, tick: int) -> None:
+    raise RuntimeError("a bug in a scene")
+
+
+@pytest.mark.usefixtures("terminal")
+def test_a_failing_frame_hands_the_screen_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No blank, cursorless screen while startup continues, and nothing lost."""
+    out, _ = attach(monkeypatch)
+    splash = Splash(scene=broken_scene)
+    splash.start()
+    print("hello")
+    assert splash._thread is not None
+    splash._thread.join(timeout=5)
+
+    assert not splash._thread.is_alive()
+    assert out.getvalue() == "\x1b[?1049h\x1b[?25l" + LEAVE
+    splash.stop()
+    assert sys.stdout is out
+    assert out.getvalue().endswith(LEAVE + "hello\n")
+
+
 @pytest.mark.parametrize(
     ("change", "enabled"),
     [
@@ -148,13 +176,22 @@ def test_start_holds_output_back_and_stop_replays_it(
         ({"size": (46, 22)}, True),
         ({"platform": "win32"}, False),
         ({"platform": "linux"}, True),
+        # `PYTHONIOENCODING=ascii`, or a C locale: the glyphs cannot be written.
+        ({"encoding": "ascii"}, False),
+        ({"encoding": "latin-1"}, False),
+        ({"encoding": "no-such-codec"}, False),
+        ({"encoding": "UTF8"}, True),
     ],
 )
 @pytest.mark.usefixtures("terminal")
 def test_the_splash_only_runs_on_a_capable_terminal(
     monkeypatch: pytest.MonkeyPatch, change: dict[str, object], enabled: bool
 ) -> None:
-    attach(monkeypatch, tty=bool(change.get("tty", True)))
+    attach(
+        monkeypatch,
+        tty=bool(change.get("tty", True)),
+        encoding=str(change.get("encoding", "utf-8")),
+    )
     for name in ("NO_COLOR", "TERM"):
         if name in change:
             monkeypatch.setenv(name, str(change[name]))
