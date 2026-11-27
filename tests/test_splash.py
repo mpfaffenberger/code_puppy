@@ -8,6 +8,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
 
 import pytest
@@ -134,10 +135,94 @@ def test_start_holds_output_back_and_stop_replays_it(
     assert sys.stdout is out and sys.stderr is err
     painted, _, replayed = out.getvalue().partition("\x1b[?1049l\x1b[?25h")
     assert painted.startswith("\x1b[?1049h\x1b[?25l")
-    assert "".join(_plain_rows(painted)).count("c o d e") >= 1
+    assert "c o d e" in "".join(_plain_rows(painted))
     assert replayed == "hello\n"
     assert err.getvalue() == "oops\n"
     splash.stop()  # A second stop is harmless.
+
+
+@pytest.mark.usefixtures("terminal")
+def test_a_thread_that_cannot_start_leaves_the_streams_alone(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    out, err = attach(monkeypatch)
+
+    def refuse(self: threading.Thread) -> None:
+        raise RuntimeError("can't start new thread")
+
+    monkeypatch.setattr(threading.Thread, "start", refuse)
+    splash = Splash()
+    with pytest.raises(RuntimeError):
+        splash.start()
+
+    assert sys.stdout is out and sys.stderr is err
+    splash.stop()
+    assert out.getvalue() == ""
+
+
+@pytest.mark.usefixtures("terminal")
+def test_ctrl_c_while_stopping_still_restores_the_terminal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    out, _ = attach(monkeypatch)
+    splash = Splash(scene=SCENES["sniff"])
+    splash.start()
+    print("hello")
+    assert splash._thread is not None
+    painter = splash._thread
+
+    def interrupted(self: threading.Thread, timeout: float | None = None) -> None:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(threading.Thread, "join", interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        splash.stop()
+    monkeypatch.undo()  # Real `join` again, and pytest's own streams.
+    painter.join(timeout=5)
+
+    assert out.getvalue().endswith(LEAVE + "hello\n")
+
+
+def test_nothing_is_drawn_once_stopping() -> None:
+    """A frame finishing after ``stop`` left the screen would land on the user's terminal."""
+    stream = FakeTerminal()
+    splash = Splash(enabled=False, scene=SCENES["sniff"])
+    splash._stream = stream
+    splash._paint(0, None)
+    assert stream.getvalue()
+
+    stream.seek(0)
+    stream.truncate()
+    splash._stop.set()
+    splash._paint(1, None)
+    assert stream.getvalue() == ""
+
+
+def test_a_resize_clears_once_and_redraws_at_the_new_size(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stream = FakeTerminal()
+    splash = Splash(enabled=False, scene=SCENES["paw-trail"])
+    splash._stream = stream
+    sizes = iter([(80, 24), (60, 30), (60, 30)])
+    monkeypatch.setattr(
+        shutil, "get_terminal_size", lambda: os.terminal_size(next(sizes))
+    )
+    frames = []
+    size = None
+    for tick in range(3):
+        stream.seek(0)
+        stream.truncate()
+        size = splash._paint(tick, size)
+        frames.append(stream.getvalue())
+
+    assert ["\x1b[2J" in frame for frame in frames] == [True, True, False]
+    frame = frames[1]
+    for marker in ("\x1b[?2026h", "\x1b[?2026l", "\x1b[2J"):
+        frame = frame.replace(marker, "")
+    rows = _plain_rows(frame)
+    assert [row.split("H", 1)[0] for row in rows] == [f"{y};1" for y in range(1, 31)]
+    assert {len(row.split("H", 1)[1]) for row in rows} == {59}
 
 
 def broken_scene(canvas: Canvas, tick: int) -> None:

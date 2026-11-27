@@ -87,8 +87,7 @@ def _paw_cells(width: int, stage: int) -> dict[tuple[int, int], int]:
     for y in range(rows):
         source = _art.PAW[y * len(_art.PAW) // rows]
         for x in range(cols):
-            tier = int(source[x * len(source) // cols])
-            if tier:
+            if tier := int(source[x * len(source) // cols]):
                 cells[left + x, top + y] = tier
     return cells
 

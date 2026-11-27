@@ -24,7 +24,7 @@ def ink(colour: str, *, deep: bool) -> str:
     """
     if not deep:
         return f"\x1b[{colors.BASIC[colour]}m"
-    red, green, blue = (int(colour[index : index + 2], 16) for index in (1, 3, 5))
+    red, green, blue = bytes.fromhex(colour[1:])
     return f"\x1b[38;2;{red};{green};{blue}m"
 
 
