@@ -117,7 +117,7 @@ def test_the_old_name_leaves_the_module_its_own_spec(
 
 def test_installing_twice_answers_once() -> None:
     former_name.install()
-    before = list(__import__("sys").meta_path)
+    before = list(sys.meta_path)
     former_name.install()
 
-    assert __import__("sys").meta_path == before
+    assert sys.meta_path == before
