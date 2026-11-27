@@ -51,20 +51,17 @@ def test_hues_match_code_puppy_0_0_x() -> None:
 
 def test_colours_are_distinct() -> None:
     """The theme keys its palette slots by colour, so a repeat would lose one."""
-    shades = [
-        shade.colour for shade in (*colors.SHADES.values(), *colors.NEON.values())
-    ]
+    shades = [shade.colour for shade in colors.SHADES.values()]
     assert len(shades) == len(set(shades))
 
 
 def test_pax_paints_with_code_puppys_colours(installed_distribution: None) -> None:
-    from pydantic_ai_pax.ui.rendering import splash, theme
+    from pydantic_ai_pax.ui.rendering import theme
 
     assert theme.ACCENT == f"bold {colors.BLUE}"
     assert theme.color(theme.ERROR) == colors.RED
     assert theme.BANNER == colors.ROLES["BANNER"]
     assert theme.diff_theme().addition == colors.ROLES["DIFF_ADDITION"]
-    assert splash.LITHIUM == colors.NEON["LITHIUM"].colour
 
 
 def test_sixteen_colour_terminals_get_0_0_x_codes(

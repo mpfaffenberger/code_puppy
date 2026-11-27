@@ -118,9 +118,7 @@ def main_entry() -> None:
         raise SystemExit(code)
 
     from code_puppy import distribution
-
-    distribution.install_splash()
-    from pydantic_ai_pax.ui.rendering.splash import Splash
+    from code_puppy.splash import Splash
 
     os.environ["PYDANTIC_AI_NO_BANNER"] = "1"
     splash = Splash(

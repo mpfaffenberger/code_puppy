@@ -5,6 +5,9 @@ the terminal UI, sessions and plugins. pax has no way for a distribution to
 supply its identity, so the names below are replaced on its modules at
 startup. (pax was named pydantic-clai2 until 2026-11-19.)
 
+The startup splash is Code Puppy's own (``code_puppy.splash``); nothing of
+pax's splash is replaced.
+
 Every replacement lives in this file and nowhere else. Each one is temporary:
 it goes away when pax grows the matching seam, and
 ``tests/test_distribution_contract.py`` fails if a pax upgrade moves or
@@ -18,8 +21,8 @@ pax symbol                                  Seam that would replace it
 ``credential_store.credentials_path``       credentials under the config root
 ``self_update.*``, ``cli._update``          pluggable update source
 ``install.command_name``                    configurable command name
-``splash_art``, ``branding``, ``welcome``   pluggable branding
-``theme`` colours, ``splash`` colours       a distribution-supplied default theme
+``branding``, ``welcome``                   pluggable branding
+``theme`` colours                           a distribution-supplied default theme
 ``builtins.DEFAULT_PLUGINS/STOCK_PLUGINS``  distribution-supplied default plugins
 ``app.create_stock_agent``                  configurable agent name and docs capability
 ``app.chat``                                a hook before an interactive session starts
@@ -61,7 +64,6 @@ LEGACY_PLUGIN_MARKER = "register_callbacks.py"
 
 RUNTIME_PACKAGE = "pydantic_ai_pax"
 
-_splash_installed = False
 _installed = False
 
 
@@ -86,25 +88,10 @@ def _replace(owner: ModuleType, name: str, new: object) -> None:
                 setattr(module, key, new)
 
 
-def install_splash() -> None:
-    """Give the startup splash Code Puppy's art. Light enough to run first."""
-    global _splash_installed
-    if _splash_installed:
-        return
-    from pydantic_ai_pax.ui.rendering import splash_art
-
-    from code_puppy import _art
-
-    _install_theme()
-    _replace(splash_art, "PYRAMID", _art.PAW)
-    _replace(splash_art, "LABEL", _art.LABEL)
-    _splash_installed = True
-
-
 def _install_theme() -> None:
     """Paint pax's default theme in Code Puppy's colours.
 
-    Runs before any pax module but the splash art is imported: several bind
+    Runs before any other pax module is imported: several bind
     theme colours at import time, in dicts and default arguments that
     :func:`_replace` cannot reach.
     """
@@ -116,14 +103,9 @@ def _install_theme() -> None:
         setattr(theme, name, shade.colour)
     for name, value in colors.ROLES.items():
         setattr(theme, name, value)
-    shades = (*colors.SHADES.values(), *colors.NEON.values())
+    shades = colors.SHADES.values()
     theme._SLOTS = {shade.colour: shade.slot for shade in shades}
     theme._BASIC = {shade.colour: shade.sgr for shade in shades}
-
-    from pydantic_ai_pax.ui.rendering import splash
-
-    for name, shade in colors.NEON.items():
-        setattr(splash, name, shade.colour)
 
 
 def _naming_first(start_chat: Callable[P, T]) -> Callable[P, T]:
@@ -176,7 +158,7 @@ def install() -> None:
     if _installed:
         return
     former_name.install()
-    install_splash()
+    _install_theme()
     _install_paths()
     _install_credentials()
     _install_updates()

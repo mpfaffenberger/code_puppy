@@ -19,6 +19,7 @@ Plan and status: `docs/upgrade/code_puppy_1_0_rewrite_plan.md`.
 | `code_puppy/distribution.py` | **Every** replacement of a pax name. Nowhere else |
 | `code_puppy/update.py` | `/update`, `pup update`: PyPI lookup, version rules, wording |
 | `code_puppy/branding.py`, `_art.py` | Banner, welcome lines, splash art |
+| `code_puppy/splash/` | Startup animation, stdlib-only. Preview: `python -m code_puppy.splash` |
 | `code_puppy/migrate/` | One-time carry-over of a 0.0.x setup |
 | `code_puppy/legacy_store.py` | `puppy.db`: Code Puppy's own SQLite file |
 | `code_puppy/api_keys.py` | Exports saved API keys for model providers |
