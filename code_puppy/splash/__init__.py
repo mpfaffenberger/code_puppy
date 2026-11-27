@@ -92,7 +92,10 @@ class Splash:
         thread = threading.Thread(
             target=self._run, name="code-puppy-splash", daemon=True
         )
-        thread.start()
+        try:
+            thread.start()
+        except RuntimeError:  # "can't start new thread": no animation, that's all
+            return
         self._thread = thread
         sys.stdout, sys.stderr = self._buffers
 

@@ -142,9 +142,10 @@ def test_start_holds_output_back_and_stop_replays_it(
 
 
 @pytest.mark.usefixtures("terminal")
-def test_a_thread_that_cannot_start_leaves_the_streams_alone(
+def test_a_thread_that_cannot_start_means_no_animation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Startup carries on, with its streams intact."""
     out, err = attach(monkeypatch)
 
     def refuse(self: threading.Thread) -> None:
@@ -152,9 +153,9 @@ def test_a_thread_that_cannot_start_leaves_the_streams_alone(
 
     monkeypatch.setattr(threading.Thread, "start", refuse)
     splash = Splash()
-    with pytest.raises(RuntimeError):
-        splash.start()
+    splash.start()
 
+    assert splash._thread is None
     assert sys.stdout is out and sys.stderr is err
     splash.stop()
     assert out.getvalue() == ""
