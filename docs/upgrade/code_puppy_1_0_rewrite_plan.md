@@ -1,9 +1,8 @@
 # Code Puppy 1.0 rewrite plan
 
-Status: in progress on branch `v1`. Phases 0 to 2 are built, phase 3 is partly
-built, phases 4 to 6 are not started. Section 0 has the details.
-Target version: `1.0.0rc1`, then `rcN` until cutover to `1.0.0`.
-Release candidates are opt-in; `uvx code-puppy` keeps resolving to 0.0.x (section 13).
+Status: cut over. `main` publishes `1.0.0`, and `uvx code-puppy` resolves to
+it (section 13). Phases 0 to 2 are built, phase 3 is partly built, phases 4 to
+6 are not started; they continue as 1.x releases. Section 0 has the details.
 
 ## 0. Implementation status (2026-11-19)
 
@@ -512,6 +511,13 @@ Workflow changes:
 Cutover: merge `v1` into `main`, run `uv version --bump stable` once to get
 `1.0.0`, remove the guard's `main` clause. From then on `uvx code-puppy`
 resolves to 1.0.0.
+
+**Done (2026-11-21).** No release candidate was ever published: `main`
+releases `1.0.0` straight from `1.0.0rc1`. `publish.yml` now triggers on
+`main` only and runs `--bump stable` whenever git holds a pre-release, else
+`--bump patch`. The guard allows only stable versions of at least `1.0.0`, and
+only from `main`; the `v1` branch publishes nothing. 0.0.x stays installable
+with `uvx --from 'code-puppy<1' code-puppy`.
 
 If a bad release escapes, yank it on PyPI; yanked versions are skipped by
 unpinned installs.

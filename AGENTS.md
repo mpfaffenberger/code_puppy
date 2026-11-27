@@ -1,4 +1,4 @@
-# Contributing to Code Puppy (1.0 line, branch `v1`)
+# Contributing to Code Puppy 1.x
 
 > **Golden rule:** Code Puppy 1.0 is a *distribution* of
 > [`pydantic-ai-pax`](https://github.com/pydantic/pydantic-ai/tree/main/src/pydantic_ai_pax)
@@ -8,7 +8,6 @@
 > `Plugin`, a `pydantic-ai-harness` capability, or an upstream change.
 
 Plan and status: `docs/upgrade/code_puppy_1_0_rewrite_plan.md`.
-`main` still ships 0.0.x; nothing here applies to it.
 
 ## Layout
 
@@ -72,18 +71,16 @@ Plan and status: `docs/upgrade/code_puppy_1_0_rewrite_plan.md`.
 
 ## Releasing
 
-- `v1` publishes `1.0.0rcN` pre-releases; `main` publishes `0.0.x`.
-  `uvx code-puppy` resolves to the newest *stable* release, so 0.0.x users
-  are unaffected until 1.0.0 ships.
-- `v1` bumps with `uv version --bump rc`. **Never** `--bump patch` on `v1`:
-  it turns `1.0.0rc1` into a stable `1.0.1`.
-  `scripts/check_release_version.py` fails the publish job if that happens.
-- A release candidate can only depend on packages released to PyPI.
-  Between runtime releases `v1` may build against a commit of pydantic-ai
-  `main`: `[tool.uv.sources]` in `pyproject.toml`, every package at one
-  `rev`. The release guard refuses to publish in that state. Restore
-  `pydantic-ai-pax==X.Y.Z` and delete the sources first.
-- Pushing to `v1` or `main` publishes. Do not push without being asked.
+- Only `main` publishes, and only stable 1.x: what `uvx code-puppy` gets.
+  CI bumps the version: `--bump patch`, or `--bump stable` when git holds a
+  pre-release (`1.0.0rc1` becomes `1.0.0`, not `1.0.1`). The `v1` RC branch
+  is retired. `scripts/check_release_version.py` refuses anything else.
+- A release can only depend on packages released to PyPI. Between runtime
+  releases a branch may build against a commit of pydantic-ai `main`:
+  `[tool.uv.sources]` in `pyproject.toml`, every package at one `rev`. The
+  release guard refuses to publish in that state. Restore
+  `pydantic-ai-pax==X.Y.Z` and delete the sources before merging.
+- Pushing to `main` publishes. Do not push without being asked.
 
 ## Writing a plugin
 

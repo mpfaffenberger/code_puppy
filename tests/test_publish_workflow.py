@@ -23,7 +23,7 @@ def workflow_lines() -> list[str]:
     return WORKFLOW.read_text(encoding="utf-8").splitlines()
 
 
-def test_pushes_to_both_release_branches_trigger_the_workflow() -> None:
+def test_only_main_triggers_the_workflow() -> None:
     lines = workflow_lines()
     start = lines.index("on:")
     push = lines.index("  push:", start, start + 3)
@@ -34,17 +34,13 @@ def test_pushes_to_both_release_branches_trigger_the_workflow() -> None:
         if (match := re.match(r"      - (\S+)$", line))
     ]
 
-    assert names == ["main", "v1"]
+    assert names == ["main"]
 
 
-def writeback_script(version: str = "1.0.0rc2") -> str:
+def step_script(name: str, version: str = "1.0.1") -> str:
     """The named step's shell, with GitHub's version expression substituted."""
     lines = workflow_lines()
-    start = next(
-        i
-        for i, line in enumerate(lines)
-        if line.strip() == "- name: Push version bump and tag to GitHub"
-    )
+    start = next(i for i, line in enumerate(lines) if line.strip() == f"- name: {name}")
     run = next(i for i in range(start, len(lines)) if lines[i] == "        run: |")
     body = []
     for line in lines[run + 1 :]:
@@ -56,48 +52,80 @@ def writeback_script(version: str = "1.0.0rc2") -> str:
     )
 
 
-@pytest.mark.skipif(
-    os.name == "nt" or shutil.which("bash") is None,
-    reason="release jobs run bash on Linux",
-)
-def test_writeback_rebases_and_pushes_the_triggering_branch(tmp_path: Path) -> None:
-    """A v1 publish must not rebase onto or push main after uploading the RC."""
+def run_step(
+    tmp_path: Path, script: str, stub: str, output: str = ""
+) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+    """Run ``script`` under bash with ``stub`` replaced by a command that logs its arguments.
+
+    The stub prints ``output`` and succeeds.
+    """
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    log = tmp_path / "git.log"
-    git = bin_dir / "git"
-    git.write_text(
+    log = tmp_path / f"{stub}.log"
+    fake = bin_dir / stub
+    fake.write_text(
         textwrap.dedent(
-            """\
+            f"""\
             #!/bin/sh
-            printf '%s\\n' "$*" >> "$GIT_LOG"
+            printf '%s\\n' "$*" >> "{log}"
+            printf '%s' '{output}'
             exit 0
             """
         ),
         encoding="utf-8",
     )
-    git.chmod(0o755)
-    script = tmp_path / "writeback.sh"
-    script.write_text(writeback_script(), encoding="utf-8")
+    fake.chmod(0o755)
+    path = tmp_path / "step.sh"
+    path.write_text(script, encoding="utf-8")
     env = {
         **os.environ,
         "PATH": f"{bin_dir}:{os.environ['PATH']}",
-        "GIT_LOG": str(log),
-        "GITHUB_REF_NAME": "v1",
+        "GITHUB_REF_NAME": "main",
     }
-
     run = subprocess.run(
-        ["bash", str(script)],
+        ["bash", str(path)],
         cwd=tmp_path,
         env=env,
         capture_output=True,
         text=True,
         timeout=30,
     )
+    return run, log.read_text(encoding="utf-8").splitlines()
+
+
+bash_only = pytest.mark.skipif(
+    os.name == "nt" or shutil.which("bash") is None,
+    reason="release jobs run bash on Linux",
+)
+
+
+@bash_only
+@pytest.mark.parametrize(
+    ("current", "bump"),
+    [
+        # The cutover: exactly 1.0.0, never a stray 1.0.1.
+        ("1.0.0rc1", "stable"),
+        ("1.1.0b2", "stable"),
+        ("1.0.1.dev3", "stable"),
+        ("1.0.0", "patch"),
+        ("1.2.9", "patch"),
+    ],
+)
+def test_bump_finalises_a_pre_release_and_patches_a_stable_one(
+    tmp_path: Path, current: str, bump: str
+) -> None:
+    run, calls = run_step(tmp_path, step_script("Bump version"), "uv", current)
 
     assert run.returncode == 0, run.stderr
-    calls = log.read_text(encoding="utf-8").splitlines()
-    assert "pull --rebase origin v1" in calls
-    assert "push origin v1" in calls
-    assert "push origin v1.0.0rc2" in calls
-    assert not any("main" in call for call in calls), calls
+    assert calls == ["version --short", f"version --bump {bump}"]
+
+
+@bash_only
+def test_writeback_rebases_and_pushes_main(tmp_path: Path) -> None:
+    script = step_script("Push version bump and tag to GitHub", "1.0.0")
+    run, calls = run_step(tmp_path, script, "git")
+
+    assert run.returncode == 0, run.stderr
+    assert "pull --rebase origin main" in calls
+    assert "push origin main" in calls
+    assert "push origin v1.0.0" in calls

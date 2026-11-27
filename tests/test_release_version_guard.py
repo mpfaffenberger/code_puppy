@@ -1,4 +1,4 @@
-"""The publish guard keeps 1.0 release candidates away from `uvx code-puppy` users."""
+"""The publish guard: only `main` publishes, and only stable 1.x releases."""
 
 from __future__ import annotations
 
@@ -19,11 +19,11 @@ _spec.loader.exec_module(guard)
 @pytest.mark.parametrize(
     ("branch", "version"),
     [
-        ("main", "0.0.970"),
-        ("main", "0.1.0"),
-        ("v1", "1.0.0rc1"),
-        ("v1", "1.0.0rc27"),
-        ("v1", "1.0.1rc1"),
+        # What `uv version --bump stable` makes of 1.0.0rc1: the cutover.
+        ("main", "1.0.0"),
+        ("main", "1.0.1"),
+        ("main", "1.2.0"),
+        ("main", "2.0.0"),
     ],
 )
 def test_allowed(branch: str, version: str) -> None:
@@ -33,16 +33,13 @@ def test_allowed(branch: str, version: str) -> None:
 @pytest.mark.parametrize(
     ("branch", "version", "fragment"),
     [
-        # What `uv version --bump patch` produces from 1.0.0rc1.
-        ("v1", "1.0.1", "stable release"),
-        ("v1", "1.0.0", "stable release"),
-        ("v1", "0.0.970rc1", "older than"),
-        ("main", "1.0.0", "1.x release"),
-        ("main", "1.0.1", "1.x release"),
         ("main", "1.0.0rc2", "pre-release"),
-        ("main", "0.0.970rc1", "pre-release"),
-        ("feature/x", "0.0.970", "does not publish"),
-        ("v1", "not-a-version", "not a valid"),
+        ("main", "1.0.1.dev1", "pre-release"),
+        ("main", "0.0.970", "older than 1.0.0"),
+        # The RC branch is retired.
+        ("v1", "1.0.0rc2", "does not publish"),
+        ("feature/x", "1.0.1", "does not publish"),
+        ("main", "not-a-version", "not a valid"),
     ],
 )
 def test_refused(branch: str, version: str, fragment: str) -> None:
@@ -60,8 +57,8 @@ def test_main_exit_codes(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> 
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text(RELEASABLE, encoding="utf-8")
 
-    assert guard.main(["prog", "v1", "1.0.0rc2"], pyproject=pyproject) == 0
-    assert guard.main(["prog", "v1", "1.0.1"], pyproject=pyproject) == 1
+    assert guard.main(["prog", "main", "1.0.0"], pyproject=pyproject) == 0
+    assert guard.main(["prog", "main", "1.0.1rc1"], pyproject=pyproject) == 1
     assert guard.main(["prog"], pyproject=pyproject) == 2
     assert "Refusing to publish" in capsys.readouterr().out
 
@@ -78,7 +75,7 @@ def test_a_build_against_unreleased_runtime_is_refused(
         encoding="utf-8",
     )
 
-    assert guard.main(["prog", "v1", "1.0.0rc2"], pyproject=pyproject) == 1
+    assert guard.main(["prog", "main", "1.0.1"], pyproject=pyproject) == 1
     assert (
         "pydantic-ai-pax come from `[tool.uv.sources]`, not PyPI"
         in capsys.readouterr().out
@@ -110,7 +107,6 @@ def test_a_loose_runtime_pin_is_refused(requirement: str) -> None:
                 "dependencies": ["pydantic-ai-pax==0.72.0", "pydantic-clai2==0.72.0"]
             }
         },
-        # 0.0.x on `main` has no runtime to pin.
         {"project": {"dependencies": ["rich>=13"]}},
         {},
     ],
