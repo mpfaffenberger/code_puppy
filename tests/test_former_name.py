@@ -20,14 +20,6 @@ import pytest
 from code_puppy import former_name
 
 
-def test_the_old_name_imports_the_new_package() -> None:
-    former_name.install()
-
-    assert importlib.import_module("pydantic_clai2") is importlib.import_module(
-        "pydantic_ai_pax"
-    )
-
-
 @pytest.mark.parametrize("name", sorted(former_name.FORMER_MODULES))
 def test_each_answered_name_is_the_same_module(name: str) -> None:
     former_name.install()
@@ -56,17 +48,29 @@ def test_every_old_name_the_claude_code_plugin_imports_is_answered() -> None:
     assert imported <= former_name.FORMER_MODULES
 
 
+@pytest.mark.parametrize(
+    ("name", "refused"),
+    [
+        ("pydantic_clai2.config", "pydantic_clai2.config"),
+        # Below a package that *is* answered: the likeliest name to slip through.
+        ("pydantic_clai2.ui.rendering", "pydantic_clai2.ui.rendering"),
+        # Its parent is imported first, and refused first.
+        ("pydantic_clai2.cli.cli", "pydantic_clai2.cli"),
+    ],
+)
 def test_any_other_old_name_is_refused_not_run_twice(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, name: str, refused: str
 ) -> None:
-    """``pydantic_clai2`` is pax's package, so Python would find this in pax's folder."""
+    """``pydantic_clai2`` is pax's package, so Python would find these in pax's folder."""
     former_name.install()
     importlib.import_module("pydantic_clai2")
-    monkeypatch.delitem(sys.modules, "pydantic_clai2.config", raising=False)
+    for unanswered in (name, refused):
+        monkeypatch.delitem(sys.modules, unanswered, raising=False)
+    current = "pydantic_ai_pax" + refused[len("pydantic_clai2") :]
 
-    with pytest.raises(ModuleNotFoundError, match="import 'pydantic_ai_pax.config'"):
-        importlib.import_module("pydantic_clai2.config")
-    assert "pydantic_clai2.config" not in sys.modules
+    with pytest.raises(ModuleNotFoundError, match=f"import '{current}' instead"):
+        importlib.import_module(name)
+    assert name not in sys.modules and refused not in sys.modules
 
 
 def test_the_claude_code_plugin_shares_paxs_modules() -> None:

@@ -41,15 +41,11 @@ class Canvas:
         if glyph != " " and 0 <= x < self.width and 0 <= y < self.height:
             self._cells[y][x] = (glyph, colour)
 
-    def text(self, x: int, y: int, text: str, colour: str) -> None:
-        """Paint ``text`` left to right from ``(x, y)``; spaces are transparent."""
-        for offset, glyph in enumerate(text):
-            self.put(x + offset, y, glyph, colour)
-
     def sprite(self, x: int, y: int, rows: tuple[str, ...], colour: str) -> None:
-        """Paint ``rows`` with their top-left corner at ``(x, y)``."""
-        for offset, row in enumerate(rows):
-            self.text(x, y + offset, row, colour)
+        """Paint ``rows`` with their top-left corner at ``(x, y)``; spaces are transparent."""
+        for row_offset, row in enumerate(rows):
+            for glyph_offset, glyph in enumerate(row):
+                self.put(x + glyph_offset, y + row_offset, glyph, colour)
 
     def colours(self) -> set[str]:
         """Every colour painted so far."""

@@ -16,7 +16,7 @@ import pytest
 from code_puppy import colors
 from code_puppy.splash import LEAVE, SCENES, Splash
 from code_puppy.splash import __main__ as preview
-from code_puppy.splash.canvas import Canvas
+from code_puppy.splash.canvas import Canvas, ink
 from code_puppy.splash.scenes import CAPTION, caption
 
 SIZES = [(45, 22), (80, 24), (200, 60), (10, 4), (0, 0)]
@@ -61,6 +61,35 @@ def test_the_caption_names_code_puppy_and_nothing_says_pup(name: str) -> None:
         )
         assert rows[22].split("H", 1)[1].strip() == CAPTION
         assert "PUP" not in "".join(rows)
+
+
+@pytest.mark.parametrize(
+    ("colorterm", "deep"),
+    [
+        ("truecolor", True),
+        ("24bit", True),
+        ("TrueColor", True),
+        ("xterm", False),
+        (None, False),
+    ],
+)
+def test_truecolor_follows_colorterm(
+    monkeypatch: pytest.MonkeyPatch, colorterm: str | None, deep: bool
+) -> None:
+    if colorterm is None:
+        monkeypatch.delenv("COLORTERM", raising=False)
+    else:
+        monkeypatch.setenv("COLORTERM", colorterm)
+
+    splash = Splash(enabled=False, scene=SCENES["sniff"])
+
+    assert splash._deep is deep
+    assert ("\x1b[38;2;" in splash.frame(30, 80, 24)) is deep
+
+
+def test_ink_paints_exactly_or_with_the_basic_code() -> None:
+    assert ink(colors.BLUE, deep=True) == "\x1b[38;2;0;135;255m"
+    assert ink(colors.BLUE, deep=False) == f"\x1b[{colors.BASIC[colors.BLUE]}m"
 
 
 def test_frames_fill_the_screen_but_never_the_last_column() -> None:
