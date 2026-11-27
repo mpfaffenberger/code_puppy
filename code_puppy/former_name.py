@@ -8,9 +8,11 @@ imports working, but each one is a *second* copy of the same files: under it,
 the plugin failed to load and every ``claude-code:`` model was unknown.
 
 This module makes the old name *be* the new package instead. Both names then
-resolve to one module object, so a class is one class. It answers the two names
-``pydantic-claude-code`` imports, and nothing else: a third-party plugin that
-needs another one is pointed at the new name by pax's own docs.
+resolve to one module object, so a class is one class. It answers the names
+``pydantic-claude-code`` imports, and refuses every other old name with an
+error that gives the new one: as a package, ``pydantic_clai2`` is pax's own,
+so without the refusal Python would find ``pydantic_clai2.config`` in pax's
+folder and run it a second time.
 
 Installed by ``code_puppy.main`` before any pax import, and again by
 ``code_puppy.distribution.install`` for callers that never went through it.
@@ -30,12 +32,21 @@ FORMER_PACKAGE = "pydantic_clai2"
 PACKAGE = "pydantic_ai_pax"
 """What it is called now."""
 
-FORMER_MODULES = (
-    FORMER_PACKAGE,
-    f"{FORMER_PACKAGE}.commands",
-    f"{FORMER_PACKAGE}.plugins",
+IMPORTED = (
+    "commands",
+    "plugins",
+    "ui.menus.field_menu",
+    "ui.menus.menu_worker",
+    "ui.prompt.line_input",
 )
-"""The ``pydantic_clai2`` names ``pydantic-claude-code`` imports, and their parent."""
+"""What ``pydantic-claude-code`` 0.7.x imports under the old name."""
+
+FORMER_MODULES = frozenset(
+    ".".join((FORMER_PACKAGE, *parts[:depth]))
+    for parts in (name.split(".") for name in IMPORTED)
+    for depth in range(len(parts) + 1)
+)
+"""Every old name answered: ``IMPORTED`` and the packages above each."""
 
 
 class _SameModule:
@@ -51,23 +62,34 @@ class _SameModule:
 
     @staticmethod
     def create_module(spec: ModuleSpec) -> ModuleType:
-        return importlib.import_module(PACKAGE + spec.name[len(FORMER_PACKAGE) :])
+        module = importlib.import_module(PACKAGE + spec.name[len(FORMER_PACKAGE) :])
+        spec.loader_state = module.__spec__
+        return module
 
     @staticmethod
     def exec_module(module: ModuleType) -> None:
-        """Nothing: ``module`` is already the imported one."""
+        """Put back the module's own spec; there is nothing to execute.
+
+        Python sets ``__spec__`` on the module ``create_module`` returned, which
+        would leave pax's module describing the old name and this loader, and
+        ``importlib.reload`` of it running nothing.
+        """
+        module.__spec__ = module.__spec__.loader_state
 
 
 class _FormerName:
-    """Answer ``FORMER_MODULES`` with the modules ``PACKAGE`` holds."""
-
     @staticmethod
     def find_spec(
         name: str, path: object = None, target: object = None
     ) -> ModuleSpec | None:
-        if name not in FORMER_MODULES:
-            return None
-        return importlib.util.spec_from_loader(name, _SameModule)
+        if name in FORMER_MODULES:
+            return importlib.util.spec_from_loader(name, _SameModule)
+        if name.startswith(f"{FORMER_PACKAGE}."):
+            current = PACKAGE + name[len(FORMER_PACKAGE) :]
+            raise ModuleNotFoundError(
+                f"No module named {name!r}; import {current!r} instead", name=name
+            )
+        return None
 
 
 def install() -> None:
