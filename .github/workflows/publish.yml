@@ -6,15 +6,14 @@ permissions:
 
 name: Build and Publish to PyPI
 
-# Two release lines publish from here during the 1.0 RC period:
-#   main -> stable 0.0.x patches (what `uvx code-puppy` resolves to)
-#   v1   -> 1.0.0rcN pre-releases (opt-in: `uvx code-puppy@1.0.0rcN`)
-# See docs/upgrade/code_puppy_1_0_rewrite_plan.md, section 13.
+# `main` publishes stable releases at or above 1.0.0: what `uvx code-puppy`
+# resolves to.
+# The 1.0 RC period, when `v1` published 1.0.0rcN, is over; see
+# docs/upgrade/code_puppy_1_0_rewrite_plan.md, section 13.
 on:
   push:
     branches:
       - main
-      - v1
 
 # Serialize publishes: two back-to-back pushes once raced, both bumped to the
 # same patch version, and the loser stranded git a version behind PyPI.
@@ -73,18 +72,18 @@ jobs:
         run: uv venv
 
       - name: Bump version
-        # `--bump patch` on 1.0.0rc1 yields a STABLE 1.0.1, so v1 must bump rc.
+        # A pre-release in git is finalised, not skipped: `--bump stable` turns
+        # 1.0.0rc1 into 1.0.0, where `--bump patch` would jump to 1.0.1. The
+        # release guard picks, with the PEP 440 rules it later checks against.
         run: |
-          if [ "$GITHUB_REF_NAME" = "v1" ]; then
-            uv version --bump rc
-          else
-            uv version --bump patch
-          fi
+          BUMP=$(python scripts/check_release_version.py --bump-for "$(uv version --short)")
+          uv version --bump "$BUMP"
 
       - name: Capture new version
         id: version
         run: |
-          NEW_VERSION=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
+          # What the wheel is built from; `uv version` can answer from uv.lock.
+          NEW_VERSION=$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
           echo "version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
           echo "New version: $NEW_VERSION"
 

@@ -8,7 +8,9 @@ replacements actually take effect where pax reads them.
 from __future__ import annotations
 
 import importlib
+import inspect
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -16,7 +18,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from code_puppy.colors import NEON, ROLES, SHADES
+from code_puppy.colors import ROLES, SHADES
 
 REPLACED = [
     ("pydantic_ai_pax.config.settings_store", "config_dir"),
@@ -34,13 +36,10 @@ REPLACED = [
     ("pydantic_ai_pax.cli.self_update", "Updates"),
     ("pydantic_ai_pax.cli.cli", "_update"),
     ("pydantic_ai_pax.cli.install", "command_name"),
-    ("pydantic_ai_pax.ui.rendering.splash_art", "PYRAMID"),
-    ("pydantic_ai_pax.ui.rendering.splash_art", "LABEL"),
     *(
         ("pydantic_ai_pax.ui.rendering.theme", name)
         for name in (*SHADES, *ROLES, "_SLOTS", "_BASIC")
     ),
-    *(("pydantic_ai_pax.ui.rendering.splash", name) for name in NEON),
     ("pydantic_ai_pax.ui.rendering.branding", "print_banner"),
     ("pydantic_ai_pax.ui.rendering.welcome", "print_welcome"),
     ("pydantic_ai_pax.ui.rendering.welcome", "_report_project"),
@@ -161,14 +160,12 @@ def test_legacy_plugin_folders_are_left_to_the_compat_bridge(
     assert sorted(found) == ["native_file", "native_pkg"]
 
 
-def test_splash_shows_the_paw(installed_distribution: None) -> None:
-    from pydantic_ai_pax.ui.rendering import splash, splash_art
+def test_pax_only_stops_the_splash() -> None:
+    """Code Puppy's splash stands in for pax's, which ``run`` only ever stops."""
+    from pydantic_ai_pax.cli import cli
 
-    from code_puppy import _art
-
-    assert splash_art.PYRAMID is _art.PAW and splash.PYRAMID is _art.PAW
-    # The splash centres rows in 44 columns.
-    assert max(map(len, _art.PAW)) <= 44 and max(map(len, _art.LABEL)) <= 44
+    assert "splash: Splash | None" in inspect.getsource(cli.run)
+    assert set(re.findall(r"splash\.(\w+)", inspect.getsource(cli))) == {"stop"}
 
 
 def test_cli_runs_as_code_puppy_in_a_fresh_home(home: Path) -> None:

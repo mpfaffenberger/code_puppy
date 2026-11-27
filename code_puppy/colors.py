@@ -8,7 +8,8 @@ keeps at least 3.5:1 contrast on both a white and a near-black background.
 
 pax's default theme speaks in Pydantic brand names (``LITHIUM``,
 ``CALCIUM``...). :data:`SHADES` says which puppy colour stands in for each;
-``distribution`` installs them. Stdlib-only: it runs before the splash.
+``distribution`` installs them. Stdlib-only: the startup splash paints with
+them before the runtime is imported.
 """
 
 from __future__ import annotations
@@ -56,6 +57,11 @@ SHADES = {
 }
 """pax theme name → the puppy colour that replaces it."""
 
+SLOTS = {shade.colour: shade.slot for shade in SHADES.values()}
+"""Each colour's ANSI slot, for a Termflow palette."""
+BASIC = {shade.colour: shade.sgr for shade in SHADES.values()}
+"""Each colour's 16-colour SGR code, for terminals without truecolor."""
+
 ROLES = {
     "ACCENT": f"bold {BLUE}",
     "INFO": CYAN,
@@ -72,11 +78,3 @@ ROLES = {
     "DIFF_DELETION": "#390E1A",
 }
 """pax theme roles, as 0.0.x coloured them."""
-
-NEON = {
-    "PURPLE": Shade("#7A1191", 5, 35),
-    "LITHIUM": Shade("#C31FD4", 13, 95),
-    "LIGHT_PURPLE": Shade("#FF5CF4", 13, 95),
-    "SUGAR": Shade("#FFD1FB", 15, 97),
-}
-"""The 0.0.x splash's neon magenta paw, by the names pax's splash paints with."""

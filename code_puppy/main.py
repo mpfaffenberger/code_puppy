@@ -108,14 +108,17 @@ def _own_command(argv: list[str]) -> int | None:
 def main_entry() -> None:
     """Start Code Puppy: pydantic-ai-pax with Code Puppy's identity installed."""
     _load_dotenv()
+    from code_puppy import former_name
+
+    # Before the runtime is imported: plugins that still import it under its
+    # old name must get pax's own classes, not a second copy of them.
+    former_name.install()
     code = _own_command(sys.argv)
     if code is not None:
         raise SystemExit(code)
 
     from code_puppy import distribution
-
-    distribution.install_splash()
-    from pydantic_ai_pax.ui.rendering.splash import Splash
+    from code_puppy.splash import Splash
 
     os.environ["PYDANTIC_AI_NO_BANNER"] = "1"
     splash = Splash(

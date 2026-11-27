@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.11, <3.15"
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'emscripten'",
@@ -287,7 +287,7 @@ wheels = [
 
 [[package]]
 name = "boxd"
-version = "0.2.22"
+version = "0.3.5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "grpcio" },
@@ -296,9 +296,31 @@ dependencies = [
     { name = "pydantic" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/84/ff/169bc98e573b2b55a7090476bcc190351be48f9e4a230c201f01082fbeb9/boxd-0.2.22.tar.gz", hash = "sha256:1409c722349e780d5275c493ea9ad547c8f342d41a86581dc46c7a3d7b79b092", size = 231924, upload-time = "2026-10-28T22:30:53.754Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ad/79/eca8c9d3d43da014ac0521901ba005aebbf78796a01b748e6b9cc4214934/boxd-0.3.5.tar.gz", hash = "sha256:5125cea975172dfba9bd0631c321f7ebae7b8a4f1ce19daff5dc21ea6ecba4b1", size = 364727, upload-time = "2026-11-24T16:01:30.647Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/13/5f/7cded49848d4f0a5301ced3d8637b1c31a8faaa45275433c7c766e845f9c/boxd-0.2.22-py3-none-any.whl", hash = "sha256:352e6cc653ee27130fc05dc451c2a71b163f7e787d972b632e966117dc254211", size = 154508, upload-time = "2026-10-28T22:30:52.378Z" },
+    { url = "https://files.pythonhosted.org/packages/60/06/68123fcac327de25a8f93621fef2e2b27822306bf4047ec5574ab20db361/boxd-0.3.5-py3-none-any.whl", hash = "sha256:f9ff362ba13e069a5ce3b09b77b306b8c8b0a7bf686ee4bf95bc324e8023a1bd", size = 230349, upload-time = "2026-11-24T16:01:29.353Z" },
+]
+
+[[package]]
+name = "boxlite"
+version = "0.10.8"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/00/0c/f8a3dc0b957c7b72eda9db9481a651ed087537ac5bd8954b275294f32135/boxlite-0.10.8-cp311-cp311-macosx_14_0_arm64.whl", hash = "sha256:f4677dea3e6482310ac605ed24457905a544dbd3a07d24ad44adf1b5d6591658", size = 40808688, upload-time = "2026-10-23T17:06:11.135Z" },
+    { url = "https://files.pythonhosted.org/packages/ba/05/e2f08bdf77e282a986dc8ebd1cf73ba7ad450ae7c2ee53699af2f1cc1c45/boxlite-0.10.8-cp311-cp311-manylinux_2_28_aarch64.whl", hash = "sha256:ed52ffab5280122b8a29dc2f77df66e63cb6c39ce94812227859c2f24ac60a05", size = 43048826, upload-time = "2026-10-23T17:06:14.367Z" },
+    { url = "https://files.pythonhosted.org/packages/32/37/0ea7c3724bf508403e6d673881ebbc609f2daa401ad295354d53a2a44a6f/boxlite-0.10.8-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:bf8ee64adac854c128c8bc51e673c16748f08400718926b066fc6515b0566c5e", size = 39022221, upload-time = "2026-10-23T17:06:17.729Z" },
+    { url = "https://files.pythonhosted.org/packages/5b/ca/2dfb72f7346f2ae7833f9f0c10749ce421aa75809954caf3a30aa467d470/boxlite-0.10.8-cp312-cp312-macosx_14_0_arm64.whl", hash = "sha256:61a2a2fa3ee757f6bd6d982cfaad0c9b40eb7d5dd8d0dc0ff2b328e47b34d555", size = 40801869, upload-time = "2026-10-23T17:06:21.457Z" },
+    { url = "https://files.pythonhosted.org/packages/02/35/3c7919bec86adb5de209c55c32cc757b20f80384c05c56d36a3660f42982/boxlite-0.10.8-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:284df47fd38829a7f58b52c261e6285b90e7f9c0d1fb366382053cea369188d9", size = 43044049, upload-time = "2026-10-23T17:06:24.529Z" },
+    { url = "https://files.pythonhosted.org/packages/59/fb/c25d3ad019f359c2e5ed94ac820bb3b1e2a8d08424403b0cb13095eb5681/boxlite-0.10.8-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:2061e6a0e725b73fed044decd4c57c3840457ffb1e919bd3e7d381f66f99b34e", size = 39015401, upload-time = "2026-10-23T17:06:27.639Z" },
+    { url = "https://files.pythonhosted.org/packages/8b/f5/aece4fc7fbf55e4c989cb8fba61b103a2f032d65d12a73451a0a2bfa8a7b/boxlite-0.10.8-cp313-cp313-macosx_14_0_arm64.whl", hash = "sha256:83dc0e81f5184c06f9a8ce702f2c0a5067b9528c2886d743a8c70ee9f996556f", size = 40800467, upload-time = "2026-10-23T17:06:31.088Z" },
+    { url = "https://files.pythonhosted.org/packages/7e/2c/82d5112949b862a935066d43bed012ad087854eb7c0e1cf1b9f4e8d72ba8/boxlite-0.10.8-cp313-cp313-manylinux_2_28_aarch64.whl", hash = "sha256:f4184c20effa9770987b72e808200f72dfc32d84014f6b7cf3e0fa1a2810cb29", size = 43043443, upload-time = "2026-10-23T17:06:34.095Z" },
+    { url = "https://files.pythonhosted.org/packages/78/a5/5768eaaad42cb56450a581a95228c4fafb920f93533a251a5c7671deec6c/boxlite-0.10.8-cp313-cp313-manylinux_2_28_x86_64.whl", hash = "sha256:6943c4715d3af83017656038a75295f9621b4c5ea9d47ada25e817aa04134555", size = 39015225, upload-time = "2026-10-23T17:06:37.278Z" },
+    { url = "https://files.pythonhosted.org/packages/94/a8/2e8ba023457883956464067ca390457500ff61d1848adaf4f2aa6392b428/boxlite-0.10.8-cp314-cp314-macosx_14_0_arm64.whl", hash = "sha256:e932948ef70d1d68f81560a0f9eb5dd7e86d55dac0bc956150ad4d3746953bf1", size = 40801650, upload-time = "2026-10-23T17:06:40.305Z" },
+    { url = "https://files.pythonhosted.org/packages/d5/97/9c20121fc574663203b4be7b2822ed35b9599b275cc8b123c595ca59a803/boxlite-0.10.8-cp314-cp314-manylinux_2_28_aarch64.whl", hash = "sha256:c4497fbafaa96addd22ecee06d8f32d89c74437cc6ea38ab63f11d96f082c7eb", size = 43048023, upload-time = "2026-10-23T17:06:43.528Z" },
+    { url = "https://files.pythonhosted.org/packages/e6/c8/b845c974c3080745636dbed464242088ec0bfe43926ff0b6b6b829741d36/boxlite-0.10.8-cp314-cp314-manylinux_2_28_x86_64.whl", hash = "sha256:b4cbbed750a41d9c6e0324f5aaa70951363d6b66a5e8414f8fcaf445554c8de3", size = 39014377, upload-time = "2026-10-23T17:06:47.24Z" },
+    { url = "https://files.pythonhosted.org/packages/10/82/a341fb922869dc43e3dacdb3a74aab342315178ef0f84169f2dfa78fb4af/boxlite-0.10.8-cp314-cp314t-macosx_14_0_arm64.whl", hash = "sha256:fee7769a165271012be1878e904da66ced19a4b82b3a55b3153634d39a48d13a", size = 40800921, upload-time = "2026-10-23T17:06:50.421Z" },
+    { url = "https://files.pythonhosted.org/packages/59/2e/d01df4c9c9d54feb9deba50db77d2b644e05d932c2f983683d1d3714050d/boxlite-0.10.8-cp314-cp314t-manylinux_2_28_aarch64.whl", hash = "sha256:25a160236ebd19c4bf09884a81d3865eb82555dc0f22406f07acc3d791ec7fc4", size = 43044012, upload-time = "2026-10-23T17:06:54.066Z" },
+    { url = "https://files.pythonhosted.org/packages/5f/2f/da242d11a0be153b9698ac15a4daa9b42b9ac616984e5d77b6dda3c03d0b/boxlite-0.10.8-cp314-cp314t-manylinux_2_28_x86_64.whl", hash = "sha256:cf605309b6a19b9b75f34bf26d1bf887ab0396783febbf2d2a7c59b8a3016879", size = 39020301, upload-time = "2026-10-23T17:06:57.169Z" },
 ]
 
 [[package]]
@@ -606,8 +628,7 @@ dependencies = [
     { name = "cbor2", version = "5.9.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'darwin'" },
     { name = "cryptography", marker = "platform_machine == 'x86_64' and sys_platform == 'darwin'" },
     { name = "packaging" },
-    { name = "pydantic-ai-pax", extra = ["boxd", "daytona", "e2b", "kubernetes", "modal", "opensandbox", "render", "sprites", "typesafe"] },
-    { name = "pydantic-clai2" },
+    { name = "pydantic-ai-pax", extra = ["boxd", "daytona", "e2b", "kubernetes", "local", "modal", "opensandbox", "render", "sprites", "typesafe"] },
     { name = "pydantic-claude-code" },
 ]
 
@@ -624,8 +645,7 @@ requires-dist = [
     { name = "cbor2", marker = "platform_machine == 'x86_64' and sys_platform == 'darwin'", specifier = "<6" },
     { name = "cryptography", marker = "platform_machine == 'x86_64' and sys_platform == 'darwin'", specifier = "<49" },
     { name = "packaging", specifier = ">=24.0" },
-    { name = "pydantic-ai-pax", extras = ["boxd", "daytona", "e2b", "kubernetes", "modal", "opensandbox", "render", "sprites", "typesafe"], git = "https://github.com/pydantic/pydantic-ai?subdirectory=src%2Fpydantic_ai_pax&rev=fcb45d846e0247930edfdbe643a09d0f1bd69a3a" },
-    { name = "pydantic-clai2", git = "https://github.com/pydantic/pydantic-ai?subdirectory=src%2Fpydantic_clai2&rev=fcb45d846e0247930edfdbe643a09d0f1bd69a3a" },
+    { name = "pydantic-ai-pax", extras = ["boxd", "daytona", "e2b", "kubernetes", "local", "modal", "opensandbox", "render", "sprites", "typesafe"], specifier = "==0.75.0" },
     { name = "pydantic-claude-code", specifier = ">=0.7.5,<0.8" },
 ]
 
@@ -2038,7 +2058,7 @@ wheels = [
 
 [[package]]
 name = "openai"
-version = "3.39.0"
+version = "3.59.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -2048,9 +2068,9 @@ dependencies = [
     { name = "sniffio" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/5a/25/c8242b66f7bc107d6a02887cb8463f45f54f77a150afb2613e61cb3e13f8/openai-3.39.0.tar.gz", hash = "sha256:02687994f7bb6a4e80ed7796426d46c654889821ce4eb48699be15b3a425e1d3", size = 2376122, upload-time = "2026-10-26T19:19:13.774Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/7d/ca/d9d1549c71723eb8fd2af7173b1c22ed065d10107b1b6438453a1b3f2ae2/openai-3.59.0.tar.gz", hash = "sha256:e4e57d5c28bed6efe6483c9f61ba59be13fa16edde4b771cdaf5c7ca70bc9ff1", size = 2429198, upload-time = "2026-11-24T19:19:44.198Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/5c/f9/32f6ceadc53d887894fc0ee7c76cce5567b972045a1c7f35b2a79f912735/openai-3.39.0-py3-none-any.whl", hash = "sha256:e29bc8d9785d9a386cffa0bed1726e7f3989e096245c0c003cb29f1d4ae67e32", size = 2352830, upload-time = "2026-10-26T19:19:10.874Z" },
+    { url = "https://files.pythonhosted.org/packages/76/05/a7afe3729b624e2a19215463c73778208a916e57eb7d33e0fb885bba8160/openai-3.59.0-py3-none-any.whl", hash = "sha256:e613537ac5f082c58f652a536ed4215b19a29d360c4348cca86f0e563f7a0b1f", size = 2454193, upload-time = "2026-11-24T19:19:42.189Z" },
 ]
 
 [[package]]
@@ -2569,20 +2589,28 @@ email = [
 
 [[package]]
 name = "pydantic-ai-harness"
-version = "0.71.1.dev52+fcb45d846"
-source = { git = "https://github.com/pydantic/pydantic-ai?subdirectory=src%2Fpydantic_ai_harness&rev=fcb45d846e0247930edfdbe643a09d0f1bd69a3a#fcb45d846e0247930edfdbe643a09d0f1bd69a3a" }
+version = "0.75.0"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "genai-prices" },
     { name = "httpx2" },
     { name = "pydantic-ai-slim" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/dd/fb/df7020b935b78298b343d450128dd6e2b217423a0de3eb5a3d7e4f51e95b/pydantic_ai_harness-0.75.0.tar.gz", hash = "sha256:0752dce74b16b781aeee084dae198965a42b6ca19ea0ef770f27d91561d3fde3", size = 1941284, upload-time = "2026-11-25T18:44:07.335Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5c/ee/dee6858224f865789782b797087d19b74377b72f1aa18e23c7537a9a2166/pydantic_ai_harness-0.75.0-py3-none-any.whl", hash = "sha256:f8b0444375ee74d05660d3ce200face6b681c94a6356918a57daa8903c3ce6bd", size = 2340886, upload-time = "2026-11-25T18:43:54.193Z" },
 ]
 
 [package.optional-dependencies]
 boxd = [
     { name = "boxd" },
 ]
+boxlite = [
+    { name = "boxlite", marker = "(platform_machine == 'arm64' and sys_platform == 'darwin') or (platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')" },
+]
 coder = [
     { name = "json-repair" },
+    { name = "pillow" },
     { name = "ripgrep", marker = "sys_platform != 'android'" },
 ]
 daytona = [
@@ -2606,14 +2634,17 @@ render = [
 skills = [
     { name = "pyyaml" },
 ]
+smol = [
+    { name = "smolmachines", marker = "(platform_machine == 'arm64' and sys_platform == 'darwin') or (platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')" },
+]
 sprites = [
     { name = "sprites-py" },
 ]
 
 [[package]]
 name = "pydantic-ai-pax"
-version = "0.71.1.dev52+fcb45d846"
-source = { git = "https://github.com/pydantic/pydantic-ai?subdirectory=src%2Fpydantic_ai_pax&rev=fcb45d846e0247930edfdbe643a09d0f1bd69a3a#fcb45d846e0247930edfdbe643a09d0f1bd69a3a" }
+version = "0.75.0"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cryptography" },
     { name = "fastapi" },
@@ -2636,6 +2667,10 @@ dependencies = [
     { name = "uvicorn" },
     { name = "websockets" },
 ]
+sdist = { url = "https://files.pythonhosted.org/packages/a8/09/89b80bddbae5d32a99e0f8abd9505b074abde4d672ab816e5e8a00ac30dc/pydantic_ai_pax-0.75.0.tar.gz", hash = "sha256:6fd5270aa71f617cb639f2b99401e8af5e50421b633eb530756384b22e2a9dd1", size = 1139512, upload-time = "2026-11-25T18:44:09.034Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/71/3d/104cf964b0a11924d64ab9d5663708610831a9b1d3dda30ceed2ca695781/pydantic_ai_pax-0.75.0-py3-none-any.whl", hash = "sha256:5ddb05f11be38a0139258f31a5c002e34f0d84b3ee89e6d0b881c8ebb410e492", size = 1315812, upload-time = "2026-11-25T18:43:56.472Z" },
+]
 
 [package.optional-dependencies]
 boxd = [
@@ -2649,6 +2684,9 @@ e2b = [
 ]
 kubernetes = [
     { name = "pydantic-ai-harness", extra = ["kubernetes"] },
+]
+local = [
+    { name = "pydantic-ai-harness", extra = ["boxlite", "smol"] },
 ]
 modal = [
     { name = "pydantic-ai-harness", extra = ["modal"] },
@@ -2668,8 +2706,8 @@ typesafe = [
 
 [[package]]
 name = "pydantic-ai-slim"
-version = "2.71.1.dev52+fcb45d846"
-source = { git = "https://github.com/pydantic/pydantic-ai?subdirectory=pydantic_ai_slim&rev=fcb45d846e0247930edfdbe643a09d0f1bd69a3a#fcb45d846e0247930edfdbe643a09d0f1bd69a3a" }
+version = "2.75.0"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
     { name = "genai-prices" },
@@ -2678,7 +2716,12 @@ dependencies = [
     { name = "opentelemetry-api" },
     { name = "pydantic" },
     { name = "pydantic-graph" },
+    { name = "truststore", marker = "sys_platform != 'emscripten'" },
     { name = "typing-inspection" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/83/eb/9116a780abeddce11ea2b5fa3ca8e8a1280650f039b07ee942ab4e573871/pydantic_ai_slim-2.75.0.tar.gz", hash = "sha256:343ed2f1dfa675b64d3cad3ed5d67a9325c50086fb598c366f2d2f732e70445d", size = 2795925, upload-time = "2026-11-25T18:44:10.51Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/cd/b8/d13d2e32f4c63080d7c8cb4d62cee6f16e5bacebc6a257d85cf169b2526a/pydantic_ai_slim-2.75.0-py3-none-any.whl", hash = "sha256:eb51d50faf201ea63c8a0243523e21286d535c5cbc956628d6a3eac4afbf429f", size = 3200691, upload-time = "2026-11-25T18:43:58.53Z" },
 ]
 
 [package.optional-dependencies]
@@ -2694,14 +2737,6 @@ openai = [
 ]
 typesafe = [
     { name = "typesafe-sdk" },
-]
-
-[[package]]
-name = "pydantic-clai2"
-version = "0.71.1.dev52+fcb45d846"
-source = { git = "https://github.com/pydantic/pydantic-ai?subdirectory=src%2Fpydantic_clai2&rev=fcb45d846e0247930edfdbe643a09d0f1bd69a3a#fcb45d846e0247930edfdbe643a09d0f1bd69a3a" }
-dependencies = [
-    { name = "pydantic-ai-pax" },
 ]
 
 [[package]]
@@ -2825,13 +2860,17 @@ wheels = [
 
 [[package]]
 name = "pydantic-graph"
-version = "2.71.1.dev52+fcb45d846"
-source = { git = "https://github.com/pydantic/pydantic-ai?subdirectory=pydantic_graph&rev=fcb45d846e0247930edfdbe643a09d0f1bd69a3a#fcb45d846e0247930edfdbe643a09d0f1bd69a3a" }
+version = "2.75.0"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
     { name = "logfire-api" },
     { name = "pydantic" },
     { name = "typing-inspection" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/12/e0/53bccd2dbbfe28be45edea5eaadb09eabb1bef3c682381942a3df03bb056/pydantic_graph-2.75.0.tar.gz", hash = "sha256:f5db1e6d31664227564bb936d75f89d9e22b4de0faa567c2c4d3b4e53c336d73", size = 47716, upload-time = "2026-11-25T18:44:13.943Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c5/34/3be28e71d7f2380c39107922a71fcee9667f884919778220992dd518bf98/pydantic_graph-2.75.0-py3-none-any.whl", hash = "sha256:ef4b16e54b7e7613b54dfb3c8d47307833de920c9469576960befea7c12316a9", size = 54878, upload-time = "2026-11-25T18:44:02.771Z" },
 ]
 
 [[package]]
@@ -3589,6 +3628,16 @@ wheels = [
 ]
 
 [[package]]
+name = "smolmachines"
+version = "1.37.3"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/74/09/27bb939c3daa894188bc036380d2db57a926e7af8b0eb622c0ad7b825191/smolmachines-1.37.3-cp39-abi3-macosx_11_0_arm64.whl", hash = "sha256:71eb455cbd02824d02e2749fbaeb7909215311f1260ec326d56c7252c5b8e465", size = 49834787, upload-time = "2026-11-25T05:36:42.799Z" },
+    { url = "https://files.pythonhosted.org/packages/db/24/0a3622f0a8b8faf777e1849ac43f4ee59d696ce851362a33122ef8966530/smolmachines-1.37.3-cp39-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:1b09e06737f3f0b801b3e7f4cc3e0d1b193572dc851ce3374706d19af08695d2", size = 50382496, upload-time = "2026-11-25T05:36:47.664Z" },
+    { url = "https://files.pythonhosted.org/packages/71/d2/49885fa2b29c037ec81f3038b1089f3f5728b3c80ac99bda8e2a67039f48/smolmachines-1.37.3-cp39-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:c1b5bd05d64976519f4ae834bbc7b641c6cfcac30e5ad7b82e9a0ddeba966a4d", size = 52813269, upload-time = "2026-11-25T05:36:52.851Z" },
+]
+
+[[package]]
 name = "sniffio"
 version = "1.3.1"
 source = { registry = "https://pypi.org/simple" }
@@ -3790,11 +3839,11 @@ wheels = [
 
 [[package]]
 name = "truststore"
-version = "0.10.4"
+version = "0.10.5"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/53/a3/1585216310e344e8102c22482f6060c7a6ea0322b63e026372e6dcefcfd6/truststore-0.10.4.tar.gz", hash = "sha256:9d91bd436463ad5e4ee4aba766628dd6cd7010cf3e2461756b3303710eebc301", size = 26169, upload-time = "2025-08-12T18:49:02.73Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ee/9f/c5201d42a484c061e528825fc8e2d565f5abd50a4ced6fb7d29c4ec99b2b/truststore-0.10.5.tar.gz", hash = "sha256:30d36967ccaded5cbb38d602c433f53600036c79d502f4533a49b60a03bbefcd", size = 28091, upload-time = "2026-10-12T22:27:31.808Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/19/97/56608b2249fe206a67cd573bc93cd9896e1efb9e98bce9c163bcdc704b88/truststore-0.10.4-py3-none-any.whl", hash = "sha256:adaeaecf1cbb5f4de3b1959b42d41f6fab57b2b1666adb59e89cb0b53361d981", size = 18660, upload-time = "2025-08-12T18:49:01.46Z" },
+    { url = "https://files.pythonhosted.org/packages/51/e9/3a7820be2bb0fe53b6bc9c3be26d3d1158004e4c3ab953aa6840b955b1e9/truststore-0.10.5-py3-none-any.whl", hash = "sha256:9aaaedaefaf06d8b206278cf8b5012bc897f485a874503501e12d776df78951c", size = 19017, upload-time = "2026-10-12T22:27:30.377Z" },
 ]
 
 [[package]]

@@ -1,8 +1,7 @@
-"""Code Puppy's startup art: the paw raster and the "PUP" lettering.
+"""Code Puppy's startup art: rasters and sprites the splash scenes paint.
 
-Digits in ``PAW`` are shade tiers (0 blank .. 3 solid), the encoding
-pydantic-ai-pax's splash paints. ``LABEL`` is pyfiglet ``ansi_shadow``,
-baked so the splash stays import-light.
+Plain data, so the splash stays import-light. In ``PAW`` each digit is a shade
+tier, 0 blank .. 3 solid. Sprites are rows of text; a space is transparent.
 """
 
 PAW = (
@@ -28,11 +27,9 @@ PAW = (
     "00000000000001122110000112211000000000000",
 )
 
-LABEL = (
-    "██████╗ ██╗   ██╗██████╗",
-    "██╔══██╗██║   ██║██╔══██╗",
-    "██████╔╝██║   ██║██████╔╝",
-    "██╔═══╝ ██║   ██║██╔═══╝",
-    "██║     ╚██████╔╝██║",
-    "╚═╝      ╚═════╝ ╚═╝",
+PRINT = (
+    " ● ● ",
+    "●   ●",
+    " ▟█▙ ",
 )
+"""One small paw print."""

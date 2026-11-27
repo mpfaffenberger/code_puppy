@@ -1,4 +1,4 @@
-# Contributing to Code Puppy (1.0 line, branch `v1`)
+# Contributing to Code Puppy 1.x
 
 > **Golden rule:** Code Puppy 1.0 is a *distribution* of
 > [`pydantic-ai-pax`](https://github.com/pydantic/pydantic-ai/tree/main/src/pydantic_ai_pax)
@@ -8,7 +8,6 @@
 > `Plugin`, a `pydantic-ai-harness` capability, or an upstream change.
 
 Plan and status: `docs/upgrade/code_puppy_1_0_rewrite_plan.md`.
-`main` still ships 0.0.x; nothing here applies to it.
 
 ## Layout
 
@@ -19,6 +18,7 @@ Plan and status: `docs/upgrade/code_puppy_1_0_rewrite_plan.md`.
 | `code_puppy/distribution.py` | **Every** replacement of a pax name. Nowhere else |
 | `code_puppy/update.py` | `/update`, `pup update`: PyPI lookup, version rules, wording |
 | `code_puppy/branding.py`, `_art.py` | Banner, welcome lines, splash art |
+| `code_puppy/splash/` | Startup animation, stdlib-only. Preview: `python -m code_puppy.splash` |
 | `code_puppy/migrate/` | One-time carry-over of a 0.0.x setup |
 | `code_puppy/legacy_store.py` | `puppy.db`: Code Puppy's own SQLite file |
 | `code_puppy/api_keys.py` | Exports saved API keys for model providers |
@@ -36,10 +36,12 @@ Plan and status: `docs/upgrade/code_puppy_1_0_rewrite_plan.md`.
    It is required with every extra it offers (the `/sandbox` providers,
    `typesafe`), so nothing answers "support is not installed";
    `tests/test_optional_support.py` fails when pax adds one.
-   `pydantic-clai2` is now only an alias package (`import pydantic_clai2`
-   resolves to `pydantic_ai_pax`). It is a dependency solely because
-   `pydantic-claude-code` 0.7.x imports the old name; pin it to pax's version,
-   import `pydantic_ai_pax` in our code, and drop it when that plugin moves.
+   `pydantic-clai2` is now only an alias package, and we no longer depend on
+   it: through it every import was a *second* copy of pax's files, so
+   `pydantic-claude-code` 0.7.x (which still imports the old name) registered a
+   `Plugin` pax had never seen. `code_puppy/former_name.py` answers the
+   `pydantic_clai2` names that plugin imports with pax's own modules, and
+   refuses the rest. Keep it until that plugin imports `pydantic_ai_pax`.
    Claude Code models come from **`pydantic-claude-code`**. Do not "fix" that
    to `pydantic-ai-claude-code`: that PyPI name is someone else's project.
 2. **Replacements live in `distribution.py`.** If you must replace another
@@ -69,18 +71,17 @@ Plan and status: `docs/upgrade/code_puppy_1_0_rewrite_plan.md`.
 
 ## Releasing
 
-- `v1` publishes `1.0.0rcN` pre-releases; `main` publishes `0.0.x`.
-  `uvx code-puppy` resolves to the newest *stable* release, so 0.0.x users
-  are unaffected until 1.0.0 ships.
-- `v1` bumps with `uv version --bump rc`. **Never** `--bump patch` on `v1`:
-  it turns `1.0.0rc1` into a stable `1.0.1`.
-  `scripts/check_release_version.py` fails the publish job if that happens.
-- A release candidate can only depend on packages released to PyPI.
-  Between runtime releases `v1` may build against a commit of pydantic-ai
-  `main`: `[tool.uv.sources]` in `pyproject.toml`, every package at one
-  `rev`. The release guard refuses to publish in that state. Restore
-  `pydantic-ai-pax==X.Y.Z` and delete the sources first.
-- Pushing to `v1` or `main` publishes. Do not push without being asked.
+- Only `main` publishes, and only stable versions at or above `1.0.0`: what
+  `uvx code-puppy` gets.
+  CI bumps the version: `--bump patch`, or `--bump stable` when git holds a
+  pre-release (`1.0.0rc1` becomes `1.0.0`, not `1.0.1`). The `v1` RC branch
+  is retired. `scripts/check_release_version.py` refuses anything else.
+- A release can only depend on packages released to PyPI. Between runtime
+  releases a branch may build against a commit of pydantic-ai `main`:
+  `[tool.uv.sources]` in `pyproject.toml`, every package at one `rev`. The
+  release guard refuses to publish in that state. Restore
+  `pydantic-ai-pax==X.Y.Z` and delete the sources before merging.
+- Pushing to `main` publishes. Do not push without being asked.
 
 ## Writing a plugin
 
