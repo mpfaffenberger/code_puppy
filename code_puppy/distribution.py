@@ -44,7 +44,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import TYPE_CHECKING, ParamSpec, TypeVar
 
-from code_puppy import identity
+from code_puppy import former_name, identity
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -175,6 +175,7 @@ def install() -> None:
     global _installed
     if _installed:
         return
+    former_name.install()
     install_splash()
     _install_paths()
     _install_credentials()

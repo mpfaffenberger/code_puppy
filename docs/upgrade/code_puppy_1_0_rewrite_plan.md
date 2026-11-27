@@ -14,34 +14,37 @@ All work is in local commits on `v1`. Nothing has been pushed or published.
 the command is `pax`. Code Puppy imports the new name throughout. The rest of
 this document predates the rename and still says clai2; read it as pax.
 
-- `pydantic-clai2` survives upstream as an alias package. Code Puppy depends
-  on it for one reason: `pydantic-claude-code` 0.7.6 imports the runtime as
-  `pydantic_clai2`. Its `main` already loads under either name (#25 there), so
-  the alias goes once that is released.
+- `pydantic-clai2` survives upstream as an alias package, but Code Puppy no
+  longer depends on it. Each import through it is a *second* execution of the
+  same files, so `pydantic_clai2.plugins.Plugin` was not
+  `pydantic_ai_pax.plugins.Plugin`: `pydantic-claude-code` 0.7.7 (which still
+  imports the runtime as `pydantic_clai2`) registered a plugin pax had never
+  seen, it failed to load, and every `claude-code:` model was unknown.
+  `code_puppy/former_name.py` answers those two imports with pax's own modules
+  instead, so the class is one class.
 - pax did not rename what it stores: the config folder name, keyring service,
   `CLAI_*` variables and the `.clai/` project folder are unchanged upstream.
 - pax now has `cli/install.py:command_name()`, which says `pax` in the
   `/update` menu and in `herdr`'s relaunch command. Code Puppy replaces it
   with the command the user ran.
 
-**Every pax extra is installed.** Code Puppy requires pax with all nine of its
-extras: the eight `/sandbox` providers (boxd, Daytona, E2B, Kubernetes, Modal,
-OpenSandbox, Render, Sprites) and the `typesafe` model provider. Without them
+**Every pax extra is installed.** Code Puppy requires pax with all ten of its
+extras: the ten `/sandbox` providers (boxd, Daytona, E2B, Kubernetes, Modal,
+OpenSandbox, Render, Sprites, and BoxLite and SmolVM behind `local`) and the
+`typesafe` model provider. Without them
 `/sandbox modal` answered "Modal support is not installed. Install CLAI with
 it: uv tool install 'pydantic-ai-pax[modal]'", which is advice for another
 product. Measured on Windows: 62 more packages and about 140 MB (272 to
 412 MB), with no change in start-up time, since none is imported until used.
 
-**Not publishable as it stands.** The runtime is built from pydantic-ai `main`
-at `fcb45d846` (2026-11-20, 52 commits after 0.71.0) through
-`[tool.uv.sources]`: `pydantic-ai-pax` is not on PyPI yet.
-`scripts/check_release_version.py` fails the publish job until
-`pydantic-ai-pax==X.Y.Z` is restored and the sources are deleted.
+**Pinned to a release.** The runtime is `pydantic-ai-pax==0.75.0` from PyPI;
+the `[tool.uv.sources]` that built it from pydantic-ai `main` at `fcb45d846`
+are gone, so `scripts/check_release_version.py` no longer blocks publishing.
 
 | Phase | State | What exists |
 |---|---|---|
 | 0 Groundwork | built | Version `1.0.0rc1`; `publish.yml` bumps `rc` on `v1` and pushes to the triggering branch; version guard with tests |
-| 1 Skeleton | built | 0.0.x runtime and tests removed (222,143 lines); `pup` starts pydantic-ai-pax (`main` at `fcb45d846`, see above) as Code Puppy; `/update` rewritten |
+| 1 Skeleton | built | 0.0.x runtime and tests removed (222,143 lines); `pup` starts pydantic-ai-pax 0.75.0 as Code Puppy; `/update` rewritten |
 | 2 Migration | built, partial scope | Settings, API keys and MCP servers carry over; `pup migrate [--dry-run]` |
 | 3 Compat | partly built | Facades, plugin discovery, trust, bridge with 15 hooks. No JSON agents yet |
 | 4 Native plugins | not started | None of the surviving core plugins is ported |

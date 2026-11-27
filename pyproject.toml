@@ -14,16 +14,12 @@ dependencies = [
     # exactly, so this one pin fixes the whole runtime. Do not add direct
     # harness/slim pins beside it.
     #
-    # TEMPORARY: unpinned here because `[tool.uv.sources]` below builds it from a
-    # commit on pydantic-ai `main`. Restore `pydantic-ai-pax==X.Y.Z` and delete
-    # those sources before publishing: `scripts/check_release_version.py`
-    # refuses to release until then.
-    #
     # Every extra pax offers is installed, so nothing in Code Puppy answers
-    # "support is not installed": the eight `/sandbox` providers, and the
-    # `typesafe` model provider. `tests/test_optional_support.py` fails when
-    # pax grows an extra that is not listed here.
-    "pydantic-ai-pax[boxd,daytona,e2b,kubernetes,modal,opensandbox,render,sprites,typesafe]",
+    # "support is not installed": the ten `/sandbox` providers (the eight cloud
+    # ones, plus BoxLite and SmolVM behind `local`), and the `typesafe` model
+    # provider. `tests/test_optional_support.py` fails when pax grows an extra
+    # that is not listed here.
+    "pydantic-ai-pax[boxd,daytona,e2b,kubernetes,local,modal,opensandbox,render,sprites,typesafe]==0.75.0",
     # Neither is imported here. Both keep an Intel Mac install to pre-built
     # wheels, where a source build would need a Rust toolchain; the
     # `intel-mac-wheels` CI job fails without them. Drop each once its x86_64
@@ -34,11 +30,6 @@ dependencies = [
     #   modal's unpinned requirement.
     "cryptography<49; sys_platform == 'darwin' and platform_machine == 'x86_64'",
     "cbor2<6; sys_platform == 'darwin' and platform_machine == 'x86_64'",
-    # TEMPORARY: the deprecated alias package, which makes `import pydantic_clai2`
-    # resolve to `pydantic_ai_pax`. `pydantic-claude-code` 0.7.x imports the
-    # runtime under the old name. Drop this once a release of it imports
-    # `pydantic_ai_pax`; until then pin it to the same version as pax.
-    "pydantic-clai2",
     # Claude Code subscription models (`claude-code:` prefix, `/login claude-code`),
     # shipped as a built-in plugin. Mind the name: this is `pydantic-claude-code`.
     # `pydantic-ai-claude-code` on PyPI is an unrelated project by another author,
@@ -85,17 +76,6 @@ extend-select = ["ANN"]
 
 [tool.uv]
 python-preference = "only-managed"
-
-# TEMPORARY: the runtime from pydantic-ai `main` at fcb45d846 (2026-11-20),
-# which no release contains yet: `pydantic-ai-pax` is not on PyPI. All five
-# come from the one commit, because pax pins the others to its own build. To
-# move the pin, change every `rev`.
-[tool.uv.sources]
-pydantic-ai-pax = { git = "https://github.com/pydantic/pydantic-ai", rev = "fcb45d846e0247930edfdbe643a09d0f1bd69a3a", subdirectory = "src/pydantic_ai_pax" }
-pydantic-clai2 = { git = "https://github.com/pydantic/pydantic-ai", rev = "fcb45d846e0247930edfdbe643a09d0f1bd69a3a", subdirectory = "src/pydantic_clai2" }
-pydantic-ai-harness = { git = "https://github.com/pydantic/pydantic-ai", rev = "fcb45d846e0247930edfdbe643a09d0f1bd69a3a", subdirectory = "src/pydantic_ai_harness" }
-pydantic-ai-slim = { git = "https://github.com/pydantic/pydantic-ai", rev = "fcb45d846e0247930edfdbe643a09d0f1bd69a3a", subdirectory = "pydantic_ai_slim" }
-pydantic-graph = { git = "https://github.com/pydantic/pydantic-ai", rev = "fcb45d846e0247930edfdbe643a09d0f1bd69a3a", subdirectory = "pydantic_graph" }
 
 [dependency-groups]
 dev = [

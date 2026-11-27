@@ -36,10 +36,12 @@ Plan and status: `docs/upgrade/code_puppy_1_0_rewrite_plan.md`.
    It is required with every extra it offers (the `/sandbox` providers,
    `typesafe`), so nothing answers "support is not installed";
    `tests/test_optional_support.py` fails when pax adds one.
-   `pydantic-clai2` is now only an alias package (`import pydantic_clai2`
-   resolves to `pydantic_ai_pax`). It is a dependency solely because
-   `pydantic-claude-code` 0.7.x imports the old name; pin it to pax's version,
-   import `pydantic_ai_pax` in our code, and drop it when that plugin moves.
+   `pydantic-clai2` is now only an alias package, and we no longer depend on
+   it: through it every import was a *second* copy of pax's files, so
+   `pydantic-claude-code` 0.7.x (which still imports the old name) registered a
+   `Plugin` pax had never seen. `code_puppy/former_name.py` answers
+   `pydantic_clai2.commands` and `.plugins` with pax's own modules instead. Keep
+   it until that plugin imports `pydantic_ai_pax`.
    Claude Code models come from **`pydantic-claude-code`**. Do not "fix" that
    to `pydantic-ai-claude-code`: that PyPI name is someone else's project.
 2. **Replacements live in `distribution.py`.** If you must replace another
