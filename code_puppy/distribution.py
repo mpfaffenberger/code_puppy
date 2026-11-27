@@ -103,9 +103,8 @@ def _install_theme() -> None:
         setattr(theme, name, shade.colour)
     for name, value in colors.ROLES.items():
         setattr(theme, name, value)
-    shades = colors.SHADES.values()
-    theme._SLOTS = {shade.colour: shade.slot for shade in shades}
-    theme._BASIC = {shade.colour: shade.sgr for shade in shades}
+    theme._SLOTS = colors.SLOTS
+    theme._BASIC = colors.BASIC
 
 
 def _naming_first(start_chat: Callable[P, T]) -> Callable[P, T]:

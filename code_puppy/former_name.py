@@ -37,8 +37,6 @@ FORMER_MODULES = (
 )
 """The ``pydantic_clai2`` names ``pydantic-claude-code`` imports, and their parent."""
 
-_installed = False
-
 
 class _SameModule:
     """A loader whose module is the one ``PACKAGE`` already holds.
@@ -74,8 +72,5 @@ class _FormerName:
 
 def install() -> None:
     """Answer ``FORMER_MODULES`` with pax's own modules. Idempotent."""
-    global _installed
-    if _installed:
-        return
-    sys.meta_path.insert(0, _FormerName)
-    _installed = True
+    if _FormerName not in sys.meta_path:
+        sys.meta_path.insert(0, _FormerName)

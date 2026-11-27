@@ -57,6 +57,11 @@ SHADES = {
 }
 """pax theme name → the puppy colour that replaces it."""
 
+SLOTS = {shade.colour: shade.slot for shade in SHADES.values()}
+"""Each colour's ANSI slot, for a Termflow palette."""
+BASIC = {shade.colour: shade.sgr for shade in SHADES.values()}
+"""Each colour's 16-colour SGR code, for terminals without truecolor."""
+
 ROLES = {
     "ACCENT": f"bold {BLUE}",
     "INFO": CYAN,

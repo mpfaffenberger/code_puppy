@@ -38,11 +38,12 @@ product. Measured on Windows: 62 more packages and about 140 MB (272 to
 
 **Pinned to a release.** The runtime is `pydantic-ai-pax==0.75.0` from PyPI;
 the `[tool.uv.sources]` that built it from pydantic-ai `main` at `fcb45d846`
-are gone, so `scripts/check_release_version.py` no longer blocks publishing.
+are gone, so the guard's `[tool.uv.sources]` check no longer fires. The guard
+still refuses a pre-release, a version below 1.0.0 and any branch but `main`.
 
 | Phase | State | What exists |
 |---|---|---|
-| 0 Groundwork | built | Version `1.0.0rc1`; `publish.yml` bumps `rc` on `v1` and pushes to the triggering branch; version guard with tests |
+| 0 Groundwork | built | Version `1.0.0rc1`; `publish.yml` triggers on `main`, bumps `stable` from a pre-release and `patch` otherwise, and pushes to the triggering branch; version guard with tests |
 | 1 Skeleton | built | 0.0.x runtime and tests removed (222,143 lines); `pup` starts pydantic-ai-pax 0.75.0 as Code Puppy; `/update` rewritten |
 | 2 Migration | built, partial scope | Settings, API keys and MCP servers carry over; `pup migrate [--dry-run]` |
 | 3 Compat | partly built | Facades, plugin discovery, trust, bridge with 15 hooks. No JSON agents yet |

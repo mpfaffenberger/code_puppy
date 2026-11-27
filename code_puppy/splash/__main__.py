@@ -15,6 +15,8 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("scenes", nargs="*", metavar="SCENE", help=", ".join(SCENES))
     parser.add_argument("--seconds", type=float, default=5.0)
     args = parser.parse_args(argv)
+    # Not `choices=`: on Python 3.11 argparse checks the empty default of
+    # `nargs="*"` against the choices too, and refuses a bare preview.
     unknown = sorted(set(args.scenes) - set(SCENES))
     if unknown:
         parser.error(

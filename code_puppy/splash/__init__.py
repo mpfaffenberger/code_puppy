@@ -14,7 +14,6 @@ import random
 import shutil
 import sys
 import threading
-from typing import TextIO
 
 from code_puppy.splash.canvas import Canvas, truecolor
 from code_puppy.splash.scenes import SCENES, Scene, caption
@@ -45,7 +44,7 @@ class Splash:
             and os.getenv("TERM") != "dumb"
             and size.columns >= MIN_COLUMNS
             and size.lines >= MIN_LINES
-            and os.name != "nt"
+            and sys.platform != "win32"
         )
 
     def frame(self, tick: int, columns: int, lines: int) -> str:
@@ -100,9 +99,5 @@ class Splash:
             if sys.stderr is self._buffers[1]:
                 sys.stderr = self._originals[1]
             for buffer, original in zip(self._buffers, self._originals, strict=True):
-                _replay(buffer, original)
-
-
-def _replay(buffer: io.StringIO, original: TextIO) -> None:
-    original.write(buffer.getvalue())
-    original.flush()
+                original.write(buffer.getvalue())
+                original.flush()

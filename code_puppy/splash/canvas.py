@@ -11,9 +11,6 @@ from code_puppy import colors
 
 RESET = "\x1b[0m"
 
-_BASIC = {shade.colour: shade.sgr for shade in colors.SHADES.values()}
-"""Each theme colour's 16-colour code, for terminals without truecolor."""
-
 
 def truecolor() -> bool:
     """Whether the terminal advertises 24-bit colour."""
@@ -26,7 +23,7 @@ def ink(colour: str, *, deep: bool) -> str:
     Only theme colours have a basic code, so a stray hex fails loudly in tests.
     """
     if not deep:
-        return f"\x1b[{_BASIC[colour]}m"
+        return f"\x1b[{colors.BASIC[colour]}m"
     red, green, blue = (int(colour[index : index + 2], 16) for index in (1, 3, 5))
     return f"\x1b[38;2;{red};{green};{blue}m"
 
@@ -53,10 +50,6 @@ class Canvas:
         """Paint ``rows`` with their top-left corner at ``(x, y)``."""
         for offset, row in enumerate(rows):
             self.text(x, y + offset, row, colour)
-
-    def row(self, y: int) -> str:
-        """Row ``y`` as plain text."""
-        return "".join(glyph for glyph, _ in self._cells[y])
 
     def colours(self) -> set[str]:
         """Every colour painted so far."""
