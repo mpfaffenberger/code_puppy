@@ -166,7 +166,6 @@ def _reload_modules(
     for name, path in ordered:
         if path.name == "__init__.py" and name in modules:
             vars(modules[name])["__path__"] = [str(path.parent)]
-    for _, path in ordered:
         Path(importlib.util.cache_from_source(str(path))).unlink(missing_ok=True)
     for name, _ in ordered:
         if name in modules:
@@ -329,10 +328,9 @@ def _install_plugins() -> None:
 
     os.environ.setdefault(CLAUDE_CODE_NO_UPDATE_CHECK, "1")
 
-    default = tuple(p for p in builtins.DEFAULT_PLUGINS if p not in PUPPY_PLUGINS)
-    stock = tuple(p for p in builtins.STOCK_PLUGINS if p not in PUPPY_PLUGINS)
-    _replace(builtins, "DEFAULT_PLUGINS", (*default, *PUPPY_PLUGINS))
-    _replace(builtins, "STOCK_PLUGINS", (*stock, *PUPPY_PLUGINS))
+    for name in ("DEFAULT_PLUGINS", "STOCK_PLUGINS"):
+        kept = tuple(p for p in getattr(builtins, name) if p not in PUPPY_PLUGINS)
+        _replace(builtins, name, (*kept, *PUPPY_PLUGINS))
 
     upstream_discover = process_plugins.ProcessPlugins._discover
     if getattr(upstream_discover, "_puppy_wrapped", False):

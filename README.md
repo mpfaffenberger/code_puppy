@@ -2,7 +2,7 @@
 
 ![Code Puppy Logo](code_puppy.png)
 
-**🐶✨ A sassy, opinionated distribution of [Pydantic AI Pax](https://github.com/pydantic/pydantic-ai/tree/main/src/pydantic_ai_pax) ✨🐶**
+**🐶✨The sassy AI code agent that makes IDEs look outdated ✨🐶**
 
 [![Version](https://img.shields.io/pypi/v/code-puppy?style=for-the-badge&logo=python&label=Version&color=purple)](https://pypi.org/project/code-puppy/)
 [![Python](https://img.shields.io/badge/Python-3.11--3.14-blue?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
@@ -24,9 +24,7 @@
 
 ## What is Code Puppy 1.0?
 
-**Code Puppy 1.0 is a reskin and distribution of [Pydantic AI Pax](https://github.com/pydantic/pydantic-ai/tree/main/src/pydantic_ai_pax)** (built on [`pydantic-ai-harness`](https://pydantic.dev/docs/ai/harness/) and [`pydantic-ai`](https://ai.pydantic.dev/)) with Code Puppy's branding, theme, and a few plugins pre-installed.
-
-Pax owns the agent loop, terminal UI, local web UI, sessions, model providers, MCP integration, sandboxes, and plugin system. Code Puppy layers its own identity and plugins on top—nothing is reimplemented here.
+**Code Puppy 1.0 is an opinionated distribution built on [Pydantic AI Pax](https://github.com/pydantic/pydantic-ai/tree/main/src/pydantic_ai_pax)** (powered by [`pydantic-ai-harness`](https://pydantic.dev/docs/ai/harness/) and [`pydantic-ai`](https://ai.pydantic.dev/))—combining Pax's agent runtime, terminal/web UI, sessions, MCP, and sandboxes with Code Puppy's personality, theme, batteries-included extras, and pre-installed plugins.
 
 > **Looking for Code Puppy 0.0.x?** It's still on PyPI: `uvx --from 'code-puppy<1' code-puppy`.
 > See [`docs/upgrade/code_puppy_1_0_rewrite_plan.md`](docs/upgrade/code_puppy_1_0_rewrite_plan.md) for rewrite details and status.
@@ -72,7 +70,7 @@ Start `pup` and run `/login` to open the sign-in picker, or connect a provider d
 | **OpenAI Codex** (ChatGPT subscription) | `/login codex` | Alias for `/login openai-codex`; adds available Codex models |
 | **Claude Code** (Claude subscription) | `/login claude-code` | Powered by the bundled `claude_code` plugin (`claude-code:` models) |
 | **GitHub Copilot** | `/login copilot` | Alias for `/login github-copilot`; adds every model your account serves |
-| **OpenRouter** | `/login openrouter` | Connects your OpenRouter account (`openrouter:` models) |
+| **OpenRouter** | `/model add` → **OpenRouter** → **OAuth** | Pick OpenRouter when adding a model and choose browser OAuth (or enter an API key) |
 
 - **Switch models:** Run `/model` (or `/model add` to add any provider/model).
 - **Use API keys directly:** Run `/keys` to store keys securely in your OS keyring, or export standard environment variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, etc.) or put them in a local `.env` file.
@@ -115,7 +113,7 @@ Because Code Puppy *is* Pax under the hood, all of Pax's CLI flags and slash com
 ```bash
 pup                         # Interactive terminal session
 pup -p "explain this repo"  # Single non-interactive prompt
-pup -m anthropic:claude-sonnet-4-5  # Pick a provider-qualified model
+pup -m claude-code:claude-sonnet-5-5  # Pick a provider-qualified model
 pup -c                      # Continue this directory's most recent session
 pup --resume                # Browse and restore saved sessions
 pup -w                      # Start in an isolated Git worktree
@@ -126,8 +124,8 @@ pup --help                  # Full CLI reference
 
 Inside an interactive session:
 
-- `/login` — Sign in to Codex, Claude Code, Copilot, OpenRouter, etc.
-- `/model` — Switch or add models
+- `/login` — Sign in to Codex, Claude Code, or GitHub Copilot
+- `/model` — Switch or add models (including OpenRouter via OAuth)
 - `/system_prompt` — Edit your global rules or inspect the full system prompt
 - `/plugins` — List, enable, disable, or configure plugins
 - `/mcp` — Manage MCP servers

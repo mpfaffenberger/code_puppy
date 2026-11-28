@@ -100,16 +100,20 @@ def test_reload_keeps_code_puppys_theme_and_identity(
     from pydantic_ai_pax.config.settings_store import SettingsStore
     from pydantic_ai_pax.runtime import reloading
     from pydantic_ai_pax.ui.rendering import branding as upstream_branding
+    from pydantic_ai_pax.ui.rendering import splash as upstream_splash
     from pydantic_ai_pax.ui.rendering import theme
 
     from code_puppy import branding
     from code_puppy.builtin_plugins import PUPPY_PLUGINS
 
     for _ in range(2):
-        reloaded_accent = reloading.reload_clai(lambda: theme.ACCENT)
-        assert reloaded_accent == f"bold {colors.BLUE}"
+        assert reloading.reload_clai(lambda: theme.ACCENT) == f"bold {colors.BLUE}"
         assert theme.BANNER == colors.ROLES["BANNER"]
         assert theme.color(theme.ERROR) == colors.RED
+        # Modules reloaded *after* `theme` bind its colours at import time;
+        # this fails unless `_install_theme()` runs immediately after `theme` reloads.
+        assert upstream_splash.LITHIUM == colors.BLUE
+        assert upstream_splash.LIGHT_PURPLE == colors.ORCHID
         assert upstream_branding.print_banner is branding.print_banner
         assert SettingsStore().path == home / ".code_puppy" / "config.db"
         assert all(plugin in builtins.STOCK_PLUGINS for plugin in PUPPY_PLUGINS)
