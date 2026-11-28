@@ -28,6 +28,7 @@ pax symbol                                  Seam that would replace it
 ``app.chat``                                a hook before an interactive session starts
 ``imported_sessions.IMPORT_SOURCES``        registering a session import source
 ``ProcessPlugins._discover``                pluggable drop-in discovery
+``reloading._reload``                       post-reload hook for distributions
 ==========================================  =====================================
 
 The 0.0.x session source is also added to ``imported_sessions._SOURCES`` and to
@@ -148,7 +149,44 @@ def _naming_first(start_chat: Callable[P, T]) -> Callable[P, T]:
 def _install_first_run() -> None:
     from pydantic_ai_pax import app
 
-    _replace(app, "chat", _naming_first(app.chat))
+    if getattr(app.chat, "_puppy_wrapped", False):
+        return
+    wrapped = _naming_first(app.chat)
+    wrapped._puppy_wrapped = True  # type: ignore[attr-defined]
+    _replace(app, "chat", wrapped)
+
+
+def _reload_modules(
+    modules: dict[str, ModuleType], ordered: tuple[tuple[str, Path], ...]
+) -> None:
+    """Reload pax's modules while keeping Code Puppy's theme and replacements."""
+    import importlib.util
+
+    try:
+        for name, path in ordered:
+            if path.name == "__init__.py" and name in modules:
+                vars(modules[name])["__path__"] = [str(path.parent)]
+            Path(importlib.util.cache_from_source(str(path))).unlink(missing_ok=True)
+        for name, _ in ordered:
+            if name in modules:
+                importlib.reload(modules[name])
+                if name == f"{RUNTIME_PACKAGE}.ui.rendering.theme":
+                    _install_theme()
+    finally:
+        _reinstall()
+
+
+def _install_reloading() -> None:
+    from pydantic_ai_pax.runtime import reloading
+
+    _replace(reloading, "_reload", _reload_modules)
+
+
+def _reinstall() -> None:
+    """Re-apply every Code Puppy replacement after pax reloads its modules."""
+    global _installed
+    _installed = False
+    install()
 
 
 def install() -> None:
@@ -166,6 +204,7 @@ def install() -> None:
     _install_agent()
     _install_first_run()
     _install_sessions()
+    _install_reloading()
     _installed = True
 
 
@@ -264,13 +303,15 @@ def _install_sessions() -> None:
         messages=legacy.messages,
         tasks=legacy.tasks,
     )
-    _replace(
-        imported_sessions,
-        "IMPORT_SOURCES",
-        (*imported_sessions.IMPORT_SOURCES, source),
-    )
+    if source not in imported_sessions.IMPORT_SOURCES:
+        _replace(
+            imported_sessions,
+            "IMPORT_SOURCES",
+            (*imported_sessions.IMPORT_SOURCES, source),
+        )
     # Built from IMPORT_SOURCES when the browser was imported, so extend it too.
-    _replace(session_browser, "_FILTERS", (*session_browser._FILTERS, source))
+    if source not in session_browser._FILTERS:
+        _replace(session_browser, "_FILTERS", (*session_browser._FILTERS, source))
 
 
 def is_legacy_plugin(entry: Path) -> bool:
@@ -288,10 +329,13 @@ def _install_plugins() -> None:
 
     os.environ.setdefault(CLAUDE_CODE_NO_UPDATE_CHECK, "1")
 
-    _replace(builtins, "DEFAULT_PLUGINS", (*builtins.DEFAULT_PLUGINS, *PUPPY_PLUGINS))
-    _replace(builtins, "STOCK_PLUGINS", (*builtins.STOCK_PLUGINS, *PUPPY_PLUGINS))
+    for name in ("DEFAULT_PLUGINS", "STOCK_PLUGINS"):
+        kept = tuple(p for p in getattr(builtins, name) if p not in PUPPY_PLUGINS)
+        _replace(builtins, name, (*kept, *PUPPY_PLUGINS))
 
     upstream_discover = process_plugins.ProcessPlugins._discover
+    if getattr(upstream_discover, "_puppy_wrapped", False):
+        return
 
     def _discover(
         self: process_plugins.ProcessPlugins, console: Console
@@ -302,4 +346,5 @@ def _install_plugins() -> None:
             name: path for name, path in found.items() if not is_legacy_plugin(path)
         }
 
+    _discover._puppy_wrapped = True  # type: ignore[attr-defined]
     process_plugins.ProcessPlugins._discover = _discover
