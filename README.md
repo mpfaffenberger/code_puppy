@@ -70,15 +70,13 @@ Start `pup` and run `/login` to open the sign-in picker, or connect a provider d
 | **OpenAI Codex** (ChatGPT subscription) | `/login codex` | Alias for `/login openai-codex`; adds available Codex models |
 | **Claude Code** (Claude subscription) | `/login claude-code` | Powered by the bundled `claude_code` plugin (`claude-code:` models) |
 | **GitHub Copilot** | `/login copilot` | Alias for `/login github-copilot`; adds every model your account serves |
-| **OpenRouter** | `/model add` → **OpenRouter** → **OAuth** | Pick OpenRouter when adding a model and choose browser OAuth (or enter an API key) |
+| **OpenRouter** | `/model add` → **OpenRouter** → **OAuth** | You can also enter an API key instead of using browser OAuth. |
 
 - **Switch models:** Run `/model` (or `/model add` to add any provider/model).
 - **Use API keys directly:** Run `/keys` to store keys securely in your OS keyring, or export standard environment variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, etc.) or put them in a local `.env` file.
 - **Multiple accounts:** Append `@<profile>` to sign in to more than one account—for example `/login codex@work` or `/login claude-code@personal`—then select `PROVIDER@PROFILE:MODEL`.
 
 ## Setting Custom Rules (`/system_prompt` & `AGENTS.md`)
-
-There are two easy ways to steer how Code Puppy writes code:
 
 ### Global personal rules with `/system_prompt`
 
