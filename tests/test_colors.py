@@ -120,31 +120,29 @@ def test_reload_keeps_code_puppys_theme_and_identity(
 
 
 def test_failed_reload_still_reinstalls_distribution(
-    installed_distribution: None, monkeypatch: pytest.MonkeyPatch
+    installed_distribution: None, home: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A reload error mid-loop must still restore Code Puppy's theme and hook."""
+    """A reload error mid-loop must still restore Code Puppy's replacements."""
     import importlib
 
-    from pydantic_ai_pax.runtime import reloading
-    from pydantic_ai_pax.ui.rendering import theme
+    from pydantic_ai_pax.config import settings_store
 
     from code_puppy import distribution
 
     real_reload = importlib.reload
 
-    def fail_after_theme(module: object) -> object:
-        if module is theme:
+    def fail_after_settings_store(module: object) -> object:
+        if module is settings_store:
             return real_reload(module)  # type: ignore[arg-type]
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(importlib, "reload", fail_after_theme)
-    broken = type(theme)("broken")
-    ordered = (
-        (theme.__name__, Path(theme.__file__ or "")),
-        ("broken", Path(theme.__file__ or "")),
-    )
+    monkeypatch.setattr(importlib, "reload", fail_after_settings_store)
+    broken = type(settings_store)("broken")
+    path = Path(settings_store.__file__ or "")
+    ordered = ((settings_store.__name__, path), ("broken", path))
     with pytest.raises(RuntimeError, match="boom"):
-        distribution._reload_modules({theme.__name__: theme, "broken": broken}, ordered)
+        distribution._reload_modules(
+            {settings_store.__name__: settings_store, "broken": broken}, ordered
+        )
 
-    assert theme.ACCENT == f"bold {colors.BLUE}"
-    assert reloading._reload is distribution._reload_modules
+    assert settings_store.SettingsStore().path == home / ".code_puppy" / "config.db"

@@ -162,7 +162,6 @@ def _reload_modules(
     """Reload pax's modules while keeping Code Puppy's theme and replacements."""
     import importlib.util
 
-    theme_module = f"{RUNTIME_PACKAGE}.ui.rendering.theme"
     try:
         for name, path in ordered:
             if path.name == "__init__.py" and name in modules:
@@ -171,7 +170,7 @@ def _reload_modules(
         for name, _ in ordered:
             if name in modules:
                 importlib.reload(modules[name])
-                if name == theme_module:
+                if name == f"{RUNTIME_PACKAGE}.ui.rendering.theme":
                     _install_theme()
     finally:
         _reinstall()
