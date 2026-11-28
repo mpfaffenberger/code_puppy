@@ -117,3 +117,34 @@ def test_reload_keeps_code_puppys_theme_and_identity(
         assert upstream_branding.print_banner is branding.print_banner
         assert SettingsStore().path == home / ".code_puppy" / "config.db"
         assert all(plugin in builtins.STOCK_PLUGINS for plugin in PUPPY_PLUGINS)
+
+
+def test_failed_reload_still_reinstalls_distribution(
+    installed_distribution: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A reload error mid-loop must still restore Code Puppy's theme and hook."""
+    import importlib
+
+    from pydantic_ai_pax.runtime import reloading
+    from pydantic_ai_pax.ui.rendering import theme
+
+    from code_puppy import distribution
+
+    real_reload = importlib.reload
+
+    def fail_after_theme(module: object) -> object:
+        if module is theme:
+            return real_reload(module)  # type: ignore[arg-type]
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(importlib, "reload", fail_after_theme)
+    broken = type(theme)("broken")
+    ordered = (
+        (theme.__name__, Path(theme.__file__ or "")),
+        ("broken", Path(theme.__file__ or "")),
+    )
+    with pytest.raises(RuntimeError, match="boom"):
+        distribution._reload_modules({theme.__name__: theme, "broken": broken}, ordered)
+
+    assert theme.ACCENT == f"bold {colors.BLUE}"
+    assert reloading._reload is distribution._reload_modules

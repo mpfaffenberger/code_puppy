@@ -160,19 +160,21 @@ def _reload_modules(
     modules: dict[str, ModuleType], ordered: tuple[tuple[str, Path], ...]
 ) -> None:
     """Reload pax's modules while keeping Code Puppy's theme and replacements."""
-    import importlib
     import importlib.util
 
-    for name, path in ordered:
-        if path.name == "__init__.py" and name in modules:
-            vars(modules[name])["__path__"] = [str(path.parent)]
-        Path(importlib.util.cache_from_source(str(path))).unlink(missing_ok=True)
-    for name, _ in ordered:
-        if name in modules:
-            importlib.reload(modules[name])
-            if name == "pydantic_ai_pax.ui.rendering.theme":
-                _install_theme()
-    _reinstall()
+    theme_module = f"{RUNTIME_PACKAGE}.ui.rendering.theme"
+    try:
+        for name, path in ordered:
+            if path.name == "__init__.py" and name in modules:
+                vars(modules[name])["__path__"] = [str(path.parent)]
+            Path(importlib.util.cache_from_source(str(path))).unlink(missing_ok=True)
+        for name, _ in ordered:
+            if name in modules:
+                importlib.reload(modules[name])
+                if name == theme_module:
+                    _install_theme()
+    finally:
+        _reinstall()
 
 
 def _install_reloading() -> None:
