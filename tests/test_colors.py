@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from code_puppy import colors
@@ -88,3 +90,26 @@ def test_a_palette_paints_each_shade_from_its_slot(
             slot = palette.ansi[shade.slot]
             expected = theme._readable(slot, palette.bg, palette.fg)
             assert theme.color(shade.colour) == expected
+
+
+def test_reload_keeps_code_puppys_theme_and_identity(
+    installed_distribution: None, home: Path
+) -> None:
+    """``/reload`` reloads pax modules; Code Puppy's colours and branding must survive."""
+    from pydantic_ai_pax.config import builtins
+    from pydantic_ai_pax.config.settings_store import SettingsStore
+    from pydantic_ai_pax.runtime import reloading
+    from pydantic_ai_pax.ui.rendering import branding as upstream_branding
+    from pydantic_ai_pax.ui.rendering import theme
+
+    from code_puppy import branding
+    from code_puppy.builtin_plugins import PUPPY_PLUGINS
+
+    for _ in range(2):
+        reloaded_accent = reloading.reload_clai(lambda: theme.ACCENT)
+        assert reloaded_accent == f"bold {colors.BLUE}"
+        assert theme.BANNER == colors.ROLES["BANNER"]
+        assert theme.color(theme.ERROR) == colors.RED
+        assert upstream_branding.print_banner is branding.print_banner
+        assert SettingsStore().path == home / ".code_puppy" / "config.db"
+        assert all(plugin in builtins.STOCK_PLUGINS for plugin in PUPPY_PLUGINS)

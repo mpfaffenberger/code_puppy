@@ -56,6 +56,7 @@ REPLACED = [
     ("pydantic_ai_pax.runtime.imported_history", "framed"),
     ("pydantic_ai_pax.ui.menus.session_browser", "_FILTERS"),
     ("pydantic_ai_pax.runtime.session", "StockAgent"),
+    ("pydantic_ai_pax.runtime.reloading", "_reload"),
 ]
 
 
